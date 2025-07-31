@@ -77,7 +77,12 @@ impl StateRepository for SqliteStateRepository {
             "INSERT OR REPLACE INTO processed_blocks (network_id, block_number) VALUES (?, ?)",
         )
         .bind(network_id)
-        .bind(block_number as i64)
+        .bind({
+            if block_number > i64::MAX as u64 {
+                return Err(sqlx::Error::ColumnIndexOutOfBounds("Block number exceeds i64::MAX".to_string()));
+            }
+            block_number as i64
+        })
         .execute(&self.pool)
         .await?;
         Ok(())
