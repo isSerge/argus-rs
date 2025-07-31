@@ -39,6 +39,17 @@ network_id: "mainnet"
 - `rpc_urls`: A list of RPC endpoint URLs for the EVM network. The application currently uses the first URL in the list.
 - `network_id`: A unique identifier for the network being monitored (e.g., "mainnet", "sepolia").
 
+## Logging
+
+Argus uses the `tracing` crate for structured logging. You can control the verbosity of the logs using the `RUST_LOG` environment variable.
+
+Examples:
+- `RUST_LOG=info cargo run --release`: Only shows `INFO` level messages and above.
+- `RUST_LOG=debug cargo run --release`: Shows `DEBUG` level messages and above.
+- `RUST_LOG=argus=trace cargo run --release`: Shows `TRACE` level messages and above specifically for the `argus` crate.
+
+For more detailed control, refer to the `tracing-subscriber` documentation on `EnvFilter`.
+
 ## Database Setup
 
 The application uses `sqlx` to manage database migrations. The state is stored in a local SQLite database file, configured via the `database_url` in `config.yaml`.
