@@ -1,28 +1,24 @@
 use argus::{
+    config::AppConfig,
     data_source::{DataSource, new_http_source},
     state::{SqliteStateRepository, StateRepository},
 };
-use std::env;
 use tokio::time::{Duration, sleep};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    dotenvy::dotenv().expect(".env file not found");
+    let config = AppConfig::new()?;
 
-    let db_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let repo = SqliteStateRepository::new(&db_url).await?;
+    let repo = SqliteStateRepository::new(&config.database_url).await?;
     repo.run_migrations().await?;
 
-    let rpc_url = env::var("RPC_URL").expect("RPC_URL must be set");
-    let evm_data_source = new_http_source(&rpc_url)?;
+    let evm_data_source = new_http_source(&config.rpc_urls[0])?;
 
-    let network_id = "mainnet";
-
-    println!("Starting EVM monitor for network: {network_id}");
+    println!("Starting EVM monitor for network: {}", config.network_id);
 
     // Main monitoring loop
     loop {
-        match monitor_cycle(&repo, &evm_data_source, network_id).await {
+        match monitor_cycle(&repo, &evm_data_source, &config.network_id).await {
             Ok(_) => {}
             Err(e) => {
                 eprintln!("Error in monitoring cycle: {e}");
