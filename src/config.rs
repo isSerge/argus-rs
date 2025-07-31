@@ -1,7 +1,7 @@
 //! Configuration module for Argus.
 
-use serde::Deserialize;
 use config::{Config, ConfigError, File};
+use serde::Deserialize;
 
 /// Application configuration for Argus.
 #[derive(Debug, Deserialize, Clone)]
