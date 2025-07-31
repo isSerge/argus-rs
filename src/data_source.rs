@@ -30,6 +30,9 @@ pub trait DataSource {
         from_block: u64,
         to_block: u64,
     ) -> Result<Vec<primitives::Log>, DataSourceError>;
+
+    /// Fetches the current block number from the data source.
+    async fn get_current_block_number(&self) -> Result<u64, DataSourceError>;
 }
 
 /// A `DataSource` implementation that fetches data from an EVM RPC endpoint.
@@ -66,6 +69,15 @@ where
         // Convert from RPC log type to primitive log type
         let primitive_logs = logs.into_iter().map(|log| log.into()).collect();
         Ok(primitive_logs)
+    }
+
+    async fn get_current_block_number(&self) -> Result<u64, DataSourceError> {
+        let block_number = self
+            .provider
+            .get_block_number()
+            .await
+            .map_err(|e| DataSourceError::Provider(Box::new(e)))?;
+        Ok(block_number)
     }
 }
 
