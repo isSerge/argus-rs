@@ -1,0 +1,61 @@
+//! This module defines the interface for fetching data from an EVM-compatible blockchain.
+
+use alloy::{
+    providers::{Provider, ProviderBuilder},
+    rpc::types::Filter,
+};
+use async_trait::async_trait;
+use url::Url;
+
+/// A trait for a data source that can fetch blockchain data.
+#[async_trait]
+pub trait DataSource {
+    /// Fetches new logs from the data source within a given block range.
+    async fn fetch_new_logs(
+        &self,
+        from_block: u64,
+        to_block: u64,
+    ) -> Result<Vec<alloy::primitives::Log>, Box<dyn std::error::Error + Send + Sync>>;
+}
+
+/// A `DataSource` implementation that fetches data from an EVM RPC endpoint.
+pub struct EvmRpcSource<P> {
+    provider: P,
+}
+
+impl<P> EvmRpcSource<P>
+where
+    P: Provider,
+{
+    /// Creates a new `EvmRpcSource`.
+    pub fn new(provider: P) -> Self {
+        Self { provider }
+    }
+}
+
+#[async_trait]
+impl<P> DataSource for EvmRpcSource<P>
+where
+    P: Provider + Send + Sync,
+{
+    async fn fetch_new_logs(
+        &self,
+        from_block: u64,
+        to_block: u64,
+    ) -> Result<Vec<alloy::primitives::Log>, Box<dyn std::error::Error + Send + Sync>> {
+        let filter = Filter::new().from_block(from_block).to_block(to_block);
+        let logs: Vec<alloy::rpc::types::Log> = self.provider.get_logs(&filter).await?;
+        // Convert from RPC log type to primitive log type
+        let primitive_logs = logs.into_iter().map(|log| log.into()).collect();
+        Ok(primitive_logs)
+    }
+}
+
+/// Creates a new `EvmRpcSource` with an HTTP provider.
+pub fn new_http_source(
+    rpc_url: &str,
+) -> Result<EvmRpcSource<impl Provider>, Box<dyn std::error::Error>> {
+    let url = Url::parse(rpc_url)?;
+    let provider = ProviderBuilder::new().connect_http(url);
+    Ok(EvmRpcSource::new(provider))
+}
