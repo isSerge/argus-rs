@@ -6,7 +6,6 @@ use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteRow},
 };
 use std::str::FromStr;
-use tracing;
 
 /// Represents the state management interface for the Argus application.
 #[async_trait]

@@ -7,7 +7,6 @@ use alloy::{
 };
 use async_trait::async_trait;
 use thiserror::Error;
-use tracing;
 use url::Url;
 
 /// Custom error type for data source operations.
