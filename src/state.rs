@@ -2,8 +2,8 @@
 
 use async_trait::async_trait;
 use sqlx::{
-    sqlite::{SqliteConnectOptions, SqliteRow},
     Row, SqlitePool,
+    sqlite::{SqliteConnectOptions, SqliteRow},
 };
 use std::str::FromStr;
 
@@ -30,8 +30,7 @@ impl SqliteStateRepository {
     /// Creates a new instance of SqliteStateRepository with the provided database URL.
     /// This will create the database file if it does not exist.
     pub async fn new(database_url: &str) -> Result<Self, sqlx::Error> {
-        let options = SqliteConnectOptions::from_str(database_url)?
-            .create_if_missing(true);
+        let options = SqliteConnectOptions::from_str(database_url)?.create_if_missing(true);
         let pool = SqlitePool::connect_with(options).await?;
         Ok(Self { pool })
     }
@@ -57,9 +56,9 @@ impl StateRepository for SqliteStateRepository {
                 let block_number: i64 = row.get("block_number");
                 match block_number.try_into() {
                     Ok(block_number_u64) => Ok(Some(block_number_u64)),
-                    Err(_) => Err(sqlx::Error::ColumnDecode {
+                    Err(error) => Err(sqlx::Error::ColumnDecode {
                         index: "block_number".to_string(),
-                        source: Box::new(std::num::TryFromIntError::default()),
+                        source: Box::new(error),
                     }),
                 }
             }
@@ -77,12 +76,12 @@ impl StateRepository for SqliteStateRepository {
             "INSERT OR REPLACE INTO processed_blocks (network_id, block_number) VALUES (?, ?)",
         )
         .bind(network_id)
-        .bind({
-            if block_number > i64::MAX as u64 {
-                return Err(sqlx::Error::ColumnIndexOutOfBounds("Block number exceeds i64::MAX".to_string()));
-            }
-            block_number as i64
-        })
+        .bind(
+            i64::try_from(block_number).map_err(|error| sqlx::Error::ColumnDecode {
+                index: "block_number".to_string(),
+                source: Box::new(error),
+            })?,
+        )
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -109,34 +108,21 @@ mod tests {
         let network = "mainnet";
 
         // Initially, should be None
-        let block = repo
-            .get_last_processed_block(network)
-            .await
-            .unwrap();
+        let block = repo.get_last_processed_block(network).await.unwrap();
         assert!(block.is_none());
 
         // Set a block number
-        repo.set_last_processed_block(network, 12345)
-            .await
-            .unwrap();
+        repo.set_last_processed_block(network, 12345).await.unwrap();
 
         // Retrieve it again
-        let block = repo
-            .get_last_processed_block(network)
-            .await
-            .unwrap();
+        let block = repo.get_last_processed_block(network).await.unwrap();
         assert_eq!(block, Some(12345));
 
         // Update it
-        repo.set_last_processed_block(network, 54321)
-            .await
-            .unwrap();
+        repo.set_last_processed_block(network, 54321).await.unwrap();
 
         // Retrieve the updated value
-        let block = repo
-            .get_last_processed_block(network)
-            .await
-            .unwrap();
+        let block = repo.get_last_processed_block(network).await.unwrap();
         assert_eq!(block, Some(54321));
     }
 }
