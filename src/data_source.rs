@@ -6,9 +6,20 @@ use alloy::{
     rpc::types::{Filter, Log},
 };
 use async_trait::async_trait;
+use thiserror::Error;
 use url::Url;
 
-type DataSourceError = Box<dyn std::error::Error + Send + Sync>;
+/// Custom error type for data source operations.
+#[derive(Error, Debug)]
+pub enum DataSourceError {
+    /// Error when parsing the RPC URL.
+    #[error("Failed to parse RPC URL: {0}")]
+    UrlParse(#[from] url::ParseError),
+
+    /// Error when interacting with the provider.
+    #[error("Provider error: {0}")]
+    Provider(#[from] Box<dyn std::error::Error + Send + Sync>),
+}
 
 /// A trait for a data source that can fetch blockchain data.
 #[async_trait]
@@ -47,7 +58,11 @@ where
         to_block: u64,
     ) -> Result<Vec<primitives::Log>, DataSourceError> {
         let filter = Filter::new().from_block(from_block).to_block(to_block);
-        let logs: Vec<Log> = self.provider.get_logs(&filter).await?;
+        let logs: Vec<Log> = self
+            .provider
+            .get_logs(&filter)
+            .await
+            .map_err(|e| DataSourceError::Provider(Box::new(e)))?;
         // Convert from RPC log type to primitive log type
         let primitive_logs = logs.into_iter().map(|log| log.into()).collect();
         Ok(primitive_logs)
