@@ -55,7 +55,13 @@ impl StateRepository for SqliteStateRepository {
         match result {
             Some(row) => {
                 let block_number: i64 = row.get("block_number");
-                Ok(Some(block_number as u64))
+                match block_number.try_into() {
+                    Ok(block_number_u64) => Ok(Some(block_number_u64)),
+                    Err(_) => Err(sqlx::Error::ColumnDecode {
+                        index: "block_number".to_string(),
+                        source: Box::new(std::num::TryFromIntError::default()),
+                    }),
+                }
             }
             None => Ok(None),
         }
