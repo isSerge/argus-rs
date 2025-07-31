@@ -642,7 +642,6 @@ dependencies = [
  "alloy",
  "async-trait",
  "config",
- "dotenvy",
  "serde",
  "serde_json",
  "sqlx",
