@@ -1,7 +1,11 @@
 //! This module contains the state management logic for the Argus application.
 
 use async_trait::async_trait;
-use sqlx::{sqlite::SqliteRow, Row, SqlitePool};
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqliteRow},
+    Row, SqlitePool,
+};
+use std::str::FromStr;
 
 /// Represents the state management interface for the Argus application.
 #[async_trait]
@@ -24,8 +28,11 @@ pub struct SqliteStateRepository {
 
 impl SqliteStateRepository {
     /// Creates a new instance of SqliteStateRepository with the provided database URL.
+    /// This will create the database file if it does not exist.
     pub async fn new(database_url: &str) -> Result<Self, sqlx::Error> {
-        let pool = SqlitePool::connect(database_url).await?;
+        let options = SqliteConnectOptions::from_str(database_url)?
+            .create_if_missing(true);
+        let pool = SqlitePool::connect_with(options).await?;
         Ok(Self { pool })
     }
 
