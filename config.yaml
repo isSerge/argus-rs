@@ -1,0 +1,4 @@
+database_url: "sqlite://monitor.db"
+rpc_urls:
+  - "https://eth.llamarpc.com"
+network_id: "mainnet"
