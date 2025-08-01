@@ -46,6 +46,10 @@ retry_config:
 # Optional: The size of the block chunk to process at once.
 # If this is omitted, a default value of 5 will be used.
 block_chunk_size: 5
+
+# Optional: The interval in milliseconds to poll for new blocks.
+# If this is omitted, a default value of 10000 (10 seconds) will be used.
+polling_interval_ms: 10000
 ```
 
 - `database_url`: The connection string for the SQLite database.
@@ -53,6 +57,7 @@ block_chunk_size: 5
 - `network_id`: A unique identifier for the network being monitored (e.g., "mainnet", "sepolia").
 - `retry_config`: Configuration for the RPC retry policy
 - `block_chunk_size`: The size of the block chunk to process at once
+- `polling_interval_ms`: The interval in milliseconds to poll for new blocks
 
 ## Logging
 

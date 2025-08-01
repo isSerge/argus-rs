@@ -53,8 +53,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        // Wait 10 seconds before the next cycle
-        tokio::time::sleep(Duration::from_secs(10)).await;
+        // Wait for the configured polling interval before the next cycle
+        tokio::time::sleep(Duration::from_millis(config.polling_interval_ms)).await;
     }
 }
 
