@@ -38,7 +38,7 @@ pub fn create_provider(
     let fallback_layer = FallbackLayer::default()
         .with_active_transport_count(NonZeroUsize::new(urls.len()).unwrap());
 
-    let transports: Vec<_> = urls.into_iter().map(|url| Http::new(url)).collect();
+    let transports: Vec<_> = urls.into_iter().map(Http::new).collect();
 
     // Instantiate the RetryBackoffLayer with the configuration
     let retry_layer = RetryBackoffLayer::new(

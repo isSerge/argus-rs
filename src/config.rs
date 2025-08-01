@@ -78,7 +78,8 @@ mod tests {
               compute_units_per_second: 50
         ";
 
-        let builder = Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
+        let builder =
+            Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
         let app_config: AppConfig = builder.build().unwrap().try_deserialize().unwrap();
 
         assert_eq!(app_config.retry_config.max_retry, 5);
@@ -95,12 +96,19 @@ mod tests {
             network_id: 'testnet'
         ";
 
-        let builder = Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
+        let builder =
+            Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
         let app_config: AppConfig = builder.build().unwrap().try_deserialize().unwrap();
 
         let default_retry_config = RetryConfig::default();
-        assert_eq!(app_config.retry_config.max_retry, default_retry_config.max_retry);
-        assert_eq!(app_config.retry_config.backoff_ms, default_retry_config.backoff_ms);
+        assert_eq!(
+            app_config.retry_config.max_retry,
+            default_retry_config.max_retry
+        );
+        assert_eq!(
+            app_config.retry_config.backoff_ms,
+            default_retry_config.backoff_ms
+        );
         assert_eq!(
             app_config.retry_config.compute_units_per_second,
             default_retry_config.compute_units_per_second

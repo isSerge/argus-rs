@@ -2,7 +2,7 @@
 
 use alloy::{
     primitives,
-    providers::{Provider},
+    providers::Provider,
     rpc::types::{Filter, Log},
 };
 use async_trait::async_trait;
