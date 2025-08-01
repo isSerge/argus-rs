@@ -14,3 +14,7 @@ retry_config:
   backoff_ms: 1000
   # The number of compute units per second to allow (for rate limiting).
   compute_units_per_second: 100
+
+# Optional: The size of the block chunk to process at once.
+# If this is omitted, a default value of 5 will be used.
+block_chunk_size: 5
