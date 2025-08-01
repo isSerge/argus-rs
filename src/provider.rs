@@ -35,8 +35,9 @@ pub fn create_provider(
     }
 
     // Create a FallbackLayer with the provided URLs
-    let fallback_layer = FallbackLayer::default()
-        .with_active_transport_count(NonZeroUsize::new(urls.len()).unwrap());
+    let fallback_layer = FallbackLayer::default().with_active_transport_count(
+        NonZeroUsize::new(urls.len()).expect("At least one URL is required"),
+    );
 
     let transports: Vec<_> = urls.into_iter().map(Http::new).collect();
 
