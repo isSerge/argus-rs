@@ -3,3 +3,5 @@
 pub mod block_data;
 pub mod monitor;
 pub mod trigger;
+
+pub use block_data::BlockData;
