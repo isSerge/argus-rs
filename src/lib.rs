@@ -4,4 +4,5 @@
 pub mod config;
 pub mod data_source;
 pub mod models;
+pub mod provider;
 pub mod state;

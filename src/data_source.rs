@@ -2,12 +2,11 @@
 
 use alloy::{
     primitives,
-    providers::{Provider, ProviderBuilder},
+    providers::Provider,
     rpc::types::{Filter, Log},
 };
 use async_trait::async_trait;
 use thiserror::Error;
-use url::Url;
 
 /// Custom error type for data source operations.
 #[derive(Error, Debug)]
@@ -92,14 +91,4 @@ where
         );
         Ok(block_number)
     }
-}
-
-/// Creates a new `EvmRpcSource` with an HTTP provider.
-#[tracing::instrument(level = "debug")]
-pub fn new_http_source(rpc_url: &str) -> Result<EvmRpcSource<impl Provider>, DataSourceError> {
-    tracing::debug!(rpc_url, "Creating new HTTP data source.");
-    let url = Url::parse(rpc_url)?;
-    let provider = ProviderBuilder::new().connect_http(url);
-    tracing::info!(rpc_url, "HTTP data source created.");
-    Ok(EvmRpcSource::new(provider))
 }

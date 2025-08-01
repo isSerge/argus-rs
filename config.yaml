@@ -1,4 +1,16 @@
-database_url: "sqlite://monitor.db"
+database_url: "sqlite:monitor.db"
 rpc_urls:
   - "https://eth.llamarpc.com"
+  - "https://1rpc.io/eth"
+  - "https://rpc.mevblocker.io"
 network_id: "mainnet"
+
+# Optional: Configuration for the RPC retry policy.
+# If this section is omitted, default values will be used.
+retry_config:
+  # The maximum number of retries for a request.
+  max_retry: 10
+  # The initial backoff delay in milliseconds.
+  backoff_ms: 1000
+  # The number of compute units per second to allow (for rate limiting).
+  compute_units_per_second: 100
