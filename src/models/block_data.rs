@@ -84,7 +84,7 @@ mod tests {
     #[test]
     fn test_default_trait() {
         let block_data = BlockData::default();
-        assert!(block_data.block.header.hash == B256::default());
+        assert_eq!(block_data.block.header.hash, B256::default());
         assert!(block_data.receipts.is_empty());
         assert!(block_data.logs.is_empty());
     }
