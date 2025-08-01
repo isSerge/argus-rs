@@ -25,14 +25,6 @@ impl Default for RetryConfig {
     }
 }
 
-fn default_block_chunk_size() -> u64 {
-    5
-}
-
-fn default_polling_interval_ms() -> u64 {
-    10000 // 10 seconds
-}
-
 /// Application configuration for Argus.
 #[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {
@@ -51,12 +43,13 @@ pub struct AppConfig {
     pub retry_config: RetryConfig,
 
     /// The size of the block chunk to process at once.
-    #[serde(default = "default_block_chunk_size")]
     pub block_chunk_size: u64,
 
     /// The interval in milliseconds to poll for new blocks.
-    #[serde(default = "default_polling_interval_ms")]
     pub polling_interval_ms: u64,
+
+    /// Number of confirmation blocks to wait for before processing.
+    pub confirmation_blocks: u64,
 }
 
 /// Custom deserializer for a vector of URLs.
@@ -91,6 +84,9 @@ mod tests {
             database_url: 'sqlite:test.db'
             rpc_urls: ['http://localhost:8545']
             network_id: 'testnet'
+            block_chunk_size: 10
+            polling_interval_ms: 1000
+            confirmation_blocks: 12
             retry_config:
               max_retry: 5
               backoff_ms: 500
@@ -113,6 +109,9 @@ mod tests {
             database_url: 'sqlite:test.db'
             rpc_urls: ['http://localhost:8545']
             network_id: 'testnet'
+            block_chunk_size: 10
+            polling_interval_ms: 1000
+            confirmation_blocks: 12
         ";
 
         let builder =
@@ -141,6 +140,8 @@ mod tests {
             rpc_urls: ['http://localhost:8545']
             network_id: 'testnet'
             block_chunk_size: 11
+            polling_interval_ms: 1000
+            confirmation_blocks: 12
         ";
 
         let builder =
@@ -151,48 +152,19 @@ mod tests {
     }
 
     #[test]
-    fn test_config_with_default_block_chunk_size() {
-        let yaml = "
-            database_url: 'sqlite:test.db'
-            rpc_urls: ['http://localhost:8545']
-            network_id: 'testnet'
-        ";
-
-        let builder =
-            Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
-        let app_config: AppConfig = builder.build().unwrap().try_deserialize().unwrap();
-
-        assert_eq!(app_config.block_chunk_size, default_block_chunk_size());
-    }
-
-    #[test]
     fn test_config_with_polling_interval() {
         let yaml = "
             database_url: 'sqlite:test.db'
             rpc_urls: ['http://localhost:8545']
             network_id: 'testnet'
             polling_interval_ms: 5000
+            block_chunk_size: 10
+            confirmation_blocks: 12
         ";
         let builder =
             Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
         let app_config: AppConfig = builder.build().unwrap().try_deserialize().unwrap();
 
         assert_eq!(app_config.polling_interval_ms, 5000);
-    }
-
-    #[test]
-    fn test_config_with_default_polling_interval() {
-        let yaml = "
-            database_url: 'sqlite:test.db'
-            rpc_urls: ['http://localhost:8545']
-            network_id: 'testnet'
-        ";
-        let builder =
-            Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
-        let app_config: AppConfig = builder.build().unwrap().try_deserialize().unwrap();
-        assert_eq!(
-            app_config.polling_interval_ms,
-            default_polling_interval_ms()
-        );
     }
 }

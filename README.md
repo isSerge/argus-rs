@@ -43,13 +43,9 @@ retry_config:
   # The number of compute units per second to allow (for rate limiting).
   compute_units_per_second: 100
 
-# Optional: The size of the block chunk to process at once.
-# If this is omitted, a default value of 5 will be used.
 block_chunk_size: 5
-
-# Optional: The interval in milliseconds to poll for new blocks.
-# If this is omitted, a default value of 10000 (10 seconds) will be used.
 polling_interval_ms: 10000
+confirmation_blocks: 12
 ```
 
 - `database_url`: The connection string for the SQLite database.
@@ -58,6 +54,7 @@ polling_interval_ms: 10000
 - `retry_config`: Configuration for the RPC retry policy
 - `block_chunk_size`: The size of the block chunk to process at once
 - `polling_interval_ms`: The interval in milliseconds to poll for new blocks
+- `confirmation_blocks`: Number of confirmation blocks to wait for before processing to prevent against small reorgs
 
 ## Logging
 
