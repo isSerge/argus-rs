@@ -21,42 +21,12 @@ pub enum ProviderError {
     CreationError(String),
 }
 
-/// A provider configuration for retrying requests with backoff.
-#[derive(Debug, Clone)]
-pub struct RetryBackoff {
-    /// The maximum number of retries for a request.
-    pub max_retry: u32,
-    /// The initial backoff delay in milliseconds.
-    pub backoff_ms: u64,
-    /// The number of compute units per second to allow.
-    pub compute_units_per_second: u64,
-}
-
-impl RetryBackoff {
-    /// Creates a new `RetryBackoff` configuration.
-    pub fn new(max_retry: u32, backoff_ms: u64, compute_units_per_second: u64) -> Self {
-        Self {
-            max_retry,
-            backoff_ms,
-            compute_units_per_second,
-        }
-    }
-}
-
-impl Default for RetryBackoff {
-    fn default() -> Self {
-        Self {
-            max_retry: 10,
-            backoff_ms: 1000,
-            compute_units_per_second: 100,
-        }
-    }
-}
+use crate::config::RetryConfig;
 
 /// Creates a new provider with the given RPC URLs.
 pub fn create_provider(
     urls: Vec<Url>,
-    retry_backoff: RetryBackoff,
+    retry_config: RetryConfig,
 ) -> Result<impl Provider, ProviderError> {
     if urls.is_empty() {
         return Err(ProviderError::CreationError(
@@ -72,9 +42,9 @@ pub fn create_provider(
 
     // Instantiate the RetryBackoffLayer with the configuration
     let retry_layer = RetryBackoffLayer::new(
-        retry_backoff.max_retry,
-        retry_backoff.backoff_ms,
-        retry_backoff.compute_units_per_second,
+        retry_config.max_retry,
+        retry_config.backoff_ms,
+        retry_config.compute_units_per_second,
     );
 
     // Apply the layers

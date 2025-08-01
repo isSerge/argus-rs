@@ -1,8 +1,8 @@
 use argus::{
     config::AppConfig,
     data_source::{DataSource, EvmRpcSource},
+    provider::create_provider,
     state::{SqliteStateRepository, StateRepository},
-    provider::{create_provider, RetryBackoff},
 };
 use tokio::time::Duration;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
@@ -27,10 +27,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Database migrations completed.");
 
     tracing::debug!(rpc_urls = ?config.rpc_urls, "Initializing resilient EVM data source...");
-    let retry_config = RetryBackoff::default();
-    let provider = create_provider(config.rpc_urls, retry_config.clone())?;
+    let provider = create_provider(config.rpc_urls, config.retry_config.clone())?;
     let evm_data_source = EvmRpcSource::new(provider);
-    tracing::info!(retry_policy = ?retry_config, "EVM data source initialized with fallback and retry policy.");
+    tracing::info!(retry_policy = ?config.retry_config, "EVM data source initialized with fallback and retry policy.");
 
     tracing::info!(network_id = %config.network_id, "Starting EVM monitor.");
 
