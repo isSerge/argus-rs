@@ -77,6 +77,17 @@ async fn monitor_cycle(
     let current_block = data_source.get_current_block_number().await?;
     tracing::debug!(network_id = %network_id, current_block = %current_block, "Current block number retrieved.");
 
+    // Check if the chain is long enough to handle the confirmation buffer
+    if current_block < confirmation_blocks {
+        tracing::info!(
+            network_id = %network_id,
+            current_block = %current_block,
+            confirmation_blocks = %confirmation_blocks,
+            "Chain is shorter than the confirmation buffer. Waiting for more blocks."
+        );
+        return Ok(());
+    }
+
     let from_block = match last_processed_block {
         Some(block) => {
             tracing::debug!(network_id = %network_id, last_processed_block = %block, "Starting processing from the next block.");
