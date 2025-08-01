@@ -109,3 +109,64 @@ where
             .map_err(|e| BlockFetcherError::Provider(Box::new(e)))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::{
+        network::Ethereum,
+        primitives::{B256, U256},
+        providers::{Provider, ProviderBuilder},
+        transports::mock::Asserter,
+    };
+    use crate::test_helpers::ReceiptBuilder;
+
+    // Helper to create a provider and asserter from the user's example.
+    fn mock_provider() -> (impl Provider<Ethereum>, Asserter) {
+        let asserter = Asserter::new();
+        let provider = ProviderBuilder::new().connect_mocked_client(asserter.clone());
+        (provider, asserter)
+    }
+
+    #[tokio::test]
+    async fn test_fetch_receipts_success() {
+        let (provider, asserter) = mock_provider();
+        let tx_hash1 = B256::from_slice(&[1; 32]);
+        let tx_hash2 = B256::from_slice(&[2; 32]);
+
+        let receipt1 = ReceiptBuilder::new().transaction_hash(tx_hash1).build();
+        let receipt2 = ReceiptBuilder::new().transaction_hash(tx_hash2).build();
+
+        // Push responses in the order they are expected to be called.
+        asserter.push_success(&receipt1);
+        asserter.push_success(&receipt2);
+
+        let fetcher = BlockFetcher::new(provider);
+        let receipts = fetcher.fetch_receipts(&[tx_hash1, tx_hash2]).await.unwrap();
+
+        assert_eq!(receipts.len(), 2);
+        assert_eq!(receipts.get(&tx_hash1).unwrap().transaction_hash, tx_hash1);
+        assert_eq!(receipts.get(&tx_hash2).unwrap().transaction_hash, tx_hash2);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_receipts_empty() {
+        let (provider, _) = mock_provider(); // Asserter is not needed as no calls are made.
+        let fetcher = BlockFetcher::new(provider);
+        let receipts = fetcher.fetch_receipts(&[]).await.unwrap();
+        assert!(receipts.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_current_block_number_success() {
+        let (provider, asserter) = mock_provider();
+        let current_block = 999;
+
+        asserter.push_success(&U256::from(current_block));
+
+        let fetcher = BlockFetcher::new(provider);
+        let result = fetcher.get_current_block_number().await.unwrap();
+
+        assert_eq!(result, current_block);
+    }
+}
