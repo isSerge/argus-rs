@@ -11,7 +11,8 @@ use std::collections::HashMap;
 pub struct BlockData {
     /// The full block object, including headers and transaction details.
     pub block: Block,
-    /// A map of transaction receipts, keyed by their transaction hash.
+    /// A map of transaction hashes to their corresponding receipts.
+    /// Each transaction hash is associated with a single receipt.
     pub receipts: HashMap<TxHash, TransactionReceipt>,
     /// A map of logs, grouped by their transaction hash.
     pub logs: HashMap<TxHash, Vec<Log>>,
