@@ -33,11 +33,26 @@ rpc_urls:
   - "https://mainnet.infura.io/v3/YOUR_INFURA_PROJECT_ID"
   - "https://eth-mainnet.alchemyapi.io/v2/YOUR_ALCHEMY_API_KEY"
 network_id: "mainnet"
+# Optional: Configuration for the RPC retry policy.
+# If this section is omitted, default values will be used.
+retry_config:
+  # The maximum number of retries for a request.
+  max_retry: 10
+  # The initial backoff delay in milliseconds.
+  backoff_ms: 1000
+  # The number of compute units per second to allow (for rate limiting).
+  compute_units_per_second: 100
+
+# Optional: The size of the block chunk to process at once.
+# If this is omitted, a default value of 5 will be used.
+block_chunk_size: 5
 ```
 
 - `database_url`: The connection string for the SQLite database.
 - `rpc_urls`: A list of RPC endpoint URLs for the EVM network. The application currently uses the first URL in the list.
 - `network_id`: A unique identifier for the network being monitored (e.g., "mainnet", "sepolia").
+- `retry_config`: Configuration for the RPC retry policy
+- `block_chunk_size`: The size of the block chunk to process at once
 
 ## Logging
 
