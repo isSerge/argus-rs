@@ -36,7 +36,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Main monitoring loop
     loop {
         tracing::trace!("Starting new monitoring cycle.");
-        match monitor_cycle(&repo, &evm_data_source, &config.network_id).await {
+        match monitor_cycle(
+            &repo,
+            &evm_data_source,
+            &config.network_id,
+            config.block_chunk_size,
+        )
+        .await
+        {
             Ok(_) => {
                 tracing::trace!("Monitoring cycle completed successfully.");
             }
@@ -56,6 +63,7 @@ async fn monitor_cycle(
     repo: &SqliteStateRepository,
     data_source: &impl DataSource,
     network_id: &str,
+    block_chunk_size: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 1. Read the last processed block from the StateRepository
     tracing::debug!(network_id = %network_id, "Fetching last processed block from state repository.");
@@ -93,8 +101,7 @@ async fn monitor_cycle(
     }
 
     // Process in smaller chunks to avoid hitting RPC limits
-    // Using 5 blocks per chunk to be conservative with RPC limits
-    let to_block = std::cmp::min(from_block + 5, current_block);
+    let to_block = std::cmp::min(from_block + block_chunk_size, current_block);
 
     tracing::info!(
         network_id = %network_id,

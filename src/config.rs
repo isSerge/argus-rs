@@ -25,6 +25,10 @@ impl Default for RetryConfig {
     }
 }
 
+fn default_block_chunk_size() -> u64 {
+    5
+}
+
 /// Application configuration for Argus.
 #[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {
@@ -38,6 +42,9 @@ pub struct AppConfig {
     /// Optional retry configuration.
     #[serde(default)]
     pub retry_config: RetryConfig,
+    #[serde(default = "default_block_chunk_size")]
+    /// The size of the block chunk to process at once.
+    pub block_chunk_size: u64,
 }
 
 /// Custom deserializer for a vector of URLs.
@@ -113,5 +120,36 @@ mod tests {
             app_config.retry_config.compute_units_per_second,
             default_retry_config.compute_units_per_second
         );
+    }
+
+    #[test]
+    fn test_config_with_block_chunk_size() {
+        let yaml = "
+            database_url: 'sqlite:test.db'
+            rpc_urls: ['http://localhost:8545']
+            network_id: 'testnet'
+            block_chunk_size: 11
+        ";
+
+        let builder =
+            Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
+        let app_config: AppConfig = builder.build().unwrap().try_deserialize().unwrap();
+
+        assert_eq!(app_config.block_chunk_size, 11);
+    }
+
+    #[test]
+    fn test_config_with_default_block_chunk_size() {
+        let yaml = "
+            database_url: 'sqlite:test.db'
+            rpc_urls: ['http://localhost:8545']
+            network_id: 'testnet'
+        ";
+
+        let builder =
+            Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
+        let app_config: AppConfig = builder.build().unwrap().try_deserialize().unwrap();
+
+        assert_eq!(app_config.block_chunk_size, default_block_chunk_size());
     }
 }
