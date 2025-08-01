@@ -41,6 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             &evm_data_source,
             &config.network_id,
             config.block_chunk_size,
+            config.confirmation_blocks,
         )
         .await
         {
@@ -64,6 +65,7 @@ async fn monitor_cycle(
     data_source: &impl DataSource,
     network_id: &str,
     block_chunk_size: u64,
+    confirmation_blocks: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 1. Read the last processed block from the StateRepository
     tracing::debug!(network_id = %network_id, "Fetching last processed block from state repository.");
@@ -74,6 +76,17 @@ async fn monitor_cycle(
     tracing::debug!(network_id = %network_id, "Fetching current block number from data source.");
     let current_block = data_source.get_current_block_number().await?;
     tracing::debug!(network_id = %network_id, current_block = %current_block, "Current block number retrieved.");
+
+    // Check if the chain is long enough to handle the confirmation buffer
+    if current_block < confirmation_blocks {
+        tracing::info!(
+            network_id = %network_id,
+            current_block = %current_block,
+            confirmation_blocks = %confirmation_blocks,
+            "Chain is shorter than the confirmation buffer. Waiting for more blocks."
+        );
+        return Ok(());
+    }
 
     let from_block = match last_processed_block {
         Some(block) => {
@@ -89,19 +102,21 @@ async fn monitor_cycle(
         }
     };
 
-    // Don't process if we're already caught up
-    if from_block > current_block {
+    let safe_to_block = current_block.saturating_sub(confirmation_blocks);
+
+    // Don't process if we're already caught up to the safe block
+    if from_block > safe_to_block {
         tracing::info!(
             network_id = %network_id,
             current_block = %current_block,
-            last_processed_block = ?last_processed_block,
-            "Already caught up. No new blocks to process."
+            from_block = %from_block,
+            "Caught up to confirmation buffer. Waiting for more blocks."
         );
         return Ok(());
     }
 
     // Process in smaller chunks to avoid hitting RPC limits
-    let to_block = std::cmp::min(from_block + block_chunk_size, current_block);
+    let to_block = std::cmp::min(from_block + block_chunk_size, safe_to_block);
 
     tracing::info!(
         network_id = %network_id,
