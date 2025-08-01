@@ -42,8 +42,8 @@ pub struct AppConfig {
     /// Optional retry configuration.
     #[serde(default)]
     pub retry_config: RetryConfig,
-    #[serde(default = "default_block_chunk_size")]
     /// The size of the block chunk to process at once.
+    #[serde(default = "default_block_chunk_size")]
     pub block_chunk_size: u64,
 }
 
