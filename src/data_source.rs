@@ -1,9 +1,9 @@
 //! This module defines the interface for fetching data from an EVM-compatible blockchain.
 
+use crate::block_fetcher::{BlockFetcher, BlockFetcherError};
 use alloy::{
-    primitives,
     providers::Provider,
-    rpc::types::{Filter, Log},
+    rpc::types::{Block, Log},
 };
 use async_trait::async_trait;
 use thiserror::Error;
@@ -18,17 +18,24 @@ pub enum DataSourceError {
     /// Error when interacting with the provider.
     #[error("Provider error: {0}")]
     Provider(#[from] Box<dyn std::error::Error + Send + Sync>),
+
+    /// Error originating from the `BlockFetcher`.
+    #[error("Block fetcher error: {0}")]
+    BlockFetcher(#[from] BlockFetcherError),
+
+    /// Indicates that the requested block was not found.
+    #[error("Block not found: {0}")]
+    BlockNotFound(u64),
 }
 
 /// A trait for a data source that can fetch blockchain data.
 #[async_trait]
 pub trait DataSource {
-    /// Fetches logs from the data source within a given block range.
-    async fn fetch_logs(
+    /// Fetches the core data for a single block (block with transactions and logs).
+    async fn fetch_block_core_data(
         &self,
-        from_block: u64,
-        to_block: u64,
-    ) -> Result<Vec<primitives::Log>, DataSourceError>;
+        block_number: u64,
+    ) -> Result<(Block, Vec<Log>), DataSourceError>;
 
     /// Fetches the current block number from the data source.
     async fn get_current_block_number(&self) -> Result<u64, DataSourceError>;
@@ -36,7 +43,7 @@ pub trait DataSource {
 
 /// A `DataSource` implementation that fetches data from an EVM RPC endpoint.
 pub struct EvmRpcSource<P> {
-    provider: P,
+    block_fetcher: BlockFetcher<P>,
 }
 
 impl<P> EvmRpcSource<P>
@@ -46,7 +53,9 @@ where
     /// Creates a new `EvmRpcSource`.
     #[tracing::instrument(skip(provider), level = "debug")]
     pub fn new(provider: P) -> Self {
-        Self { provider }
+        Self {
+            block_fetcher: BlockFetcher::new(provider),
+        }
     }
 }
 
@@ -56,35 +65,35 @@ where
     P: Provider + Send + Sync,
 {
     #[tracing::instrument(skip(self), level = "debug")]
-    async fn fetch_logs(
+    async fn fetch_block_core_data(
         &self,
-        from_block: u64,
-        to_block: u64,
-    ) -> Result<Vec<primitives::Log>, DataSourceError> {
-        tracing::debug!(from_block, to_block, "Fetching logs from RPC.");
-        let filter = Filter::new().from_block(from_block).to_block(to_block);
-        let logs: Vec<Log> = self.provider.get_logs(&filter).await.map_err(|e| {
-            tracing::error!(error = %e, from_block, to_block, "Failed to fetch logs from RPC.");
-            DataSourceError::Provider(Box::new(e))
-        })?;
-        tracing::debug!(
-            log_count = logs.len(),
-            from_block,
-            to_block,
-            "Successfully fetched logs."
-        );
-        // Convert from RPC log type to primitive log type
-        let primitive_logs = logs.into_iter().map(|log| log.into()).collect();
-        Ok(primitive_logs)
+        block_number: u64,
+    ) -> Result<(Block, Vec<Log>), DataSourceError> {
+        tracing::debug!(block_number, "Fetching core block data.");
+        match self.block_fetcher.fetch_block_and_logs(block_number).await {
+            Ok(data) => {
+                tracing::debug!(block_number, "Successfully fetched core block data.");
+                Ok(data)
+            }
+            Err(BlockFetcherError::BlockNotFound(num)) => {
+                tracing::warn!(block_number = num, "Block not found.");
+                Err(DataSourceError::BlockNotFound(num))
+            }
+            Err(e) => {
+                tracing::error!(error = %e, block_number, "Failed to fetch core block data.");
+                Err(DataSourceError::BlockFetcher(e))
+            }
+        }
     }
 
     #[tracing::instrument(skip(self), level = "debug")]
     async fn get_current_block_number(&self) -> Result<u64, DataSourceError> {
         tracing::debug!("Fetching current block number from RPC.");
-        let block_number = self.provider.get_block_number().await.map_err(|e| {
-            tracing::error!(error = %e, "Failed to fetch current block number from RPC.");
-            DataSourceError::Provider(Box::new(e))
-        })?;
+        let block_number = self
+            .block_fetcher
+            .get_current_block_number()
+            .await
+            .map_err(Into::<DataSourceError>::into)?;
         tracing::debug!(
             current_block = block_number,
             "Successfully fetched current block number."

@@ -1,7 +1,6 @@
 //! This module contains the `BlockFetcher` component, responsible for
 //! efficiently retrieving all necessary data for a given block from an EVM RPC endpoint.
 
-use crate::models::BlockData;
 use alloy::{
     primitives::TxHash,
     providers::Provider,
@@ -97,6 +96,15 @@ where
         let filter = Filter::new().from_block(number).to_block(number);
         self.provider
             .get_logs(&filter)
+            .await
+            .map_err(|e| BlockFetcherError::Provider(Box::new(e)))
+    }
+
+    /// Fetches the current block number from the data source.
+    #[tracing::instrument(skip(self), level = "debug")]
+    pub async fn get_current_block_number(&self) -> Result<u64, BlockFetcherError> {
+        self.provider
+            .get_block_number()
             .await
             .map_err(|e| BlockFetcherError::Provider(Box::new(e)))
     }
