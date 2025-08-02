@@ -39,6 +39,7 @@ where
     /// This method does NOT fetch transaction receipts, which must be fetched
     /// separately if required.
     #[tracing::instrument(skip(self), level = "debug")]
+    #[cfg(not(test))]
     pub async fn fetch_block_and_logs(
         &self,
         number: u64,
@@ -58,9 +59,30 @@ where
         Ok((block, logs))
     }
 
+    /// Test-only version of `fetch_block_and_logs` that runs sequentially.
+    #[tracing::instrument(skip(self), level = "debug")]
+    #[cfg(test)]
+    pub async fn fetch_block_and_logs(
+        &self,
+        number: u64,
+    ) -> Result<(Block, Vec<Log>), BlockFetcherError> {
+        // Fetch the full block first, then the logs.
+        let block = self
+            .provider
+            .get_block_by_number(number.into())
+            .full()
+            .await
+            .map_err(|e| BlockFetcherError::Provider(Box::new(e)))?
+            .ok_or(BlockFetcherError::BlockNotFound(number))?;
+
+        let logs = self.fetch_logs_for_block(number).await?;
+
+        Ok((block, logs))
+    }
+
     /// Fetches only the transaction receipts for a given list of transaction hashes.
     ///
-    /// This method leverages the provider's `CallBatchLayer` (if configured)
+    /// This method leverages the provider's `CallBatchLayer`
     /// to automatically batch these requests.
     #[tracing::instrument(skip(self), level = "debug")]
     pub async fn fetch_receipts(
@@ -113,19 +135,52 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_helpers::ReceiptBuilder;
     use alloy::{
         network::Ethereum,
         primitives::{B256, U256},
         providers::{Provider, ProviderBuilder},
+        rpc::types::{Block, BlockTransactions, Header, Log},
         transports::mock::Asserter,
     };
-    use crate::test_helpers::ReceiptBuilder;
 
     // Helper to create a provider and asserter from the user's example.
     fn mock_provider() -> (impl Provider<Ethereum>, Asserter) {
         let asserter = Asserter::new();
         let provider = ProviderBuilder::new().connect_mocked_client(asserter.clone());
         (provider, asserter)
+    }
+
+    fn create_test_block(block_number: u64) -> Block {
+        let mut header: Header = Header::default();
+        header.inner.number = block_number.into();
+
+        Block {
+            header,
+            transactions: BlockTransactions::Hashes(vec![]),
+            uncles: vec![],
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn test_fetch_block_and_logs_success() {
+        let (provider, asserter) = mock_provider();
+        let block_number = 123;
+
+        let block = create_test_block(block_number);
+        let logs: Vec<Log> = vec![Log::default(), Log::default()];
+
+        // Test is using the sequential implementation of `fetch_block_and_logs`.
+        asserter.push_success(&block);
+        asserter.push_success(&logs);
+
+        let fetcher = BlockFetcher::new(provider);
+        let (fetched_block, fetched_logs) =
+            fetcher.fetch_block_and_logs(block_number).await.unwrap();
+
+        assert_eq!(fetched_block.header.number, block_number);
+        assert_eq!(fetched_logs.len(), 2);
     }
 
     #[tokio::test]
@@ -168,5 +223,61 @@ mod tests {
         let result = fetcher.get_current_block_number().await.unwrap();
 
         assert_eq!(result, current_block);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_block_not_found() {
+        let (provider, asserter) = mock_provider();
+        let block_number = 404;
+
+        // Mock a `null` response for the block, which deserializes to `None`.
+        asserter.push_success(&Option::<Block>::None);
+        // The logs request will still be made in the sequential test version.
+        asserter.push_success(&Vec::<Log>::new());
+
+        let fetcher = BlockFetcher::new(provider);
+        let result = fetcher.fetch_block_and_logs(block_number).await;
+
+        assert!(matches!(result, Err(BlockFetcherError::BlockNotFound(404))));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_receipts_partial_success() {
+        let (provider, asserter) = mock_provider();
+        let tx_hash1 = B256::from_slice(&[1; 32]);
+        let tx_hash2 = B256::from_slice(&[2; 32]); // This one will not be found.
+
+        let receipt1 = ReceiptBuilder::new().transaction_hash(tx_hash1).build();
+
+        // Push a success for the first receipt.
+        asserter.push_success(&receipt1);
+        // Push a `null` response for the second, which deserializes to `None`.
+        asserter.push_success(&Option::<TransactionReceipt>::None);
+
+        let fetcher = BlockFetcher::new(provider);
+        let receipts = fetcher.fetch_receipts(&[tx_hash1, tx_hash2]).await.unwrap();
+
+        assert_eq!(receipts.len(), 1);
+        assert!(receipts.contains_key(&tx_hash1));
+        assert!(!receipts.contains_key(&tx_hash2));
+    }
+
+    #[tokio::test]
+    async fn test_provider_error_propagation() {
+        let (provider, asserter) = mock_provider();
+
+        // Push a custom error response.
+        asserter.push_failure_msg("test provider error");
+
+        let fetcher = BlockFetcher::new(provider);
+        let result = fetcher.get_current_block_number().await;
+
+        assert!(matches!(result, Err(BlockFetcherError::Provider(_))));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("test provider error")
+        );
     }
 }
