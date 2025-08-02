@@ -1,11 +1,13 @@
 //! This module contains the `AbiService` for decoding and caching contract ABIs.
+//!
+//! It is designed to work with ABIs that are loaded at runtime, and therefore
+//! does not use the `sol!` macro, which requires compile-time knowledge of the ABI.
 
 use alloy::{
-    dyn_abi::DynSolValue,
+    dyn_abi::{self, DynSolValue, EventExt, JsonAbiExt},
     json_abi::{Event, Function, JsonAbi},
-    primitives::{Address, B256},
+    primitives::{Address, B256, TxKind},
     rpc::types::{Log, Transaction},
-    sol_types,
 };
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -29,13 +31,13 @@ impl From<&JsonAbi> for CachedContract {
     fn from(abi: &JsonAbi) -> Self {
         let functions = abi
             .functions()
-            .map(|func| (func.selector(), func.clone()))
-            .collect();
+            .map(|func| (func.selector().into(), func.clone()))
+            .collect::<HashMap<[u8; 4], Function>>();
 
         let events = abi
             .events()
-            .map(|event| (event.signature(), event.clone()))
-            .collect();
+            .map(|event| (event.selector().into(), event.clone()))
+            .collect::<HashMap<B256, Event>>();
 
         Self {
             functions,
@@ -54,12 +56,14 @@ pub enum AbiError {
     EventNotFound(B256),
     #[error("Function selector not found in ABI: {0:?}")]
     FunctionNotFound([u8; 4]),
+    #[error("Transaction is a contract creation, not a function call")]
+    ContractCreation,
     #[error("Input data too short to contain a function selector")]
     InputTooShort,
     #[error("Log has no topics, cannot identify event")]
     LogHasNoTopics,
     #[error("Failed to decode data: {0}")]
-    DecodingError(#[from] sol_types::Error),
+    DecodingError(#[from] dyn_abi::Error),
     #[error("Read lock was poisoned")]
     ReadLock,
     #[error("Write lock was poisoned")]
@@ -116,25 +120,30 @@ impl AbiService {
     pub fn decode_log<'a>(&self, log: &'a Log) -> Result<DecodedLog<'a>, AbiError> {
         let cache = self.cache.read().map_err(|_| AbiError::ReadLock)?;
         let contract = cache
-            .get(&log.address)
-            .ok_or_else(|| AbiError::AbiNotFound(log.address))?;
+            .get(&log.address())
+            .ok_or_else(|| AbiError::AbiNotFound(log.address()))?;
 
-        let event_signature = log
-            .topics()
-            .first()
-            .ok_or(AbiError::LogHasNoTopics)?;
+        let event_signature = log.topics().first().ok_or(AbiError::LogHasNoTopics)?;
 
         let event = contract
             .events
             .get(event_signature)
             .ok_or_else(|| AbiError::EventNotFound(*event_signature))?;
 
-        let decoded = event.decode_log(log.topics(), &log.data, false)?;
+        let log_data = alloy::primitives::LogData::new(
+            log.topics().iter().cloned().collect(),
+            log.data().data.clone(),
+        )
+        .unwrap();
+        let decoded = event
+            .decode_log(&log_data)
+            .map_err(|e| AbiError::DecodingError(e))?;
 
-        let params = decoded
-            .params
-            .into_iter()
-            .map(|param| (param.name, param.value))
+        let params = event
+            .inputs
+            .iter()
+            .zip(decoded.indexed.into_iter().chain(decoded.body.into_iter()))
+            .map(|(input, value)| (input.name.clone(), value))
             .collect();
 
         Ok(DecodedLog {
@@ -149,8 +158,12 @@ impl AbiService {
         &self,
         tx: &'a Transaction,
     ) -> Result<DecodedCall<'a>, AbiError> {
-        let to = tx.to.ok_or_else(|| AbiError::AbiNotFound(Address::ZERO))?;
-        let input = &tx.input;
+        let tx_clone = tx.clone();
+        let to = match alloy::consensus::Transaction::kind(&tx_clone) {
+            TxKind::Call(to) => to,
+            TxKind::Create => return Err(AbiError::ContractCreation),
+        };
+        let input = alloy::consensus::Transaction::input(&tx_clone);
 
         if input.len() < 4 {
             return Err(AbiError::InputTooShort);
@@ -166,7 +179,7 @@ impl AbiService {
             .get(&selector)
             .ok_or_else(|| AbiError::FunctionNotFound(selector))?;
 
-        let decoded_tokens = function.decode_input(&input[4..])?;
+        let decoded_tokens = function.abi_decode_input(&input[4..])?;
 
         let params = function
             .inputs
