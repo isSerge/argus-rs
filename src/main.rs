@@ -1,6 +1,7 @@
 use argus::{
     config::AppConfig,
     data_source::{DataSource, EvmRpcSource},
+    models::BlockData,
     provider::create_provider,
     state::{SqliteStateRepository, StateRepository},
 };
@@ -122,24 +123,53 @@ async fn monitor_cycle(
         network_id = %network_id,
         from_block = %from_block,
         to_block = %to_block,
-        current_block = %current_block,
         "Processing block range."
     );
 
-    // 3. Call data_source.fetch_logs() with the block range
-    tracing::debug!(network_id = %network_id, from_block = %from_block, to_block = %to_block, "Fetching logs for block range.");
-    let logs = data_source.fetch_logs(from_block, to_block).await?;
+    // 3. Process each block in the range
+    for block_num in from_block..=to_block {
+        match data_source.fetch_block_core_data(block_num).await {
+            Ok((block, logs)) => {
+                let block_data =
+                    BlockData::from_raw_data(block, std::collections::HashMap::new(), logs);
 
-    // 4. Log the number of logs found
-    tracing::info!(
-        network_id = %network_id,
-        log_count = logs.len(),
-        from_block = %from_block,
-        to_block = %to_block,
-        "Found logs in block range."
-    );
+                // TODO: Implement block processing logic here.
+                // This will involve:
+                // 1. Analyzing the `block_data` against user-defined rules.
+                // 2. Based on the analysis, determining if any transaction receipts are needed.
+                // 3. If so, calling a method on the data_source to fetch only the required receipts,
+                //    and adding them to `block_data`.
+                // 4. Passing the `block_data` to the trigger evaluation engine.
 
-    // 5. Update the StateRepository with the new last processed block number
+                let tx_count = block_data.block.transactions.len();
+                let log_count = block_data.logs.values().map(Vec::len).sum::<usize>();
+                let block_hash = block_data.block.header.hash;
+
+                tracing::info!(
+                    network_id = %network_id,
+                    block_number = block_num,
+                    block_hash = %block_hash,
+                    tx_count = tx_count,
+                    log_count = log_count,
+                    "Processed block."
+                );
+            }
+            Err(e) => {
+                // If fetching a block fails, we log the error and stop the current
+                // cycle. The last processed block will not be updated, ensuring
+                // that we retry the failed block in the next cycle.
+                tracing::error!(
+                    network_id = %network_id,
+                    block_number = block_num,
+                    error = %e,
+                    "Failed to process block. Aborting cycle."
+                );
+                return Err(e.into());
+            }
+        }
+    }
+
+    // 4. Update the StateRepository with the new last processed block number
     tracing::debug!(network_id = %network_id, new_last_processed_block = %to_block, "Updating last processed block in state repository.");
     repo.set_last_processed_block(network_id, to_block).await?;
     tracing::info!(network_id = %network_id, last_processed_block = %to_block, "Last processed block updated successfully.");

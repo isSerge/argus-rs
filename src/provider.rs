@@ -1,16 +1,16 @@
 //! This module provides functionality to create a provider for EVM RPC requests
 //! with retry logic and backoff strategies.
 
-use std::num::NonZeroUsize;
-
+use crate::config::RetryConfig;
 use alloy::{
-    providers::{Provider, ProviderBuilder},
+    providers::{Provider, ProviderBuilder, layers::CallBatchLayer},
     rpc::client::RpcClient,
     transports::{
         http::{Http, reqwest::Url},
         layers::{FallbackLayer, RetryBackoffLayer},
     },
 };
+use std::num::NonZeroUsize;
 use tower::ServiceBuilder;
 
 /// Custom error type for provider operations.
@@ -20,8 +20,6 @@ pub enum ProviderError {
     #[error("Provider creation failed: {0}")]
     CreationError(String),
 }
-
-use crate::config::RetryConfig;
 
 /// Creates a new provider with the given RPC URLs.
 pub fn create_provider(
@@ -55,6 +53,8 @@ pub fn create_provider(
         .service(transports);
 
     let client = RpcClient::builder().transport(service, false);
-    let provider = ProviderBuilder::new().connect_client(client);
+    let provider = ProviderBuilder::new()
+        .layer(CallBatchLayer::new())
+        .connect_client(client);
     Ok(provider)
 }

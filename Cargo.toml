@@ -7,6 +7,7 @@ edition = "2024"
 alloy = { version = "1.0.23", features = ["essentials"] }
 async-trait = "0.1.88"
 config = { version = "0.15.13", features = ["yaml"] }
+futures = "0.3.31"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.141"
 sqlx = { version = "0.8.6", features = [
