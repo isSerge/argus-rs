@@ -102,4 +102,13 @@ impl AbiService {
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// Adds a contract's ABI to the service cache.
+    ///
+    /// The ABI is parsed and pre-processed for fast lookups.
+    pub fn add_abi(&self, address: Address, abi: &JsonAbi) {
+        let cached_contract = Arc::new(CachedContract::from(abi));
+        let mut cache = self.cache.write().expect("RwLock is poisoned");
+        cache.insert(address, cached_contract);
+    }
 }
