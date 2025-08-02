@@ -4,6 +4,7 @@
 //! does not use the `sol!` macro, which requires compile-time knowledge of the ABI.
 
 use alloy::{
+    consensus::Transaction as ConsensusTransaction,
     dyn_abi::{self, DynSolValue, EventExt, JsonAbiExt},
     json_abi::{Event, Function, JsonAbi},
     primitives::{Address, B256, TxKind},
@@ -158,12 +159,11 @@ impl AbiService {
         &self,
         tx: &'a Transaction,
     ) -> Result<DecodedCall<'a>, AbiError> {
-        let tx_clone = tx.clone();
-        let to = match alloy::consensus::Transaction::kind(&tx_clone) {
+        let to = match tx.inner.kind() {
             TxKind::Call(to) => to,
             TxKind::Create => return Err(AbiError::ContractCreation),
         };
-        let input = alloy::consensus::Transaction::input(&tx_clone);
+        let input = tx.inner.input();
 
         if input.len() < 4 {
             return Err(AbiError::InputTooShort);
