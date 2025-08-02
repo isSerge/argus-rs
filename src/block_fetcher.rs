@@ -59,6 +59,7 @@ where
         Ok((block, logs))
     }
 
+    // TODO: this is a workaround for tests, remove when tests use more sophisticated transport mocking.
     /// Test-only version of `fetch_block_and_logs` that runs sequentially.
     #[tracing::instrument(skip(self), level = "debug")]
     #[cfg(test)]
