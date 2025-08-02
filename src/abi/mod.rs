@@ -5,7 +5,7 @@
 
 use alloy::{
     consensus::Transaction as ConsensusTransaction,
-    dyn_abi::{self, DynSolValue, EventExt, JsonAbiExt},
+    dyn_abi::{self, DynSolValue, EventExt},
     json_abi::{Event, Function, JsonAbi},
     primitives::{Address, B256, TxKind},
     rpc::types::{Log, Transaction},
@@ -163,7 +163,7 @@ impl AbiService {
         let params: Vec<(String, DynSolValue)> = event
             .inputs
             .iter()
-            .zip(decoded.indexed.into_iter().chain(decoded.body.into_iter()))
+            .zip(decoded.indexed.into_iter().chain(decoded.body))
             .map(|(input, value)| (input.name.clone(), value))
             .collect();
 
@@ -210,18 +210,34 @@ impl AbiService {
         let selector: [u8; 4] = input[0..4].try_into().unwrap();
 
         // Look up the contract ABI in the cache
-        let contract = self.cache.get(&to).ok_or_else(|| {
-            tracing::debug!("No ABI found for contract address: {}", to);
-            AbiError::AbiNotFound(to)
-        })?;
+        let contract = self
+            .cache
+            .get(&to)
+            .ok_or_else(|| AbiError::AbiNotFound(to))?;
 
         // Look up the function in the contract ABI using the selector
-        let function = contract.functions.get(&selector).ok_or_else(|| {
-            tracing::debug!("Function selector not found in ABI: {:?}", selector);
-            AbiError::FunctionNotFound(selector)
-        })?;
+        let function = contract
+            .functions
+            .get(&selector)
+            .ok_or_else(|| AbiError::FunctionNotFound(selector))?;
 
-        let decoded_tokens = function.abi_decode_input(&input[4..])?;
+        let input_types: Vec<dyn_abi::DynSolType> = function
+            .inputs
+            .iter()
+            .map(|p| p.ty.parse())
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let tuple_type = dyn_abi::DynSolType::Tuple(input_types);
+        let decoded_value = tuple_type.abi_decode(&input[4..])?;
+
+        let decoded_tokens = if let DynSolValue::Tuple(tokens) = decoded_value {
+            tokens
+        } else {
+            return Err(AbiError::DecodingError(dyn_abi::Error::TypeMismatch {
+                expected: tuple_type.to_string(),
+                actual: format!("{decoded_value:?}"),
+            }));
+        };
 
         let params: Vec<(String, DynSolValue)> = function
             .inputs
