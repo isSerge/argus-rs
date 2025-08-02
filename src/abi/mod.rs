@@ -111,4 +111,36 @@ impl AbiService {
         let mut cache = self.cache.write().expect("RwLock is poisoned");
         cache.insert(address, cached_contract);
     }
+
+    /// Decodes an event log.
+    pub fn decode_log<'a>(&self, log: &'a Log) -> Result<DecodedLog<'a>, AbiError> {
+        let cache = self.cache.read().map_err(|_| AbiError::ReadLock)?;
+        let contract = cache
+            .get(&log.address)
+            .ok_or_else(|| AbiError::AbiNotFound(log.address))?;
+
+        let event_signature = log
+            .topics()
+            .first()
+            .ok_or(AbiError::LogHasNoTopics)?;
+
+        let event = contract
+            .events
+            .get(event_signature)
+            .ok_or_else(|| AbiError::EventNotFound(*event_signature))?;
+
+        let decoded = event.decode_log(log.topics(), &log.data, false)?;
+
+        let params = decoded
+            .params
+            .into_iter()
+            .map(|param| (param.name, param.value))
+            .collect();
+
+        Ok(DecodedLog {
+            name: event.name.clone(),
+            params,
+            log,
+        })
+    }
 }
