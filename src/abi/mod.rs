@@ -25,6 +25,26 @@ pub struct CachedContract {
     pub abi: JsonAbi,
 }
 
+impl From<&JsonAbi> for CachedContract {
+    fn from(abi: &JsonAbi) -> Self {
+        let functions = abi
+            .functions()
+            .map(|func| (func.selector(), func.clone()))
+            .collect();
+
+        let events = abi
+            .events()
+            .map(|event| (event.signature(), event.clone()))
+            .collect();
+
+        Self {
+            functions,
+            events,
+            abi: abi.clone(),
+        }
+    }
+}
+
 /// Custom error type for the `AbiService`.
 #[derive(Error, Debug)]
 pub enum AbiError {
