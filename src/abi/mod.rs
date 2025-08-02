@@ -158,14 +158,7 @@ impl AbiService {
             .get(event_signature)
             .ok_or_else(|| AbiError::EventNotFound(*event_signature))?;
 
-        let log_data = alloy::primitives::LogData::new(
-            log.topics().iter().cloned().collect(),
-            log.data().data.clone(),
-        )
-        .unwrap();
-        let decoded = event
-            .decode_log(&log_data)
-            .map_err(|e| AbiError::DecodingError(e))?;
+        let decoded = event.decode_log_parts(log.topics().iter().copied(), log.data().data.as_ref())?;
 
         let params: Vec<(String, DynSolValue)> = event
             .inputs
@@ -174,7 +167,11 @@ impl AbiService {
             .map(|(input, value)| (input.name.clone(), value))
             .collect();
 
-        tracing::trace!("Decoded event: {} with {} parameters", event.name, params.len());
+        tracing::trace!(
+            "Decoded event: {} with {} parameters",
+            event.name,
+            params.len()
+        );
 
         Ok(DecodedLog {
             name: event.name.clone(),
@@ -184,7 +181,7 @@ impl AbiService {
     }
 
     /// Decodes a function call from transaction input data.
-    /// 
+    ///
     /// This method extracts the function selector from the transaction input data,
     /// looks up the corresponding function definition, and decodes the parameters.
     pub fn decode_function_input<'a>(
@@ -197,9 +194,9 @@ impl AbiService {
             TxKind::Create => {
                 tracing::debug!("Cannot decode function call from contract creation transaction");
                 return Err(AbiError::ContractCreation);
-            },
+            }
         };
-        
+
         // Get the input data from the transaction
         let input = tx.inner.input();
 
@@ -213,22 +210,16 @@ impl AbiService {
         let selector: [u8; 4] = input[0..4].try_into().unwrap();
 
         // Look up the contract ABI in the cache
-        let contract = self
-            .cache
-            .get(&to)
-            .ok_or_else(|| {
-                tracing::debug!("No ABI found for contract address: {}", to);
-                AbiError::AbiNotFound(to)
-            })?;
+        let contract = self.cache.get(&to).ok_or_else(|| {
+            tracing::debug!("No ABI found for contract address: {}", to);
+            AbiError::AbiNotFound(to)
+        })?;
 
         // Look up the function in the contract ABI using the selector
-        let function = contract
-            .functions
-            .get(&selector)
-            .ok_or_else(|| {
-                tracing::debug!("Function selector not found in ABI: {:?}", selector);
-                AbiError::FunctionNotFound(selector)
-            })?;
+        let function = contract.functions.get(&selector).ok_or_else(|| {
+            tracing::debug!("Function selector not found in ABI: {:?}", selector);
+            AbiError::FunctionNotFound(selector)
+        })?;
 
         let decoded_tokens = function.abi_decode_input(&input[4..])?;
 
@@ -239,8 +230,12 @@ impl AbiService {
             .map(|(input, token)| (input.name.clone(), token))
             .collect();
 
-        tracing::trace!("Decoded function call: {} with {} parameters", function.name, params.len());
-        
+        tracing::trace!(
+            "Decoded function call: {} with {} parameters",
+            function.name,
+            params.len()
+        );
+
         Ok(DecodedCall {
             name: function.name.clone(),
             params,
