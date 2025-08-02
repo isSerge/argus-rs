@@ -143,4 +143,42 @@ impl AbiService {
             log,
         })
     }
+
+    /// Decodes a function call from transaction input data.
+    pub fn decode_function_input<'a>(
+        &self,
+        tx: &'a Transaction,
+    ) -> Result<DecodedCall<'a>, AbiError> {
+        let to = tx.to.ok_or_else(|| AbiError::AbiNotFound(Address::ZERO))?;
+        let input = &tx.input;
+
+        if input.len() < 4 {
+            return Err(AbiError::InputTooShort);
+        }
+
+        let selector: [u8; 4] = input[0..4].try_into().unwrap();
+
+        let cache = self.cache.read().map_err(|_| AbiError::ReadLock)?;
+        let contract = cache.get(&to).ok_or_else(|| AbiError::AbiNotFound(to))?;
+
+        let function = contract
+            .functions
+            .get(&selector)
+            .ok_or_else(|| AbiError::FunctionNotFound(selector))?;
+
+        let decoded_tokens = function.decode_input(&input[4..])?;
+
+        let params = function
+            .inputs
+            .iter()
+            .zip(decoded_tokens.into_iter())
+            .map(|(input, token)| (input.name.clone(), token))
+            .collect();
+
+        Ok(DecodedCall {
+            name: function.name.clone(),
+            params,
+            tx,
+        })
+    }
 }
