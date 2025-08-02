@@ -52,6 +52,36 @@ impl Transaction {
     pub fn nonce(&self) -> u64 {
         self.0.inner.nonce()
     }
+
+    /// Returns the hash of the block containing the transaction, or `None` if it's pending.
+    pub fn block_hash(&self) -> Option<B256> {
+        self.0.block_hash
+    }
+
+    /// Returns the number of the block containing the transaction, or `None` if it's pending.
+    pub fn block_number(&self) -> Option<u64> {
+        self.0.block_number
+    }
+
+    /// Returns the transaction's index position in the block, or `None` if it's pending.
+    pub fn transaction_index(&self) -> Option<u64> {
+        self.0.transaction_index
+    }
+
+    /// Returns the EIP-1559 max fee per gas, or `None` if it's a legacy transaction.
+    pub fn max_fee_per_gas(&self) -> u128 {
+        self.0.inner.max_fee_per_gas()
+    }
+
+    /// Returns the EIP-1559 max priority fee per gas, or `None` if it's a legacy transaction.
+    pub fn max_priority_fee_per_gas(&self) -> Option<u128> {
+        self.0.inner.max_priority_fee_per_gas()
+    }
+
+    /// Returns `true` if the transaction is a contract creation.
+    pub fn is_contract_creation(&self) -> bool {
+        self.0.inner.to().is_none()
+    }
 }
 
 /// The conversion from the alloy type to our custom type is a zero-cost move.
