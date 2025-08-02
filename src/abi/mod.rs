@@ -10,8 +10,9 @@ use alloy::{
     primitives::{Address, B256, TxKind},
     rpc::types::{Log, Transaction},
 };
+use dashmap::DashMap;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use thiserror::Error;
 
 /// A pre-processed, cached representation of a contract's ABI.
@@ -37,7 +38,7 @@ impl From<&JsonAbi> for CachedContract {
 
         let events = abi
             .events()
-            .map(|event| (event.selector().into(), event.clone()))
+            .map(|event| (event.selector(), event.clone()))
             .collect::<HashMap<B256, Event>>();
 
         Self {
@@ -51,24 +52,33 @@ impl From<&JsonAbi> for CachedContract {
 /// Custom error type for the `AbiService`.
 #[derive(Error, Debug)]
 pub enum AbiError {
+    /// Returned when no ABI is found for the given contract address
     #[error("Contract ABI not found for address: {0}")]
     AbiNotFound(Address),
+
+    /// Returned when an event signature (topic hash) is not found in the contract ABI
     #[error("Event signature not found in ABI: {0}")]
     EventNotFound(B256),
+
+    /// Returned when a function selector (4-byte) is not found in the contract ABI
     #[error("Function selector not found in ABI: {0:?}")]
     FunctionNotFound([u8; 4]),
+
+    /// Returned when trying to decode a function call from a contract creation transaction
     #[error("Transaction is a contract creation, not a function call")]
     ContractCreation,
+
+    /// Returned when the input data is too short to contain a function selector
     #[error("Input data too short to contain a function selector")]
     InputTooShort,
+
+    /// Returned when a log has no topics and thus cannot be identified as an event
     #[error("Log has no topics, cannot identify event")]
     LogHasNoTopics,
+
+    /// Wrapper for decoding errors from the underlying ABI decoding library
     #[error("Failed to decode data: {0}")]
     DecodingError(#[from] dyn_abi::Error),
-    #[error("Read lock was poisoned")]
-    ReadLock,
-    #[error("Write lock was poisoned")]
-    WriteLock,
 }
 
 /// Represents a decoded event log.
@@ -96,10 +106,11 @@ pub struct DecodedCall<'a> {
 /// A service for managing and using contract ABIs.
 ///
 /// This service caches parsed ABIs and provides methods for decoding
-/// transaction data and event logs.
+/// transaction data and event logs. Uses `DashMap` for thread-safe
+/// concurrent access without explicit locking.
 #[derive(Debug, Default)]
 pub struct AbiService {
-    cache: RwLock<HashMap<Address, Arc<CachedContract>>>,
+    cache: DashMap<Address, Arc<CachedContract>>,
 }
 
 impl AbiService {
@@ -113,14 +124,30 @@ impl AbiService {
     /// The ABI is parsed and pre-processed for fast lookups.
     pub fn add_abi(&self, address: Address, abi: &JsonAbi) {
         let cached_contract = Arc::new(CachedContract::from(abi));
-        let mut cache = self.cache.write().expect("RwLock is poisoned");
-        cache.insert(address, cached_contract);
+        self.cache.insert(address, cached_contract);
     }
 
-    /// Decodes an event log.
+    /// Removes a contract's ABI from the service cache.
+    ///
+    /// Returns true if the ABI was present and removed, false if it wasn't in the cache.
+    pub fn remove_abi(&self, address: &Address) -> bool {
+        self.cache.remove(address).is_some()
+    }
+
+    /// Checks if the cache contains an ABI for the given address.
+    pub fn has_abi(&self, address: &Address) -> bool {
+        self.cache.contains_key(address)
+    }
+
+    /// Returns the number of ABIs in the cache.
+    pub fn cache_size(&self) -> usize {
+        self.cache.len()
+    }
+
+    /// Decodes an event log using proper Alloy APIs.
     pub fn decode_log<'a>(&self, log: &'a Log) -> Result<DecodedLog<'a>, AbiError> {
-        let cache = self.cache.read().map_err(|_| AbiError::ReadLock)?;
-        let contract = cache
+        let contract = self
+            .cache
             .get(&log.address())
             .ok_or_else(|| AbiError::AbiNotFound(log.address()))?;
 
@@ -140,12 +167,14 @@ impl AbiService {
             .decode_log(&log_data)
             .map_err(|e| AbiError::DecodingError(e))?;
 
-        let params = event
+        let params: Vec<(String, DynSolValue)> = event
             .inputs
             .iter()
             .zip(decoded.indexed.into_iter().chain(decoded.body.into_iter()))
             .map(|(input, value)| (input.name.clone(), value))
             .collect();
+
+        tracing::trace!("Decoded event: {} with {} parameters", event.name, params.len());
 
         Ok(DecodedLog {
             name: event.name.clone(),
@@ -155,39 +184,63 @@ impl AbiService {
     }
 
     /// Decodes a function call from transaction input data.
+    /// 
+    /// This method extracts the function selector from the transaction input data,
+    /// looks up the corresponding function definition, and decodes the parameters.
     pub fn decode_function_input<'a>(
         &self,
         tx: &'a Transaction,
     ) -> Result<DecodedCall<'a>, AbiError> {
+        // Get the target contract address from the transaction
         let to = match tx.inner.kind() {
             TxKind::Call(to) => to,
-            TxKind::Create => return Err(AbiError::ContractCreation),
+            TxKind::Create => {
+                tracing::debug!("Cannot decode function call from contract creation transaction");
+                return Err(AbiError::ContractCreation);
+            },
         };
+        
+        // Get the input data from the transaction
         let input = tx.inner.input();
 
+        // The input data must be at least 4 bytes (the function selector)
         if input.len() < 4 {
+            tracing::debug!("Transaction input too short: {} bytes", input.len());
             return Err(AbiError::InputTooShort);
         }
 
+        // Extract the function selector (first 4 bytes)
         let selector: [u8; 4] = input[0..4].try_into().unwrap();
 
-        let cache = self.cache.read().map_err(|_| AbiError::ReadLock)?;
-        let contract = cache.get(&to).ok_or_else(|| AbiError::AbiNotFound(to))?;
+        // Look up the contract ABI in the cache
+        let contract = self
+            .cache
+            .get(&to)
+            .ok_or_else(|| {
+                tracing::debug!("No ABI found for contract address: {}", to);
+                AbiError::AbiNotFound(to)
+            })?;
 
+        // Look up the function in the contract ABI using the selector
         let function = contract
             .functions
             .get(&selector)
-            .ok_or_else(|| AbiError::FunctionNotFound(selector))?;
+            .ok_or_else(|| {
+                tracing::debug!("Function selector not found in ABI: {:?}", selector);
+                AbiError::FunctionNotFound(selector)
+            })?;
 
         let decoded_tokens = function.abi_decode_input(&input[4..])?;
 
-        let params = function
+        let params: Vec<(String, DynSolValue)> = function
             .inputs
             .iter()
-            .zip(decoded_tokens.into_iter())
+            .zip(decoded_tokens)
             .map(|(input, token)| (input.name.clone(), token))
             .collect();
 
+        tracing::trace!("Decoded function call: {} with {} parameters", function.name, params.len());
+        
         Ok(DecodedCall {
             name: function.name.clone(),
             params,
