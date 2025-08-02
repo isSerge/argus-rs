@@ -93,7 +93,6 @@ where
             return Ok(HashMap::new());
         }
 
-        // TODO: verify requests are batched correctly by the provider.
         let futures = tx_hashes.iter().map(|&tx_hash| async move {
             let receipt = self
                 .provider
