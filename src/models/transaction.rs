@@ -1,7 +1,7 @@
 //! EVM transaction data structures.
 
 use alloy::{
-    consensus::Transaction as ConsensusTransaction,
+    consensus::{Transaction as ConsensusTransaction, TxType},
     primitives::{Address, B256, Bytes, U256},
     rpc::types::Transaction as AlloyTransaction,
 };
@@ -81,6 +81,16 @@ impl Transaction {
     /// Returns `true` if the transaction is a contract creation.
     pub fn is_contract_creation(&self) -> bool {
         self.0.inner.to().is_none()
+    }
+
+    /// Returns the chain ID for the transaction.
+    pub fn chain_id(&self) -> Option<u64> {
+        self.0.inner.chain_id()
+    }
+
+    /// Returns the transaction type (legacy, EIP-2930, or EIP-1559).
+    pub fn transaction_type(&self) -> TxType {
+        self.0.inner.tx_type()
     }
 }
 
