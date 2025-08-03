@@ -9,6 +9,7 @@ async-trait = "0.1.88"
 config = { version = "0.15.13", features = ["yaml"] }
 dashmap = { version = "6.1.0", features = ["serde"] }
 futures = "0.3.31"
+hex = "0.4.3"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.141"
 sqlx = { version = "0.8.6", features = [
