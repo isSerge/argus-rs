@@ -229,26 +229,31 @@ impl TransactionBuilder {
             let gas_price = self.gas_price.unwrap_or(U256::from(1_000_000_000u64));
             let gas_price_hex = format!("0x{gas_price:x}");
 
-            format!(
-                r#"{{
-                    "blockHash": "{block_hash_hex}",
-                    "blockNumber": "{block_number_hex}",
-                    "hash": "{hash_hex}",
-                    "transactionIndex": "{transaction_index_hex}",
-                    "type": "{tx_type_hex}",
-                    "nonce": "{nonce_hex}",
-                    "input": "{input_hex}",
-                    "gasPrice": "{gas_price_hex}",
-                    "chainId": "{chain_id_hex}",
-                    "gas": "{gas_hex}",
-                    "from": "{from_hex}",
-                    "to": {to_field},
-                    "value": "{value_hex}",
+            {
+                let to_json = if to_field == "null" {
+                    serde_json::Value::Null
+                } else {
+                    serde_json::Value::String(to_field.trim_matches('"').to_string())
+                };
+                json!({
+                    "blockHash": block_hash_hex,
+                    "blockNumber": block_number_hex,
+                    "hash": hash_hex,
+                    "transactionIndex": transaction_index_hex,
+                    "type": tx_type_hex,
+                    "nonce": nonce_hex,
+                    "input": input_hex,
+                    "gasPrice": gas_price_hex,
+                    "chainId": chain_id_hex,
+                    "gas": gas_hex,
+                    "from": from_hex,
+                    "to": to_json,
+                    "value": value_hex,
                     "r": "0x1b41f7bcd8c7c8d35d9f4d3a1f9c8e7b6a5d9c8e7f1a2b3c4d5e6f7a8b9c0d1",
                     "s": "0x2c52f8cdd9d8d46e8a0e5d4b2f0d9f8c7b6e0d9f8a2b3d4e5f6a8b9c0d1f2a3",
                     "v": "0x25"
-                }}"#
-            )
+                }).to_string()
+            }
         } else {
             // EIP-1559 or EIP-2930 transaction
             format!(
