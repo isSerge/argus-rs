@@ -191,12 +191,10 @@ impl AbiService {
     ) -> Result<DecodedCall<'a>, AbiError> {
         // Get the target contract address from the transaction
 
-        let to = if let Some(to) = tx.to() {
-            to
-        } else {
+        let to = tx.to().ok_or_else(|| {
             tracing::debug!("Cannot decode function call from contract creation transaction");
-            return Err(AbiError::ContractCreation);
-        };
+            AbiError::ContractCreation
+        })?;
 
         // Get the input data from the transaction
         let input = tx.input();
