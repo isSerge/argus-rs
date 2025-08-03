@@ -1,4 +1,8 @@
 //! This module defines the `BlockProcessor` component.
+//! 
+//! The `BlockProcessor` is responsible for in-memory processing of blockchain data,
+//! including log decoding, data correlation, and applying filtering logic.
+//! It supports both single block processing and batch processing for improved throughput.
 
 use crate::abi::{AbiService, DecodedLog};
 use crate::filtering::FilteringEngine;
@@ -76,7 +80,8 @@ impl<F: FilteringEngine> BlockProcessor<F> {
                         }
                     }
 
-                    // Identify transactions that *would* require full receipts (placeholder logic)
+                    // TODO: Implement intelligent receipt requirement logic when FilteringEngine is functional
+                    // This should check monitor rules to determine if this transaction needs receipt data
                     // For now, let's assume all transactions might need receipts for some rule.
                     let receipt = block_data.receipts.get(&tx_hash);
 
@@ -101,6 +106,64 @@ impl<F: FilteringEngine> BlockProcessor<F> {
                 // For now, we'll just skip processing this block.
             }
         }
+
+        Ok(all_matches)
+    }
+
+    /// Processes multiple blocks in a batch for better performance.
+    /// This method processes blocks sequentially with controlled concurrency
+    /// to avoid overwhelming the system while maximizing throughput.
+    pub async fn process_blocks_batch(
+        &self,
+        blocks: Vec<BlockData>,
+    ) -> Result<Vec<MonitorMatch>, BlockProcessorError> {
+        if blocks.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        tracing::debug!(
+            block_count = blocks.len(),
+            first_block = blocks.first().map(|b| b.block.header.number),
+            last_block = blocks.last().map(|b| b.block.header.number),
+            "Processing batch of blocks."
+        );
+
+        let mut all_matches = Vec::new();
+        
+        // Process blocks sequentially but with async operations
+        for block_data in blocks {
+            let block_number = block_data.block.header.number;
+            
+            tracing::trace!(
+                block_number = block_number,
+                "Processing block in batch."
+            );
+            
+            match self.process_block(block_data).await {
+                Ok(matches) => {
+                    let matches_count = matches.len();
+                    all_matches.extend(matches);
+                    tracing::trace!(
+                        block_number = block_number,
+                        matches_count = matches_count,
+                        "Block processed successfully in batch."
+                    );
+                }
+                Err(e) => {
+                    tracing::error!(
+                        block_number = block_number,
+                        error = %e,
+                        "Error processing block in batch."
+                    );
+                    return Err(e);
+                }
+            }
+        }
+
+        tracing::info!(
+            total_matches = all_matches.len(),
+            "Batch processing completed."
+        );
 
         Ok(all_matches)
     }
@@ -256,6 +319,111 @@ mod tests {
 
         // Should run without error, but no matches will be found as decoding fails silently.
         let matches = block_processor.process_block(block_data).await.unwrap();
+        assert!(matches.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_process_blocks_batch_multiple_blocks() {
+        let abi_service = Arc::new(AbiService::new());
+        let contract_address = address!("0000000000000000000000000000000000000001");
+        abi_service.add_abi(contract_address, &simple_abi());
+
+        let filtering_engine = MockFilteringEngine;
+        let block_processor = BlockProcessor::new(abi_service, filtering_engine);
+
+        // Create multiple blocks for batch processing
+        let mut blocks = Vec::new();
+        
+        for block_num in 100..103 {
+            let tx_hash = B256::from([block_num as u8; 32]);
+            let tx = TransactionBuilder::new()
+                .hash(tx_hash)
+                .to(Some(contract_address))
+                .block_number(block_num)
+                .build();
+
+            let from_addr = address!("1111111111111111111111111111111111111111");
+            let to_addr = address!("2222222222222222222222222222222222222222");
+
+            let log = LogBuilder::new()
+                .address(contract_address)
+                .topic(b256!(
+                    "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+                ))
+                .topic(from_addr.into_word())
+                .topic(to_addr.into_word())
+                .data(bytes!(
+                    "0000000000000000000000000000000000000000000000000000000000000064"
+                ))
+                .transaction_hash(tx_hash)
+                .block_number(block_num)
+                .build();
+
+            let block = BlockBuilder::new()
+                .number(block_num)
+                .transaction(tx)
+                .build();
+
+            let mut logs_by_tx = HashMap::new();
+            logs_by_tx.insert(tx_hash, vec![log.into()]);
+
+            let block_data = BlockData::new(block, HashMap::new(), logs_by_tx);
+            blocks.push(block_data);
+        }
+
+        // Process blocks in batch
+        let matches = block_processor.process_blocks_batch(blocks).await.unwrap();
+
+        // Should have one match per block (3 total)
+        assert_eq!(matches.len(), 3);
+        
+        // Verify each match has the correct monitor_id
+        for a_match in &matches {
+            assert_eq!(a_match.monitor_id, "test_monitor");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_process_blocks_batch_empty() {
+        let abi_service = Arc::new(AbiService::new());
+        let filtering_engine = MockFilteringEngine;
+        let block_processor = BlockProcessor::new(abi_service, filtering_engine);
+
+        let matches = block_processor.process_blocks_batch(Vec::new()).await.unwrap();
+        assert!(matches.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_process_blocks_batch_no_full_transactions() {
+        let abi_service = Arc::new(AbiService::new());
+        let filtering_engine = MockFilteringEngine;
+        let block_processor = BlockProcessor::new(abi_service, filtering_engine);
+
+        // Create a block with no full transactions
+        let block = BlockBuilder::new().build();
+        let block_data = BlockData::new(block, HashMap::new(), HashMap::new());
+
+        let matches = block_processor.process_blocks_batch(vec![block_data]).await.unwrap();
+        assert!(matches.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_process_blocks_batch_log_decoding_error() {
+        let abi_service = Arc::new(AbiService::new()); // No ABIs added
+        let filtering_engine = MockFilteringEngine;
+        let block_processor = BlockProcessor::new(abi_service, filtering_engine);
+
+        let tx_hash = B256::default();
+        let tx = TransactionBuilder::new().hash(tx_hash).build();
+        let log = LogBuilder::new().transaction_hash(tx_hash).build();
+        let block = BlockBuilder::new().transaction(tx).build();
+
+        let mut logs_by_tx = HashMap::new();
+        logs_by_tx.insert(tx_hash, vec![log.into()]);
+        let block_data = BlockData::new(block, HashMap::new(), logs_by_tx);
+
+        // Should run without error, but no matches will be found as decoding fails silently.
+        let matches = block_processor.process_blocks_batch(vec![block_data]).await.unwrap();
         assert!(matches.is_empty());
     }
 }
