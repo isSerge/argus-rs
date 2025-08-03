@@ -60,9 +60,7 @@ mod tests {
         let tx_hash = b256!("1111111111111111111111111111111111111111111111111111111111111111");
         let tx = TransactionBuilder::new()
             .hash(tx_hash)
-            .to(Some(address!(
-                "0000000000000000000000000000000000000001"
-            )))
+            .to(Some(address!("0000000000000000000000000000000000000001")))
             .build();
 
         let block = BlockBuilder::new()

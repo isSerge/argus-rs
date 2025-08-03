@@ -116,12 +116,11 @@ mod tests {
             block_data::BlockData, correlated_data::CorrelatedBlockItem,
             monitor_match::MonitorMatch,
         },
-        test_helpers::{LogBuilder, TransactionBuilder},
+        test_helpers::{BlockBuilder, LogBuilder, TransactionBuilder},
     };
     use alloy::{
         json_abi::JsonAbi,
         primitives::{B256, address, b256, bytes},
-        rpc::types::{Block, BlockTransactions, Header},
     };
     use async_trait::async_trait;
     use std::{collections::HashMap, sync::Arc};
@@ -170,6 +169,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_process_block_happy_path() {
+        let block_number = 123;
         // 1. Setup ABI Service
         let abi_service = Arc::new(AbiService::new());
         let contract_address = address!("0000000000000000000000000000000000000001");
@@ -180,7 +180,7 @@ mod tests {
         let tx = TransactionBuilder::new()
             .hash(tx_hash)
             .to(Some(contract_address))
-            .block_number(123)
+            .block_number(block_number)
             .build();
 
         let from_addr = address!("1111111111111111111111111111111111111111");
@@ -197,18 +197,15 @@ mod tests {
                 "0000000000000000000000000000000000000000000000000000000000000064"
             ))
             .transaction_hash(tx_hash)
-            .block_number(123)
+            .block_number(block_number)
             .build();
 
         // 3. Setup BlockData
-        let mut header: Header = Header::default();
-        header.number = 123;
+        let block = BlockBuilder::new()
+            .number(block_number)
+            .transaction(tx)
+            .build();
 
-        let block = Block {
-            header,
-            transactions: BlockTransactions::Full(vec![tx.0]),
-            ..Default::default()
-        };
         let mut logs_by_tx = HashMap::new();
         logs_by_tx.insert(tx_hash, vec![log.into()]);
 
@@ -234,10 +231,8 @@ mod tests {
         let filtering_engine = MockFilteringEngine;
         let block_processor = BlockProcessor::new(abi_service, filtering_engine);
 
-        let block = Block {
-            transactions: BlockTransactions::Hashes(vec![B256::default()]),
-            ..Default::default()
-        };
+        // Create a block with no full transactions
+        let block = BlockBuilder::new().build();
         let block_data = BlockData::new(block, HashMap::new(), HashMap::new());
 
         let matches = block_processor.process_block(block_data).await.unwrap();
@@ -253,11 +248,8 @@ mod tests {
         let tx_hash = B256::default();
         let tx = TransactionBuilder::new().hash(tx_hash).build();
         let log = LogBuilder::new().transaction_hash(tx_hash).build();
+        let block = BlockBuilder::new().transaction(tx).build();
 
-        let block = Block {
-            transactions: BlockTransactions::Full(vec![tx.0]),
-            ..Default::default()
-        };
         let mut logs_by_tx = HashMap::new();
         logs_by_tx.insert(tx_hash, vec![log.into()]);
         let block_data = BlockData::new(block, HashMap::new(), logs_by_tx);
