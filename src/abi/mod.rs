@@ -263,9 +263,10 @@ impl AbiService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_helpers::TransactionBuilder;
     use alloy::{
-        consensus::{TxEnvelope, transaction::Recovered},
         primitives::{self, Bytes, LogData, U256, address, b256, bytes},
+        rpc::types::Log,
     };
 
     fn simple_abi() -> JsonAbi {
@@ -350,48 +351,36 @@ mod tests {
         assert_eq!(decoded.params[2].1, amount.into());
     }
 
-    // #[test]
-    // fn test_decode_known_function() {
-    //     let service = AbiService::new();
-    //     let abi = simple_abi();
-    //     let contract_address = address!("0000000000000000000000000000000000000001");
-    //     service.add_abi(contract_address, &abi);
+    #[test]
+    fn test_decode_known_function() {
+        let service = AbiService::new();
+        let abi = simple_abi();
+        let contract_address = address!("0000000000000000000000000000000000000001");
+        service.add_abi(contract_address, &abi);
 
-    //     let to_addr = address!("2222222222222222222222222222222222222222");
-    //     let amount = U256::from(100);
+        let to_addr = address!("2222222222222222222222222222222222222222");
+        let amount = U256::from(100);
 
-    //     let mut input_data = bytes!("a9059cbb").to_vec(); // transfer selector
-    //     input_data.extend_from_slice(to_addr.as_slice());
-    //     input_data.extend_from_slice(&amount.to_be_bytes_vec());
+        let mut input_data = bytes!("a9059cbb").to_vec();
+        let to_addr_bytes = to_addr.as_slice(); // Returns &[u8] of length 20
+        let mut padded_addr = [0u8; 32];
+        padded_addr[12..].copy_from_slice(to_addr_bytes); // Copy address to last 20 bytes
+        input_data.extend_from_slice(&padded_addr);
+        input_data.extend_from_slice(&amount.to_be_bytes_vec());
 
-    //     let rpc_tx = r#"{
-    //         "blockHash":"0x8e38b4dbf6b11fcc3b9dee84fb7986e29ca0a02cecd8977c161ff7333329681e",
-    //         "blockNumber":"0xf4240",
-    //         "hash":"0xe9e91f1ee4b56c0df2e9f06c2b8c27c6076195a88a7b8537ba8313d80e6f124e",
-    //         "transactionIndex":"0x1",
-    //         "type":"0x0",
-    //         "nonce":"0x43eb",
-    //         "input":${input_data:?},
-    //         "r":"0x3b08715b4403c792b8c7567edea634088bedcd7f60d9352b1f16c69830f3afd5",
-    //         "s":"0x10b9afb67d2ec8b956f0e1dbc07eb79152904f3a7bf789fc869db56320adfe09",
-    //         "chainId":"0x0",
-    //         "v":"0x1c",
-    //         "gas":"0xc350",
-    //         "from":"0x32be343b94f860124dc4fee278fdcbd38c102d88",
-    //         "to":"0xdf190dc7190dfba737d7777a163445b7fff16133",
-    //         "value":"0x6113a84987be800",
-    //         "gasPrice":"0xdf8475800"
-    //     }"#;
-    //     let tx = serde_json::from_str::<Transaction>(rpc_tx).unwrap();
+        let tx = TransactionBuilder::new()
+            .to(contract_address)
+            .input(Bytes::from(input_data))
+            .build();
 
-    //     let decoded = service.decode_function_input(&tx).unwrap();
-    //     assert_eq!(decoded.name, "transfer");
-    //     assert_eq!(decoded.params.len(), 2);
-    //     assert_eq!(decoded.params[0].0, "to");
-    //     assert_eq!(decoded.params[0].1, to_addr.into());
-    //     assert_eq!(decoded.params[1].0, "amount");
-    //     assert_eq!(decoded.params[1].1, amount.into());
-    // }
+        let decoded = service.decode_function_input(&tx).unwrap();
+        assert_eq!(decoded.name, "transfer");
+        assert_eq!(decoded.params.len(), 2);
+        assert_eq!(decoded.params[0].0, "to");
+        assert_eq!(decoded.params[0].1, to_addr.into());
+        assert_eq!(decoded.params[1].0, "amount");
+        assert_eq!(decoded.params[1].1, amount.into());
+    }
 
     #[test]
     fn test_decode_log_not_found() {
@@ -401,11 +390,15 @@ mod tests {
         assert!(matches!(err, AbiError::AbiNotFound(_)));
     }
 
-    // #[test]
-    // fn test_decode_function_not_found() {
-    //     let service = AbiService::new();
-    //     let tx = Transaction::default();
-    //     let err = service.decode_function_input(&tx).unwrap_err();
-    //     assert!(matches!(err, AbiError::AbiNotFound(_)));
-    // }
+    #[test]
+    fn test_decode_function_not_found() {
+        let service = AbiService::new();
+        let tx = TransactionBuilder::new()
+            .input(Bytes::from(vec![0u8; 32]))
+            .to(Address::default())
+            .build();
+        let err = service.decode_function_input(&tx).unwrap_err();
+
+        assert!(matches!(err, AbiError::AbiNotFound(_)));
+    }
 }
