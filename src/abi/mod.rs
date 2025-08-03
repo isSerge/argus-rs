@@ -82,7 +82,7 @@ pub enum AbiError {
 }
 
 /// Represents a decoded event log.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DecodedLog<'a> {
     /// The name of the decoded event.
     pub name: String,
