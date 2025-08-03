@@ -7,19 +7,22 @@ use crate::models::monitor_match::MonitorMatch;
 use crate::models::transaction::Transaction;
 use alloy::dyn_abi::DynSolValue;
 use async_trait::async_trait;
+#[cfg(test)]
+use mockall::automock;
 use rhai::{Dynamic, Engine, Map, Scope};
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 /// A trait for an engine that applies filtering logic to block data.
+#[cfg_attr(test, automock)]
 #[async_trait]
 pub trait FilteringEngine: Send + Sync {
     /// Evaluates the provided correlated block item against configured monitor rules.
     /// Returns a vector of `MonitorMatch` if any conditions are met.
-    async fn evaluate_item(
+    async fn evaluate_item<'a>(
         &self,
-        item: &CorrelatedBlockItem<'_>,
+        item: &CorrelatedBlockItem<'a>,
     ) -> Result<Vec<MonitorMatch>, Box<dyn std::error::Error + Send + Sync>>;
 
     /// Updates the set of monitors used by the engine.
@@ -68,10 +71,10 @@ impl RhaiFilteringEngine {
 
 #[async_trait]
 impl FilteringEngine for RhaiFilteringEngine {
-    #[tracing::instrument(skip(self, item), fields(tx_hash = %item.tx_hash()))]
-    async fn evaluate_item(
+    #[tracing::instrument(skip(self, item))]
+    async fn evaluate_item<'a>(
         &self,
-        item: &CorrelatedBlockItem<'_>,
+        item: &CorrelatedBlockItem<'a>,
     ) -> Result<Vec<MonitorMatch>, Box<dyn std::error::Error + Send + Sync>> {
         let mut matches = Vec::new();
         let monitors = self.monitors.read().await;
