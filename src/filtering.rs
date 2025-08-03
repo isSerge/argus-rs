@@ -7,12 +7,12 @@ use crate::models::monitor_match::MonitorMatch;
 use crate::models::transaction::Transaction;
 use alloy::dyn_abi::DynSolValue;
 use async_trait::async_trait;
+use dashmap::DashMap;
 #[cfg(test)]
 use mockall::automock;
 use rhai::{Dynamic, Engine, Map, Scope};
 use serde_json::Value;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 
 /// A trait for an engine that applies filtering logic to block data.
 #[cfg_attr(test, automock)]
@@ -32,7 +32,7 @@ pub trait FilteringEngine: Send + Sync {
 /// A Rhai-based implementation of the `FilteringEngine`.
 #[derive(Debug)]
 pub struct RhaiFilteringEngine {
-    monitors: Arc<RwLock<Vec<Monitor>>>,
+    monitors_by_address: Arc<DashMap<String, Vec<Monitor>>>,
     engine: Engine,
 }
 
@@ -42,8 +42,16 @@ impl RhaiFilteringEngine {
         let mut engine = Engine::new();
         engine.set_max_operations(1_000_000); // Prevent runaway scripts
 
+        let monitors_by_address: DashMap<String, Vec<Monitor>> = DashMap::new();
+        for monitor in monitors {
+            monitors_by_address
+                .entry(monitor.address.clone())
+                .or_default()
+                .push(monitor);
+        }
+
         Self {
-            monitors: Arc::new(RwLock::new(monitors)),
+            monitors_by_address: Arc::new(monitors_by_address),
             engine,
         }
     }
@@ -77,65 +85,73 @@ impl FilteringEngine for RhaiFilteringEngine {
         item: &CorrelatedBlockItem<'a>,
     ) -> Result<Vec<MonitorMatch>, Box<dyn std::error::Error + Send + Sync>> {
         let mut matches = Vec::new();
-        let monitors = self.monitors.read().await;
+        
+        // If no monitors are configured, return early
+        if self.monitors_by_address.is_empty() {
+            return Ok(matches);
+        }
+
+        // Build a transaction map for the item to access transaction data in the script
         let tx_map = Self::build_tx_map(item.transaction);
 
         // Iterate over decoded logs in the item
         for log in &item.decoded_logs {
             let log_address_str = format!("{:?}", log.log.address());
 
-            // Check each monitor against the log
-            for monitor in monitors.iter() {
-                if !monitor.address.is_empty() && monitor.address != log_address_str {
-                    continue;
-                }
+            // Efficiently look up monitors for the current log's address
+            if let Some(monitors) = self.monitors_by_address.get(&log_address_str) {
+                for monitor in monitors.iter() {
+                    // Build trigger data from log parameters
+                    let trigger_data = {
+                        let mut data = serde_json::Map::new();
+                        for (name, value) in &log.params {
+                            data.insert(name.clone(), dyn_sol_value_to_json(value));
+                        }
+                        Value::Object(data)
+                    };
 
-                // Build trigger data from log parameters
-                let trigger_data = {
-                    let mut data = serde_json::Map::new();
-                    for (name, value) in &log.params {
-                        data.insert(name.clone(), dyn_sol_value_to_json(value));
-                    }
-                    Value::Object(data)
-                };
+                    // Create a new scope for the monitor evaluation
+                    let mut scope = Scope::new();
+                    scope.push("tx", tx_map.clone());
+                    scope.push("log", Self::build_log_map(log, &trigger_data));
 
-                // Create a new scope for the monitor evaluation
-                let mut scope = Scope::new();
-                scope.push("tx", tx_map.clone());
-                scope.push("log", Self::build_log_map(log, &trigger_data));
+                    // Compile and evaluate the monitor's filter script
+                    let ast = match self.engine.compile(&monitor.filter_script) {
+                        Ok(ast) => ast,
+                        Err(e) => {
+                            tracing::error!(
+                                monitor_id = monitor.id,
+                                "Failed to compile script: {}",
+                                e
+                            );
+                            continue;
+                        }
+                    };
 
-                // Compile and evaluate the monitor's filter script
-                let ast = match self.engine.compile(&monitor.filter_script) {
-                    Ok(ast) => ast,
-                    Err(e) => {
-                        tracing::error!(monitor_id = monitor.id, "Failed to compile script: {}", e);
-                        continue;
-                    }
-                };
-
-                // Evaluate the script with the current scope
-                match self.engine.eval_ast_with_scope::<bool>(&mut scope, &ast) {
-                    Ok(true) => {
-                        let monitor_match = MonitorMatch {
-                            monitor_id: monitor.id,
-                            block_number: log.log.block_number().unwrap_or(0),
-                            transaction_hash: log.log.transaction_hash().unwrap_or_default(),
-                            contract_address: log.log.address(),
-                            trigger_name: log.name.clone(),
-                            trigger_data,
-                            log_index: log.log.log_index(),
-                        };
-                        matches.push(monitor_match);
-                    }
-                    Ok(false) => {
-                        tracing::debug!(monitor_id = monitor.id, "Monitor condition not met.");
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            monitor_id = monitor.id,
-                            "Failed to evaluate script: {}",
-                            e
-                        );
+                    // Evaluate the script with the current scope
+                    match self.engine.eval_ast_with_scope::<bool>(&mut scope, &ast) {
+                        Ok(true) => {
+                            let monitor_match = MonitorMatch {
+                                monitor_id: monitor.id,
+                                block_number: log.log.block_number().unwrap_or(0),
+                                transaction_hash: log.log.transaction_hash().unwrap_or_default(),
+                                contract_address: log.log.address(),
+                                trigger_name: log.name.clone(),
+                                trigger_data,
+                                log_index: log.log.log_index(),
+                            };
+                            matches.push(monitor_match);
+                        }
+                        Ok(false) => {
+                            tracing::debug!(monitor_id = monitor.id, "Monitor condition not met.");
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                monitor_id = monitor.id,
+                                "Failed to evaluate script: {}",
+                                e
+                            );
+                        }
                     }
                 }
             }
@@ -146,8 +162,13 @@ impl FilteringEngine for RhaiFilteringEngine {
 
     /// Updates the set of monitors used by the engine.
     async fn update_monitors(&self, monitors: Vec<Monitor>) {
-        let mut self_monitors = self.monitors.write().await;
-        *self_monitors = monitors;
+        self.monitors_by_address.clear();
+        for monitor in monitors {
+            self.monitors_by_address
+                .entry(monitor.address.clone())
+                .or_default()
+                .push(monitor);
+        }
     }
 }
 
