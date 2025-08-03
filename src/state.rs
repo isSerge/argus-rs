@@ -196,7 +196,7 @@ impl StateRepository for SqliteStateRepository {
                 tracing::error!(error = %e, "Failed to set synchronous mode during flush.");
                 e
             })?;
-
+            
         // Force a checkpoint to flush WAL to main database
         sqlx::query("PRAGMA wal_checkpoint(PASSIVE)")
             .execute(&self.pool)
@@ -206,6 +206,15 @@ impl StateRepository for SqliteStateRepository {
                 e
             })?;
 
+        // Revert synchronous mode to NORMAL for better performance during normal operations
+        sqlx::query("PRAGMA synchronous = NORMAL")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!(error = %e, "Failed to revert synchronous mode after flush.");
+                e
+            })?;
+            
         tracing::debug!("Pending writes flushed successfully.");
         Ok(())
     }
