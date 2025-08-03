@@ -185,25 +185,43 @@ impl TransactionBuilder {
         let chain_id = self.chain_id.unwrap_or(1);
         let tx_type = self.tx_type.unwrap_or(TxType::Eip1559);
 
-        // Create a JSON representation of a transaction that we can deserialize
-        let to_field = match self.to {
-            Some(addr) => format!("\"0x{addr:x}\""),
-            None => "null".to_string(),
+        // Create a struct for serialization
+        #[derive(Serialize)]
+        struct SerializableTransaction<'a> {
+            hash: String,
+            nonce: String,
+            block_hash: String,
+            block_number: String,
+            transaction_index: String,
+            from: String,
+            to: Option<String>,
+            value: String,
+            gas: String,
+            input: String,
+            max_fee_per_gas: String,
+            max_priority_fee_per_gas: String,
+            chain_id: String,
+            r#type: String,
+        }
+
+        let ser_tx = SerializableTransaction {
+            hash: format!("0x{hash:x}"),
+            nonce: format!("0x{nonce:x}"),
+            block_hash: format!("0x{block_hash:x}"),
+            block_number: format!("0x{block_number:x}"),
+            transaction_index: format!("0x{transaction_index:x}"),
+            from: format!("0x{actual_from:x}"),
+            to: self.to.map(|addr| format!("0x{addr:x}")),
+            value: format!("0x{actual_value:x}"),
+            gas: format!("0x{gas_limit:x}"),
+            input: format!("0x{}", hex::encode(&self.input)),
+            max_fee_per_gas: format!("0x{max_fee_per_gas:x}"),
+            max_priority_fee_per_gas: format!("0x{max_priority_fee_per_gas:x}"),
+            chain_id: format!("0x{chain_id:x}"),
+            r#type: format!("0x{:x}", tx_type as u8),
         };
 
-        let input_hex = format!("0x{}", hex::encode(&self.input));
-        let value_hex = format!("0x{actual_value:x}");
-        let from_hex = format!("0x{actual_from:x}");
-        let nonce_hex = format!("0x{nonce:x}");
-        let gas_hex = format!("0x{gas_limit:x}");
-        let hash_hex = format!("0x{hash:x}");
-        let block_hash_hex = format!("0x{block_hash:x}");
-        let block_number_hex = format!("0x{block_number:x}");
-        let transaction_index_hex = format!("0x{transaction_index:x}");
-        let max_fee_per_gas_hex = format!("0x{max_fee_per_gas:x}");
-        let max_priority_fee_per_gas_hex = format!("0x{max_priority_fee_per_gas:x}");
-        let chain_id_hex = format!("0x{chain_id:x}");
-        let tx_type_hex = format!("0x{:x}", tx_type as u8);
+        let json = serde_json::to_string(&ser_tx).expect("Failed to serialize transaction");
 
         // Build different JSON based on transaction type
         let tx_json = if tx_type == TxType::Legacy {
