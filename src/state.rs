@@ -94,14 +94,28 @@ impl SqliteStateRepository {
 
     /// Performs a WAL checkpoint with the specified mode
     async fn checkpoint_wal(&self, mode: &str) -> Result<(), sqlx::Error> {
-        let pragma = format!("PRAGMA wal_checkpoint({})", mode);
-        self.execute_pragma(&pragma, &format!("WAL checkpoint {}", mode)).await
+        let allowed_modes = ["PASSIVE", "TRUNCATE", "RESTART", "RESTART_OR_TRUNCATE"];
+        if !allowed_modes.contains(&mode) {
+            return Err(sqlx::Error::Protocol(format!(
+                "Invalid WAL checkpoint mode: {mode}"
+            )));
+        }
+        let pragma = format!("PRAGMA wal_checkpoint({mode})");
+        self.execute_pragma(&pragma, &format!("WAL checkpoint {mode}"))
+            .await
     }
 
     /// Sets the synchronous mode
     async fn set_synchronous_mode(&self, mode: &str) -> Result<(), sqlx::Error> {
-        let pragma = format!("PRAGMA synchronous = {}", mode);
-        self.execute_pragma(&pragma, &format!("set synchronous mode to {}", mode)).await
+        let allowed_modes = ["OFF", "NORMAL", "FULL"];
+        if !allowed_modes.contains(&mode) {
+            return Err(sqlx::Error::Protocol(format!(
+                "Invalid synchronous mode: {mode}"
+            )));
+        }
+        let pragma = format!("PRAGMA synchronous = {mode}");
+        self.execute_pragma(&pragma, &format!("set synchronous mode to {mode}"))
+            .await
     }
 
     /// Helper to execute database queries with consistent error handling
@@ -126,7 +140,7 @@ impl StateRepository for SqliteStateRepository {
     #[tracing::instrument(skip(self), level = "debug")]
     async fn get_last_processed_block(&self, network_id: &str) -> Result<Option<u64>, sqlx::Error> {
         tracing::debug!(network_id, "Querying for last processed block.");
-        
+
         let result: Option<SqliteRow> = self
             .execute_query_with_error_handling(
                 "query last processed block",
@@ -176,7 +190,7 @@ impl StateRepository for SqliteStateRepository {
             block_number,
             "Attempting to set last processed block."
         );
-        
+
         let block_number_i64 = i64::try_from(block_number).map_err(|error| {
             tracing::error!(error = %error, block_number, "Failed to convert block_number to i64 for database insertion.");
             sqlx::Error::ColumnDecode {
@@ -187,10 +201,12 @@ impl StateRepository for SqliteStateRepository {
 
         self.execute_query_with_error_handling(
             "set last processed block",
-            sqlx::query("INSERT OR REPLACE INTO processed_blocks (network_id, block_number) VALUES (?, ?)")
-                .bind(network_id)
-                .bind(block_number_i64)
-                .execute(&self.pool),
+            sqlx::query(
+                "INSERT OR REPLACE INTO processed_blocks (network_id, block_number) VALUES (?, ?)",
+            )
+            .bind(network_id)
+            .bind(block_number_i64)
+            .execute(&self.pool),
         )
         .await?;
 
@@ -221,13 +237,13 @@ impl StateRepository for SqliteStateRepository {
 
         // Temporarily set synchronous mode to FULL for maximum durability
         self.set_synchronous_mode("FULL").await?;
-            
+
         // Force a checkpoint to flush WAL to main database
         self.checkpoint_wal("TRUNCATE").await?;
 
         // Revert synchronous mode to NORMAL for better performance during normal operations
         self.set_synchronous_mode("NORMAL").await?;
-            
+
         tracing::debug!("Pending writes flushed successfully.");
         Ok(())
     }
@@ -248,7 +264,8 @@ impl StateRepository for SqliteStateRepository {
         );
 
         // Save the current state and flush to ensure it's persisted
-        self.set_last_processed_block(network_id, block_number).await?;
+        self.set_last_processed_block(network_id, block_number)
+            .await?;
         self.flush().await?;
 
         tracing::info!(
