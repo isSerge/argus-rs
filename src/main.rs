@@ -214,18 +214,14 @@ async fn monitor_cycle(
             );
 
             // Save emergency state if we made any progress
-            if blocks_processed_this_cycle > 0
-                && let Err(e) = repo
-                    .save_emergency_state(
-                        network_id,
-                        last_processed,
-                        &format!(
-                            "Shutdown during cycle, processed {blocks_processed_this_cycle} blocks"
-                        ),
-                    )
-                    .await
-            {
-                tracing::error!(error = %e, "Failed to save emergency state during shutdown.");
+            if last_processed >= from_block {
+                if let Err(e) = repo.save_emergency_state(
+                    network_id, 
+                    last_processed, 
+                    &format!("Shutdown during cycle, processed {} blocks", blocks_processed_this_cycle)
+                ).await {
+                    tracing::error!(error = %e, "Failed to save emergency state during shutdown.");
+                }
             }
             break;
         }
