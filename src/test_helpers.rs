@@ -71,8 +71,8 @@ impl TransactionBuilder {
     }
 
     /// Sets the `to` address for the transaction.
-    pub fn to(mut self, to: Address) -> Self {
-        self.to = Some(to);
+    pub fn to(mut self, to: Option<Address>) -> Self {
+        self.to = to;
         self
     }
 
@@ -279,7 +279,7 @@ mod tests {
         let input_data = Bytes::from(vec![0xa9, 0x05, 0x9c, 0xbb]); // transfer function selector
 
         let tx = TransactionBuilder::new()
-            .to(contract_addr)
+            .to(Some(contract_addr))
             .from(from_addr)
             .input(input_data.clone())
             .value(U256::from(1000))
@@ -318,7 +318,7 @@ mod tests {
         let block_hash = b256!("2222222222222222222222222222222222222222222222222222222222222222");
 
         let tx = TransactionBuilder::new()
-            .to(contract_addr)
+            .to(Some(contract_addr))
             .from(from_addr)
             .input(input_data.clone())
             .value(U256::from(5000))
@@ -358,7 +358,7 @@ mod tests {
         let input_data = Bytes::from(vec![0xa9, 0x05, 0x9c, 0xbb]);
 
         let tx = TransactionBuilder::new()
-            .to(contract_addr)
+            .to(Some(contract_addr))
             .from(from_addr)
             .input(input_data.clone())
             .value(U256::from(1000))

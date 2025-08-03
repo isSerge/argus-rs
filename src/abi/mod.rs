@@ -369,7 +369,7 @@ mod tests {
         input_data.extend_from_slice(&amount.to_be_bytes_vec());
 
         let tx = TransactionBuilder::new()
-            .to(contract_address)
+            .to(Some(contract_address))
             .input(Bytes::from(input_data))
             .build();
 
@@ -395,7 +395,7 @@ mod tests {
         let service = AbiService::new();
         let tx = TransactionBuilder::new()
             .input(Bytes::from(vec![0u8; 32]))
-            .to(Address::default())
+            .to(Some(Address::default()))
             .build();
         let err = service.decode_function_input(&tx).unwrap_err();
         assert!(matches!(err, AbiError::AbiNotFound(_)));
@@ -409,7 +409,7 @@ mod tests {
         service.add_abi(contract_address, &abi);
 
         let tx = TransactionBuilder::new()
-            .to(contract_address)
+            .to(Some(contract_address))
             .input(Bytes::from(vec![0x12, 0x34, 0x56, 0x78])) // Unknown selector
             .build();
 
@@ -425,7 +425,7 @@ mod tests {
         service.add_abi(contract_address, &abi);
 
         // Default transaction has no input data
-        let tx = TransactionBuilder::new().to(contract_address).build();
+        let tx = TransactionBuilder::new().to(Some(contract_address)).build();
 
         let err = service.decode_function_input(&tx).unwrap_err();
         assert!(matches!(err, AbiError::InputTooShort));
@@ -472,5 +472,15 @@ mod tests {
 
         let err = service.decode_log(&log).unwrap_err();
         assert!(matches!(err, AbiError::LogHasNoTopics));
+    }
+
+    #[test]
+    fn test_decode_contract_creation() {
+        let service = AbiService::new();
+        // Contract creation transactions have `to` as None.
+        let tx = TransactionBuilder::new().to(None).build();
+
+        let err = service.decode_function_input(&tx).unwrap_err();
+        assert!(matches!(err, AbiError::ContractCreation));
     }
 }
