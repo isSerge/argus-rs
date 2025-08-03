@@ -483,4 +483,52 @@ mod tests {
         let err = service.decode_function_input(&tx).unwrap_err();
         assert!(matches!(err, AbiError::ContractCreation));
     }
+
+    #[test]
+    fn test_decode_function_with_malformed_input() {
+        let service = AbiService::new();
+        let abi = simple_abi();
+        let contract_address = address!("0000000000000000000000000000000000000001");
+        service.add_abi(contract_address, &abi);
+
+        // `transfer` selector, but the data is just a single byte.
+        let input_data = bytes!("a9059cbb00").to_vec();
+
+        let tx = TransactionBuilder::new()
+            .to(Some(contract_address))
+            .input(Bytes::from(input_data))
+            .build();
+
+        let err = service.decode_function_input(&tx).unwrap_err();
+        assert!(matches!(err, AbiError::DecodingError(_)));
+    }
+
+    #[test]
+    fn test_decode_log_with_malformed_data() {
+        let service = AbiService::new();
+        let abi = simple_abi();
+        let contract_address = address!("0000000000000000000000000000000000000001");
+        service.add_abi(contract_address, &abi);
+
+        let from = address!("1111111111111111111111111111111111111111");
+        let to = address!("2222222222222222222222222222222222222222");
+
+        let log = Log {
+            inner: primitives::Log {
+                address: contract_address,
+                data: LogData::new_unchecked(
+                    vec![
+                        b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"), // Transfer event signature
+                        from.into_word(),
+                        to.into_word(),
+                    ],
+                    bytes!("00000001"), // Malformed data: too short for uint256
+                ),
+            },
+            ..Default::default()
+        };
+
+        let err = service.decode_log(&log).unwrap_err();
+        assert!(matches!(err, AbiError::DecodingError(_)));
+    }
 }
