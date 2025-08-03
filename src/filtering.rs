@@ -85,7 +85,7 @@ impl FilteringEngine for RhaiFilteringEngine {
         item: &CorrelatedBlockItem<'a>,
     ) -> Result<Vec<MonitorMatch>, Box<dyn std::error::Error + Send + Sync>> {
         let mut matches = Vec::new();
-        
+
         // If no monitors are configured, return early
         if self.monitors_by_address.is_empty() {
             return Ok(matches);
@@ -188,3 +188,76 @@ fn dyn_sol_value_to_json(value: &DynSolValue) -> Value {
         _ => Value::Null,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::log::Log;
+    use crate::test_helpers::{TransactionBuilder, LogBuilder};
+    use alloy::primitives::{Address, U256};
+
+    fn create_test_monitor(id: i64, address: &str, script: &str) -> Monitor {
+        Monitor {
+            id,
+            name: format!("Test Monitor {id}"),
+            network: "testnet".to_string(),
+            address: address.to_string(),
+            filter_script: script.to_string(),
+        }
+    }
+
+    fn create_test_log_and_tx<'a>(
+        log_address: Address,
+        log_name: &'a str,
+        log_params: Vec<(String, DynSolValue)>,
+    ) -> (Transaction, DecodedLog<'a>) {
+        let tx = TransactionBuilder::new().build();
+        let log_raw = LogBuilder::new().address(log_address).build();
+        let log = DecodedLog {
+            name: log_name.to_string(),
+            params: log_params,
+            log: Box::leak(Box::new(log_raw)), // Leak to get 'a lifetime
+        };
+        (tx.into(), log)
+    }
+
+    #[tokio::test]
+    async fn test_new_and_update_monitors_grouping() {
+        let addr1 = "0x0000000000000000000000000000000000000001";
+        let addr2 = "0x0000000000000000000000000000000000000002";
+
+        let monitor1 = create_test_monitor(1, addr1, "true");
+        let monitor2 = create_test_monitor(2, addr2, "true");
+        let monitor3 = create_test_monitor(3, addr1, "true");
+
+        // Test `new()`
+        let engine = RhaiFilteringEngine::new(vec![monitor1.clone(), monitor2.clone(), monitor3.clone()]);
+        assert_eq!(engine.monitors_by_address.len(), 2);
+        assert_eq!(engine.monitors_by_address.get(addr1).unwrap().len(), 2);
+        assert_eq!(engine.monitors_by_address.get(addr2).unwrap().len(), 1);
+
+        // Test `update_monitors()`
+        let monitor4 = create_test_monitor(4, addr2, "true");
+        engine.update_monitors(vec![monitor1.clone(), monitor4.clone()]).await;
+        assert_eq!(engine.monitors_by_address.len(), 2);
+        assert_eq!(engine.monitors_by_address.get(addr1).unwrap().len(), 1);
+        assert_eq!(engine.monitors_by_address.get(addr2).unwrap().len(), 1);
+        assert_eq!(engine.monitors_by_address.get(addr2).unwrap()[0].id, 4);
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_item_simple_match() {
+        let addr = alloy::primitives::address!("0000000000000000000000000000000000000001");
+        let monitor = create_test_monitor(1, &format!("{addr:?}"), "log.name == \"Transfer\"");
+        let engine = RhaiFilteringEngine::new(vec![monitor]);
+
+        let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
+        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+
+        let matches = engine.evaluate_item(&item).await.unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].monitor_id, 1);
+        assert_eq!(matches[0].trigger_name, "Transfer");
+    }
+}
+
