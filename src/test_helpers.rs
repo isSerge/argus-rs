@@ -175,9 +175,9 @@ impl TransactionBuilder {
         let nonce = self.nonce.unwrap_or(0);
         let gas_limit = self.gas_limit.unwrap_or(21000);
         let hash = self.hash.unwrap_or_else(|| B256::from([0x42; 32]));
-        let block_hash = self.block_hash.unwrap_or_else(|| B256::from([0x43; 32]));
-        let block_number = self.block_number.unwrap_or(1);
-        let transaction_index = self.transaction_index.unwrap_or(0);
+        let block_hash = self.block_hash;
+        let block_number = self.block_number;
+        let transaction_index = self.transaction_index;
         let max_fee_per_gas = self.max_fee_per_gas.unwrap_or(U256::from(2_000_000_000u64));
         let max_priority_fee_per_gas = self
             .max_priority_fee_per_gas
@@ -185,103 +185,37 @@ impl TransactionBuilder {
         let chain_id = self.chain_id.unwrap_or(1);
         let tx_type = self.tx_type.unwrap_or(TxType::Eip1559);
 
-        // Create a struct for serialization
-        #[derive(Serialize)]
-        struct SerializableTransaction<'a> {
-            hash: String,
-            nonce: String,
-            block_hash: String,
-            block_number: String,
-            transaction_index: String,
-            from: String,
-            to: Option<String>,
-            value: String,
-            gas: String,
-            input: String,
-            max_fee_per_gas: String,
-            max_priority_fee_per_gas: String,
-            chain_id: String,
-            r#type: String,
-        }
-
-        let ser_tx = SerializableTransaction {
-            hash: format!("0x{hash:x}"),
-            nonce: format!("0x{nonce:x}"),
-            block_hash: format!("0x{block_hash:x}"),
-            block_number: format!("0x{block_number:x}"),
-            transaction_index: format!("0x{transaction_index:x}"),
-            from: format!("0x{actual_from:x}"),
-            to: self.to.map(|addr| format!("0x{addr:x}")),
-            value: format!("0x{actual_value:x}"),
-            gas: format!("0x{gas_limit:x}"),
-            input: format!("0x{}", hex::encode(&self.input)),
-            max_fee_per_gas: format!("0x{max_fee_per_gas:x}"),
-            max_priority_fee_per_gas: format!("0x{max_priority_fee_per_gas:x}"),
-            chain_id: format!("0x{chain_id:x}"),
-            r#type: format!("0x{:x}", tx_type as u8),
-        };
-
-        let json = serde_json::to_string(&ser_tx).expect("Failed to serialize transaction");
+        let mut tx_json = serde_json::json!({
+            "hash": hash,
+            "nonce": nonce,
+            "blockHash": block_hash,
+            "blockNumber": block_number,
+            "transactionIndex": transaction_index,
+            "from": actual_from,
+            "to": self.to,
+            "value": actual_value,
+            "gas": gas_limit,
+            "input": self.input,
+            "chainId": chain_id,
+            "type": tx_type,
+            "r": "0x1b41f7bcd8c7c8d35d9f4d3a1f9c8e7b6a5d9c8e7f1a2b3c4d5e6f7a8b9c0d1",
+            "s": "0x2c52f8cdd9d8d46e8a0e5d4b2f0d9f8c7b6e0d9f8a2b3d4e5f6a8b9c0d1f2a3",
+            "v": "0x1"
+        });
 
         // Build different JSON based on transaction type
-        let tx_json = if tx_type == TxType::Legacy {
-            // Legacy transaction
+        if tx_type == TxType::Legacy {
             let gas_price = self.gas_price.unwrap_or(U256::from(1_000_000_000u64));
-            let gas_price_hex = format!("0x{gas_price:x}");
-
-            {
-                let to_json = if to_field == "null" {
-                    serde_json::Value::Null
-                } else {
-                    serde_json::Value::String(to_field.trim_matches('"').to_string())
-                };
-                json!({
-                    "blockHash": block_hash_hex,
-                    "blockNumber": block_number_hex,
-                    "hash": hash_hex,
-                    "transactionIndex": transaction_index_hex,
-                    "type": tx_type_hex,
-                    "nonce": nonce_hex,
-                    "input": input_hex,
-                    "gasPrice": gas_price_hex,
-                    "chainId": chain_id_hex,
-                    "gas": gas_hex,
-                    "from": from_hex,
-                    "to": to_json,
-                    "value": value_hex,
-                    "r": "0x1b41f7bcd8c7c8d35d9f4d3a1f9c8e7b6a5d9c8e7f1a2b3c4d5e6f7a8b9c0d1",
-                    "s": "0x2c52f8cdd9d8d46e8a0e5d4b2f0d9f8c7b6e0d9f8a2b3d4e5f6a8b9c0d1f2a3",
-                    "v": "0x25"
-                }).to_string()
-            }
+            tx_json["gasPrice"] = serde_json::json!(gas_price);
+            tx_json["v"] = serde_json::json!("0x25");
         } else {
-            // EIP-1559 or EIP-2930 transaction
-            format!(
-                r#"{{
-                    "blockHash": "{block_hash_hex}",
-                    "blockNumber": "{block_number_hex}",
-                    "hash": "{hash_hex}",
-                    "transactionIndex": "{transaction_index_hex}",
-                    "type": "{tx_type_hex}",
-                    "nonce": "{nonce_hex}",
-                    "input": "{input_hex}",
-                    "maxFeePerGas": "{max_fee_per_gas_hex}",
-                    "maxPriorityFeePerGas": "{max_priority_fee_per_gas_hex}",
-                    "chainId": "{chain_id_hex}",
-                    "accessList": [],
-                    "gas": "{gas_hex}",
-                    "from": "{from_hex}",
-                    "to": {to_field},
-                    "value": "{value_hex}",
-                    "r": "0x1b41f7bcd8c7c8d35d9f4d3a1f9c8e7b6a5d9c8e7f1a2b3c4d5e6f7a8b9c0d1",
-                    "s": "0x2c52f8cdd9d8d46e8a0e5d4b2f0d9f8c7b6e0d9f8a2b3d4e5f6a8b9c0d1f2a3",
-                    "v": "0x1"
-                }}"#
-            )
-        };
+            tx_json["maxFeePerGas"] = serde_json::json!(max_fee_per_gas);
+            tx_json["maxPriorityFeePerGas"] = serde_json::json!(max_priority_fee_per_gas);
+            tx_json["accessList"] = serde_json::json!([]);
+        }
 
         let alloy_tx: AlloyTransaction =
-            serde_json::from_str(&tx_json).expect("Failed to create transaction from JSON");
+            serde_json::from_value(tx_json).expect("Failed to create transaction from JSON");
 
         Transaction(alloy_tx)
     }
