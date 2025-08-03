@@ -1,149 +1,13 @@
-//! A set of helpers for testing
+//! A builder for creating `Transaction` instances for testing purposes.
 
-use crate::models::{Log, transaction::Transaction};
+use crate::models::transaction::Transaction;
 use alloy::{
-    consensus::{ReceiptEnvelope, ReceiptWithBloom, TxType},
-    primitives::{Address, B256, Bytes, LogData, U256},
-    rpc::types::{Log as AlloyLog, Transaction as AlloyTransaction, TransactionReceipt},
+    consensus::TxType,
+    primitives::{Address, B256, Bytes, U256},
+    rpc::types::Transaction as AlloyTransaction,
 };
 
 const STANDARD_GAS_LIMIT: u64 = 21_000;
-
-/// A builder for creating `Log` instances for testing.
-#[derive(Debug, Clone, Default)]
-pub struct LogBuilder {
-    address: Address,
-    topics: Vec<B256>,
-    data: Bytes,
-    transaction_hash: Option<B256>,
-    transaction_index: Option<u64>,
-    block_hash: Option<B256>,
-    block_number: Option<u64>,
-    log_index: Option<u64>,
-    removed: bool,
-}
-
-impl LogBuilder {
-    /// Creates a new `LogBuilder`.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Sets the address of the contract that emitted the log.
-    pub fn address(mut self, address: Address) -> Self {
-        self.address = address;
-        self
-    }
-
-    /// Adds a topic to the log.
-    pub fn topic(mut self, topic: B256) -> Self {
-        self.topics.push(topic);
-        self
-    }
-
-    /// Sets the topics of the log.
-    pub fn topics(mut self, topics: Vec<B256>) -> Self {
-        self.topics = topics;
-        self
-    }
-
-    /// Sets the data of the log.
-    pub fn data(mut self, data: Bytes) -> Self {
-        self.data = data;
-        self
-    }
-
-    /// Sets the transaction hash of the log.
-    pub fn transaction_hash(mut self, hash: B256) -> Self {
-        self.transaction_hash = Some(hash);
-        self
-    }
-
-    /// Sets the transaction index of the log.
-    pub fn transaction_index(mut self, index: u64) -> Self {
-        self.transaction_index = Some(index);
-        self
-    }
-
-    /// Sets the block hash of the log.
-    pub fn block_hash(mut self, hash: B256) -> Self {
-        self.block_hash = Some(hash);
-        self
-    }
-
-    /// Sets the block number of the log.
-    pub fn block_number(mut self, number: u64) -> Self {
-        self.block_number = Some(number);
-        self
-    }
-
-    /// Sets the log index of the log.
-    pub fn log_index(mut self, index: u64) -> Self {
-        self.log_index = Some(index);
-        self
-    }
-
-    /// Sets the removed status of the log.
-    pub fn removed(mut self, removed: bool) -> Self {
-        self.removed = removed;
-        self
-    }
-
-    /// Builds the `AlloyLog` with the provided values.
-    pub fn build(self) -> Log {
-        AlloyLog {
-            inner: alloy::primitives::Log {
-                address: self.address,
-                data: LogData::new_unchecked(self.topics, self.data),
-            },
-            transaction_hash: self.transaction_hash,
-            transaction_index: self.transaction_index,
-            block_hash: self.block_hash,
-            block_number: self.block_number,
-            log_index: self.log_index,
-            removed: self.removed,
-            block_timestamp: None,
-        }
-        .into()
-    }
-}
-
-/// A builder for creating `TransactionReceipt` instances for testing.
-#[derive(Debug, Default, Clone)]
-pub struct ReceiptBuilder {
-    transaction_hash: Option<B256>,
-}
-
-impl ReceiptBuilder {
-    /// Creates a new `ReceiptBuilder`.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Sets the transaction hash for the receipt.
-    pub fn transaction_hash(mut self, hash: B256) -> Self {
-        self.transaction_hash = Some(hash);
-        self
-    }
-
-    /// Builds the `TransactionReceipt` with the provided or default values.
-    pub fn build(self) -> TransactionReceipt {
-        TransactionReceipt {
-            transaction_hash: self.transaction_hash.unwrap_or_default(),
-            block_number: Some(123),
-            transaction_index: Some(1),
-            block_hash: Some(B256::default()),
-            from: Address::default(),
-            to: Some(Address::default()),
-            gas_used: 21_000,
-            contract_address: None,
-            effective_gas_price: 1_000_000_000, // 1 Gwei
-            blob_gas_used: None,
-            blob_gas_price: None,
-            inner: ReceiptEnvelope::Eip7702(ReceiptWithBloom::default()),
-        }
-    }
-}
 
 /// A builder for creating `Transaction` instances for testing.
 #[derive(Debug, Clone, Default)]
@@ -329,28 +193,6 @@ mod tests {
         consensus::TxType,
         primitives::{address, b256},
     };
-
-    #[test]
-    fn test_log_builder() {
-        let log = LogBuilder::new()
-            .address(address!("1111111111111111111111111111111111111111"))
-            .topic(b256!(
-                "2222222222222222222222222222222222222222222222222222222222222222"
-            ))
-            .data(Bytes::from(vec![0xde, 0xad, 0xbe, 0xef]))
-            .build();
-
-        assert_eq!(
-            log.address(),
-            address!("1111111111111111111111111111111111111111")
-        );
-        assert_eq!(log.topics().len(), 1);
-        assert_eq!(
-            log.topics()[0],
-            b256!("2222222222222222222222222222222222222222222222222222222222222222")
-        );
-        assert_eq!(*log.data(), Bytes::from(vec![0xde, 0xad, 0xbe, 0xef]));
-    }
 
     #[test]
     fn test_transaction_builder() {
