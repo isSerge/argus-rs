@@ -1,8 +1,9 @@
 //! This module defines the `BlockData` structure, which encapsulates all relevant information for a single blockchain block.
 
+use crate::models::Log;
 use alloy::{
     primitives::TxHash,
-    rpc::types::{Block, Log, TransactionReceipt},
+    rpc::types::{Block, Log as AlloyLog, TransactionReceipt},
 };
 use std::collections::HashMap;
 
@@ -23,8 +24,15 @@ impl BlockData {
     pub fn new(
         block: Block,
         receipts: HashMap<TxHash, TransactionReceipt>,
-        logs: HashMap<TxHash, Vec<Log>>,
+        logs: HashMap<TxHash, Vec<AlloyLog>>,
     ) -> Self {
+        let logs = logs
+            .into_iter()
+            .map(|(tx_hash, logs)| {
+                let logs = logs.into_iter().map(Log::from).collect();
+                (tx_hash, logs)
+            })
+            .collect();
         Self {
             block,
             receipts,
@@ -44,12 +52,12 @@ impl BlockData {
     pub fn from_raw_data(
         block: Block,
         receipts: HashMap<TxHash, TransactionReceipt>,
-        raw_logs: Vec<Log>,
+        raw_logs: Vec<AlloyLog>,
     ) -> Self {
         let mut logs: HashMap<TxHash, Vec<Log>> = HashMap::new();
         for log in raw_logs {
             if let Some(tx_hash) = log.transaction_hash {
-                logs.entry(tx_hash).or_default().push(log);
+                logs.entry(tx_hash).or_default().push(log.into());
             }
         }
 
@@ -72,7 +80,7 @@ mod tests {
         let receipts = HashMap::new();
         let mut logs = HashMap::new();
         let tx_hash = B256::from_slice(&[1; 32]);
-        logs.insert(tx_hash, vec![Log::default()]);
+        logs.insert(tx_hash, vec![AlloyLog::default()]);
 
         let block_data = BlockData::new(block.clone(), receipts.clone(), logs.clone());
 
@@ -93,11 +101,11 @@ mod tests {
     #[test]
     fn test_from_raw_data_ignores_logs_without_tx_hash() {
         let tx_hash = B256::from_slice(&[1; 32]);
-        let log_with_hash = Log {
+        let log_with_hash = AlloyLog {
             transaction_hash: Some(tx_hash),
             ..Default::default()
         };
-        let log_without_hash = Log {
+        let log_without_hash = AlloyLog {
             transaction_hash: None,
             ..Default::default()
         };
@@ -117,15 +125,15 @@ mod tests {
         let tx_hash1 = B256::from_slice(&[1; 32]);
         let tx_hash2 = B256::from_slice(&[2; 32]);
 
-        let log1 = Log {
+        let log1 = AlloyLog {
             transaction_hash: Some(tx_hash1),
             ..Default::default()
         };
-        let log2 = Log {
+        let log2 = AlloyLog {
             transaction_hash: Some(tx_hash2),
             ..Default::default()
         };
-        let log3 = Log {
+        let log3 = AlloyLog {
             transaction_hash: Some(tx_hash1),
             ..Default::default()
         };
