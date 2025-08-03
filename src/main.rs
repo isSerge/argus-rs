@@ -274,13 +274,11 @@ async fn monitor_cycle(
     }
 
     // 4. Update the StateRepository with the new last processed block number
-    // Only update if we made progress
-    if last_processed >= from_block {
-        tracing::debug!(network_id = %network_id, new_last_processed_block = %last_processed, "Updating last processed block in state repository.");
-        repo.set_last_processed_block(network_id, last_processed)
-            .await?;
-        tracing::info!(network_id = %network_id, last_processed_block = %last_processed, "Last processed block updated successfully.");
-    }
+    // Always update the state repository to ensure progress tracking
+    tracing::debug!(network_id = %network_id, new_last_processed_block = %last_processed, "Updating last processed block in state repository.");
+    repo.set_last_processed_block(network_id, last_processed)
+        .await?;
+    tracing::info!(network_id = %network_id, last_processed_block = %last_processed, "Last processed block updated successfully.");
 
     Ok(())
 }
