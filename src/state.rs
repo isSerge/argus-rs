@@ -198,7 +198,7 @@ impl StateRepository for SqliteStateRepository {
             })?;
             
         // Force a checkpoint to flush WAL to main database
-        sqlx::query("PRAGMA wal_checkpoint(PASSIVE)")
+        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
             .execute(&self.pool)
             .await
             .map_err(|e| {
