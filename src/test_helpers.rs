@@ -1,6 +1,6 @@
 //! A set of helpers for testing
 
-use crate::models::transaction::Transaction;
+use crate::models::{Log, transaction::Transaction};
 use alloy::{
     consensus::{ReceiptEnvelope, ReceiptWithBloom, TxType},
     primitives::{Address, B256, Bytes, LogData, U256},
@@ -90,7 +90,7 @@ impl LogBuilder {
     }
 
     /// Builds the `AlloyLog` with the provided values.
-    pub fn build(self) -> AlloyLog {
+    pub fn build(self) -> Log {
         AlloyLog {
             inner: alloy::primitives::Log {
                 address: self.address,
@@ -104,6 +104,7 @@ impl LogBuilder {
             removed: self.removed,
             block_timestamp: None,
         }
+        .into()
     }
 }
 
@@ -333,7 +334,9 @@ mod tests {
     fn test_log_builder() {
         let log = LogBuilder::new()
             .address(address!("1111111111111111111111111111111111111111"))
-            .topic(b256!("2222222222222222222222222222222222222222222222222222222222222222"))
+            .topic(b256!(
+                "2222222222222222222222222222222222222222222222222222222222222222"
+            ))
             .data(Bytes::from(vec![0xde, 0xad, 0xbe, 0xef]))
             .build();
 
@@ -346,7 +349,7 @@ mod tests {
             log.topics()[0],
             b256!("2222222222222222222222222222222222222222222222222222222222222222")
         );
-        assert_eq!(log.data().data, Bytes::from(vec![0xde, 0xad, 0xbe, 0xef]));
+        assert_eq!(*log.data(), Bytes::from(vec![0xde, 0xad, 0xbe, 0xef]));
     }
 
     #[test]

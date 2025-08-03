@@ -259,9 +259,9 @@ impl AbiService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::TransactionBuilder;
+    use crate::test_helpers::{LogBuilder, TransactionBuilder};
     use alloy::{
-        primitives::{self, Bytes, LogData, U256, address, b256, bytes},
+        primitives::{Address, Bytes, U256, address, b256, bytes},
         rpc::types::Log as AlloyLog,
     };
 
@@ -321,22 +321,18 @@ mod tests {
         let to = address!("2222222222222222222222222222222222222222");
         let amount = U256::from(100);
 
-        let log = AlloyLog {
-            inner: primitives::Log {
-                address: contract_address,
-                data: LogData::new_unchecked(
-                    vec![
-                        b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"), // Transfer event signature
-                        from.into_word(), // from address encoded
-                        to.into_word(),   // to address encoded
-                    ],
-                    bytes!("0000000000000000000000000000000000000000000000000000000000000064"), // amount encoded
-                ),
-            },
-            ..Default::default()
-        };
+        let log = LogBuilder::new()
+            .address(contract_address)
+            .topic(b256!(
+                "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+            ))
+            .topic(from.into_word())
+            .topic(to.into_word())
+            .data(bytes!(
+                "0000000000000000000000000000000000000000000000000000000000000064"
+            ))
+            .build();
 
-        let log = log.into();
         let decoded = service.decode_log(&log).unwrap();
         assert_eq!(decoded.name, "Transfer");
         assert_eq!(decoded.params.len(), 3);
@@ -436,20 +432,12 @@ mod tests {
         let contract_address = address!("0000000000000000000000000000000000000001");
         service.add_abi(contract_address, &abi);
 
-        let log = AlloyLog {
-            inner: primitives::Log {
-                address: contract_address,
-                data: LogData::new_unchecked(
-                    vec![
-                        b256!("0000000000000000000000000000000000000000000000000000000000000001"), // Unknown event signature
-                    ],
-                    bytes!("0000000000000000000000000000000000000000000000000000000000000064"), // amount encoded
-                ),
-            },
-            ..Default::default()
-        };
-
-        let log = log.into();
+        let log = LogBuilder::new()
+            .address(contract_address)
+            .topic(b256!(
+                "0000000000000000000000000000000000000000000000000000000000000001"
+            ))
+            .build();
         let err = service.decode_log(&log).unwrap_err();
         assert!(matches!(err, AbiError::EventNotFound(_)));
     }
@@ -460,16 +448,7 @@ mod tests {
         let abi = simple_abi();
         let contract_address = address!("0000000000000000000000000000000000000001");
         service.add_abi(contract_address, &abi);
-
-        let log = AlloyLog {
-            inner: primitives::Log {
-                address: contract_address,
-                data: LogData::new_unchecked(vec![], Bytes::new()),
-            },
-            ..Default::default()
-        };
-
-        let log = log.into();
+        let log = LogBuilder::new().address(contract_address).build();
         let err = service.decode_log(&log).unwrap_err();
         assert!(matches!(err, AbiError::LogHasNoTopics));
     }
@@ -513,22 +492,16 @@ mod tests {
         let from = address!("1111111111111111111111111111111111111111");
         let to = address!("2222222222222222222222222222222222222222");
 
-        let log = AlloyLog {
-            inner: primitives::Log {
-                address: contract_address,
-                data: LogData::new_unchecked(
-                    vec![
-                        b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"), // Transfer event signature
-                        from.into_word(),
-                        to.into_word(),
-                    ],
-                    bytes!("00000001"), // Malformed data: too short for uint256
-                ),
-            },
-            ..Default::default()
-        };
+        let log = LogBuilder::new()
+            .address(contract_address)
+            .topic(b256!(
+                "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+            ))
+            .topic(from.into_word())
+            .topic(to.into_word())
+            .data(bytes!("00000001"))
+            .build();
 
-        let log = log.into();
         let err = service.decode_log(&log).unwrap_err();
         assert!(matches!(err, AbiError::DecodingError(_)));
     }

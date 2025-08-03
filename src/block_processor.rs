@@ -116,12 +116,12 @@ mod tests {
             block_data::BlockData, correlated_data::CorrelatedBlockItem,
             monitor_match::MonitorMatch,
         },
-        test_helpers::TransactionBuilder,
+        test_helpers::{LogBuilder, TransactionBuilder},
     };
     use alloy::{
         json_abi::JsonAbi,
-        primitives::{B256, LogData, address, b256, bytes},
-        rpc::types::{Block, BlockTransactions, Header, Log as AlloyLog},
+        primitives::{B256, address, b256, bytes},
+        rpc::types::{Block, BlockTransactions, Header},
     };
     use async_trait::async_trait;
     use std::{collections::HashMap, sync::Arc};
@@ -186,22 +186,19 @@ mod tests {
         let from_addr = address!("1111111111111111111111111111111111111111");
         let to_addr = address!("2222222222222222222222222222222222222222");
 
-        let log = AlloyLog {
-            inner: alloy::primitives::Log {
-                address: contract_address,
-                data: LogData::new_unchecked(
-                    vec![
-                        b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"), // Transfer event signature
-                        from_addr.into_word(),
-                        to_addr.into_word(),
-                    ],
-                    bytes!("0000000000000000000000000000000000000000000000000000000000000064"), // amount = 100
-                ),
-            },
-            transaction_hash: Some(tx_hash),
-            block_number: Some(123),
-            ..Default::default()
-        };
+        let log = LogBuilder::new()
+            .address(contract_address)
+            .topic(b256!(
+                "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+            ))
+            .topic(from_addr.into_word())
+            .topic(to_addr.into_word())
+            .data(bytes!(
+                "0000000000000000000000000000000000000000000000000000000000000064"
+            ))
+            .transaction_hash(tx_hash)
+            .block_number(123)
+            .build();
 
         // 3. Setup BlockData
         let mut header: Header = Header::default();
@@ -213,7 +210,7 @@ mod tests {
             ..Default::default()
         };
         let mut logs_by_tx = HashMap::new();
-        logs_by_tx.insert(tx_hash, vec![log]);
+        logs_by_tx.insert(tx_hash, vec![log.into()]);
 
         let block_data = BlockData::new(block, HashMap::new(), logs_by_tx);
 
@@ -255,17 +252,14 @@ mod tests {
 
         let tx_hash = B256::default();
         let tx = TransactionBuilder::new().hash(tx_hash).build();
-        let log = AlloyLog {
-            transaction_hash: Some(tx_hash),
-            ..Default::default()
-        };
+        let log = LogBuilder::new().transaction_hash(tx_hash).build();
 
         let block = Block {
             transactions: BlockTransactions::Full(vec![tx.0]),
             ..Default::default()
         };
         let mut logs_by_tx = HashMap::new();
-        logs_by_tx.insert(tx_hash, vec![log]);
+        logs_by_tx.insert(tx_hash, vec![log.into()]);
         let block_data = BlockData::new(block, HashMap::new(), logs_by_tx);
 
         // Should run without error, but no matches will be found as decoding fails silently.
