@@ -25,3 +25,6 @@ tower = { version = "0.5.2", features = ["retry"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 url = "2.5.2"
+
+[dev-dependencies]
+mockall = "0.13.1"
