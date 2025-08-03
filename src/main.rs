@@ -215,9 +215,9 @@ async fn monitor_cycle(
 
             // Always save emergency state on shutdown, even if no blocks were processed
             let emergency_message = if blocks_processed_this_cycle == 0 {
-                format!("Shutdown during cycle, no blocks processed")
+                "Shutdown during cycle, no blocks processed".to_string()
             } else {
-                format!("Shutdown during cycle, processed {} blocks", blocks_processed_this_cycle)
+                format!("Shutdown during cycle, processed {blocks_processed_this_cycle} blocks")
             };
             if let Err(e) = repo.save_emergency_state(
                 network_id, 
