@@ -7,6 +7,8 @@ use alloy::{
     rpc::types::{Transaction as AlloyTransaction, TransactionReceipt},
 };
 
+const STANDARD_GAS_LIMIT: u64 = 21_000;
+
 /// A builder for creating `TransactionReceipt` instances for testing.
 #[derive(Debug, Default, Clone)]
 pub struct ReceiptBuilder {
@@ -173,7 +175,7 @@ impl TransactionBuilder {
         let actual_from = self.from.unwrap_or(from);
         let actual_value = self.value.unwrap_or(value);
         let nonce = self.nonce.unwrap_or(0);
-        let gas_limit = self.gas_limit.unwrap_or(21000);
+        let gas_limit = self.gas_limit.unwrap_or(STANDARD_GAS_LIMIT);
         let hash = self.hash.unwrap_or_else(|| B256::from([0x42; 32]));
         let block_hash = self.block_hash;
         let block_number = self.block_number;
@@ -262,7 +264,7 @@ mod tests {
         assert_eq!(tx.from(), Address::default());
         assert_eq!(tx.value(), U256::ZERO);
         assert_eq!(tx.nonce(), 0);
-        assert_eq!(tx.gas(), 21000);
+        assert_eq!(tx.gas(), STANDARD_GAS_LIMIT);
         assert!(tx.input().is_empty());
     }
 
