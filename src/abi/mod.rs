@@ -398,7 +398,79 @@ mod tests {
             .to(Address::default())
             .build();
         let err = service.decode_function_input(&tx).unwrap_err();
-
         assert!(matches!(err, AbiError::AbiNotFound(_)));
+    }
+
+    #[test]
+    fn test_decode_function_for_unknown_selector() {
+        let service = AbiService::new();
+        let abi = simple_abi();
+        let contract_address = address!("0000000000000000000000000000000000000001");
+        service.add_abi(contract_address, &abi);
+
+        let tx = TransactionBuilder::new()
+            .to(contract_address)
+            .input(Bytes::from(vec![0x12, 0x34, 0x56, 0x78])) // Unknown selector
+            .build();
+
+        let err = service.decode_function_input(&tx).unwrap_err();
+        assert!(matches!(err, AbiError::FunctionNotFound(_)));
+    }
+
+    #[test]
+    fn test_decode_function_input_too_short() {
+        let service = AbiService::new();
+        let abi = simple_abi();
+        let contract_address = address!("0000000000000000000000000000000000000001");
+        service.add_abi(contract_address, &abi);
+
+        // Default transaction has no input data
+        let tx = TransactionBuilder::new().to(contract_address).build();
+
+        let err = service.decode_function_input(&tx).unwrap_err();
+        assert!(matches!(err, AbiError::InputTooShort));
+    }
+
+    #[test]
+    fn test_decode_log_for_unknown_event() {
+        let service = AbiService::new();
+        let abi = simple_abi();
+        let contract_address = address!("0000000000000000000000000000000000000001");
+        service.add_abi(contract_address, &abi);
+
+        let log = Log {
+            inner: primitives::Log {
+                address: contract_address,
+                data: LogData::new_unchecked(
+                    vec![
+                        b256!("0000000000000000000000000000000000000000000000000000000000000001"), // Unknown event signature
+                    ],
+                    bytes!("0000000000000000000000000000000000000000000000000000000000000064"), // amount encoded
+                ),
+            },
+            ..Default::default()
+        };
+
+        let err = service.decode_log(&log).unwrap_err();
+        assert!(matches!(err, AbiError::EventNotFound(_)));
+    }
+
+    #[test]
+    fn test_decode_log_with_no_topics() {
+        let service = AbiService::new();
+        let abi = simple_abi();
+        let contract_address = address!("0000000000000000000000000000000000000001");
+        service.add_abi(contract_address, &abi);
+
+        let log = Log {
+            inner: primitives::Log {
+                address: contract_address,
+                data: LogData::new_unchecked(vec![], Bytes::new()),
+            },
+            ..Default::default()
+        };
+
+        let err = service.decode_log(&log).unwrap_err();
+        assert!(matches!(err, AbiError::LogHasNoTopics));
     }
 }
