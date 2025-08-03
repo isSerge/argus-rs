@@ -202,7 +202,7 @@ async fn monitor_cycle(
     );
 
     // 3. Process each block in the range with shutdown checks
-    let mut last_processed = from_block.saturating_sub(1);
+    let mut last_processed = last_processed_block; // Use the actual last processed block from DB
     let mut blocks_processed_this_cycle = 0;
 
     for block_num in from_block..=to_block {
@@ -215,17 +215,24 @@ async fn monitor_cycle(
                 "Shutdown signal detected, stopping block processing and saving emergency state."
             );
 
-            // Always save emergency state on shutdown, even if no blocks were processed
-            let emergency_message = if blocks_processed_this_cycle == 0 {
-                "Shutdown during cycle, no blocks processed".to_string()
+            // Only save emergency state if we actually have a valid last processed block
+            if let Some(valid_last_processed) = last_processed {
+                let emergency_message = if blocks_processed_this_cycle == 0 {
+                    "Shutdown during cycle, no blocks processed this cycle".to_string()
+                } else {
+                    format!("Shutdown during cycle, processed {blocks_processed_this_cycle} blocks this cycle")
+                };
+                if let Err(e) = repo
+                    .save_emergency_state(network_id, valid_last_processed, &emergency_message)
+                    .await
+                {
+                    tracing::error!(error = %e, "Failed to save emergency state during shutdown.");
+                }
             } else {
-                format!("Shutdown during cycle, processed {blocks_processed_this_cycle} blocks")
-            };
-            if let Err(e) = repo
-                .save_emergency_state(network_id, last_processed, &emergency_message)
-                .await
-            {
-                tracing::error!(error = %e, "Failed to save emergency state during shutdown.");
+                tracing::info!(
+                    network_id = %network_id,
+                    "Shutdown during initial processing - no valid last processed block to save as emergency state."
+                );
             }
             break;
         }
@@ -256,7 +263,7 @@ async fn monitor_cycle(
                     "Processed block."
                 );
 
-                last_processed = block_num;
+                last_processed = Some(block_num);
                 blocks_processed_this_cycle += 1;
             }
             Err(e) => {
@@ -275,11 +282,15 @@ async fn monitor_cycle(
     }
 
     // 4. Update the StateRepository with the new last processed block number
-    // Always update the state repository to ensure progress tracking
-    tracing::debug!(network_id = %network_id, new_last_processed_block = %last_processed, "Updating last processed block in state repository.");
-    repo.set_last_processed_block(network_id, last_processed)
-        .await?;
-    tracing::info!(network_id = %network_id, last_processed_block = %last_processed, "Last processed block updated successfully.");
+    // Only update if we actually processed any blocks this cycle
+    if let Some(valid_last_processed) = last_processed {
+        tracing::debug!(network_id = %network_id, new_last_processed_block = %valid_last_processed, "Updating last processed block in state repository.");
+        repo.set_last_processed_block(network_id, valid_last_processed)
+            .await?;
+        tracing::info!(network_id = %network_id, last_processed_block = %valid_last_processed, "Last processed block updated successfully.");
+    } else {
+        tracing::debug!(network_id = %network_id, "No blocks processed this cycle, skipping state update.");
+    }
 
     Ok(())
 }

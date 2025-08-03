@@ -364,4 +364,25 @@ mod tests {
         repo.set_synchronous_mode("NORMAL").await.unwrap();
         repo.set_synchronous_mode("OFF").await.unwrap();
     }
+
+    #[tokio::test]
+    async fn test_emergency_state_with_no_prior_state() {
+        let repo = setup_test_db().await;
+        let network = "fresh_network";
+
+        // Verify no prior state exists
+        let initial_state = repo.get_last_processed_block(network).await.unwrap();
+        assert!(initial_state.is_none());
+
+        // Save emergency state during first run
+        // This simulates a scenario where the application is starting fresh
+        // and needs to save an emergency state immediately.
+        repo.save_emergency_state(network, 42, "Emergency during first run")
+            .await
+            .unwrap();
+
+        // Verify the emergency state was saved
+        let saved_state = repo.get_last_processed_block(network).await.unwrap();
+        assert_eq!(saved_state, Some(42));
+    }
 }
