@@ -18,15 +18,20 @@ pub trait StateRepository {
         network_id: &str,
         block_number: u64,
     ) -> Result<(), sqlx::Error>;
-    
+
     /// Performs any necessary cleanup operations before shutdown.
     async fn cleanup(&self) -> Result<(), sqlx::Error>;
-    
+
     /// Ensures all pending writes are flushed to disk.
     async fn flush(&self) -> Result<(), sqlx::Error>;
-    
+
     /// Saves emergency state during shutdown (e.g., partial progress).
-    async fn save_emergency_state(&self, network_id: &str, block_number: u64, note: &str) -> Result<(), sqlx::Error>;
+    async fn save_emergency_state(
+        &self,
+        network_id: &str,
+        block_number: u64,
+        note: &str,
+    ) -> Result<(), sqlx::Error>;
 }
 
 /// A concrete implementation of the StateRepository using SQLite.
@@ -164,7 +169,7 @@ impl StateRepository for SqliteStateRepository {
     #[tracing::instrument(skip(self), level = "debug")]
     async fn cleanup(&self) -> Result<(), sqlx::Error> {
         tracing::debug!("Performing state repository cleanup.");
-        
+
         // Force a checkpoint to ensure all WAL data is written to the main database file
         sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
             .execute(&self.pool)
@@ -173,7 +178,7 @@ impl StateRepository for SqliteStateRepository {
                 tracing::error!(error = %e, "Failed to checkpoint WAL during cleanup.");
                 e
             })?;
-            
+
         tracing::debug!("State repository cleanup completed.");
         Ok(())
     }
@@ -182,7 +187,7 @@ impl StateRepository for SqliteStateRepository {
     #[tracing::instrument(skip(self), level = "debug")]
     async fn flush(&self) -> Result<(), sqlx::Error> {
         tracing::debug!("Flushing pending writes to disk.");
-        
+
         // Execute PRAGMA synchronous to ensure data is written to disk
         sqlx::query("PRAGMA synchronous = FULL")
             .execute(&self.pool)
@@ -191,7 +196,7 @@ impl StateRepository for SqliteStateRepository {
                 tracing::error!(error = %e, "Failed to set synchronous mode during flush.");
                 e
             })?;
-            
+
         // Force a checkpoint to flush WAL to main database
         sqlx::query("PRAGMA wal_checkpoint(PASSIVE)")
             .execute(&self.pool)
@@ -200,24 +205,30 @@ impl StateRepository for SqliteStateRepository {
                 tracing::error!(error = %e, "Failed to checkpoint WAL during flush.");
                 e
             })?;
-            
+
         tracing::debug!("Pending writes flushed successfully.");
         Ok(())
     }
 
     /// Saves emergency state during shutdown (e.g., partial progress).
     #[tracing::instrument(skip(self), level = "debug")]
-    async fn save_emergency_state(&self, network_id: &str, block_number: u64, note: &str) -> Result<(), sqlx::Error> {
+    async fn save_emergency_state(
+        &self,
+        network_id: &str,
+        block_number: u64,
+        note: &str,
+    ) -> Result<(), sqlx::Error> {
         tracing::warn!(
             network_id = %network_id,
             block_number = %block_number,
             note = %note,
             "Saving emergency state during shutdown."
         );
-        
+
         // Save the current state
-        self.set_last_processed_block(network_id, block_number).await?;
-        
+        self.set_last_processed_block(network_id, block_number)
+            .await?;
+
         // Log the emergency save for audit purposes
         tracing::info!(
             network_id = %network_id,
@@ -225,7 +236,7 @@ impl StateRepository for SqliteStateRepository {
             note = %note,
             "Emergency state saved successfully."
         );
-        
+
         Ok(())
     }
 }

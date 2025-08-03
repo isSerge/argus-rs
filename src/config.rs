@@ -50,6 +50,15 @@ pub struct AppConfig {
 
     /// Number of confirmation blocks to wait for before processing.
     pub confirmation_blocks: u64,
+
+    /// The maximum time in seconds to wait for graceful shutdown.
+    #[serde(default = "default_shutdown_timeout")]
+    pub shutdown_timeout_secs: u64,
+}
+
+/// Provides the default value for shutdown_timeout_secs.
+fn default_shutdown_timeout() -> u64 {
+    30 // Default to 30 seconds
 }
 
 /// Custom deserializer for a vector of URLs.
@@ -131,6 +140,7 @@ mod tests {
             app_config.retry_config.compute_units_per_second,
             default_retry_config.compute_units_per_second
         );
+        assert_eq!(app_config.shutdown_timeout_secs, 30);
     }
 
     #[test]
@@ -166,5 +176,23 @@ mod tests {
         let app_config: AppConfig = builder.build().unwrap().try_deserialize().unwrap();
 
         assert_eq!(app_config.polling_interval_ms, 5000);
+    }
+
+    #[test]
+    fn test_config_with_shutdown_timeout() {
+        let yaml = "
+            database_url: 'sqlite:test.db'
+            rpc_urls: ['http://localhost:8545']
+            network_id: 'testnet'
+            block_chunk_size: 10
+            polling_interval_ms: 1000
+            confirmation_blocks: 12
+            shutdown_timeout_secs: 60
+        ";
+        let builder =
+            Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
+        let app_config: AppConfig = builder.build().unwrap().try_deserialize().unwrap();
+
+        assert_eq!(app_config.shutdown_timeout_secs, 60);
     }
 }

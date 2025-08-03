@@ -4,6 +4,9 @@ rpc_urls:
   - "https://1rpc.io/eth"
   - "https://rpc.mevblocker.io"
 network_id: "mainnet"
+block_chunk_size: 5
+polling_interval_ms: 10000
+confirmation_blocks: 12
 
 # Optional: Configuration for the RPC retry policy.
 # If this section is omitted, default values will be used.
@@ -15,6 +18,6 @@ retry_config:
   # The number of compute units per second to allow (for rate limiting).
   compute_units_per_second: 100
 
-block_chunk_size: 5
-polling_interval_ms: 10000
-confirmation_blocks: 12
+# Optional: Configuration for graceful shutdown timeout.
+# If this section is omitted, the default value of 30 seconds will be used.
+shutdown_timeout_secs: 30

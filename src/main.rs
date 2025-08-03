@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let shutdown_tx_clone = shutdown_tx.clone();
     tokio::spawn(async move {
         let ctrl_c = signal::ctrl_c();
-        
+
         #[cfg(unix)]
         let terminate = async {
             signal::unix::signal(signal::unix::SignalKind::terminate())
@@ -52,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .recv()
                 .await;
         };
-        
+
         #[cfg(not(unix))]
         let terminate = std::future::pending::<()>();
 
@@ -64,7 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 tracing::info!("SIGTERM received, initiating graceful shutdown.");
             }
         }
-        
+
         if let Err(e) = shutdown_tx_clone.send(true) {
             tracing::warn!("Failed to send shutdown signal: {}", e);
         }
@@ -72,25 +72,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Main monitoring loop with shutdown timeout
     let mut shutdown_rx_loop = shutdown_rx.clone();
-    let shutdown_timeout = Duration::from_secs(30); // Configurable shutdown timeout
-    
+    let shutdown_timeout = Duration::from_secs(config.shutdown_timeout_secs);
+
     loop {
         tokio::select! {
             _ = shutdown_rx_loop.changed() => {
                 tracing::info!("Shutdown signal received, initiating graceful shutdown.");
-                
+
                 // Give ongoing operations time to complete gracefully
                 tracing::info!("Waiting up to {} seconds for ongoing operations to complete...", shutdown_timeout.as_secs());
-                
+
                 // Set a deadline for shutdown completion
                 let shutdown_deadline = tokio::time::Instant::now() + shutdown_timeout;
-                
+
                 // Attempt graceful cleanup with timeout
                 let cleanup_result = tokio::time::timeout_at(
                     shutdown_deadline,
                     graceful_cleanup(&repo, &config.network_id)
                 ).await;
-                
+
                 match cleanup_result {
                     Ok(Ok(())) => {
                         tracing::info!("Graceful cleanup completed successfully.");
@@ -102,7 +102,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         tracing::warn!("Graceful cleanup timed out after {} seconds, forcing shutdown.", shutdown_timeout.as_secs());
                     }
                 }
-                
+
                 break; // Exit the loop
             }
             result = monitor_cycle(
@@ -202,7 +202,7 @@ async fn monitor_cycle(
     // 3. Process each block in the range with shutdown checks
     let mut last_processed = from_block.saturating_sub(1);
     let mut blocks_processed_this_cycle = 0;
-    
+
     for block_num in from_block..=to_block {
         // Check for shutdown signal before processing each block
         if *shutdown_rx.borrow() {
@@ -212,16 +212,20 @@ async fn monitor_cycle(
                 blocks_processed_this_cycle = blocks_processed_this_cycle,
                 "Shutdown signal detected, stopping block processing and saving emergency state."
             );
-            
+
             // Save emergency state if we made any progress
-            if blocks_processed_this_cycle > 0 {
-                if let Err(e) = repo.save_emergency_state(
-                    network_id, 
-                    last_processed, 
-                    &format!("Shutdown during cycle, processed {} blocks", blocks_processed_this_cycle)
-                ).await {
-                    tracing::error!(error = %e, "Failed to save emergency state during shutdown.");
-                }
+            if blocks_processed_this_cycle > 0
+                && let Err(e) = repo
+                    .save_emergency_state(
+                        network_id,
+                        last_processed,
+                        &format!(
+                            "Shutdown during cycle, processed {blocks_processed_this_cycle} blocks"
+                        ),
+                    )
+                    .await
+            {
+                tracing::error!(error = %e, "Failed to save emergency state during shutdown.");
             }
             break;
         }
@@ -251,7 +255,7 @@ async fn monitor_cycle(
                     log_count = log_count,
                     "Processed block."
                 );
-                
+
                 last_processed = block_num;
                 blocks_processed_this_cycle += 1;
             }
@@ -274,7 +278,8 @@ async fn monitor_cycle(
     // Only update if we made progress
     if last_processed >= from_block {
         tracing::debug!(network_id = %network_id, new_last_processed_block = %last_processed, "Updating last processed block in state repository.");
-        repo.set_last_processed_block(network_id, last_processed).await?;
+        repo.set_last_processed_block(network_id, last_processed)
+            .await?;
         tracing::info!(network_id = %network_id, last_processed_block = %last_processed, "Last processed block updated successfully.");
     }
 
@@ -287,7 +292,7 @@ async fn graceful_cleanup(
     network_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Starting graceful cleanup...");
-    
+
     // 1. Flush any pending state updates to ensure data integrity
     tracing::debug!("Flushing pending database writes...");
     if let Err(e) = repo.flush().await {
@@ -296,7 +301,7 @@ async fn graceful_cleanup(
     } else {
         tracing::debug!("Database writes flushed successfully.");
     }
-    
+
     // 2. Perform repository-specific cleanup (WAL checkpoint, etc.)
     tracing::debug!("Performing repository cleanup...");
     if let Err(e) = repo.cleanup().await {
@@ -304,7 +309,7 @@ async fn graceful_cleanup(
     } else {
         tracing::debug!("Repository cleanup completed successfully.");
     }
-    
+
     // 3. Log final state for debugging
     tracing::debug!("Retrieving final processed block state...");
     match repo.get_last_processed_block(network_id).await {
@@ -329,12 +334,12 @@ async fn graceful_cleanup(
             );
         }
     }
-    
+
     // 4. Close database connections gracefully
     tracing::debug!("Closing database connections...");
     repo.close().await;
     tracing::debug!("Database connections closed.");
-    
+
     // 5. Allow some time for any background tasks to complete
     tracing::debug!("Allowing time for background tasks to complete...");
     tokio::time::sleep(Duration::from_millis(100)).await;
