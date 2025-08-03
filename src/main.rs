@@ -67,6 +67,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         if let Err(e) = shutdown_tx_clone.send(true) {
             tracing::warn!("Failed to send shutdown signal: {}", e);
+            // Fall back to immediate shutdown
+            std::process::exit(1);
         }
     });
 
