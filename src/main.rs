@@ -3,7 +3,7 @@ use argus::{
     block_processor::{BlockProcessor, BlockProcessorError},
     config::AppConfig,
     data_source::{DataSource, EvmRpcSource},
-    filtering::DummyFilteringEngine,
+    filtering::{FilteringEngine, RhaiFilteringEngine},
     models::BlockData,
     provider::create_provider,
     state::{SqliteStateRepository, StateRepository},
@@ -42,7 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize BlockProcessor components
     tracing::debug!("Initializing ABI service and BlockProcessor...");
     let abi_service = Arc::new(AbiService::new());
-    let filtering_engine = DummyFilteringEngine;
+    let filtering_engine = RhaiFilteringEngine::new(vec![]);
     let block_processor = BlockProcessor::new(abi_service, filtering_engine);
     tracing::info!("BlockProcessor initialized successfully.");
 
@@ -146,10 +146,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[tracing::instrument(skip(repo, data_source, block_processor, shutdown_rx), level = "debug")]
-async fn monitor_cycle(
+async fn monitor_cycle<F: FilteringEngine>(
     repo: &SqliteStateRepository,
     data_source: &impl DataSource,
-    block_processor: &BlockProcessor<DummyFilteringEngine>,
+    block_processor: &BlockProcessor<F>,
     network_id: &str,
     block_chunk_size: u64,
     confirmation_blocks: u64,
