@@ -28,11 +28,16 @@ The application is configured via a `config.yaml` file in the project root.
 
 Example `config.yaml` file:
 ```yaml
-database_url: "sqlite://monitor.db"
+database_url: "sqlite:monitor.db"
 rpc_urls:
-  - "https://mainnet.infura.io/v3/YOUR_INFURA_PROJECT_ID"
-  - "https://eth-mainnet.alchemyapi.io/v2/YOUR_ALCHEMY_API_KEY"
+  - "https://eth.llamarpc.com"
+  - "https://1rpc.io/eth"
+  - "https://rpc.mevblocker.io"
 network_id: "mainnet"
+block_chunk_size: 5
+polling_interval_ms: 10000
+confirmation_blocks: 12
+
 # Optional: Configuration for the RPC retry policy.
 # If this section is omitted, default values will be used.
 retry_config:
@@ -43,9 +48,9 @@ retry_config:
   # The number of compute units per second to allow (for rate limiting).
   compute_units_per_second: 100
 
-block_chunk_size: 5
-polling_interval_ms: 10000
-confirmation_blocks: 12
+# Optional: Configuration for graceful shutdown timeout.
+# If this section is omitted, the default value of 30 seconds will be used.
+shutdown_timeout_secs: 30
 ```
 
 - `database_url`: The connection string for the SQLite database.
@@ -55,6 +60,7 @@ confirmation_blocks: 12
 - `block_chunk_size`: The size of the block chunk to process at once
 - `polling_interval_ms`: The interval in milliseconds to poll for new blocks
 - `confirmation_blocks`: Number of confirmation blocks to wait for before processing to prevent against small reorgs
+- `shutdown_timeout_secs`: Graceful shutdown timeout
 
 ## Logging
 
