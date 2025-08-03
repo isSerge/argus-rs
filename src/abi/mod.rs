@@ -3,12 +3,11 @@
 //! It is designed to work with ABIs that are loaded at runtime, and therefore
 //! does not use the `sol!` macro, which requires compile-time knowledge of the ABI.
 
-use crate::models::transaction::Transaction;
+use crate::models::{Log, transaction::Transaction};
 use alloy::{
     dyn_abi::{self, DynSolValue, EventExt},
     json_abi::{Event, Function, JsonAbi},
     primitives::{Address, B256},
-    rpc::types::Log,
 };
 use dashmap::DashMap;
 use std::collections::HashMap;
@@ -158,8 +157,7 @@ impl AbiService {
             .get(event_signature)
             .ok_or_else(|| AbiError::EventNotFound(*event_signature))?;
 
-        let decoded =
-            event.decode_log_parts(log.topics().iter().copied(), log.data().data.as_ref())?;
+        let decoded = event.decode_log_parts(log.topics().iter().copied(), log.data().as_ref())?;
 
         let params: Vec<(String, DynSolValue)> = event
             .inputs
@@ -264,7 +262,7 @@ mod tests {
     use crate::test_helpers::TransactionBuilder;
     use alloy::{
         primitives::{self, Bytes, LogData, U256, address, b256, bytes},
-        rpc::types::Log,
+        rpc::types::Log as AlloyLog,
     };
 
     fn simple_abi() -> JsonAbi {
@@ -323,7 +321,7 @@ mod tests {
         let to = address!("2222222222222222222222222222222222222222");
         let amount = U256::from(100);
 
-        let log = Log {
+        let log = AlloyLog {
             inner: primitives::Log {
                 address: contract_address,
                 data: LogData::new_unchecked(
@@ -338,6 +336,7 @@ mod tests {
             ..Default::default()
         };
 
+        let log = log.into();
         let decoded = service.decode_log(&log).unwrap();
         assert_eq!(decoded.name, "Transfer");
         assert_eq!(decoded.params.len(), 3);
@@ -383,7 +382,8 @@ mod tests {
     #[test]
     fn test_decode_log_not_found() {
         let service = AbiService::new();
-        let log = Log::default();
+        let log = AlloyLog::default();
+        let log = log.into();
         let err = service.decode_log(&log).unwrap_err();
         assert!(matches!(err, AbiError::AbiNotFound(_)));
     }
@@ -436,7 +436,7 @@ mod tests {
         let contract_address = address!("0000000000000000000000000000000000000001");
         service.add_abi(contract_address, &abi);
 
-        let log = Log {
+        let log = AlloyLog {
             inner: primitives::Log {
                 address: contract_address,
                 data: LogData::new_unchecked(
@@ -449,6 +449,7 @@ mod tests {
             ..Default::default()
         };
 
+        let log = log.into();
         let err = service.decode_log(&log).unwrap_err();
         assert!(matches!(err, AbiError::EventNotFound(_)));
     }
@@ -460,7 +461,7 @@ mod tests {
         let contract_address = address!("0000000000000000000000000000000000000001");
         service.add_abi(contract_address, &abi);
 
-        let log = Log {
+        let log = AlloyLog {
             inner: primitives::Log {
                 address: contract_address,
                 data: LogData::new_unchecked(vec![], Bytes::new()),
@@ -468,6 +469,7 @@ mod tests {
             ..Default::default()
         };
 
+        let log = log.into();
         let err = service.decode_log(&log).unwrap_err();
         assert!(matches!(err, AbiError::LogHasNoTopics));
     }
@@ -511,7 +513,7 @@ mod tests {
         let from = address!("1111111111111111111111111111111111111111");
         let to = address!("2222222222222222222222222222222222222222");
 
-        let log = Log {
+        let log = AlloyLog {
             inner: primitives::Log {
                 address: contract_address,
                 data: LogData::new_unchecked(
@@ -526,6 +528,7 @@ mod tests {
             ..Default::default()
         };
 
+        let log = log.into();
         let err = service.decode_log(&log).unwrap_err();
         assert!(matches!(err, AbiError::DecodingError(_)));
     }

@@ -110,6 +110,7 @@ impl<F: FilteringEngine> BlockProcessor<F> {
 mod tests {
     use super::*;
     use crate::{
+        abi::AbiService,
         filtering::FilteringEngine,
         models::{
             block_data::BlockData, correlated_data::CorrelatedBlockItem,
@@ -120,7 +121,7 @@ mod tests {
     use alloy::{
         json_abi::JsonAbi,
         primitives::{B256, LogData, address, b256, bytes},
-        rpc::types::{Block, BlockTransactions, Header, Log as RpcLog},
+        rpc::types::{Block, BlockTransactions, Header, Log as AlloyLog},
     };
     use async_trait::async_trait;
     use std::{collections::HashMap, sync::Arc};
@@ -185,7 +186,7 @@ mod tests {
         let from_addr = address!("1111111111111111111111111111111111111111");
         let to_addr = address!("2222222222222222222222222222222222222222");
 
-        let log = RpcLog {
+        let log = AlloyLog {
             inner: alloy::primitives::Log {
                 address: contract_address,
                 data: LogData::new_unchecked(
@@ -254,7 +255,7 @@ mod tests {
 
         let tx_hash = B256::default();
         let tx = TransactionBuilder::new().hash(tx_hash).build();
-        let log = RpcLog {
+        let log = AlloyLog {
             transaction_hash: Some(tx_hash),
             ..Default::default()
         };
