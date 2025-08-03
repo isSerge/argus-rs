@@ -3,12 +3,12 @@
 //! It is designed to work with ABIs that are loaded at runtime, and therefore
 //! does not use the `sol!` macro, which requires compile-time knowledge of the ABI.
 
+use crate::models::transaction::Transaction;
 use alloy::{
-    consensus::Transaction as ConsensusTransaction,
     dyn_abi::{self, DynSolValue, EventExt},
     json_abi::{Event, Function, JsonAbi},
-    primitives::{Address, B256, TxKind},
-    rpc::types::{Log, Transaction},
+    primitives::{Address, B256},
+    rpc::types::Log,
 };
 use dashmap::DashMap;
 use std::collections::HashMap;
@@ -158,7 +158,8 @@ impl AbiService {
             .get(event_signature)
             .ok_or_else(|| AbiError::EventNotFound(*event_signature))?;
 
-        let decoded = event.decode_log_parts(log.topics().iter().copied(), log.data().data.as_ref())?;
+        let decoded =
+            event.decode_log_parts(log.topics().iter().copied(), log.data().data.as_ref())?;
 
         let params: Vec<(String, DynSolValue)> = event
             .inputs
@@ -189,16 +190,16 @@ impl AbiService {
         tx: &'a Transaction,
     ) -> Result<DecodedCall<'a>, AbiError> {
         // Get the target contract address from the transaction
-        let to = match tx.inner.kind() {
-            TxKind::Call(to) => to,
-            TxKind::Create => {
-                tracing::debug!("Cannot decode function call from contract creation transaction");
-                return Err(AbiError::ContractCreation);
-            }
+
+        let to = if let Some(to) = tx.to() {
+            to
+        } else {
+            tracing::debug!("Cannot decode function call from contract creation transaction");
+            return Err(AbiError::ContractCreation);
         };
 
         // Get the input data from the transaction
-        let input = tx.inner.input();
+        let input = tx.input();
 
         // The input data must be at least 4 bytes (the function selector)
         if input.len() < 4 {
@@ -209,7 +210,6 @@ impl AbiService {
         // Extract the function selector (first 4 bytes)
         let selector: [u8; 4] = input[0..4].try_into().unwrap();
 
-        // Look up the contract ABI in the cache
         let contract = self
             .cache
             .get(&to)
@@ -258,4 +258,154 @@ impl AbiService {
             tx,
         })
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::{
+        consensus::{TxEnvelope, transaction::Recovered},
+        primitives::{self, Bytes, LogData, U256, address, b256, bytes},
+    };
+
+    fn simple_abi() -> JsonAbi {
+        serde_json::from_str(
+            r#"[
+                {
+                    "type": "function",
+                    "name": "transfer",
+                    "inputs": [
+                        {"name": "to", "type": "address"},
+                        {"name": "amount", "type": "uint256"}
+                    ],
+                    "outputs": [{"name": "success", "type": "bool"}]
+                },
+                {
+                    "type": "event",
+                    "name": "Transfer",
+                    "inputs": [
+                        {"name": "from", "type": "address", "indexed": true},
+                        {"name": "to", "type": "address", "indexed": true},
+                        {"name": "amount", "type": "uint256", "indexed": false}
+                    ],
+                    "anonymous": false
+                }
+            ]"#,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn test_add_and_remove_abi() {
+        let service = AbiService::new();
+        let abi = simple_abi();
+        let address = Address::default();
+
+        assert!(!service.has_abi(&address));
+        assert_eq!(service.cache_size(), 0);
+
+        service.add_abi(address, &abi);
+        assert!(service.has_abi(&address));
+        assert_eq!(service.cache_size(), 1);
+
+        assert!(service.remove_abi(&address));
+        assert!(!service.has_abi(&address));
+        assert_eq!(service.cache_size(), 0);
+    }
+
+    #[test]
+    fn test_decode_known_event() {
+        let service = AbiService::new();
+        let abi = simple_abi();
+        let contract_address = address!("0000000000000000000000000000000000000001");
+        service.add_abi(contract_address, &abi);
+
+        let from = address!("1111111111111111111111111111111111111111");
+        let to = address!("2222222222222222222222222222222222222222");
+        let amount = U256::from(100);
+
+        let log = Log {
+            inner: primitives::Log {
+                address: contract_address,
+                data: LogData::new_unchecked(
+                    vec![
+                        b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"), // Transfer event signature
+                        from.into_word(), // from address encoded
+                        to.into_word(),   // to address encoded
+                    ],
+                    bytes!("0000000000000000000000000000000000000000000000000000000000000064"), // amount encoded
+                ),
+            },
+            ..Default::default()
+        };
+
+        let decoded = service.decode_log(&log).unwrap();
+        assert_eq!(decoded.name, "Transfer");
+        assert_eq!(decoded.params.len(), 3);
+        assert_eq!(decoded.params[0].0, "from");
+        assert_eq!(decoded.params[0].1, from.into());
+        assert_eq!(decoded.params[1].0, "to");
+        assert_eq!(decoded.params[1].1, to.into());
+        assert_eq!(decoded.params[2].0, "amount");
+        assert_eq!(decoded.params[2].1, amount.into());
+    }
+
+    // #[test]
+    // fn test_decode_known_function() {
+    //     let service = AbiService::new();
+    //     let abi = simple_abi();
+    //     let contract_address = address!("0000000000000000000000000000000000000001");
+    //     service.add_abi(contract_address, &abi);
+
+    //     let to_addr = address!("2222222222222222222222222222222222222222");
+    //     let amount = U256::from(100);
+
+    //     let mut input_data = bytes!("a9059cbb").to_vec(); // transfer selector
+    //     input_data.extend_from_slice(to_addr.as_slice());
+    //     input_data.extend_from_slice(&amount.to_be_bytes_vec());
+
+    //     let rpc_tx = r#"{
+    //         "blockHash":"0x8e38b4dbf6b11fcc3b9dee84fb7986e29ca0a02cecd8977c161ff7333329681e",
+    //         "blockNumber":"0xf4240",
+    //         "hash":"0xe9e91f1ee4b56c0df2e9f06c2b8c27c6076195a88a7b8537ba8313d80e6f124e",
+    //         "transactionIndex":"0x1",
+    //         "type":"0x0",
+    //         "nonce":"0x43eb",
+    //         "input":${input_data:?},
+    //         "r":"0x3b08715b4403c792b8c7567edea634088bedcd7f60d9352b1f16c69830f3afd5",
+    //         "s":"0x10b9afb67d2ec8b956f0e1dbc07eb79152904f3a7bf789fc869db56320adfe09",
+    //         "chainId":"0x0",
+    //         "v":"0x1c",
+    //         "gas":"0xc350",
+    //         "from":"0x32be343b94f860124dc4fee278fdcbd38c102d88",
+    //         "to":"0xdf190dc7190dfba737d7777a163445b7fff16133",
+    //         "value":"0x6113a84987be800",
+    //         "gasPrice":"0xdf8475800"
+    //     }"#;
+    //     let tx = serde_json::from_str::<Transaction>(rpc_tx).unwrap();
+
+    //     let decoded = service.decode_function_input(&tx).unwrap();
+    //     assert_eq!(decoded.name, "transfer");
+    //     assert_eq!(decoded.params.len(), 2);
+    //     assert_eq!(decoded.params[0].0, "to");
+    //     assert_eq!(decoded.params[0].1, to_addr.into());
+    //     assert_eq!(decoded.params[1].0, "amount");
+    //     assert_eq!(decoded.params[1].1, amount.into());
+    // }
+
+    #[test]
+    fn test_decode_log_not_found() {
+        let service = AbiService::new();
+        let log = Log::default();
+        let err = service.decode_log(&log).unwrap_err();
+        assert!(matches!(err, AbiError::AbiNotFound(_)));
+    }
+
+    // #[test]
+    // fn test_decode_function_not_found() {
+    //     let service = AbiService::new();
+    //     let tx = Transaction::default();
+    //     let err = service.decode_function_input(&tx).unwrap_err();
+    //     assert!(matches!(err, AbiError::AbiNotFound(_)));
+    // }
 }
