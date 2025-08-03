@@ -68,7 +68,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Err(e) = shutdown_tx_clone.send(true) {
             tracing::warn!("Failed to send shutdown signal: {}", e);
             // Return from the task to allow proper cleanup
-            return;
         }
     });
 
@@ -220,7 +219,9 @@ async fn monitor_cycle(
                 let emergency_message = if blocks_processed_this_cycle == 0 {
                     "Shutdown during cycle, no blocks processed this cycle".to_string()
                 } else {
-                    format!("Shutdown during cycle, processed {blocks_processed_this_cycle} blocks this cycle")
+                    format!(
+                        "Shutdown during cycle, processed {blocks_processed_this_cycle} blocks this cycle"
+                    )
                 };
                 if let Err(e) = repo
                     .save_emergency_state(network_id, valid_last_processed, &emergency_message)

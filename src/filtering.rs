@@ -1,8 +1,8 @@
 //! This module defines the `FilteringEngine` trait and its implementations.
 
-use async_trait::async_trait;
-use crate::models::monitor_match::MonitorMatch;
 use crate::models::CorrelatedBlockItem;
+use crate::models::monitor_match::MonitorMatch;
+use async_trait::async_trait;
 
 /// A trait for an engine that applies filtering logic to block data.
 #[async_trait]
@@ -26,7 +26,9 @@ impl FilteringEngine for DummyFilteringEngine {
         _item: &CorrelatedBlockItem<'_>,
     ) -> Result<Vec<MonitorMatch>, Box<dyn std::error::Error + Send + Sync>> {
         // Placeholder: In a real implementation, this would apply complex filtering logic.
-        tracing::debug!("DummyFilteringEngine: Evaluating correlated block item (no actual filtering).");
+        tracing::debug!(
+            "DummyFilteringEngine: Evaluating correlated block item (no actual filtering)."
+        );
         Ok(vec![])
     }
 }
