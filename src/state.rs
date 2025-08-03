@@ -18,6 +18,15 @@ pub trait StateRepository {
         network_id: &str,
         block_number: u64,
     ) -> Result<(), sqlx::Error>;
+    
+    /// Performs any necessary cleanup operations before shutdown.
+    async fn cleanup(&self) -> Result<(), sqlx::Error>;
+    
+    /// Ensures all pending writes are flushed to disk.
+    async fn flush(&self) -> Result<(), sqlx::Error>;
+    
+    /// Saves emergency state during shutdown (e.g., partial progress).
+    async fn save_emergency_state(&self, network_id: &str, block_number: u64, note: &str) -> Result<(), sqlx::Error>;
 }
 
 /// A concrete implementation of the StateRepository using SQLite.
@@ -51,6 +60,19 @@ impl SqliteStateRepository {
             })?;
         tracing::info!("Database migrations completed successfully.");
         Ok(())
+    }
+
+    /// Gets access to the underlying connection pool for advanced operations.
+    pub fn pool(&self) -> &SqlitePool {
+        &self.pool
+    }
+
+    /// Closes the connection pool gracefully.
+    #[tracing::instrument(skip(self), level = "info")]
+    pub async fn close(&self) {
+        tracing::debug!("Closing SQLite connection pool.");
+        self.pool.close().await;
+        tracing::info!("SQLite connection pool closed successfully.");
     }
 }
 
@@ -137,6 +159,75 @@ impl StateRepository for SqliteStateRepository {
         );
         Ok(())
     }
+
+    /// Performs any necessary cleanup operations before shutdown.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn cleanup(&self) -> Result<(), sqlx::Error> {
+        tracing::debug!("Performing state repository cleanup.");
+        
+        // Force a checkpoint to ensure all WAL data is written to the main database file
+        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!(error = %e, "Failed to checkpoint WAL during cleanup.");
+                e
+            })?;
+            
+        tracing::debug!("State repository cleanup completed.");
+        Ok(())
+    }
+
+    /// Ensures all pending writes are flushed to disk.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn flush(&self) -> Result<(), sqlx::Error> {
+        tracing::debug!("Flushing pending writes to disk.");
+        
+        // Execute PRAGMA synchronous to ensure data is written to disk
+        sqlx::query("PRAGMA synchronous = FULL")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!(error = %e, "Failed to set synchronous mode during flush.");
+                e
+            })?;
+            
+        // Force a checkpoint to flush WAL to main database
+        sqlx::query("PRAGMA wal_checkpoint(PASSIVE)")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!(error = %e, "Failed to checkpoint WAL during flush.");
+                e
+            })?;
+            
+        tracing::debug!("Pending writes flushed successfully.");
+        Ok(())
+    }
+
+    /// Saves emergency state during shutdown (e.g., partial progress).
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn save_emergency_state(&self, network_id: &str, block_number: u64, note: &str) -> Result<(), sqlx::Error> {
+        tracing::warn!(
+            network_id = %network_id,
+            block_number = %block_number,
+            note = %note,
+            "Saving emergency state during shutdown."
+        );
+        
+        // Save the current state
+        self.set_last_processed_block(network_id, block_number).await?;
+        
+        // Log the emergency save for audit purposes
+        tracing::info!(
+            network_id = %network_id,
+            block_number = %block_number,
+            note = %note,
+            "Emergency state saved successfully."
+        );
+        
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -175,5 +266,39 @@ mod tests {
         // Retrieve the updated value
         let block = repo.get_last_processed_block(network).await.unwrap();
         assert_eq!(block, Some(54321));
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_and_flush_operations() {
+        let repo = setup_test_db().await;
+        let network = "testnet";
+
+        // Set some data
+        repo.set_last_processed_block(network, 100).await.unwrap();
+
+        // Test flush operation
+        repo.flush().await.unwrap();
+
+        // Test cleanup operation
+        repo.cleanup().await.unwrap();
+
+        // Verify data integrity after cleanup
+        let block = repo.get_last_processed_block(network).await.unwrap();
+        assert_eq!(block, Some(100));
+    }
+
+    #[tokio::test]
+    async fn test_emergency_state_saving() {
+        let repo = setup_test_db().await;
+        let network = "emergency_test";
+
+        // Save emergency state
+        repo.save_emergency_state(network, 555, "Test emergency shutdown")
+            .await
+            .unwrap();
+
+        // Verify the state was saved
+        let block = repo.get_last_processed_block(network).await.unwrap();
+        assert_eq!(block, Some(555));
     }
 }
