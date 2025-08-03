@@ -12,7 +12,7 @@ pub trait FilteringEngine {
     async fn evaluate_item(
         &self,
         item: &CorrelatedBlockItem<'_>,
-    ) -> Result<Vec<MonitorMatch>, Box<dyn std::error::Error>>;
+    ) -> Result<Vec<MonitorMatch>, Box<dyn std::error::Error + Send + Sync>>;
 }
 
 /// A dummy implementation of `FilteringEngine` for initial development.
@@ -24,7 +24,7 @@ impl FilteringEngine for DummyFilteringEngine {
     async fn evaluate_item(
         &self,
         _item: &CorrelatedBlockItem<'_>,
-    ) -> Result<Vec<MonitorMatch>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<MonitorMatch>, Box<dyn std::error::Error + Send + Sync>> {
         // Placeholder: In a real implementation, this would apply complex filtering logic.
         tracing::debug!("DummyFilteringEngine: Evaluating correlated block item (no actual filtering).");
         Ok(vec![])
