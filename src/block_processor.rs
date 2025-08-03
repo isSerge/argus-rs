@@ -1,5 +1,5 @@
 //! This module defines the `BlockProcessor` component.
-//! 
+//!
 //! The `BlockProcessor` is responsible for in-memory processing of blockchain data,
 //! including log decoding, data correlation, and applying filtering logic.
 //! It supports both single block processing and batch processing for improved throughput.
@@ -129,16 +129,13 @@ impl<F: FilteringEngine> BlockProcessor<F> {
         );
 
         let mut all_matches = Vec::new();
-        
+
         // Process blocks sequentially but with async operations
         for block_data in blocks {
             let block_number = block_data.block.header.number;
-            
-            tracing::trace!(
-                block_number = block_number,
-                "Processing block in batch."
-            );
-            
+
+            tracing::trace!(block_number = block_number, "Processing block in batch.");
+
             match self.process_block(block_data).await {
                 Ok(matches) => {
                     let matches_count = matches.len();
@@ -333,7 +330,7 @@ mod tests {
 
         // Create multiple blocks for batch processing
         let mut blocks = Vec::new();
-        
+
         for block_num in 100..103 {
             let tx_hash = B256::from([block_num as u8; 32]);
             let tx = TransactionBuilder::new()
@@ -376,7 +373,7 @@ mod tests {
 
         // Should have one match per block (3 total)
         assert_eq!(matches.len(), 3);
-        
+
         // Verify each match has the correct monitor_id
         for a_match in &matches {
             assert_eq!(a_match.monitor_id, "test_monitor");
@@ -389,7 +386,10 @@ mod tests {
         let filtering_engine = MockFilteringEngine;
         let block_processor = BlockProcessor::new(abi_service, filtering_engine);
 
-        let matches = block_processor.process_blocks_batch(Vec::new()).await.unwrap();
+        let matches = block_processor
+            .process_blocks_batch(Vec::new())
+            .await
+            .unwrap();
         assert!(matches.is_empty());
     }
 
@@ -403,7 +403,10 @@ mod tests {
         let block = BlockBuilder::new().build();
         let block_data = BlockData::new(block, HashMap::new(), HashMap::new());
 
-        let matches = block_processor.process_blocks_batch(vec![block_data]).await.unwrap();
+        let matches = block_processor
+            .process_blocks_batch(vec![block_data])
+            .await
+            .unwrap();
         assert!(matches.is_empty());
     }
 
@@ -423,7 +426,10 @@ mod tests {
         let block_data = BlockData::new(block, HashMap::new(), logs_by_tx);
 
         // Should run without error, but no matches will be found as decoding fails silently.
-        let matches = block_processor.process_blocks_batch(vec![block_data]).await.unwrap();
+        let matches = block_processor
+            .process_blocks_batch(vec![block_data])
+            .await
+            .unwrap();
         assert!(matches.is_empty());
     }
 }

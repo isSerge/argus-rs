@@ -1,10 +1,14 @@
 use argus::{
+    abi::AbiService,
+    block_processor::{BlockProcessor, BlockProcessorError},
     config::AppConfig,
     data_source::{DataSource, EvmRpcSource},
+    filtering::DummyFilteringEngine,
     models::BlockData,
     provider::create_provider,
     state::{SqliteStateRepository, StateRepository},
 };
+use std::sync::Arc;
 use tokio::{
     signal,
     time::{self, Duration},
@@ -34,6 +38,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let provider = create_provider(config.rpc_urls, config.retry_config.clone())?;
     let evm_data_source = EvmRpcSource::new(provider);
     tracing::info!(retry_policy = ?config.retry_config, "EVM data source initialized with fallback and retry policy.");
+
+    // Initialize BlockProcessor components
+    tracing::debug!("Initializing ABI service and BlockProcessor...");
+    let abi_service = Arc::new(AbiService::new());
+    let filtering_engine = DummyFilteringEngine;
+    let block_processor = BlockProcessor::new(abi_service, filtering_engine);
+    tracing::info!("BlockProcessor initialized successfully.");
 
     tracing::info!(network_id = %config.network_id, "Starting EVM monitor.");
 
@@ -109,6 +120,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             result = monitor_cycle(
                 &repo,
                 &evm_data_source,
+                &block_processor,
                 &config.network_id,
                 config.block_chunk_size,
                 config.confirmation_blocks,
@@ -133,10 +145,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[tracing::instrument(skip(repo, data_source, shutdown_rx), level = "debug")]
+#[tracing::instrument(skip(repo, data_source, block_processor, shutdown_rx), level = "debug")]
 async fn monitor_cycle(
     repo: &SqliteStateRepository,
     data_source: &impl DataSource,
+    block_processor: &BlockProcessor<DummyFilteringEngine>,
     network_id: &str,
     block_chunk_size: u64,
     confirmation_blocks: u64,
@@ -200,9 +213,12 @@ async fn monitor_cycle(
         "Processing block range."
     );
 
-    // 3. Process each block in the range with shutdown checks
+    // 3. Process blocks in batch with shutdown checks
     let mut last_processed = last_processed_block; // Use the actual last processed block from DB
     let mut blocks_processed_this_cycle = 0;
+
+    // Collect blocks to process in batch
+    let mut blocks_to_process = Vec::new();
 
     for block_num in from_block..=to_block {
         // Check for shutdown signal before processing each block
@@ -211,74 +227,130 @@ async fn monitor_cycle(
                 network_id = %network_id,
                 block_number = block_num,
                 blocks_processed_this_cycle = blocks_processed_this_cycle,
-                "Shutdown signal detected, stopping block processing and saving emergency state."
+                blocks_pending = blocks_to_process.len(),
+                "Shutdown signal detected, processing pending blocks then stopping."
             );
-
-            // Only save emergency state if we actually have a valid last processed block
-            if let Some(valid_last_processed) = last_processed {
-                let emergency_message = if blocks_processed_this_cycle == 0 {
-                    "Shutdown during cycle, no blocks processed this cycle".to_string()
-                } else {
-                    format!(
-                        "Shutdown during cycle, processed {blocks_processed_this_cycle} blocks this cycle"
-                    )
-                };
-                if let Err(e) = repo
-                    .save_emergency_state(network_id, valid_last_processed, &emergency_message)
-                    .await
-                {
-                    tracing::error!(error = %e, "Failed to save emergency state during shutdown.");
-                }
-            } else {
-                tracing::info!(
-                    network_id = %network_id,
-                    "Shutdown during initial processing - no valid last processed block to save as emergency state."
-                );
-            }
             break;
         }
 
+        // Fetch block data
         match data_source.fetch_block_core_data(block_num).await {
             Ok((block, logs)) => {
                 let block_data =
                     BlockData::from_raw_data(block, std::collections::HashMap::new(), logs);
-
-                // TODO: Implement block processing logic here.
-                // This will involve:
-                // 1. Analyzing the `block_data` against user-defined rules.
-                // 2. Based on the analysis, determining if any transaction receipts are needed.
-                // 3. If so, calling a method on the data_source to fetch only the required receipts,
-                //    and adding them to `block_data`.
-                // 4. Passing the `block_data` to the trigger evaluation engine.
-
-                let tx_count = block_data.block.transactions.len();
-                let log_count = block_data.logs.values().map(Vec::len).sum::<usize>();
-                let block_hash = block_data.block.header.hash;
-
-                tracing::info!(
-                    network_id = %network_id,
-                    block_number = block_num,
-                    block_hash = %block_hash,
-                    tx_count = tx_count,
-                    log_count = log_count,
-                    "Processed block."
-                );
-
-                last_processed = Some(block_num);
-                blocks_processed_this_cycle += 1;
+                blocks_to_process.push((block_num, block_data));
             }
             Err(e) => {
-                // If fetching a block fails, we log the error and stop the current
-                // cycle. The last processed block will not be updated, ensuring
-                // that we retry the failed block in the next cycle.
                 tracing::error!(
                     network_id = %network_id,
                     block_number = block_num,
                     error = %e,
-                    "Failed to process block. Aborting cycle."
+                    "Failed to fetch block data. Aborting cycle."
                 );
                 return Err(e.into());
             }
+        }
+    }
+
+    // Process all collected blocks in batch
+    if !blocks_to_process.is_empty() {
+        tracing::debug!(
+            network_id = %network_id,
+            block_count = blocks_to_process.len(),
+            "Processing blocks in batch."
+        );
+
+        let block_data_vec: Vec<BlockData> = blocks_to_process
+            .iter()
+            .map(|(_, data)| data.clone())
+            .collect();
+
+        match block_processor.process_blocks_batch(block_data_vec).await {
+            Ok(all_matches) => {
+                // Log results for each block
+                for (block_num, block_data) in &blocks_to_process {
+                    let tx_count = block_data.block.transactions.len();
+                    let log_count = block_data.logs.values().map(Vec::len).sum::<usize>();
+                    let block_hash = block_data.block.header.hash;
+
+                    tracing::info!(
+                        network_id = %network_id,
+                        block_number = %block_num,
+                        block_hash = %block_hash,
+                        tx_count = tx_count,
+                        log_count = log_count,
+                        "Processed block in batch."
+                    );
+
+                    last_processed = Some(*block_num);
+                    blocks_processed_this_cycle += 1;
+                }
+
+                // Log overall batch results
+                tracing::info!(
+                    network_id = %network_id,
+                    blocks_processed = blocks_processed_this_cycle,
+                    total_matches = all_matches.len(),
+                    "Batch processing completed successfully."
+                );
+
+                // TODO: Store matches in database or send to notification system
+                if !all_matches.is_empty() {
+                    tracing::info!(
+                        network_id = %network_id,
+                        matches_count = all_matches.len(),
+                        "Found monitor matches in batch."
+                    );
+                }
+            }
+            Err(BlockProcessorError::AbiService(e)) => {
+                tracing::warn!(
+                    network_id = %network_id,
+                    error = %e,
+                    "ABI service error during batch processing, continuing."
+                );
+                // Still update the processed blocks since data was fetched successfully
+                for (block_num, _) in &blocks_to_process {
+                    last_processed = Some(*block_num);
+                    blocks_processed_this_cycle += 1;
+                }
+            }
+            Err(BlockProcessorError::FilteringEngine(e)) => {
+                tracing::error!(
+                    network_id = %network_id,
+                    error = %e,
+                    "Filtering engine error during batch processing."
+                );
+                // Still update the processed blocks since data was fetched successfully
+                for (block_num, _) in &blocks_to_process {
+                    last_processed = Some(*block_num);
+                    blocks_processed_this_cycle += 1;
+                }
+            }
+        }
+    }
+
+    // Handle shutdown state saving after batch processing
+    if *shutdown_rx.borrow() {
+        if let Some(valid_last_processed) = last_processed {
+            let emergency_message = if blocks_processed_this_cycle == 0 {
+                "Shutdown during cycle, no blocks processed this cycle".to_string()
+            } else {
+                format!(
+                    "Shutdown during cycle, processed {blocks_processed_this_cycle} blocks this cycle"
+                )
+            };
+            if let Err(e) = repo
+                .save_emergency_state(network_id, valid_last_processed, &emergency_message)
+                .await
+            {
+                tracing::error!(error = %e, "Failed to save emergency state during shutdown.");
+            }
+        } else {
+            tracing::info!(
+                network_id = %network_id,
+                "Shutdown during initial processing - no valid last processed block to save as emergency state."
+            );
         }
     }
 
