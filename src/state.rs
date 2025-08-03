@@ -79,6 +79,45 @@ impl SqliteStateRepository {
         self.pool.close().await;
         tracing::info!("SQLite connection pool closed successfully.");
     }
+
+    /// Internal helper to execute a PRAGMA command with error handling
+    async fn execute_pragma(&self, pragma: &str, operation: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(pragma)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!(error = %e, pragma = %pragma, operation = %operation, "Failed to execute PRAGMA command.");
+                e
+            })?;
+        Ok(())
+    }
+
+    /// Performs a WAL checkpoint with the specified mode
+    async fn checkpoint_wal(&self, mode: &str) -> Result<(), sqlx::Error> {
+        let pragma = format!("PRAGMA wal_checkpoint({})", mode);
+        self.execute_pragma(&pragma, &format!("WAL checkpoint {}", mode)).await
+    }
+
+    /// Sets the synchronous mode
+    async fn set_synchronous_mode(&self, mode: &str) -> Result<(), sqlx::Error> {
+        let pragma = format!("PRAGMA synchronous = {}", mode);
+        self.execute_pragma(&pragma, &format!("set synchronous mode to {}", mode)).await
+    }
+
+    /// Helper to execute database queries with consistent error handling
+    async fn execute_query_with_error_handling<F, T>(
+        &self,
+        operation: &str,
+        query_fn: F,
+    ) -> Result<T, sqlx::Error>
+    where
+        F: std::future::Future<Output = Result<T, sqlx::Error>>,
+    {
+        query_fn.await.map_err(|e| {
+            tracing::error!(error = %e, operation = %operation, "Database operation failed.");
+            e
+        })
+    }
 }
 
 #[async_trait]
@@ -87,16 +126,15 @@ impl StateRepository for SqliteStateRepository {
     #[tracing::instrument(skip(self), level = "debug")]
     async fn get_last_processed_block(&self, network_id: &str) -> Result<Option<u64>, sqlx::Error> {
         tracing::debug!(network_id, "Querying for last processed block.");
-        let result: Option<SqliteRow> = sqlx::query(
-            "SELECT block_number FROM processed_blocks WHERE network_id = ?",
-        )
-        .bind(network_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, network_id, "Failed to query last processed block.");
-            e
-        })?;
+        
+        let result: Option<SqliteRow> = self
+            .execute_query_with_error_handling(
+                "query last processed block",
+                sqlx::query("SELECT block_number FROM processed_blocks WHERE network_id = ?")
+                    .bind(network_id)
+                    .fetch_optional(&self.pool),
+            )
+            .await?;
 
         match result {
             Some(row) => {
@@ -138,25 +176,24 @@ impl StateRepository for SqliteStateRepository {
             block_number,
             "Attempting to set last processed block."
         );
-        sqlx::query(
-            "INSERT OR REPLACE INTO processed_blocks (network_id, block_number) VALUES (?, ?)",
-        )
-        .bind(network_id)
-        .bind(
-            i64::try_from(block_number).map_err(|error| {
-                tracing::error!(error = %error, block_number, "Failed to convert block_number to i64 for database insertion.");
-                sqlx::Error::ColumnDecode {
-                    index: "block_number".to_string(),
-                    source: Box::new(error),
-                }
-            })?,
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, network_id, block_number, "Failed to set last processed block.");
-            e
+        
+        let block_number_i64 = i64::try_from(block_number).map_err(|error| {
+            tracing::error!(error = %error, block_number, "Failed to convert block_number to i64 for database insertion.");
+            sqlx::Error::ColumnDecode {
+                index: "block_number".to_string(),
+                source: Box::new(error),
+            }
         })?;
+
+        self.execute_query_with_error_handling(
+            "set last processed block",
+            sqlx::query("INSERT OR REPLACE INTO processed_blocks (network_id, block_number) VALUES (?, ?)")
+                .bind(network_id)
+                .bind(block_number_i64)
+                .execute(&self.pool),
+        )
+        .await?;
+
         tracing::info!(
             network_id,
             block_number,
@@ -171,13 +208,7 @@ impl StateRepository for SqliteStateRepository {
         tracing::debug!("Performing state repository cleanup.");
 
         // Force a checkpoint to ensure all WAL data is written to the main database file
-        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
-            .execute(&self.pool)
-            .await
-            .map_err(|e| {
-                tracing::error!(error = %e, "Failed to checkpoint WAL during cleanup.");
-                e
-            })?;
+        self.checkpoint_wal("TRUNCATE").await?;
 
         tracing::debug!("State repository cleanup completed.");
         Ok(())
@@ -188,32 +219,14 @@ impl StateRepository for SqliteStateRepository {
     async fn flush(&self) -> Result<(), sqlx::Error> {
         tracing::debug!("Flushing pending writes to disk.");
 
-        // Execute PRAGMA synchronous to ensure data is written to disk
-        sqlx::query("PRAGMA synchronous = FULL")
-            .execute(&self.pool)
-            .await
-            .map_err(|e| {
-                tracing::error!(error = %e, "Failed to set synchronous mode during flush.");
-                e
-            })?;
+        // Temporarily set synchronous mode to FULL for maximum durability
+        self.set_synchronous_mode("FULL").await?;
             
         // Force a checkpoint to flush WAL to main database
-        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
-            .execute(&self.pool)
-            .await
-            .map_err(|e| {
-                tracing::error!(error = %e, "Failed to checkpoint WAL during flush.");
-                e
-            })?;
+        self.checkpoint_wal("TRUNCATE").await?;
 
         // Revert synchronous mode to NORMAL for better performance during normal operations
-        sqlx::query("PRAGMA synchronous = NORMAL")
-            .execute(&self.pool)
-            .await
-            .map_err(|e| {
-                tracing::error!(error = %e, "Failed to revert synchronous mode after flush.");
-                e
-            })?;
+        self.set_synchronous_mode("NORMAL").await?;
             
         tracing::debug!("Pending writes flushed successfully.");
         Ok(())
@@ -234,16 +247,15 @@ impl StateRepository for SqliteStateRepository {
             "Saving emergency state during shutdown."
         );
 
-        // Save the current state
-        self.set_last_processed_block(network_id, block_number)
-            .await?;
+        // Save the current state and flush to ensure it's persisted
+        self.set_last_processed_block(network_id, block_number).await?;
+        self.flush().await?;
 
-        // Log the emergency save for audit purposes
         tracing::info!(
             network_id = %network_id,
             block_number = %block_number,
             note = %note,
-            "Emergency state saved successfully."
+            "Emergency state saved and flushed successfully."
         );
 
         Ok(())
@@ -320,5 +332,19 @@ mod tests {
         // Verify the state was saved
         let block = repo.get_last_processed_block(network).await.unwrap();
         assert_eq!(block, Some(555));
+    }
+
+    #[tokio::test]
+    async fn test_pragma_helper_methods() {
+        let repo = setup_test_db().await;
+
+        // Test checkpoint WAL (should not fail even on empty database)
+        repo.checkpoint_wal("PASSIVE").await.unwrap();
+        repo.checkpoint_wal("TRUNCATE").await.unwrap();
+
+        // Test synchronous mode changes
+        repo.set_synchronous_mode("FULL").await.unwrap();
+        repo.set_synchronous_mode("NORMAL").await.unwrap();
+        repo.set_synchronous_mode("OFF").await.unwrap();
     }
 }
