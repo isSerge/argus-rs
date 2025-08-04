@@ -374,4 +374,20 @@ mod tests {
         matched_monitor_ids.sort_unstable();
         assert_eq!(matched_monitor_ids, vec![1, 2]);
     }
+
+    #[tokio::test]
+    async fn test_evaluate_item_non_existent_field_operation() {
+        let addr = address!("0000000000000000000000000000000000000001");
+        // Script that tries to perform an arithmetic operation on a non-existent field
+        let monitor = create_test_monitor(1, &addr.to_checksum(None), "log.non_existent_field + 1");
+        let engine = RhaiFilteringEngine::new(vec![monitor]);
+
+        let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
+        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+
+        let result = engine.evaluate_item(&item).await;
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("Function not found"));
+    }
 }
