@@ -297,9 +297,11 @@ mod tests {
     async fn test_evaluate_item_no_match_address() {
         let addr1 = address!("0000000000000000000000000000000000000001");
         let addr2 = address!("0000000000000000000000000000000000000002");
+        // Monitor for addr1
         let monitor = create_test_monitor(1, &format!("{addr1:?}"), "true");
         let engine = RhaiFilteringEngine::new(vec![monitor]);
 
+        // Create a log for addr2
         let (tx, log) = create_test_log_and_tx(addr2, "Transfer", vec![]);
         let item = CorrelatedBlockItem::new(&tx, vec![log], None);
 
@@ -381,5 +383,24 @@ mod tests {
             dyn_sol_value_to_json(&DynSolValue::Bytes(vec![].into())),
             json!("0x")
         );
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_item_multiple_monitors_same_address() {
+        let addr = address!("0000000000000000000000000000000000000001");
+        // Two monitors for the same address with the same event name
+        let monitor1 = create_test_monitor(1, &format!("{addr:?}"), "log.name == \"Transfer\"");
+        let monitor2 = create_test_monitor(2, &format!("{addr:?}"), "log.name == \"Transfer\"");
+        let engine = RhaiFilteringEngine::new(vec![monitor1, monitor2]);
+
+        let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
+        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+
+        // Both monitors should match
+        let matches = engine.evaluate_item(&item).await.unwrap();
+        assert_eq!(matches.len(), 2);
+        let mut ids: Vec<i64> = matches.iter().map(|m| m.monitor_id).collect();
+        ids.sort_unstable();
+        assert_eq!(ids, vec![1, 2]);
     }
 }
