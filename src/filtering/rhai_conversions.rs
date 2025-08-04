@@ -380,4 +380,22 @@ mod tests {
         let result = dyn_sol_value_to_rhai(&DynSolValue::Int(beyond_i64_min, 256));
         assert_eq!(result.cast::<String>(), beyond_i64_min.to_string());
     }
+
+    #[test]
+    fn test_dyn_sol_value_to_rhai_tuple() {
+        let tuple_values = vec![
+            DynSolValue::Address(address!("1111111111111111111111111111111111111111")),
+            DynSolValue::Uint(U256::from(42).into(), 256),
+            DynSolValue::Bool(true),
+            DynSolValue::String("tuple_item".to_string()),
+        ];
+        let result = dyn_sol_value_to_rhai(&DynSolValue::Tuple(tuple_values));
+        let rhai_array = result.cast::<rhai::Array>();
+
+        assert_eq!(rhai_array.len(), 4);
+        assert_eq!(rhai_array[0].clone().cast::<String>(), "0x1111111111111111111111111111111111111111");
+        assert_eq!(rhai_array[1].clone().cast::<i64>(), 42);
+        assert_eq!(rhai_array[2].clone().cast::<bool>(), true);
+        assert_eq!(rhai_array[3].clone().cast::<String>(), "tuple_item");
+    }
 }
