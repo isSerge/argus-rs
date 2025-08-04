@@ -4,8 +4,8 @@
 
 use crate::abi::DecodedLog;
 use crate::models::transaction::Transaction;
-use alloy::dyn_abi::DynSolValue;
 use alloy::primitives::U256;
+use alloy::{consensus::TxType, dyn_abi::DynSolValue};
 use rhai::{Dynamic, Map};
 use serde_json::Value;
 
@@ -116,10 +116,64 @@ pub fn build_transaction_map(transaction: &Transaction) -> Map {
     let value_dynamic = convert_u256_to_rhai(value_u256);
     map.insert("value".into(), value_dynamic);
 
-    // TODO: Add more transaction fields as needed:
-    // - gas_limit, gas_used, gas_price
-    // - block_number, transaction_index
-    // - nonce, input data
+    map.insert(
+        "gas_limit".into(),
+        convert_u256_to_rhai(U256::from(transaction.gas())),
+    );
+    map.insert(
+        "nonce".into(),
+        convert_u256_to_rhai(U256::from(transaction.nonce())),
+    );
+    map.insert(
+        "input".into(),
+        format!("0x{}", hex::encode(transaction.input())).into(),
+    );
+
+    if let Some(block_number) = transaction.block_number() {
+        map.insert(
+            "block_number".into(),
+            convert_u256_to_rhai(U256::from(block_number)),
+        );
+    } else {
+        map.insert("block_number".into(), Dynamic::UNIT);
+    }
+
+    if let Some(transaction_index) = transaction.transaction_index() {
+        map.insert(
+            "transaction_index".into(),
+            convert_u256_to_rhai(U256::from(transaction_index)),
+        );
+    } else {
+        map.insert("transaction_index".into(), Dynamic::UNIT);
+    }
+
+    match transaction.transaction_type() {
+        TxType::Legacy => {
+            if let Some(gas_price) = transaction.gas_price() {
+                map.insert(
+                    "gas_price".into(),
+                    convert_u256_to_rhai(U256::from(gas_price)),
+                );
+            } else {
+                map.insert("gas_price".into(), Dynamic::UNIT);
+            }
+        }
+        TxType::Eip1559 => {
+            map.insert(
+                "max_fee_per_gas".into(),
+                convert_u256_to_rhai(U256::from(transaction.max_fee_per_gas())),
+            );
+            if let Some(max_priority_fee_per_gas) = transaction.max_priority_fee_per_gas() {
+                map.insert(
+                    "max_priority_fee_per_gas".into(),
+                    convert_u256_to_rhai(U256::from(max_priority_fee_per_gas)),
+                );
+            } else {
+                map.insert("max_priority_fee_per_gas".into(), Dynamic::UNIT);
+            }
+        }
+        _ => { /* Other transaction types are not explicitly handled for gas fields */ }
+    }
 
     map
 }
@@ -161,6 +215,8 @@ pub fn build_trigger_data_from_params(params: &[(String, DynSolValue)]) -> Value
 
 #[cfg(test)]
 mod tests {
+    use crate::test_helpers::TransactionBuilder;
+
     use super::*;
     use alloy::{
         dyn_abi::Word,
@@ -441,10 +497,16 @@ mod tests {
     #[test]
     fn test_dyn_sol_value_to_json_signed_integers() {
         // Small Int (should become number)
-        let result = dyn_sol_value_to_json(&DynSolValue::Int(alloy::primitives::I256::try_from(123i128).unwrap(), 256));
+        let result = dyn_sol_value_to_json(&DynSolValue::Int(
+            alloy::primitives::I256::try_from(123i128).unwrap(),
+            256,
+        ));
         assert_eq!(result, json!(123));
 
-        let result = dyn_sol_value_to_json(&DynSolValue::Int(alloy::primitives::I256::try_from(-123i128).unwrap(), 256));
+        let result = dyn_sol_value_to_json(&DynSolValue::Int(
+            alloy::primitives::I256::try_from(-123i128).unwrap(),
+            256,
+        ));
         assert_eq!(result, json!(-123));
 
         // Int at i64::MAX boundary (should stay as number)
@@ -495,5 +557,156 @@ mod tests {
         let function = Function::new(bytes);
         let result = dyn_sol_value_to_json(&DynSolValue::Function(function));
         assert_eq!(result, json!(null));
+    }
+
+    #[test]
+    fn test_build_transaction_map_contract_creation() {
+        let tx = TransactionBuilder::new().to(None).build();
+        let map = build_transaction_map(&tx);
+
+        assert!(!map.contains_key("to"));
+        assert_eq!(
+            map.get("from").unwrap().clone().cast::<String>(),
+            tx.from().to_checksum(None)
+        );
+        assert_eq!(
+            map.get("hash").unwrap().clone().cast::<String>(),
+            tx.hash().to_string()
+        );
+        assert_eq!(
+            map.get("value").unwrap().clone().cast::<i64>(),
+            tx.value().to::<i64>()
+        );
+    }
+
+    #[test]
+    fn test_build_transaction_map_all_fields() {
+        let tx = TransactionBuilder::new()
+            .to(Some(address!("0x0000000000000000000000000000000000000003")))
+            .value(U256::from(1000))
+            .gas_limit(21000)
+            .nonce(5)
+            .block_number(12345)
+            .transaction_index(7)
+            .input(vec![0x11, 0x22, 0x33].into())
+            .max_fee_per_gas(U256::from(200))
+            .max_priority_fee_per_gas(U256::from(100))
+            .tx_type(TxType::Eip1559)
+            .build();
+
+        let map = build_transaction_map(&tx);
+
+        assert_eq!(
+            map.get("to").unwrap().clone().cast::<String>(),
+            tx.to().unwrap().to_checksum(None)
+        );
+        assert_eq!(
+            map.get("from").unwrap().clone().cast::<String>(),
+            tx.from().to_checksum(None)
+        );
+        assert_eq!(
+            map.get("hash").unwrap().clone().cast::<String>(),
+            tx.hash().to_string()
+        );
+        assert_eq!(
+            map.get("value").unwrap().clone().cast::<i64>(),
+            tx.value().to::<i64>()
+        );
+        assert_eq!(
+            map.get("gas_limit").unwrap().clone().cast::<i64>(),
+            tx.gas() as i64
+        );
+        assert_eq!(
+            map.get("nonce").unwrap().clone().cast::<i64>(),
+            tx.nonce() as i64
+        );
+        assert_eq!(
+            map.get("block_number").unwrap().clone().cast::<i64>(),
+            tx.block_number().unwrap() as i64
+        );
+        assert_eq!(
+            map.get("transaction_index").unwrap().clone().cast::<i64>(),
+            tx.transaction_index().unwrap() as i64
+        );
+        assert_eq!(
+            map.get("input").unwrap().clone().cast::<String>(),
+            format!("0x{}", hex::encode(tx.input()))
+        );
+
+        // EIP-1559 specific fields
+        assert_eq!(
+            map.get("max_fee_per_gas").unwrap().clone().cast::<i64>(),
+            tx.max_fee_per_gas() as i64
+        );
+        assert_eq!(
+            map.get("max_priority_fee_per_gas")
+                .unwrap()
+                .clone()
+                .cast::<i64>(),
+            tx.max_priority_fee_per_gas().unwrap() as i64
+        );
+        assert!(!map.contains_key("gas_price"));
+    }
+
+    #[test]
+    fn test_build_transaction_map_legacy_fields() {
+        let tx = TransactionBuilder::new()
+            .to(Some(address!("0x0000000000000000000000000000000000000003")))
+            .value(U256::from(1000))
+            .gas_limit(21000)
+            .nonce(5)
+            .block_number(12345)
+            .transaction_index(7)
+            .input(vec![0x11, 0x22, 0x33].into())
+            .gas_price(U256::from(150))
+            .tx_type(TxType::Legacy)
+            .build();
+
+        let map = build_transaction_map(&tx);
+
+        assert_eq!(
+            map.get("to").unwrap().clone().cast::<String>(),
+            tx.to().unwrap().to_checksum(None)
+        );
+        assert_eq!(
+            map.get("from").unwrap().clone().cast::<String>(),
+            tx.from().to_checksum(None)
+        );
+        assert_eq!(
+            map.get("hash").unwrap().clone().cast::<String>(),
+            tx.hash().to_string()
+        );
+        assert_eq!(
+            map.get("value").unwrap().clone().cast::<i64>(),
+            tx.value().to::<i64>()
+        );
+        assert_eq!(
+            map.get("gas_limit").unwrap().clone().cast::<i64>(),
+            tx.gas() as i64
+        );
+        assert_eq!(
+            map.get("nonce").unwrap().clone().cast::<i64>(),
+            tx.nonce() as i64
+        );
+        assert_eq!(
+            map.get("block_number").unwrap().clone().cast::<i64>(),
+            tx.block_number().unwrap() as i64
+        );
+        assert_eq!(
+            map.get("transaction_index").unwrap().clone().cast::<i64>(),
+            tx.transaction_index().unwrap() as i64
+        );
+        assert_eq!(
+            map.get("input").unwrap().clone().cast::<String>(),
+            format!("0x{}", hex::encode(tx.input()))
+        );
+
+        // Legacy specific fields
+        assert_eq!(
+            map.get("gas_price").unwrap().clone().cast::<i64>(),
+            tx.gas_price().unwrap() as i64
+        );
+        assert!(!map.contains_key("max_fee_per_gas"));
+        assert!(!map.contains_key("max_priority_fee_per_gas"));
     }
 }
