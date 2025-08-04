@@ -350,4 +350,34 @@ mod tests {
         let result = dyn_sol_value_to_rhai(&DynSolValue::FixedBytes(fixed_bytes, 3));
         assert_eq!(result.cast::<String>(), "0x0405060000000000000000000000000000000000000000000000000000000000");
     }
+
+    #[test]
+    fn test_dyn_sol_value_to_rhai_signed_integers() {
+        // Small Int (should become i64)
+        let result = dyn_sol_value_to_rhai(&DynSolValue::Int(alloy::primitives::I256::try_from(123i128).unwrap(), 256));
+        assert_eq!(result.cast::<i64>(), 123);
+
+        let result = dyn_sol_value_to_rhai(&DynSolValue::Int(alloy::primitives::I256::try_from(-123i128).unwrap(), 256));
+        assert_eq!(result.cast::<i64>(), -123);
+
+        // Int at i64::MAX boundary (should stay as i64)
+        let max_i64_as_i256 = alloy::primitives::I256::try_from(i64::MAX as i128).unwrap();
+        let result = dyn_sol_value_to_rhai(&DynSolValue::Int(max_i64_as_i256, 256));
+        assert_eq!(result.cast::<i64>(), i64::MAX);
+
+        // Int at i64::MIN boundary (should stay as i64)
+        let min_i64_as_i256 = alloy::primitives::I256::try_from(i64::MIN as i128).unwrap();
+        let result = dyn_sol_value_to_rhai(&DynSolValue::Int(min_i64_as_i256, 256));
+        assert_eq!(result.cast::<i64>(), i64::MIN);
+
+        // Int just beyond i64::MAX (should become string)
+        let beyond_i64_max = alloy::primitives::I256::try_from(i64::MAX as i128 + 1).unwrap();
+        let result = dyn_sol_value_to_rhai(&DynSolValue::Int(beyond_i64_max, 256));
+        assert_eq!(result.cast::<String>(), beyond_i64_max.to_string());
+
+        // Int just beyond i64::MIN (should become string)
+        let beyond_i64_min = alloy::primitives::I256::try_from(i64::MIN as i128 - 1).unwrap();
+        let result = dyn_sol_value_to_rhai(&DynSolValue::Int(beyond_i64_min, 256));
+        assert_eq!(result.cast::<String>(), beyond_i64_min.to_string());
+    }
 }
