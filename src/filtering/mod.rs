@@ -308,7 +308,7 @@ mod tests {
         let (tx, log) = create_test_log_and_tx(
             addr,
             "ValueTransfered",
-            vec![(
+            vec![( 
                 "value".to_string(),
                 DynSolValue::Uint(U256::from(150).into(), 256),
             )],
@@ -320,5 +320,21 @@ mod tests {
         assert_eq!(matches[0].monitor_id, 1);
         assert_eq!(matches[0].trigger_name, "ValueTransfered");
         assert_eq!(matches[0].trigger_data["value"], json!(150));
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_item_rhai_runtime_error() {
+        let addr = address!("0000000000000000000000000000000000000001");
+        // Script that will cause a runtime error (division by zero)
+        let monitor = create_test_monitor(1, &addr.to_checksum(None), "1 / 0");
+        let engine = RhaiFilteringEngine::new(vec![monitor]);
+
+        let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
+        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+
+        let result = engine.evaluate_item(&item).await;
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("Division by zero"));
     }
 }
