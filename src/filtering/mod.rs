@@ -12,6 +12,7 @@ use rhai_conversions::{
     build_log_map, build_log_params_map, build_transaction_map, build_trigger_data_from_params,
 };
 use std::sync::Arc;
+use tokio::sync::RwLock;
 
 /// A trait for an engine that applies filtering logic to block data.
 #[cfg_attr(test, automock)]
@@ -31,7 +32,7 @@ pub trait FilteringEngine: Send + Sync {
 /// A Rhai-based implementation of the `FilteringEngine`.
 #[derive(Debug)]
 pub struct RhaiFilteringEngine {
-    monitors_by_address: Arc<DashMap<String, Vec<Monitor>>>,
+    monitors_by_address: Arc<RwLock<DashMap<String, Vec<Monitor>>>>,
     engine: Engine,
 }
 
@@ -51,7 +52,7 @@ impl RhaiFilteringEngine {
         }
 
         Self {
-            monitors_by_address: Arc::new(monitors_by_address),
+            monitors_by_address: Arc::new(RwLock::new(monitors_by_address)),
             engine,
         }
     }
@@ -68,7 +69,8 @@ impl FilteringEngine for RhaiFilteringEngine {
         let mut matches = Vec::new();
 
         // If no monitors are configured, return early
-        if self.monitors_by_address.is_empty() {
+        let monitors_by_address_read_guard = self.monitors_by_address.read().await;
+        if monitors_by_address_read_guard.is_empty() {
             return Ok(matches);
         }
 
@@ -80,7 +82,7 @@ impl FilteringEngine for RhaiFilteringEngine {
             let log_address_str = log.log.address().to_checksum(None);
 
             // Efficiently look up monitors for the current log's address
-            if let Some(monitors) = self.monitors_by_address.get(&log_address_str) {
+            if let Some(monitors) = monitors_by_address_read_guard.get(&log_address_str) {
                 for monitor in monitors.iter() {
                     // Build trigger data from log parameters
                     let params_map = build_log_params_map(&log.params);
@@ -125,11 +127,7 @@ impl FilteringEngine for RhaiFilteringEngine {
                             tracing::debug!(monitor_id = monitor.id, "Monitor condition not met.");
                         }
                         Err(e) => {
-                            tracing::error!(
-                                monitor_id = monitor.id,
-                                "Failed to evaluate script: {}",
-                                e
-                            );
+                            return Err(e.into());
                         }
                     }
                 }
@@ -141,9 +139,10 @@ impl FilteringEngine for RhaiFilteringEngine {
 
     /// Updates the set of monitors used by the engine.
     async fn update_monitors(&self, monitors: Vec<Monitor>) {
-        self.monitors_by_address.clear();
+        let monitors_by_address_write_guard = self.monitors_by_address.write().await;
+        monitors_by_address_write_guard.clear();
         for monitor in monitors {
-            self.monitors_by_address
+            monitors_by_address_write_guard
                 .entry(monitor.address.clone())
                 .or_default()
                 .push(monitor);
@@ -199,9 +198,11 @@ mod tests {
         let engine =
             RhaiFilteringEngine::new(vec![monitor1.clone(), monitor2.clone(), monitor3.clone()]);
 
-        assert_eq!(engine.monitors_by_address.len(), 2);
-        assert_eq!(engine.monitors_by_address.get(addr1).unwrap().len(), 2);
-        assert_eq!(engine.monitors_by_address.get(addr2).unwrap().len(), 1);
+        let monitors_read = engine.monitors_by_address.read().await;
+        assert_eq!(monitors_read.len(), 2);
+        assert_eq!(monitors_read.get(addr1).unwrap().len(), 2);
+        assert_eq!(monitors_read.get(addr2).unwrap().len(), 1);
+        drop(monitors_read); // Release the read lock
 
         // Test `update_monitors()`
         let monitor4 = create_test_monitor(4, addr2, "true");
@@ -209,10 +210,11 @@ mod tests {
             .update_monitors(vec![monitor1.clone(), monitor4.clone()])
             .await;
 
-        assert_eq!(engine.monitors_by_address.len(), 2);
-        assert_eq!(engine.monitors_by_address.get(addr1).unwrap().len(), 1);
-        assert_eq!(engine.monitors_by_address.get(addr2).unwrap().len(), 1);
-        assert_eq!(engine.monitors_by_address.get(addr2).unwrap()[0].id, 4);
+        let monitors_read = engine.monitors_by_address.read().await;
+        assert_eq!(monitors_read.len(), 2);
+        assert_eq!(monitors_read.get(addr1).unwrap().len(), 1);
+        assert_eq!(monitors_read.get(addr2).unwrap().len(), 1);
+        assert_eq!(monitors_read.get(addr2).unwrap()[0].id, 4);
     }
 
     #[tokio::test]
