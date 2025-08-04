@@ -1,3 +1,4 @@
+use alloy::{primitives::TxHash, rpc::types::{Block, TransactionReceipt}};
 use argus::{
     abi::AbiService,
     block_processor::{BlockProcessor, BlockProcessorError},
@@ -8,7 +9,7 @@ use argus::{
     provider::create_provider,
     state::{SqliteStateRepository, StateRepository},
 };
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use tokio::{
     signal,
     time::{self, Duration},
@@ -43,6 +44,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::debug!("Initializing ABI service and BlockProcessor...");
     let abi_service = Arc::new(AbiService::new());
     let filtering_engine = RhaiFilteringEngine::new(vec![]);
+    
+    // Determine once if any monitor requires receipt data
+    let needs_receipts = filtering_engine.requires_receipt_data();
+    if needs_receipts {
+        tracing::info!("Monitors require receipt data - will fetch receipts for all transactions.");
+    } else {
+        tracing::info!("No monitors require receipt data - will skip receipt fetching for better performance.");
+    }
+    
     let block_processor = BlockProcessor::new(abi_service, filtering_engine);
     tracing::info!("BlockProcessor initialized successfully.");
 
@@ -121,6 +131,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &repo,
                 &evm_data_source,
                 &block_processor,
+                needs_receipts,
                 &config.network_id,
                 config.block_chunk_size,
                 config.confirmation_blocks,
@@ -150,6 +161,7 @@ async fn monitor_cycle<F: FilteringEngine>(
     repo: &SqliteStateRepository,
     data_source: &impl DataSource,
     block_processor: &BlockProcessor<F>,
+    needs_receipts: bool,
     network_id: &str,
     block_chunk_size: u64,
     confirmation_blocks: u64,
@@ -234,22 +246,19 @@ async fn monitor_cycle<F: FilteringEngine>(
         }
 
         // Fetch block data
-        match data_source.fetch_block_core_data(block_num).await {
-            Ok((block, logs)) => {
-                let block_data =
-                    BlockData::from_raw_data(block, std::collections::HashMap::new(), logs);
-                blocks_to_process.push((block_num, block_data));
-            }
-            Err(e) => {
-                tracing::error!(
-                    network_id = %network_id,
-                    block_number = block_num,
-                    error = %e,
-                    "Failed to fetch block data. Aborting cycle."
-                );
-                return Err(e.into());
-            }
-        }
+        let (block, logs) = data_source.fetch_block_core_data(block_num).await?;
+        
+        // Fetch receipts if needed
+        let receipts = fetch_receipts_if_needed(
+            data_source, 
+            &block, 
+            needs_receipts, 
+            network_id, 
+            block_num
+        ).await;
+
+        let block_data = BlockData::from_raw_data(block, receipts, logs);
+        blocks_to_process.push((block_num, block_data));
     }
 
     // Process all collected blocks in batch
@@ -366,6 +375,37 @@ async fn monitor_cycle<F: FilteringEngine>(
     }
 
     Ok(())
+}
+
+/// Helper function to fetch receipts if needed
+async fn fetch_receipts_if_needed(
+    data_source: &impl DataSource,
+    block: &Block,
+    needs_receipts: bool,
+    network_id: &str,
+    block_num: u64,
+) -> HashMap<TxHash, TransactionReceipt> {
+    if !needs_receipts {
+        return HashMap::new();
+    }
+
+    let tx_hashes: Vec<_> = block.transactions.hashes().collect();
+    if tx_hashes.is_empty() {
+        return HashMap::new();
+    }
+
+    match data_source.fetch_receipts(&tx_hashes).await {
+        Ok(receipts) => receipts,
+        Err(e) => {
+            tracing::warn!(
+                network_id = %network_id,
+                block_number = block_num,
+                error = %e,
+                "Failed to fetch receipts, proceeding without them."
+            );
+            HashMap::new()
+        }
+    }
 }
 
 /// Performs graceful cleanup operations during shutdown
