@@ -213,11 +213,13 @@ fn dyn_sol_value_to_json(value: &DynSolValue) -> Value {
         DynSolValue::Bool(b) => Value::Bool(*b),
         DynSolValue::Bytes(b) => Value::String(format!("0x{}", hex::encode(b))),
         DynSolValue::FixedBytes(fb, _) => Value::String(format!("0x{}", hex::encode(fb))),
+        // Large signed integers: JSON number if fits in i64, otherwise string
         DynSolValue::Int(i, _) => i
             .to_string()
             .parse::<i64>()
             .map_or_else(|_| Value::String(i.to_string()), Value::from),
         DynSolValue::String(s) => Value::String(s.clone()),
+        // Large unsigned integers: JSON number if fits in u64, otherwise string
         DynSolValue::Uint(u, _) => u
             .to_string()
             .parse::<u64>()
@@ -433,6 +435,57 @@ mod tests {
             dyn_sol_value_to_json(&DynSolValue::Bytes(vec![].into())),
             json!("0x")
         );
+    }
+
+    #[test]
+    fn test_dyn_sol_value_to_json_large_numbers() {
+        // Test values at i64 boundaries
+        let i64_max = I256::try_from(i64::MAX).unwrap();
+        assert_eq!(
+            dyn_sol_value_to_json(&DynSolValue::Int(i64_max, 256)),
+            json!(i64::MAX)
+        );
+
+        let i64_min = I256::try_from(i64::MIN).unwrap();
+        assert_eq!(
+            dyn_sol_value_to_json(&DynSolValue::Int(i64_min, 256)),
+            json!(i64::MIN)
+        );
+
+        // Test values beyond i64 range (should become strings)
+        let beyond_i64_max = I256::try_from(i64::MAX).unwrap() + I256::try_from(1).unwrap();
+        let result = dyn_sol_value_to_json(&DynSolValue::Int(beyond_i64_max, 256));
+        assert!(result.is_string());
+        assert_eq!(result.as_str().unwrap(), beyond_i64_max.to_string());
+
+        let beyond_i64_min = I256::try_from(i64::MIN).unwrap() - I256::try_from(1).unwrap();
+        let result = dyn_sol_value_to_json(&DynSolValue::Int(beyond_i64_min, 256));
+        assert!(result.is_string());
+        assert_eq!(result.as_str().unwrap(), beyond_i64_min.to_string());
+
+        // Test values at u64 boundaries for Uint
+        let u64_max = U256::from(u64::MAX);
+        assert_eq!(
+            dyn_sol_value_to_json(&DynSolValue::Uint(u64_max.into(), 256)),
+            json!(u64::MAX)
+        );
+
+        // Test values beyond u64 range (should become strings)
+        let beyond_u64_max = U256::from(u64::MAX) + U256::from(1);
+        let result = dyn_sol_value_to_json(&DynSolValue::Uint(beyond_u64_max.into(), 256));
+        assert!(result.is_string());
+        assert_eq!(result.as_str().unwrap(), beyond_u64_max.to_string());
+
+        // Test very large numbers (close to U256::MAX)
+        let very_large = U256::MAX - U256::from(1);
+        let result = dyn_sol_value_to_json(&DynSolValue::Uint(very_large.into(), 256));
+        assert!(result.is_string());
+        assert_eq!(result.as_str().unwrap(), very_large.to_string());
+
+        // Test U256::MAX itself
+        let result = dyn_sol_value_to_json(&DynSolValue::Uint(U256::MAX.into(), 256));
+        assert!(result.is_string());
+        assert_eq!(result.as_str().unwrap(), U256::MAX.to_string());
     }
 
     #[tokio::test]
