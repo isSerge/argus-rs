@@ -10,6 +10,7 @@ use alloy::{
 #[derive(Debug, Default, Clone)]
 pub struct ReceiptBuilder {
     transaction_hash: Option<B256>,
+    block_number: Option<u64>,
 }
 
 impl ReceiptBuilder {
@@ -24,11 +25,18 @@ impl ReceiptBuilder {
         self
     }
 
+    /// Sets the block number for the receipt.
+    /// If not set, it defaults to `None`.
+    pub fn block_number(mut self, number: u64) -> Self {
+        self.block_number = Some(number);
+        self
+    }
+
     /// Builds the `TransactionReceipt` with the provided or default values.
     pub fn build(self) -> TransactionReceipt {
         TransactionReceipt {
             transaction_hash: self.transaction_hash.unwrap_or_default(),
-            block_number: Some(123),
+            block_number: self.block_number,
             transaction_index: Some(1),
             block_hash: Some(B256::default()),
             from: Address::default(),
@@ -54,13 +62,14 @@ mod tests {
             .transaction_hash(b256!(
                 "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
             ))
+            .block_number(321)
             .build();
 
         assert_eq!(
             receipt.transaction_hash,
             b256!("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
         );
-        assert_eq!(receipt.block_number, Some(123));
+        assert_eq!(receipt.block_number, Some(321));
         assert_eq!(receipt.transaction_index, Some(1));
         assert_eq!(
             receipt.from,
