@@ -4,14 +4,13 @@ use crate::models::correlated_data::CorrelatedBlockItem;
 use crate::models::monitor::Monitor;
 use crate::models::monitor_match::MonitorMatch;
 use crate::rhai_conversions::{
-    build_log_map, build_log_params_map, build_transaction_map, dyn_sol_value_to_json,
+    build_log_map, build_log_params_map, build_transaction_map, build_trigger_data_from_params,
 };
 use async_trait::async_trait;
 use dashmap::DashMap;
 #[cfg(test)]
 use mockall::automock;
 use rhai::{Engine, Scope};
-use serde_json::Value;
 use std::sync::Arc;
 
 /// A trait for an engine that applies filtering logic to block data.
@@ -87,14 +86,8 @@ impl FilteringEngine for RhaiFilteringEngine {
                     let params_map = build_log_params_map(&log.params);
                     let log_map = build_log_map(log, params_map);
 
-                    // Build trigger data for the MonitorMatch (still needs JSON for backward compatibility)
-                    let trigger_data = {
-                        let mut data = serde_json::Map::new();
-                        for (name, value) in &log.params {
-                            data.insert(name.clone(), dyn_sol_value_to_json(value));
-                        }
-                        Value::Object(data)
-                    };
+                    // Build trigger data using the same conversion logic as Rhai for consistency
+                    let trigger_data = build_trigger_data_from_params(&log.params);
 
                     // Create a new scope for the monitor evaluation
                     let mut scope = Scope::new();

@@ -147,30 +147,104 @@ pub fn json_to_rhai_dynamic(value: &Value) -> Dynamic {
     }
 }
 
-/// Legacy function: Converts a `DynSolValue` to a `serde_json::Value`.
+/// Converts a Rhai Dynamic value to JSON for backward compatibility.
 ///
-/// This is kept for backward compatibility with the trigger_data field
-/// in MonitorMatch, but should be avoided for Rhai conversions.
-pub fn dyn_sol_value_to_json(value: &DynSolValue) -> Value {
-    match value {
-        DynSolValue::Address(a) => Value::String(a.to_checksum(None)),
-        DynSolValue::Bool(b) => Value::Bool(*b),
-        DynSolValue::Bytes(b) => Value::String(format!("0x{}", hex::encode(b))),
-        DynSolValue::FixedBytes(fb, _) => Value::String(format!("0x{}", hex::encode(fb))),
-        DynSolValue::Int(i, _) => i
-            .to_string()
-            .parse::<i64>()
-            .map_or_else(|_| Value::String(i.to_string()), Value::from),
-        DynSolValue::String(s) => Value::String(s.clone()),
-        DynSolValue::Uint(u, _) => u
-            .to_string()
-            .parse::<u64>()
-            .map_or_else(|_| Value::String(u.to_string()), Value::from),
-        DynSolValue::Array(arr) | DynSolValue::FixedArray(arr) | DynSolValue::Tuple(arr) => {
-            Value::Array(arr.iter().map(dyn_sol_value_to_json).collect())
-        }
-        _ => Value::Null,
+/// This function enables creating JSON representations from the same data used in Rhai scripts,
+/// ensuring consistency between script evaluation and external data formats.
+pub fn rhai_dynamic_to_json(dynamic: &Dynamic) -> Value {
+    // Handle unit/null values
+    if dynamic.is_unit() {
+        return Value::Null;
     }
+
+    // Handle primitive types
+    if let Some(value) = try_convert_primitive(dynamic) {
+        return value;
+    }
+
+    // Handle collection types
+    if let Some(value) = try_convert_array(dynamic) {
+        return value;
+    }
+
+    if let Some(value) = try_convert_map(dynamic) {
+        return value;
+    }
+
+    // Fallback: convert to string representation
+    Value::String(dynamic.to_string())
+}
+
+/// Attempts to convert a Rhai Dynamic to a JSON primitive type.
+fn try_convert_primitive(dynamic: &Dynamic) -> Option<Value> {
+    if let Ok(b) = dynamic.as_bool() {
+        Some(Value::Bool(b))
+    } else if dynamic.is::<i32>() {
+        // Handle i32 specifically
+        if let Some(i) = dynamic.clone().try_cast::<i32>() {
+            Some(Value::Number(serde_json::Number::from(i)))
+        } else {
+            None
+        }
+    } else if dynamic.is_int() {
+        // Handle other integer types
+        if let Ok(i) = dynamic.as_int() {
+            Some(Value::Number(serde_json::Number::from(i)))
+        } else {
+            let value_str = dynamic.to_string();
+            if let Ok(i) = value_str.parse::<i64>() {
+                Some(Value::Number(serde_json::Number::from(i)))
+            } else {
+                Some(Value::String(value_str))
+            }
+        }
+    } else if dynamic.is_float() {
+        if let Ok(f) = dynamic.as_float() {
+            serde_json::Number::from_f64(f).map(Value::Number)
+        } else {
+            let value_str = dynamic.to_string();
+            if let Ok(f) = value_str.parse::<f64>() {
+                serde_json::Number::from_f64(f).map(Value::Number)
+            } else {
+                Some(Value::String(value_str))
+            }
+        }
+    } else if dynamic.is_string() {
+        if let Ok(s) = dynamic.clone().into_string() {
+            Some(Value::String(s))
+        } else {
+            Some(Value::String(dynamic.to_string()))
+        }
+    } else {
+        None
+    }
+}
+
+/// Attempts to convert a Rhai Dynamic array to a JSON array.
+fn try_convert_array(dynamic: &Dynamic) -> Option<Value> {
+    dynamic.read_lock::<Vec<Dynamic>>().map(|arr| {
+        let json_array: Vec<Value> = arr.iter().map(rhai_dynamic_to_json).collect();
+        Value::Array(json_array)
+    })
+}
+
+/// Attempts to convert a Rhai Dynamic map to a JSON object.
+fn try_convert_map(dynamic: &Dynamic) -> Option<Value> {
+    dynamic.read_lock::<Map>().map(|map| {
+        let json_map: serde_json::Map<String, Value> = map
+            .iter()
+            .map(|(key, value)| (key.to_string(), rhai_dynamic_to_json(value)))
+            .collect();
+        Value::Object(json_map)
+    })
+}
+
+/// Builds trigger data JSON from log parameters using the same conversion logic as Rhai.
+///
+/// This ensures consistency between the data seen by Rhai scripts and the data in trigger_data.
+pub fn build_trigger_data_from_params(params: &[(String, DynSolValue)]) -> Value {
+    let params_map = build_log_params_map(params);
+    rhai_dynamic_to_json(&params_map.into())
 }
 
 #[cfg(test)]
@@ -288,5 +362,29 @@ mod tests {
         let result = json_to_rhai_dynamic(&json_val);
         // Should be converted to string to avoid overflow
         assert_eq!(result.cast::<String>(), large_u64.to_string());
+    }
+
+    #[test]
+    fn test_rhai_dynamic_to_json() {
+        let dynamic_value = Dynamic::from(123);
+        let json_value = rhai_dynamic_to_json(&dynamic_value);
+        assert_eq!(json_value, Value::Number(serde_json::Number::from(123)));
+
+        let dynamic_array = Dynamic::from(vec![Dynamic::from(1), Dynamic::from(2)]);
+        let json_array = rhai_dynamic_to_json(&dynamic_array);
+        assert_eq!(
+            json_array,
+            Value::Array(vec![Value::Number(serde_json::Number::from(1)), Value::Number(serde_json::Number::from(2))])
+        );
+
+        let mut dynamic_map = Map::new();
+        dynamic_map.insert("key1".into(), Dynamic::from(1));
+        dynamic_map.insert("key2".into(), Dynamic::from("value".to_string()));
+        let dynamic_object = Dynamic::from_map(dynamic_map);
+        let json_object = rhai_dynamic_to_json(&dynamic_object);
+        let mut expected_map = serde_json::Map::new();
+        expected_map.insert("key1".to_string(), Value::Number(serde_json::Number::from(1)));
+        expected_map.insert("key2".to_string(), Value::String("value".to_string()));
+        assert_eq!(json_object, Value::Object(expected_map));
     }
 }
