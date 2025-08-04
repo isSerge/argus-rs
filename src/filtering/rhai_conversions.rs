@@ -182,11 +182,26 @@ pub fn build_transaction_map(transaction: &Transaction) -> Map {
 pub fn build_log_map(log: &DecodedLog, params_map: Map) -> Map {
     let mut log_map = Map::new();
     log_map.insert("name".into(), log.name.clone().into());
+
     log_map.insert("params".into(), params_map.into());
 
-    // TODO: Add more log fields as needed:
-    // - address, block_number, transaction_hash
-    // - log_index, transaction_index
+    log_map.insert("address".into(), log.log.address().to_checksum(None).into());
+    if let Some(block_number) = log.log.block_number() {
+        log_map.insert("block_number".into(), convert_u256_to_rhai(U256::from(block_number)));
+    } else {
+        log_map.insert("block_number".into(), Dynamic::UNIT);
+    }
+    log_map.insert("transaction_hash".into(), log.log.transaction_hash().unwrap_or_default().to_string().into());
+    if let Some(log_index) = log.log.log_index() {
+        log_map.insert("log_index".into(), convert_u256_to_rhai(U256::from(log_index)));
+    } else {
+        log_map.insert("log_index".into(), Dynamic::UNIT);
+    }
+    if let Some(transaction_index) = log.log.transaction_index() {
+        log_map.insert("transaction_index".into(), convert_u256_to_rhai(U256::from(transaction_index)));
+    } else {
+        log_map.insert("transaction_index".into(), Dynamic::UNIT);
+    }
 
     log_map
 }
@@ -215,12 +230,12 @@ pub fn build_trigger_data_from_params(params: &[(String, DynSolValue)]) -> Value
 
 #[cfg(test)]
 mod tests {
-    use crate::test_helpers::TransactionBuilder;
+    use crate::test_helpers::{LogBuilder, TransactionBuilder};
 
     use super::*;
     use alloy::{
         dyn_abi::Word,
-        primitives::{Address, Function, address},
+        primitives::{address, Address, Function, b256},
     };
     use serde_json::json;
 
@@ -708,5 +723,35 @@ mod tests {
         );
         assert!(!map.contains_key("max_fee_per_gas"));
         assert!(!map.contains_key("max_priority_fee_per_gas"));
+    }
+
+    #[test]
+    fn test_build_log_map_all_fields() {
+        let log_address = address!("0x0000000000000000000000000000000000000001");
+        let tx_hash = b256!("0x1111111111111111111111111111111111111111111111111111111111111111");
+
+        let log_raw = LogBuilder::new()
+            .address(log_address)
+            .block_number(100)
+            .transaction_hash(tx_hash)
+            .log_index(5)
+            .transaction_index(2)
+            .build();
+
+        let decoded_log = DecodedLog {
+            name: "Transfer".to_string(),
+            params: vec![],
+            log: Box::leak(Box::new(log_raw)),
+        };
+
+        let params_map = Map::new(); // Empty for this test, as we're testing log fields
+        let map = build_log_map(&decoded_log, params_map);
+
+        assert_eq!(map.get("name").unwrap().clone().cast::<String>(), "Transfer");
+        assert_eq!(map.get("address").unwrap().clone().cast::<String>(), log_address.to_checksum(None));
+        assert_eq!(map.get("block_number").unwrap().clone().cast::<i64>(), 100);
+        assert_eq!(map.get("transaction_hash").unwrap().clone().cast::<String>(), tx_hash.to_string());
+        assert_eq!(map.get("log_index").unwrap().clone().cast::<i64>(), 5);
+        assert_eq!(map.get("transaction_index").unwrap().clone().cast::<i64>(), 2);
     }
 }
