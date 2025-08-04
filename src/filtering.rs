@@ -58,6 +58,8 @@ impl RhaiFilteringEngine {
     }
 
     /// Builds a Rhai `Map` from a transaction.
+    // TODO: add transaction receipt fields
+    // TODO: consider adding block context (number, timestamp, etc.)
     fn build_tx_map(transaction: &Transaction) -> Map {
         let mut map = Map::new();
         if let Some(to) = transaction.to() {
@@ -66,6 +68,7 @@ impl RhaiFilteringEngine {
         map.insert("from".into(), transaction.from().to_string().into());
         map.insert("value".into(), transaction.value().to_string().into());
         map.insert("hash".into(), transaction.hash().to_string().into());
+        // TODO: add all fields that are needed in the scripts
         map
     }
 
