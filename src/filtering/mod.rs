@@ -390,4 +390,22 @@ mod tests {
         let error = result.unwrap_err();
         assert!(error.to_string().contains("Function not found"));
     }
+
+    #[tokio::test]
+    async fn test_evaluate_item_script_syntax_error() {
+        let addr = address!("0000000000000000000000000000000000000001");
+        // Script with a syntax error (missing closing parenthesis)
+        let monitor = create_test_monitor(1, &addr.to_checksum(None), "log.name == \"Transfer\" && (");
+        let engine = RhaiFilteringEngine::new(vec![monitor]);
+
+        let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
+        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+
+        let result = engine.evaluate_item(&item).await;
+        // The error should be caught during compilation, not evaluation
+        assert!(result.is_ok()); // The function returns Ok(matches) even if compilation fails for a monitor
+        // The error message is logged internally, and the loop continues. No match is added.
+        // We can assert that no matches are found.
+        assert!(result.unwrap().is_empty());
+    }
 }
