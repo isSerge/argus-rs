@@ -192,9 +192,10 @@ fn dyn_sol_value_to_json(value: &DynSolValue) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::log::Log;
-    use crate::test_helpers::{TransactionBuilder, LogBuilder};
-    use alloy::primitives::{Address, U256};
+    use crate::test_helpers::{LogBuilder, TransactionBuilder};
+    use alloy::dyn_abi::DynSolValue;
+    use alloy::primitives::{Address, I256, U256, address, b256};
+    use serde_json::json;
 
     fn create_test_monitor(id: i64, address: &str, script: &str) -> Monitor {
         Monitor {
@@ -231,14 +232,19 @@ mod tests {
         let monitor3 = create_test_monitor(3, addr1, "true");
 
         // Test `new()`
-        let engine = RhaiFilteringEngine::new(vec![monitor1.clone(), monitor2.clone(), monitor3.clone()]);
+        let engine =
+            RhaiFilteringEngine::new(vec![monitor1.clone(), monitor2.clone(), monitor3.clone()]);
+
         assert_eq!(engine.monitors_by_address.len(), 2);
         assert_eq!(engine.monitors_by_address.get(addr1).unwrap().len(), 2);
         assert_eq!(engine.monitors_by_address.get(addr2).unwrap().len(), 1);
 
         // Test `update_monitors()`
         let monitor4 = create_test_monitor(4, addr2, "true");
-        engine.update_monitors(vec![monitor1.clone(), monitor4.clone()]).await;
+        engine
+            .update_monitors(vec![monitor1.clone(), monitor4.clone()])
+            .await;
+
         assert_eq!(engine.monitors_by_address.len(), 2);
         assert_eq!(engine.monitors_by_address.get(addr1).unwrap().len(), 1);
         assert_eq!(engine.monitors_by_address.get(addr2).unwrap().len(), 1);
@@ -247,7 +253,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_item_simple_match() {
-        let addr = alloy::primitives::address!("0000000000000000000000000000000000000001");
+        let addr = address!("0000000000000000000000000000000000000001");
         let monitor = create_test_monitor(1, &format!("{addr:?}"), "log.name == \"Transfer\"");
         let engine = RhaiFilteringEngine::new(vec![monitor]);
 
@@ -259,5 +265,121 @@ mod tests {
         assert_eq!(matches[0].monitor_id, 1);
         assert_eq!(matches[0].trigger_name, "Transfer");
     }
-}
 
+    #[tokio::test]
+    async fn test_evaluate_item_no_monitors() {
+        let engine = RhaiFilteringEngine::new(vec![]); // No monitors
+        let (tx, log) = create_test_log_and_tx(
+            address!("0000000000000000000000000000000000000001"),
+            "SomeEvent",
+            vec![],
+        );
+        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+
+        let matches = engine.evaluate_item(&item).await.unwrap();
+        assert!(matches.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_item_no_match_script() {
+        let addr = address!("0000000000000000000000000000000000000001");
+        let monitor = create_test_monitor(1, &format!("{addr:?}"), "log.name == \"AnotherEvent\"");
+        let engine = RhaiFilteringEngine::new(vec![monitor]);
+
+        let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
+        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+
+        let matches = engine.evaluate_item(&item).await.unwrap();
+        assert!(matches.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_item_no_match_address() {
+        let addr1 = address!("0000000000000000000000000000000000000001");
+        let addr2 = address!("0000000000000000000000000000000000000002");
+        let monitor = create_test_monitor(1, &format!("{addr1:?}"), "true");
+        let engine = RhaiFilteringEngine::new(vec![monitor]);
+
+        let (tx, log) = create_test_log_and_tx(addr2, "Transfer", vec![]);
+        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+
+        let matches = engine.evaluate_item(&item).await.unwrap();
+        assert!(matches.is_empty());
+    }
+
+    #[test]
+    fn test_dyn_sol_value_to_json() {
+        // Address
+        let addr = Address::repeat_byte(0x11);
+        assert_eq!(
+            dyn_sol_value_to_json(&DynSolValue::Address(addr)),
+            json!("0x1111111111111111111111111111111111111111")
+        );
+
+        // Bool
+        assert_eq!(dyn_sol_value_to_json(&DynSolValue::Bool(true)), json!(true));
+
+        // Bytes
+        let bytes = vec![0x01, 0x02, 0x03];
+        assert_eq!(
+            dyn_sol_value_to_json(&DynSolValue::Bytes(bytes.clone().into())),
+            json!("0x010203")
+        );
+
+        // FixedBytes
+        let fixed_bytes = b256!("0405060000000000000000000000000000000000000000000000000000000000");
+        assert_eq!(
+            dyn_sol_value_to_json(&DynSolValue::FixedBytes(fixed_bytes, 32)),
+            json!("0x0405060000000000000000000000000000000000000000000000000000000000")
+        );
+
+        // Int
+        assert_eq!(
+            dyn_sol_value_to_json(&DynSolValue::Int(I256::try_from(123i64).unwrap(), 256)),
+            json!("123")
+        );
+        assert_eq!(
+            dyn_sol_value_to_json(&DynSolValue::Int(I256::try_from(-1i64).unwrap(), 256)),
+            json!("-1")
+        );
+
+        // String
+        assert_eq!(
+            dyn_sol_value_to_json(&DynSolValue::String("hello".to_string())),
+            json!("hello")
+        );
+
+        // Uint
+        let uint_val = U256::from(456);
+        assert_eq!(
+            dyn_sol_value_to_json(&DynSolValue::Uint(uint_val.into(), 256)),
+            json!("456")
+        );
+
+        // Array
+        let arr = vec![
+            DynSolValue::Uint(U256::from(1).into(), 256),
+            DynSolValue::Bool(false),
+        ];
+        assert_eq!(
+            dyn_sol_value_to_json(&DynSolValue::Array(arr)),
+            json!(["1", false])
+        );
+
+        // Tuple
+        let tuple = vec![
+            DynSolValue::String("test".to_string()),
+            DynSolValue::Int(I256::try_from(789i64).unwrap(), 256),
+        ];
+        assert_eq!(
+            dyn_sol_value_to_json(&DynSolValue::Tuple(tuple)),
+            json!(["test", "789"])
+        );
+
+        // Null/Other
+        assert_eq!(
+            dyn_sol_value_to_json(&DynSolValue::Bytes(vec![].into())),
+            json!("0x")
+        );
+    }
+}
