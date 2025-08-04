@@ -40,7 +40,8 @@ impl RhaiFilteringEngine {
     /// Creates a new `RhaiFilteringEngine`.
     pub fn new(monitors: Vec<Monitor>) -> Self {
         let mut engine = Engine::new();
-        engine.set_max_operations(1_000_000); // Prevent runaway scripts
+        // TODO: add more limits (timeout, memory usage, etc.)
+        engine.set_max_operations(1_000_000);
 
         let monitors_by_address: DashMap<String, Vec<Monitor>> = DashMap::new();
         for monitor in monitors {
@@ -103,16 +104,14 @@ impl RhaiFilteringEngine {
     fn build_log_map(log: &DecodedLog, trigger_data: &Value) -> Map {
         let mut log_map = Map::new();
         log_map.insert("name".into(), log.name.clone().into());
-        log_map.insert(
-            "params".into(),
-            Self::json_to_rhai_dynamic(trigger_data),
-        );
+        log_map.insert("params".into(), Self::json_to_rhai_dynamic(trigger_data));
         log_map
     }
 }
 
 #[async_trait]
 impl FilteringEngine for RhaiFilteringEngine {
+    // TODO: add script compilation caching
     #[tracing::instrument(skip(self, item))]
     async fn evaluate_item<'a>(
         &self,
@@ -130,7 +129,7 @@ impl FilteringEngine for RhaiFilteringEngine {
 
         // Iterate over decoded logs in the item
         for log in &item.decoded_logs {
-            let log_address_str = format!("{:?}", log.log.address());
+            let log_address_str = log.log.address().to_checksum(None);
 
             // Efficiently look up monitors for the current log's address
             if let Some(monitors) = self.monitors_by_address.get(&log_address_str) {
@@ -209,7 +208,7 @@ impl FilteringEngine for RhaiFilteringEngine {
 /// Converts a `DynSolValue` to a `serde_json::Value`.
 fn dyn_sol_value_to_json(value: &DynSolValue) -> Value {
     match value {
-        DynSolValue::Address(a) => Value::String(format!("{a:?}")),
+        DynSolValue::Address(a) => Value::String(a.to_checksum(None)),
         DynSolValue::Bool(b) => Value::Bool(*b),
         DynSolValue::Bytes(b) => Value::String(format!("0x{}", hex::encode(b))),
         DynSolValue::FixedBytes(fb, _) => Value::String(format!("0x{}", hex::encode(fb))),
@@ -296,7 +295,7 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_item_simple_match() {
         let addr = address!("0000000000000000000000000000000000000001");
-        let monitor = create_test_monitor(1, &format!("{addr:?}"), "log.name == \"Transfer\"");
+        let monitor = create_test_monitor(1, &addr.to_checksum(None), "log.name == \"Transfer\"");
         let engine = RhaiFilteringEngine::new(vec![monitor]);
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
@@ -325,7 +324,8 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_item_no_match_script() {
         let addr = address!("0000000000000000000000000000000000000001");
-        let monitor = create_test_monitor(1, &format!("{addr:?}"), "log.name == \"AnotherEvent\"");
+        let monitor =
+            create_test_monitor(1, &addr.to_checksum(None), "log.name == \"AnotherEvent\"");
         let engine = RhaiFilteringEngine::new(vec![monitor]);
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
@@ -340,7 +340,7 @@ mod tests {
         let addr1 = address!("0000000000000000000000000000000000000001");
         let addr2 = address!("0000000000000000000000000000000000000002");
         // Monitor for addr1
-        let monitor = create_test_monitor(1, &format!("{addr1:?}"), "true");
+        let monitor = create_test_monitor(1, &addr1.to_checksum(None), "true");
         let engine = RhaiFilteringEngine::new(vec![monitor]);
 
         // Create a log for addr2
@@ -492,8 +492,8 @@ mod tests {
     async fn test_evaluate_item_multiple_monitors_same_address() {
         let addr = address!("0000000000000000000000000000000000000001");
         // Two monitors for the same address with the same event name
-        let monitor1 = create_test_monitor(1, &format!("{addr:?}"), "log.name == \"Transfer\"");
-        let monitor2 = create_test_monitor(2, &format!("{addr:?}"), "log.name == \"Transfer\"");
+        let monitor1 = create_test_monitor(1, &addr.to_checksum(None), "log.name == \"Transfer\"");
+        let monitor2 = create_test_monitor(2, &addr.to_checksum(None), "log.name == \"Transfer\"");
         let engine = RhaiFilteringEngine::new(vec![monitor1, monitor2]);
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
@@ -512,7 +512,7 @@ mod tests {
         let addr = address!("0000000000000000000000000000000000000001");
         let monitor = create_test_monitor(
             1,
-            &format!("{addr:?}"),
+            &addr.to_checksum(None),
             "log.name == \"ValueTransfered\" && log.params.value > 100",
         );
         let engine = RhaiFilteringEngine::new(vec![monitor]);
