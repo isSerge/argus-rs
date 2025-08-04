@@ -9,5 +9,6 @@ pub mod data_source;
 pub mod filtering;
 pub mod models;
 pub mod provider;
+pub mod rhai_conversions;
 pub mod state;
 pub mod test_helpers;
