@@ -77,9 +77,7 @@ impl RhaiFilteringEngine {
         let receipt_fields = [
             "tx.gas_used",
             "tx.status", 
-            "tx.cumulative_gas_used",
             "tx.effective_gas_price",
-            "tx.logs_bloom",
         ];
 
         // Simple string search for receipt-specific fields
@@ -103,8 +101,8 @@ impl FilteringEngine for RhaiFilteringEngine {
             return Ok(matches);
         }
 
-        // Build a transaction map for the item
-        let tx_map = build_transaction_map(item.transaction);
+        // Build a transaction map for the item with receipt data if available
+        let tx_map = build_transaction_map(item.transaction, item.receipt);
 
         // Iterate over decoded logs in the item
         for log in &item.decoded_logs {
