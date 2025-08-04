@@ -1,10 +1,8 @@
 //! This module defines the `FilteringEngine` and its implementations.
 
-use crate::abi::DecodedLog;
 use crate::models::correlated_data::CorrelatedBlockItem;
 use crate::models::monitor::Monitor;
 use crate::models::monitor_match::MonitorMatch;
-use crate::models::transaction::Transaction;
 use crate::rhai_conversions::{
     build_log_map, build_log_params_map, build_transaction_map, dyn_sol_value_to_json,
 };
@@ -163,6 +161,8 @@ impl FilteringEngine for RhaiFilteringEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::abi::DecodedLog;
+    use crate::models::transaction::Transaction;
     use crate::test_helpers::{LogBuilder, TransactionBuilder};
     use alloy::dyn_abi::DynSolValue;
     use alloy::primitives::{Address, U256, address};
