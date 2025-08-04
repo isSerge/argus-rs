@@ -12,6 +12,7 @@ use rhai_conversions::{
     build_log_map, build_log_params_map, build_transaction_map, build_trigger_data_from_params,
 };
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::RwLock;
 
 /// A trait for an engine that applies filtering logic to block data.
@@ -27,6 +28,10 @@ pub trait FilteringEngine: Send + Sync {
 
     /// Updates the set of monitors used by the engine.
     async fn update_monitors(&self, monitors: Vec<Monitor>);
+
+    /// Returns true if any monitor requires transaction receipt data for evaluation.
+    /// This allows optimizing data fetching by only including receipts when needed.
+    fn requires_receipt_data(&self) -> bool;
 }
 
 /// A Rhai-based implementation of the `FilteringEngine`.
@@ -34,6 +39,7 @@ pub trait FilteringEngine: Send + Sync {
 pub struct RhaiFilteringEngine {
     monitors_by_address: Arc<RwLock<DashMap<String, Vec<Monitor>>>>,
     engine: Engine,
+    requires_receipts: AtomicBool,
 }
 
 impl RhaiFilteringEngine {
@@ -44,17 +50,40 @@ impl RhaiFilteringEngine {
         engine.set_max_operations(1_000_000);
 
         let monitors_by_address: DashMap<String, Vec<Monitor>> = DashMap::new();
-        for monitor in monitors {
+        let mut needs_receipts = false;
+
+        for monitor in &monitors {
             monitors_by_address
                 .entry(monitor.address.clone())
                 .or_default()
-                .push(monitor);
+                .push(monitor.clone());
+
+            // Check if this monitor's script needs receipt data
+            if !needs_receipts && Self::script_needs_receipt_data(&monitor.filter_script) {
+                needs_receipts = true;
+            }
         }
 
         Self {
             monitors_by_address: Arc::new(RwLock::new(monitors_by_address)),
             engine,
+            requires_receipts: AtomicBool::new(needs_receipts),
         }
+    }
+
+    /// Analyzes a Rhai script to determine if it accesses receipt-related transaction fields.
+    fn script_needs_receipt_data(script: &str) -> bool {
+        // Receipt-specific fields that are only available from transaction receipts
+        let receipt_fields = [
+            "tx.gas_used",
+            "tx.status", 
+            "tx.cumulative_gas_used",
+            "tx.effective_gas_price",
+            "tx.logs_bloom",
+        ];
+
+        // Simple string search for receipt-specific fields
+        receipt_fields.iter().any(|field| script.contains(field))
     }
 }
 
@@ -141,12 +170,26 @@ impl FilteringEngine for RhaiFilteringEngine {
     async fn update_monitors(&self, monitors: Vec<Monitor>) {
         let monitors_by_address_write_guard = self.monitors_by_address.write().await;
         monitors_by_address_write_guard.clear();
-        for monitor in monitors {
+        
+        // Recalculate receipt requirements for new monitors
+        let mut needs_receipts = false;
+        for monitor in &monitors {
             monitors_by_address_write_guard
                 .entry(monitor.address.clone())
                 .or_default()
-                .push(monitor);
+                .push(monitor.clone());
+
+            if !needs_receipts && Self::script_needs_receipt_data(&monitor.filter_script) {
+                needs_receipts = true;
+            }
         }
+        
+        // Update the cached receipt requirement
+        self.requires_receipts.store(needs_receipts, Ordering::Relaxed);
+    }
+
+    fn requires_receipt_data(&self) -> bool {
+        self.requires_receipts.load(Ordering::Relaxed)
     }
 }
 
