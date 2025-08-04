@@ -11,6 +11,8 @@ use alloy::{
 pub struct ReceiptBuilder {
     transaction_hash: Option<B256>,
     block_number: Option<u64>,
+    gas_used: Option<u64>,
+    effective_gas_price: Option<u128>,
 }
 
 impl ReceiptBuilder {
@@ -32,6 +34,18 @@ impl ReceiptBuilder {
         self
     }
 
+    /// Sets the gas used for the receipt.
+    pub fn gas_used(mut self, gas: u64) -> Self {
+        self.gas_used = Some(gas);
+        self
+    }
+
+    /// Sets the effective gas price for the receipt.
+    pub fn effective_gas_price(mut self, price: u128) -> Self {
+        self.effective_gas_price = Some(price);
+        self
+    }
+
     /// Builds the `TransactionReceipt` with the provided or default values.
     pub fn build(self) -> TransactionReceipt {
         TransactionReceipt {
@@ -41,9 +55,9 @@ impl ReceiptBuilder {
             block_hash: Some(B256::default()),
             from: Address::default(),
             to: Some(Address::default()),
-            gas_used: 21_000,
+            gas_used: self.gas_used.unwrap_or(21_000),
             contract_address: None,
-            effective_gas_price: 1_000_000_000, // 1 Gwei
+            effective_gas_price: self.effective_gas_price.unwrap_or(1_000_000_000), // 1 Gwei
             blob_gas_used: None,
             blob_gas_price: None,
             inner: ReceiptEnvelope::Eip7702(ReceiptWithBloom::default()),
@@ -63,6 +77,8 @@ mod tests {
                 "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
             ))
             .block_number(321)
+            .gas_used(30_000)
+            .effective_gas_price(2_000_000_000) // 1 Gwei
             .build();
 
         assert_eq!(
@@ -79,8 +95,8 @@ mod tests {
             receipt.to,
             Some(address!("0x0000000000000000000000000000000000000000"))
         );
-        assert_eq!(receipt.gas_used, 21_000);
-        assert_eq!(receipt.effective_gas_price, 1_000_000_000); // 1 Gwei
+        assert_eq!(receipt.gas_used, 30_000);
+        assert_eq!(receipt.effective_gas_price, 2_000_000_000); // 2 Gwei
         assert!(receipt.contract_address.is_none());
         assert!(matches!(receipt.inner, ReceiptEnvelope::Eip7702(_)));
     }
