@@ -424,4 +424,30 @@ mod tests {
         let monitors_read = engine.monitors_by_address.read().await;
         assert!(monitors_read.is_empty());
     }
+
+    #[tokio::test]
+    async fn test_update_monitors_with_duplicate_addresses() {
+        let addr1 = "0x0000000000000000000000000000000000000001";
+        let monitor1 = create_test_monitor(1, addr1, "true");
+        let monitor2 = create_test_monitor(2, addr1, "false"); // Same address as monitor1
+        let monitor3 = create_test_monitor(3, "0x0000000000000000000000000000000000000002", "true");
+
+        let engine = RhaiFilteringEngine::new(vec![monitor1.clone(), monitor3.clone()]);
+
+        let monitors_read = engine.monitors_by_address.read().await;
+        assert_eq!(monitors_read.len(), 2);
+        assert_eq!(monitors_read.get(addr1).unwrap().len(), 1);
+        drop(monitors_read);
+
+        // Update with duplicate address monitors
+        engine.update_monitors(vec![monitor1.clone(), monitor2.clone(), monitor3.clone()]).await;
+
+        let monitors_read = engine.monitors_by_address.read().await;
+        assert_eq!(monitors_read.len(), 2);
+        assert_eq!(monitors_read.get(addr1).unwrap().len(), 2); // Should now have two monitors for addr1
+        assert_eq!(monitors_read.get(addr1).unwrap()[0].id, 1);
+        assert_eq!(monitors_read.get(addr1).unwrap()[1].id, 2);
+        assert_eq!(monitors_read.get("0x0000000000000000000000000000000000000002").unwrap().len(), 1);
+        drop(monitors_read);
+    }
 }
