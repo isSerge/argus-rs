@@ -337,4 +337,41 @@ mod tests {
         let error = result.unwrap_err();
         assert!(error.to_string().contains("Division by zero"));
     }
+
+    #[tokio::test]
+    async fn test_evaluate_item_no_decoded_logs() {
+        let addr = address!("0000000000000000000000000000000000000001");
+        let monitor = create_test_monitor(1, &addr.to_checksum(None), "true");
+        let engine = RhaiFilteringEngine::new(vec![monitor]);
+
+        let tx = TransactionBuilder::new().build();
+        let item = CorrelatedBlockItem::new(&tx, vec![], None); // No decoded logs
+
+        let matches = engine.evaluate_item(&item).await.unwrap();
+        assert!(matches.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_item_multiple_mixed_logs() {
+        let addr1 = address!("0000000000000000000000000000000000000001");
+        let addr2 = address!("0000000000000000000000000000000000000002");
+
+        let monitor1 = create_test_monitor(1, &addr1.to_checksum(None), "log.name == \"Transfer\"");
+        let monitor2 = create_test_monitor(2, &addr2.to_checksum(None), "log.name == \"Approval\"");
+        let engine = RhaiFilteringEngine::new(vec![monitor1, monitor2]);
+
+        let tx = TransactionBuilder::new().build();
+        let log1 = create_test_log_and_tx(addr1, "Transfer", vec![]).1;
+        let log2 = create_test_log_and_tx(addr2, "AnotherEvent", vec![]).1; // This won't match monitor2
+        let log3 = create_test_log_and_tx(addr2, "Approval", vec![]).1;
+
+        let item = CorrelatedBlockItem::new(&tx, vec![log1, log2, log3], None);
+
+        let matches = engine.evaluate_item(&item).await.unwrap();
+        assert_eq!(matches.len(), 2); // Expecting matches for log1 (monitor1) and log3 (monitor2)
+
+        let mut matched_monitor_ids: Vec<i64> = matches.iter().map(|m| m.monitor_id).collect();
+        matched_monitor_ids.sort_unstable();
+        assert_eq!(matched_monitor_ids, vec![1, 2]);
+    }
 }
