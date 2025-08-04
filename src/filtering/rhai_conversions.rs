@@ -187,18 +187,34 @@ pub fn build_log_map(log: &DecodedLog, params_map: Map) -> Map {
 
     log_map.insert("address".into(), log.log.address().to_checksum(None).into());
     if let Some(block_number) = log.log.block_number() {
-        log_map.insert("block_number".into(), convert_u256_to_rhai(U256::from(block_number)));
+        log_map.insert(
+            "block_number".into(),
+            convert_u256_to_rhai(U256::from(block_number)),
+        );
     } else {
         log_map.insert("block_number".into(), Dynamic::UNIT);
     }
-    log_map.insert("transaction_hash".into(), log.log.transaction_hash().unwrap_or_default().to_string().into());
+    log_map.insert(
+        "transaction_hash".into(),
+        log.log
+            .transaction_hash()
+            .unwrap_or_default()
+            .to_string()
+            .into(),
+    );
     if let Some(log_index) = log.log.log_index() {
-        log_map.insert("log_index".into(), convert_u256_to_rhai(U256::from(log_index)));
+        log_map.insert(
+            "log_index".into(),
+            convert_u256_to_rhai(U256::from(log_index)),
+        );
     } else {
         log_map.insert("log_index".into(), Dynamic::UNIT);
     }
     if let Some(transaction_index) = log.log.transaction_index() {
-        log_map.insert("transaction_index".into(), convert_u256_to_rhai(U256::from(transaction_index)));
+        log_map.insert(
+            "transaction_index".into(),
+            convert_u256_to_rhai(U256::from(transaction_index)),
+        );
     } else {
         log_map.insert("transaction_index".into(), Dynamic::UNIT);
     }
@@ -235,7 +251,7 @@ mod tests {
     use super::*;
     use alloy::{
         dyn_abi::Word,
-        primitives::{address, Address, Function, b256},
+        primitives::{Address, Function, address, b256},
     };
     use serde_json::json;
 
@@ -747,11 +763,26 @@ mod tests {
         let params_map = Map::new(); // Empty for this test, as we're testing log fields
         let map = build_log_map(&decoded_log, params_map);
 
-        assert_eq!(map.get("name").unwrap().clone().cast::<String>(), "Transfer");
-        assert_eq!(map.get("address").unwrap().clone().cast::<String>(), log_address.to_checksum(None));
+        assert_eq!(
+            map.get("name").unwrap().clone().cast::<String>(),
+            "Transfer"
+        );
+        assert_eq!(
+            map.get("address").unwrap().clone().cast::<String>(),
+            log_address.to_checksum(None)
+        );
         assert_eq!(map.get("block_number").unwrap().clone().cast::<i64>(), 100);
-        assert_eq!(map.get("transaction_hash").unwrap().clone().cast::<String>(), tx_hash.to_string());
+        assert_eq!(
+            map.get("transaction_hash")
+                .unwrap()
+                .clone()
+                .cast::<String>(),
+            tx_hash.to_string()
+        );
         assert_eq!(map.get("log_index").unwrap().clone().cast::<i64>(), 5);
-        assert_eq!(map.get("transaction_index").unwrap().clone().cast::<i64>(), 2);
+        assert_eq!(
+            map.get("transaction_index").unwrap().clone().cast::<i64>(),
+            2
+        );
     }
 }

@@ -308,7 +308,7 @@ mod tests {
         let (tx, log) = create_test_log_and_tx(
             addr,
             "ValueTransfered",
-            vec![( 
+            vec![(
                 "value".to_string(),
                 DynSolValue::Uint(U256::from(150).into(), 256),
             )],
@@ -395,7 +395,8 @@ mod tests {
     async fn test_evaluate_item_script_syntax_error() {
         let addr = address!("0000000000000000000000000000000000000001");
         // Script with a syntax error (missing closing parenthesis)
-        let monitor = create_test_monitor(1, &addr.to_checksum(None), "log.name == \"Transfer\" && (");
+        let monitor =
+            create_test_monitor(1, &addr.to_checksum(None), "log.name == \"Transfer\" && (");
         let engine = RhaiFilteringEngine::new(vec![monitor]);
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
@@ -440,14 +441,22 @@ mod tests {
         drop(monitors_read);
 
         // Update with duplicate address monitors
-        engine.update_monitors(vec![monitor1.clone(), monitor2.clone(), monitor3.clone()]).await;
+        engine
+            .update_monitors(vec![monitor1.clone(), monitor2.clone(), monitor3.clone()])
+            .await;
 
         let monitors_read = engine.monitors_by_address.read().await;
         assert_eq!(monitors_read.len(), 2);
         assert_eq!(monitors_read.get(addr1).unwrap().len(), 2); // Should now have two monitors for addr1
         assert_eq!(monitors_read.get(addr1).unwrap()[0].id, 1);
         assert_eq!(monitors_read.get(addr1).unwrap()[1].id, 2);
-        assert_eq!(monitors_read.get("0x0000000000000000000000000000000000000002").unwrap().len(), 1);
+        assert_eq!(
+            monitors_read
+                .get("0x0000000000000000000000000000000000000002")
+                .unwrap()
+                .len(),
+            1
+        );
         drop(monitors_read);
     }
 }
