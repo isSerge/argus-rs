@@ -162,7 +162,7 @@ pub fn build_trigger_data_from_params(params: &[(String, DynSolValue)]) -> Value
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy::primitives::{Address, address};
+    use alloy::{dyn_abi::Word, primitives::{address, Address}};
     use serde_json::json;
 
     #[test]
@@ -336,5 +336,18 @@ mod tests {
                 "sender": "0x1111111111111111111111111111111111111111"
             })
         );
+    }
+
+    #[test]
+    fn test_dyn_sol_value_to_rhai_bytes() {
+        let bytes = vec![0x01, 0x02, 0x03];
+        let result = dyn_sol_value_to_rhai(&DynSolValue::Bytes(bytes.clone().into()));
+        assert_eq!(result.cast::<String>(), "0x010203");
+
+        let mut fixed_bytes_array = [0u8; 32];
+        fixed_bytes_array[0..3].copy_from_slice(&[0x04, 0x05, 0x06]);
+        let fixed_bytes = Word::new(fixed_bytes_array);
+        let result = dyn_sol_value_to_rhai(&DynSolValue::FixedBytes(fixed_bytes, 3));
+        assert_eq!(result.cast::<String>(), "0x0405060000000000000000000000000000000000000000000000000000000000");
     }
 }
