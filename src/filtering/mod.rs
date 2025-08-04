@@ -408,4 +408,20 @@ mod tests {
         // We can assert that no matches are found.
         assert!(result.unwrap().is_empty());
     }
+
+    #[tokio::test]
+    async fn test_update_monitors_with_empty_vector() {
+        let addr1 = "0x0000000000000000000000000000000000000001";
+        let monitor1 = create_test_monitor(1, addr1, "true");
+        let engine = RhaiFilteringEngine::new(vec![monitor1]);
+
+        let monitors_read = engine.monitors_by_address.read().await;
+        assert_eq!(monitors_read.len(), 1);
+        drop(monitors_read);
+
+        engine.update_monitors(vec![]).await;
+
+        let monitors_read = engine.monitors_by_address.read().await;
+        assert!(monitors_read.is_empty());
+    }
 }
