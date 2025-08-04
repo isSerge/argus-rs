@@ -107,46 +107,6 @@ fn convert_u256_to_rhai(value: U256) -> Dynamic {
     }
 }
 
-/// Legacy function: Converts a JSON value to a Rhai Dynamic value.
-///
-/// This is kept for backward compatibility but should be avoided in favor
-/// of direct conversion functions where possible.
-pub fn json_to_rhai_dynamic(value: &Value) -> Dynamic {
-    match value {
-        Value::Null => Dynamic::UNIT,
-        Value::Bool(b) => (*b).into(),
-        Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                i.into()
-            } else if let Some(u) = n.as_u64() {
-                // Check for overflow before casting
-                if u <= i64::MAX as u64 {
-                    (u as i64).into()
-                } else {
-                    // Large number, convert to string to preserve value
-                    u.to_string().into()
-                }
-            } else if let Some(f) = n.as_f64() {
-                f.into()
-            } else {
-                n.to_string().into()
-            }
-        }
-        Value::String(s) => s.clone().into(),
-        Value::Array(arr) => {
-            let rhai_array: Vec<Dynamic> = arr.iter().map(json_to_rhai_dynamic).collect();
-            rhai_array.into()
-        }
-        Value::Object(obj) => {
-            let mut rhai_map = Map::new();
-            for (k, v) in obj {
-                rhai_map.insert(k.clone().into(), json_to_rhai_dynamic(v));
-            }
-            rhai_map.into()
-        }
-    }
-}
-
 /// Converts a Rhai Dynamic value to JSON for backward compatibility.
 ///
 /// This function enables creating JSON representations from the same data used in Rhai scripts,
@@ -251,7 +211,6 @@ pub fn build_trigger_data_from_params(params: &[(String, DynSolValue)]) -> Value
 mod tests {
     use super::*;
     use alloy::primitives::{Address, address};
-    use serde_json::json;
 
     #[test]
     fn test_dyn_sol_value_to_rhai_basic_types() {
@@ -354,17 +313,6 @@ mod tests {
     }
 
     #[test]
-    fn test_json_to_rhai_dynamic_overflow_fix() {
-        // Test the overflow fix in json_to_rhai_dynamic
-        let large_u64 = (i64::MAX as u64) + 1;
-        let json_val = json!(large_u64);
-
-        let result = json_to_rhai_dynamic(&json_val);
-        // Should be converted to string to avoid overflow
-        assert_eq!(result.cast::<String>(), large_u64.to_string());
-    }
-
-    #[test]
     fn test_rhai_dynamic_to_json() {
         let dynamic_value = Dynamic::from(123);
         let json_value = rhai_dynamic_to_json(&dynamic_value);
@@ -374,7 +322,10 @@ mod tests {
         let json_array = rhai_dynamic_to_json(&dynamic_array);
         assert_eq!(
             json_array,
-            Value::Array(vec![Value::Number(serde_json::Number::from(1)), Value::Number(serde_json::Number::from(2))])
+            Value::Array(vec![
+                Value::Number(serde_json::Number::from(1)),
+                Value::Number(serde_json::Number::from(2))
+            ])
         );
 
         let mut dynamic_map = Map::new();
@@ -383,7 +334,10 @@ mod tests {
         let dynamic_object = Dynamic::from_map(dynamic_map);
         let json_object = rhai_dynamic_to_json(&dynamic_object);
         let mut expected_map = serde_json::Map::new();
-        expected_map.insert("key1".to_string(), Value::Number(serde_json::Number::from(1)));
+        expected_map.insert(
+            "key1".to_string(),
+            Value::Number(serde_json::Number::from(1)),
+        );
         expected_map.insert("key2".to_string(), Value::String("value".to_string()));
         assert_eq!(json_object, Value::Object(expected_map));
     }

@@ -1,16 +1,16 @@
 //! This module defines the `FilteringEngine` and its implementations.
-
+mod rhai_conversions;
 use crate::models::correlated_data::CorrelatedBlockItem;
 use crate::models::monitor::Monitor;
 use crate::models::monitor_match::MonitorMatch;
-use crate::rhai_conversions::{
-    build_log_map, build_log_params_map, build_transaction_map, build_trigger_data_from_params,
-};
 use async_trait::async_trait;
 use dashmap::DashMap;
 #[cfg(test)]
 use mockall::automock;
 use rhai::{Engine, Scope};
+use rhai_conversions::{
+    build_log_map, build_log_params_map, build_transaction_map, build_trigger_data_from_params,
+};
 use std::sync::Arc;
 
 /// A trait for an engine that applies filtering logic to block data.
