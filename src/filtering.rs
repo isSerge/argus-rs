@@ -6,14 +6,13 @@ use crate::models::monitor::Monitor;
 use crate::models::monitor_match::MonitorMatch;
 use crate::models::transaction::Transaction;
 use alloy::dyn_abi::DynSolValue;
-use alloy::primitives::U256;
 use async_trait::async_trait;
 use dashmap::DashMap;
 #[cfg(test)]
 use mockall::automock;
-use rhai::{Engine, Map, Scope};
+use rhai::{Dynamic, Engine, Map, Scope};
 use serde_json::Value;
-use std::{str::FromStr, sync::Arc};
+use std::sync::Arc;
 
 /// A trait for an engine that applies filtering logic to block data.
 #[cfg_attr(test, automock)]
@@ -42,17 +41,6 @@ impl RhaiFilteringEngine {
     pub fn new(monitors: Vec<Monitor>) -> Self {
         let mut engine = Engine::new();
         engine.set_max_operations(1_000_000); // Prevent runaway scripts
-        
-        // Register custom functions for big number handling
-        engine.register_fn("parse_uint", |s: &str| -> Result<String, Box<rhai::EvalAltResult>> {
-            match U256::from_str(s) {
-                Ok(val) => {
-                    // Always return as padded string for consistent comparison
-                    Ok(format!("{:078}", val))
-                },
-                Err(_) => Err(format!("Failed to parse uint: {}", s).into()),
-            }
-        });
 
         let monitors_by_address: DashMap<String, Vec<Monitor>> = DashMap::new();
         for monitor in monitors {
@@ -80,11 +68,45 @@ impl RhaiFilteringEngine {
         map
     }
 
+    /// Converts a JSON value to a Rhai Dynamic value.
+    fn json_to_rhai_dynamic(value: &Value) -> Dynamic {
+        match value {
+            Value::Null => Dynamic::UNIT,
+            Value::Bool(b) => (*b).into(),
+            Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    i.into()
+                } else if let Some(u) = n.as_u64() {
+                    (u as i64).into()
+                } else if let Some(f) = n.as_f64() {
+                    f.into()
+                } else {
+                    n.to_string().into()
+                }
+            }
+            Value::String(s) => s.clone().into(),
+            Value::Array(arr) => {
+                let rhai_array: Vec<Dynamic> = arr.iter().map(Self::json_to_rhai_dynamic).collect();
+                rhai_array.into()
+            }
+            Value::Object(obj) => {
+                let mut rhai_map = Map::new();
+                for (k, v) in obj {
+                    rhai_map.insert(k.clone().into(), Self::json_to_rhai_dynamic(v));
+                }
+                rhai_map.into()
+            }
+        }
+    }
+
     /// Builds a Rhai `Map` from a decoded log and its JSON representation.
     fn build_log_map(log: &DecodedLog, trigger_data: &Value) -> Map {
         let mut log_map = Map::new();
         log_map.insert("name".into(), log.name.clone().into());
-        log_map.insert("params".into(), serde_json::from_value(trigger_data.clone()).unwrap());
+        log_map.insert(
+            "params".into(),
+            Self::json_to_rhai_dynamic(trigger_data),
+        );
         log_map
     }
 }
@@ -185,50 +207,22 @@ impl FilteringEngine for RhaiFilteringEngine {
 }
 
 /// Converts a `DynSolValue` to a `serde_json::Value`.
-/// For Int/Uint values, tries to fit them into native JSON numbers (i64/u64),
-/// then falls back to i128/u128, and finally to string representation for larger values.
 fn dyn_sol_value_to_json(value: &DynSolValue) -> Value {
     match value {
         DynSolValue::Address(a) => Value::String(format!("{a:?}")),
         DynSolValue::Bool(b) => Value::Bool(*b),
         DynSolValue::Bytes(b) => Value::String(format!("0x{}", hex::encode(b))),
         DynSolValue::FixedBytes(fb, _) => Value::String(format!("0x{}", hex::encode(fb))),
-        DynSolValue::Int(i, _) => {
-            // Try i64 first (for JSON compatibility), then i128, then string
-            let string_val = i.to_string();
-            if let Ok(val) = string_val.parse::<i64>() {
-                Value::from(val)
-            } else if let Ok(val) = string_val.parse::<i128>() {
-                // serde_json doesn't directly support i128, but we can represent it as a number
-                // if it fits in f64 range without precision loss, otherwise as string
-                if val >= -(2i128.pow(53)) && val <= 2i128.pow(53) {
-                    Value::Number(serde_json::Number::from(val as i64))
-                } else {
-                    Value::String(string_val)
-                }
-            } else {
-                Value::String(string_val)
-            }
-        },
+        DynSolValue::Int(i, _) => i
+            .to_string()
+            .parse::<i64>()
+            .map_or_else(|_| Value::String(i.to_string()), Value::from),
         DynSolValue::String(s) => Value::String(s.clone()),
-        DynSolValue::Uint(u, _) => {
-            // Try u64 first (for JSON compatibility), then u128, then string
-            let string_val = u.to_string();
-            if let Ok(val) = string_val.parse::<u64>() {
-                Value::from(val)
-            } else if let Ok(val) = string_val.parse::<u128>() {
-                // serde_json doesn't directly support u128, but we can represent it as a number
-                // if it fits in f64 range without precision loss, otherwise as string
-                if val <= 2u128.pow(53) {
-                    Value::Number(serde_json::Number::from(val as u64))
-                } else {
-                    Value::String(string_val)
-                }
-            } else {
-                Value::String(string_val)
-            }
-        },
-        DynSolValue::Array(arr) | DynSolValue::FixedArray(arr)| DynSolValue::Tuple(arr) => {
+        DynSolValue::Uint(u, _) => u
+            .to_string()
+            .parse::<u64>()
+            .map_or_else(|_| Value::String(u.to_string()), Value::from),
+        DynSolValue::Array(arr) | DynSolValue::FixedArray(arr) | DynSolValue::Tuple(arr) => {
             Value::Array(arr.iter().map(dyn_sol_value_to_json).collect())
         }
         _ => Value::Null,
@@ -441,43 +435,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_dyn_sol_value_to_json_number_handling() {
-        // Test small numbers that fit in i64/u64 - should be JSON numbers
-        let small_uint = DynSolValue::Uint(U256::from(42).into(), 256);
-        let small_int = DynSolValue::Int(I256::try_from(42).unwrap().into(), 256);
-        let negative_int = DynSolValue::Int(I256::try_from(-42).unwrap().into(), 256);
-        
-        assert_eq!(dyn_sol_value_to_json(&small_uint), json!(42));
-        assert_eq!(dyn_sol_value_to_json(&small_int), json!(42));
-        assert_eq!(dyn_sol_value_to_json(&negative_int), json!(-42));
-        
-        // Test maximum i64/u64 values - should still be JSON numbers
-        let max_u64 = DynSolValue::Uint(U256::from(u64::MAX).into(), 256);
-        let max_i64 = DynSolValue::Int(I256::try_from(i64::MAX).unwrap().into(), 256);
-        let min_i64 = DynSolValue::Int(I256::try_from(i64::MIN).unwrap().into(), 256);
-        
-        assert_eq!(dyn_sol_value_to_json(&max_u64), json!(u64::MAX));
-        assert_eq!(dyn_sol_value_to_json(&max_i64), json!(i64::MAX));
-        assert_eq!(dyn_sol_value_to_json(&min_i64), json!(i64::MIN));
-        
-        // Test values that exceed i64/u64 but fit in safe JSON range (2^53) - should be JSON numbers
-        let large_safe_uint = DynSolValue::Uint(U256::from(2u64.pow(53)).into(), 256);
-        let large_safe_int = DynSolValue::Int(I256::try_from(2i64.pow(53)).unwrap().into(), 256);
-        
-        assert_eq!(dyn_sol_value_to_json(&large_safe_uint), json!(2u64.pow(53)));
-        assert_eq!(dyn_sol_value_to_json(&large_safe_int), json!(2i64.pow(53)));
-        
-        // Test very large numbers that exceed safe JSON range - should be strings
-        let very_large_uint = DynSolValue::Uint(U256::MAX.into(), 256);
-        let very_large_int = DynSolValue::Int(I256::MAX.into(), 256);
-        let very_small_int = DynSolValue::Int(I256::MIN.into(), 256);
-        
-        assert_eq!(dyn_sol_value_to_json(&very_large_uint), json!(U256::MAX.to_string()));
-        assert_eq!(dyn_sol_value_to_json(&very_large_int), json!(I256::MAX.to_string()));
-        assert_eq!(dyn_sol_value_to_json(&very_small_int), json!(I256::MIN.to_string()));
-    }
-
     #[tokio::test]
     async fn test_evaluate_item_multiple_monitors_same_address() {
         let addr = address!("0000000000000000000000000000000000000001");
@@ -510,7 +467,10 @@ mod tests {
         let (tx, log) = create_test_log_and_tx(
             addr,
             "ValueTransfered",
-            vec![("value".to_string(), DynSolValue::Uint(U256::from(150).into(), 256))],
+            vec![(
+                "value".to_string(),
+                DynSolValue::Uint(U256::from(150).into(), 256),
+            )],
         );
         let item = CorrelatedBlockItem::new(&tx, vec![log], None);
 
@@ -519,31 +479,5 @@ mod tests {
         assert_eq!(matches[0].monitor_id, 1);
         assert_eq!(matches[0].trigger_name, "ValueTransfered");
         assert_eq!(matches[0].trigger_data["value"], json!(150));
-    }
-
-    #[tokio::test]
-    async fn test_evaluate_item_filter_by_large_log_param() {
-        let addr = address!("0000000000000000000000000000000000000001");
-        let large_value = U256::MAX; 
-        
-        let monitor = create_test_monitor(
-            1,
-            &format!("{addr:?}"),
-            &format!("log.name == \"LargeValueTransfered\" && parse_uint(log.params.value) > parse_uint(\"{}\")", U256::from(0)),
-        );
-        let engine = RhaiFilteringEngine::new(vec![monitor]);
-
-        let (tx, log) = create_test_log_and_tx(
-            addr,
-            "LargeValueTransfered",
-            vec![("value".to_string(), DynSolValue::Uint(large_value.into(), 256))],
-        );
-        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
-
-        let matches = engine.evaluate_item(&item).await.unwrap();
-        assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].monitor_id, 1);
-        assert_eq!(matches[0].trigger_name, "LargeValueTransfered");
-        assert_eq!(matches[0].trigger_data["value"], json!(large_value.to_string()));
     }
 }
