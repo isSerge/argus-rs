@@ -101,7 +101,10 @@ pub fn build_log_params_map(params: &[(String, DynSolValue)]) -> Map {
 }
 
 /// Builds a Rhai `Map` from a transaction and optional receipt.
-pub fn build_transaction_map(transaction: &Transaction, receipt: Option<&alloy::rpc::types::TransactionReceipt>) -> Map {
+pub fn build_transaction_map(
+    transaction: &Transaction,
+    receipt: Option<&alloy::rpc::types::TransactionReceipt>,
+) -> Map {
     let mut map = Map::new();
 
     if let Some(to) = transaction.to() {
@@ -181,13 +184,10 @@ pub fn build_transaction_map(transaction: &Transaction, receipt: Option<&alloy::
             "gas_used".into(),
             convert_u256_to_rhai(U256::from(receipt.gas_used)),
         );
-        
+
         // Use the actual status from the receipt envelope
-        map.insert(
-            "status".into(),
-            receipt.inner.status().into(),
-        );
-        
+        map.insert("status".into(), receipt.inner.status().into());
+
         map.insert(
             "effective_gas_price".into(),
             convert_u256_to_rhai(U256::from(receipt.effective_gas_price)),
@@ -632,7 +632,7 @@ mod tests {
             map.get("value").unwrap().clone().cast::<i64>(),
             tx.value().to::<i64>()
         );
-        
+
         // Verify receipt fields are UNIT when no receipt provided
         assert!(map.get("gas_used").unwrap().is_unit());
         assert!(map.get("status").unwrap().is_unit());
@@ -829,7 +829,7 @@ mod tests {
         let receipt = ReceiptBuilder::new()
             .transaction_hash(tx_hash)
             .gas_used(18500)
-            .status(true) 
+            .status(true)
             .effective_gas_price(145)
             .build();
 
@@ -848,7 +848,13 @@ mod tests {
         // Verify receipt fields are included
         assert_eq!(map.get("gas_used").unwrap().clone().cast::<i64>(), 18500);
         assert_eq!(map.get("status").unwrap().clone().cast::<bool>(), true);
-        assert_eq!(map.get("effective_gas_price").unwrap().clone().cast::<i64>(), 145);
+        assert_eq!(
+            map.get("effective_gas_price")
+                .unwrap()
+                .clone()
+                .cast::<i64>(),
+            145
+        );
     }
 
     #[test]

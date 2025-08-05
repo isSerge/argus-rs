@@ -51,7 +51,23 @@ retry_config:
 # Optional: Configuration for graceful shutdown timeout.
 # If this section is omitted, the default value of 30 seconds will be used.
 shutdown_timeout_secs: 30
+
+# Optional: Security configuration for Rhai script execution.
+# If this section is omitted, default security values will be used.
+rhai:
+  # Maximum number of operations a script can perform (default: 100000)
+  max_operations: 100000
+  # Maximum function call nesting depth (default: 10)
+  max_call_levels: 10
+  # Maximum size of strings in characters (default: 8192)
+  max_string_size: 8192
+  # Maximum number of array elements (default: 1000)
+  max_array_size: 1000
+  # Maximum execution time per script in milliseconds (default: 5000)
+  execution_timeout: 5000
 ```
+
+### Configuration Parameters
 
 - `database_url`: The connection string for the SQLite database.
 - `rpc_urls`: A list of RPC endpoint URLs for the EVM network. The application currently uses the first URL in the list.
@@ -61,6 +77,7 @@ shutdown_timeout_secs: 30
 - `polling_interval_ms`: The interval in milliseconds to poll for new blocks
 - `confirmation_blocks`: Number of confirmation blocks to wait for before processing to prevent against small reorgs
 - `shutdown_timeout_secs`: Graceful shutdown timeout
+- `rhai`: Security configuration for Rhai script execution
 
 ## Logging
 

@@ -1,7 +1,7 @@
 //! A builder for creating `TransactionReceipt` instances for testing.
 
 use alloy::{
-    consensus::{Receipt, ReceiptEnvelope, ReceiptWithBloom, Eip658Value},
+    consensus::{Eip658Value, Receipt, ReceiptEnvelope, ReceiptWithBloom},
     primitives::{Address, B256, Bloom},
     rpc::types::TransactionReceipt,
 };

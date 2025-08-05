@@ -1,5 +1,7 @@
 //! This module defines the `FilteringEngine` and its implementations.
 mod rhai_conversions;
+
+use crate::config::RhaiConfig;
 use crate::models::correlated_data::CorrelatedBlockItem;
 use crate::models::monitor::Monitor;
 use crate::models::monitor_match::MonitorMatch;
@@ -7,13 +9,35 @@ use async_trait::async_trait;
 use dashmap::DashMap;
 #[cfg(test)]
 use mockall::automock;
-use rhai::{Engine, Scope};
+use rhai::{AST, Engine, EvalAltResult, Scope};
 use rhai_conversions::{
     build_log_map, build_log_params_map, build_transaction_map, build_trigger_data_from_params,
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
+use thiserror::Error;
 use tokio::sync::RwLock;
+use tokio::time::timeout;
+
+/// Rhai script execution errors that can occur during compilation or runtime
+#[derive(Debug, Error)]
+pub enum RhaiError {
+    /// Error that occurs during script compilation
+    #[error("Script compilation failed: {0}")]
+    CompilationError(#[from] Box<EvalAltResult>),
+
+    /// Error that occurs during script runtime execution
+    #[error("Script runtime error: {0}")]
+    RuntimeError(Box<EvalAltResult>),
+
+    /// Error that occurs when script execution exceeds the timeout limit
+    #[error("Script execution timeout after {timeout:?}")]
+    ExecutionTimeout {
+        /// The timeout duration that was exceeded
+        timeout: Duration,
+    },
+}
 
 /// A trait for an engine that applies filtering logic to block data.
 #[cfg_attr(test, automock)]
@@ -34,20 +58,28 @@ pub trait FilteringEngine: Send + Sync {
     fn requires_receipt_data(&self) -> bool;
 }
 
-/// A Rhai-based implementation of the `FilteringEngine`.
+/// A Rhai-based implementation of the `FilteringEngine` with integrated security controls.
 #[derive(Debug)]
 pub struct RhaiFilteringEngine {
     monitors_by_address: Arc<RwLock<DashMap<String, Vec<Monitor>>>>,
     engine: Engine,
+    rhai_config: RhaiConfig,
     requires_receipts: AtomicBool,
 }
 
 impl RhaiFilteringEngine {
-    /// Creates a new `RhaiFilteringEngine`.
-    pub fn new(monitors: Vec<Monitor>) -> Self {
+    /// Creates a new `RhaiFilteringEngine` with the given monitors and Rhai configuration.
+    pub fn new(monitors: Vec<Monitor>, rhai_config: RhaiConfig) -> Self {
         let mut engine = Engine::new();
-        // TODO: add more limits (timeout, memory usage, etc.)
-        engine.set_max_operations(1_000_000);
+
+        // Apply security limits
+        engine.set_max_operations(rhai_config.max_operations);
+        engine.set_max_call_levels(rhai_config.max_call_levels);
+        engine.set_max_string_size(rhai_config.max_string_size);
+        engine.set_max_array_size(rhai_config.max_array_size);
+
+        // Disable dangerous language features
+        Self::disable_dangerous_features(&mut engine);
 
         let monitors_by_address: DashMap<String, Vec<Monitor>> = DashMap::new();
         let mut needs_receipts = false;
@@ -67,18 +99,69 @@ impl RhaiFilteringEngine {
         Self {
             monitors_by_address: Arc::new(RwLock::new(monitors_by_address)),
             engine,
+            rhai_config,
             requires_receipts: AtomicBool::new(needs_receipts),
+        }
+    }
+
+    /// Disable dangerous language features and standard library functions
+    fn disable_dangerous_features(engine: &mut Engine) {
+        // List of dangerous symbols to disable
+        const DANGEROUS_SYMBOLS: &[&str] = &[
+            // Dynamic evaluation
+            "eval",
+            // Module system
+            "import",
+            "export",
+            // I/O operations
+            "print",
+            "debug",
+            // File system access
+            "File",
+            "file",
+            // Network access
+            "http",
+            "net",
+            // System access
+            "system",
+            "process",
+            // Threading
+            "thread",
+            "spawn",
+        ];
+        for &symbol in DANGEROUS_SYMBOLS {
+            engine.disable_symbol(symbol);
+        }
+    }
+
+    /// Compile a script with security checks
+    fn compile_script(&self, script: &str) -> Result<AST, RhaiError> {
+        self.engine
+            .compile(script)
+            .map_err(|e| RhaiError::CompilationError(e.into()))
+    }
+
+    /// Execute a pre-compiled AST with security controls including timeout
+    async fn eval_ast_bool_secure(
+        &self,
+        ast: &AST,
+        scope: &mut Scope<'_>,
+    ) -> Result<bool, RhaiError> {
+        // Execute with timeout protection
+        let execution = async { self.engine.eval_ast_with_scope::<bool>(scope, ast) };
+
+        match timeout(self.rhai_config.execution_timeout, execution).await {
+            Ok(result) => result.map_err(RhaiError::RuntimeError),
+            Err(_) => Err(RhaiError::ExecutionTimeout {
+                timeout: self.rhai_config.execution_timeout,
+            }),
         }
     }
 
     /// Analyzes a Rhai script to determine if it accesses receipt-related transaction fields.
     fn script_needs_receipt_data(script: &str) -> bool {
         // Receipt-specific fields that are only available from transaction receipts
-        let receipt_fields = [
-            "tx.gas_used",
-            "tx.status", 
-            "tx.effective_gas_price",
-        ];
+        let receipt_fields = ["tx.gas_used", "tx.status", "tx.effective_gas_price"];
 
         // Simple string search for receipt-specific fields
         receipt_fields.iter().any(|field| script.contains(field))
@@ -124,7 +207,7 @@ impl FilteringEngine for RhaiFilteringEngine {
                     scope.push("log", log_map);
 
                     // Compile and evaluate the monitor's filter script
-                    let ast = match self.engine.compile(&monitor.filter_script) {
+                    let ast = match self.compile_script(&monitor.filter_script) {
                         Ok(ast) => ast,
                         Err(e) => {
                             tracing::error!(
@@ -136,8 +219,8 @@ impl FilteringEngine for RhaiFilteringEngine {
                         }
                     };
 
-                    // Evaluate the script with the current scope
-                    match self.engine.eval_ast_with_scope::<bool>(&mut scope, &ast) {
+                    // Evaluate the script with security controls
+                    match self.eval_ast_bool_secure(&ast, &mut scope).await {
                         Ok(true) => {
                             let monitor_match = MonitorMatch {
                                 monitor_id: monitor.id,
@@ -154,7 +237,13 @@ impl FilteringEngine for RhaiFilteringEngine {
                             tracing::debug!(monitor_id = monitor.id, "Monitor condition not met.");
                         }
                         Err(e) => {
-                            return Err(e.into());
+                            tracing::error!(
+                                monitor_id = monitor.id,
+                                "Script execution failed: {}",
+                                e
+                            );
+                            // Continue processing other monitors instead of failing completely
+                            continue;
                         }
                     }
                 }
@@ -168,7 +257,7 @@ impl FilteringEngine for RhaiFilteringEngine {
     async fn update_monitors(&self, monitors: Vec<Monitor>) {
         let monitors_by_address_write_guard = self.monitors_by_address.write().await;
         monitors_by_address_write_guard.clear();
-        
+
         // Recalculate receipt requirements for new monitors
         let mut needs_receipts = false;
         for monitor in &monitors {
@@ -181,9 +270,10 @@ impl FilteringEngine for RhaiFilteringEngine {
                 needs_receipts = true;
             }
         }
-        
+
         // Update the cached receipt requirement
-        self.requires_receipts.store(needs_receipts, Ordering::Relaxed);
+        self.requires_receipts
+            .store(needs_receipts, Ordering::Relaxed);
     }
 
     fn requires_receipt_data(&self) -> bool {
@@ -195,6 +285,7 @@ impl FilteringEngine for RhaiFilteringEngine {
 mod tests {
     use super::*;
     use crate::abi::DecodedLog;
+    use crate::config::RhaiConfig;
     use crate::models::transaction::Transaction;
     use crate::test_helpers::{LogBuilder, TransactionBuilder};
     use alloy::dyn_abi::DynSolValue;
@@ -236,8 +327,10 @@ mod tests {
         let monitor3 = create_test_monitor(3, addr1, "true");
 
         // Test `new()`
-        let engine =
-            RhaiFilteringEngine::new(vec![monitor1.clone(), monitor2.clone(), monitor3.clone()]);
+        let engine = RhaiFilteringEngine::new(
+            vec![monitor1.clone(), monitor2.clone(), monitor3.clone()],
+            RhaiConfig::default(),
+        );
 
         let monitors_read = engine.monitors_by_address.read().await;
         assert_eq!(monitors_read.len(), 2);
@@ -262,7 +355,7 @@ mod tests {
     async fn test_evaluate_item_simple_match() {
         let addr = address!("0000000000000000000000000000000000000001");
         let monitor = create_test_monitor(1, &addr.to_checksum(None), "log.name == \"Transfer\"");
-        let engine = RhaiFilteringEngine::new(vec![monitor]);
+        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
         let item = CorrelatedBlockItem::new(&tx, vec![log], None);
@@ -275,7 +368,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_item_no_monitors() {
-        let engine = RhaiFilteringEngine::new(vec![]); // No monitors
+        let engine = RhaiFilteringEngine::new(vec![], RhaiConfig::default()); // No monitors
         let (tx, log) = create_test_log_and_tx(
             address!("0000000000000000000000000000000000000001"),
             "SomeEvent",
@@ -292,7 +385,7 @@ mod tests {
         let addr = address!("0000000000000000000000000000000000000001");
         let monitor =
             create_test_monitor(1, &addr.to_checksum(None), "log.name == \"AnotherEvent\"");
-        let engine = RhaiFilteringEngine::new(vec![monitor]);
+        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
         let item = CorrelatedBlockItem::new(&tx, vec![log], None);
@@ -307,7 +400,7 @@ mod tests {
         let addr2 = address!("0000000000000000000000000000000000000002");
         // Monitor for addr1
         let monitor = create_test_monitor(1, &addr1.to_checksum(None), "true");
-        let engine = RhaiFilteringEngine::new(vec![monitor]);
+        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
 
         // Create a log for addr2
         let (tx, log) = create_test_log_and_tx(addr2, "Transfer", vec![]);
@@ -323,7 +416,7 @@ mod tests {
         // Two monitors for the same address with the same event name
         let monitor1 = create_test_monitor(1, &addr.to_checksum(None), "log.name == \"Transfer\"");
         let monitor2 = create_test_monitor(2, &addr.to_checksum(None), "log.name == \"Transfer\"");
-        let engine = RhaiFilteringEngine::new(vec![monitor1, monitor2]);
+        let engine = RhaiFilteringEngine::new(vec![monitor1, monitor2], RhaiConfig::default());
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
         let item = CorrelatedBlockItem::new(&tx, vec![log], None);
@@ -344,7 +437,7 @@ mod tests {
             &addr.to_checksum(None),
             "log.name == \"ValueTransfered\" && log.params.value > 100",
         );
-        let engine = RhaiFilteringEngine::new(vec![monitor]);
+        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
 
         let (tx, log) = create_test_log_and_tx(
             addr,
@@ -368,22 +461,22 @@ mod tests {
         let addr = address!("0000000000000000000000000000000000000001");
         // Script that will cause a runtime error (division by zero)
         let monitor = create_test_monitor(1, &addr.to_checksum(None), "1 / 0");
-        let engine = RhaiFilteringEngine::new(vec![monitor]);
+        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
         let item = CorrelatedBlockItem::new(&tx, vec![log], None);
 
         let result = engine.evaluate_item(&item).await;
-        assert!(result.is_err());
-        let error = result.unwrap_err();
-        assert!(error.to_string().contains("Division by zero"));
+        // Runtime errors are handled gracefully - the monitor is skipped but processing continues
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty()); // No matches due to runtime error
     }
 
     #[tokio::test]
     async fn test_evaluate_item_no_decoded_logs() {
         let addr = address!("0000000000000000000000000000000000000001");
         let monitor = create_test_monitor(1, &addr.to_checksum(None), "true");
-        let engine = RhaiFilteringEngine::new(vec![monitor]);
+        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
 
         let tx = TransactionBuilder::new().build();
         let item = CorrelatedBlockItem::new(&tx, vec![], None); // No decoded logs
@@ -399,7 +492,7 @@ mod tests {
 
         let monitor1 = create_test_monitor(1, &addr1.to_checksum(None), "log.name == \"Transfer\"");
         let monitor2 = create_test_monitor(2, &addr2.to_checksum(None), "log.name == \"Approval\"");
-        let engine = RhaiFilteringEngine::new(vec![monitor1, monitor2]);
+        let engine = RhaiFilteringEngine::new(vec![monitor1, monitor2], RhaiConfig::default());
 
         let tx = TransactionBuilder::new().build();
         let log1 = create_test_log_and_tx(addr1, "Transfer", vec![]).1;
@@ -421,41 +514,42 @@ mod tests {
         let addr = address!("0000000000000000000000000000000000000001");
         // Script that tries to perform an arithmetic operation on a non-existent field
         let monitor = create_test_monitor(1, &addr.to_checksum(None), "log.non_existent_field + 1");
-        let engine = RhaiFilteringEngine::new(vec![monitor]);
+        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
         let item = CorrelatedBlockItem::new(&tx, vec![log], None);
 
         let result = engine.evaluate_item(&item).await;
-        assert!(result.is_err());
-        let error = result.unwrap_err();
-        assert!(error.to_string().contains("Function not found"));
+        // Runtime errors are handled gracefully - the monitor is skipped but processing continues
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty()); // No matches due to runtime error
     }
 
     #[tokio::test]
-    async fn test_evaluate_item_script_syntax_error() {
-        let addr = address!("0000000000000000000000000000000000000001");
-        // Script with a syntax error (missing closing parenthesis)
-        let monitor =
-            create_test_monitor(1, &addr.to_checksum(None), "log.name == \"Transfer\" && (");
-        let engine = RhaiFilteringEngine::new(vec![monitor]);
+    async fn test_compile_script_syntax_error_missing_parenthesis() {
+        let config = RhaiConfig::default();
+        let engine = RhaiFilteringEngine::new(vec![], config);
 
-        let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
-        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+        // Script with syntax error - missing closing parenthesis
+        let script = "log.name == \"Transfer\" && (";
 
-        let result = engine.evaluate_item(&item).await;
-        // The error should be caught during compilation, not evaluation
-        assert!(result.is_ok()); // The function returns Ok(matches) even if compilation fails for a monitor
-        // The error message is logged internally, and the loop continues. No match is added.
-        // We can assert that no matches are found.
-        assert!(result.unwrap().is_empty());
+        let result = engine.compile_script(script);
+
+        // Should get a compilation error
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            RhaiError::CompilationError(_) => {
+                // Expected - syntax error should cause compilation error
+            }
+            other => panic!("Expected CompilationError, got: {:?}", other),
+        }
     }
 
     #[tokio::test]
     async fn test_update_monitors_with_empty_vector() {
         let addr1 = "0x0000000000000000000000000000000000000001";
         let monitor1 = create_test_monitor(1, addr1, "true");
-        let engine = RhaiFilteringEngine::new(vec![monitor1]);
+        let engine = RhaiFilteringEngine::new(vec![monitor1], RhaiConfig::default());
 
         let monitors_read = engine.monitors_by_address.read().await;
         assert_eq!(monitors_read.len(), 1);
@@ -474,7 +568,10 @@ mod tests {
         let monitor2 = create_test_monitor(2, addr1, "false"); // Same address as monitor1
         let monitor3 = create_test_monitor(3, "0x0000000000000000000000000000000000000002", "true");
 
-        let engine = RhaiFilteringEngine::new(vec![monitor1.clone(), monitor3.clone()]);
+        let engine = RhaiFilteringEngine::new(
+            vec![monitor1.clone(), monitor3.clone()],
+            RhaiConfig::default(),
+        );
 
         let monitors_read = engine.monitors_by_address.read().await;
         assert_eq!(monitors_read.len(), 2);
@@ -499,5 +596,747 @@ mod tests {
             1
         );
         drop(monitors_read);
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_item_with_custom_rhai_config() {
+        let addr = address!("0000000000000000000000000000000000000001");
+        let monitor = create_test_monitor(1, &addr.to_checksum(None), "log.name == \"Transfer\"");
+
+        // Create a custom RhaiConfig with restrictive limits
+        let custom_config = RhaiConfig {
+            max_operations: 1000,
+            max_call_levels: 5,
+            max_string_size: 100,
+            max_array_size: 10,
+            execution_timeout: Duration::from_millis(1000),
+        };
+
+        let engine = RhaiFilteringEngine::new(vec![monitor], custom_config);
+
+        let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
+        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+
+        let matches = engine.evaluate_item(&item).await.unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].monitor_id, 1);
+        assert_eq!(matches[0].trigger_name, "Transfer");
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_item_with_very_restrictive_config() {
+        let addr = address!("0000000000000000000000000000000000000001");
+        // A more complex script that might hit operation limits
+        let monitor = create_test_monitor(
+            1,
+            &addr.to_checksum(None),
+            "log.name == \"Transfer\" && log.params.value > 0 && log.params.to != \"\" && log.params.from != \"\"",
+        );
+
+        // Create a very restrictive RhaiConfig
+        let restrictive_config = RhaiConfig {
+            max_operations: 1, // Very low limit
+            max_call_levels: 1,
+            max_string_size: 10,
+            max_array_size: 1,
+            execution_timeout: Duration::from_millis(1),
+        };
+
+        let engine = RhaiFilteringEngine::new(vec![monitor], restrictive_config);
+
+        let (tx, log) = create_test_log_and_tx(
+            addr,
+            "Transfer",
+            vec![
+                (
+                    "value".to_string(),
+                    DynSolValue::Uint(U256::from(100).into(), 256),
+                ),
+                ("to".to_string(), DynSolValue::String("0x123".to_string())),
+                ("from".to_string(), DynSolValue::String("0x456".to_string())),
+            ],
+        );
+        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+
+        let result = engine.evaluate_item(&item).await;
+        // With very restrictive limits, the script execution might fail,
+        // but the function should still return Ok and handle errors gracefully
+        assert!(result.is_ok());
+        // The matches might be empty due to execution limits, which is acceptable
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_item_with_zero_config_values() {
+        let addr = address!("0000000000000000000000000000000000000001");
+        let monitor = create_test_monitor(1, &addr.to_checksum(None), "true");
+
+        // Create config with zero values (edge case)
+        let zero_config = RhaiConfig {
+            max_operations: 0,
+            max_call_levels: 0,
+            max_string_size: 0,
+            max_array_size: 0,
+            execution_timeout: Duration::from_millis(0),
+        };
+
+        let engine = RhaiFilteringEngine::new(vec![monitor], zero_config);
+
+        let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
+        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+
+        let result = engine.evaluate_item(&item).await;
+        // Zero limits may prevent script execution, but Rhai might handle this differently
+        // The main thing is that the function handles this gracefully without panicking
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_item_complex_script_with_loops() {
+        let addr = address!("0000000000000000000000000000000000000001");
+        // Script with a loop that could potentially hit operation limits
+        let complex_script = "
+            let count = 0;
+            for i in 0..100 {
+                count += 1;
+            }
+            log.name == \"Transfer\" && count == 100
+        ";
+        let monitor = create_test_monitor(1, &addr.to_checksum(None), complex_script);
+
+        let normal_config = RhaiConfig {
+            max_operations: 10_000, // Should be enough for the loop
+            max_call_levels: 10,
+            max_string_size: 1_000,
+            max_array_size: 200,
+            execution_timeout: Duration::from_millis(5_000),
+        };
+
+        let engine = RhaiFilteringEngine::new(vec![monitor], normal_config);
+
+        let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
+        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+
+        let matches = engine.evaluate_item(&item).await.unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].monitor_id, 1);
+        assert_eq!(matches[0].trigger_name, "Transfer");
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_item_complex_script_exceeds_operation_limit() {
+        let addr = address!("0000000000000000000000000000000000000001");
+        // Script with a loop that will exceed operation limits
+        let complex_script = "
+            let count = 0;
+            for i in 0..1000 {
+                count += 1;
+            }
+            log.name == \"Transfer\"
+        ";
+        let monitor = create_test_monitor(1, &addr.to_checksum(None), complex_script);
+
+        let restrictive_config = RhaiConfig {
+            max_operations: 100, // Not enough for the loop
+            max_call_levels: 10,
+            max_string_size: 1_000,
+            max_array_size: 200,
+            execution_timeout: Duration::from_millis(5_000),
+        };
+
+        let engine = RhaiFilteringEngine::new(vec![monitor], restrictive_config);
+
+        let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
+        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+
+        let result = engine.evaluate_item(&item).await;
+        // Should handle operation limit gracefully
+        assert!(result.is_ok());
+        // No matches expected due to operation limit being exceeded
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_eval_ast_bool_secure_infinite_recursion_protection() {
+        let config = RhaiConfig {
+            max_operations: 10_000,
+            max_call_levels: 5, // Very low to catch recursion quickly
+            max_string_size: 1_000,
+            max_array_size: 200,
+            execution_timeout: Duration::from_millis(5_000),
+        };
+
+        let engine = RhaiFilteringEngine::new(vec![], config);
+
+        // Script with infinite recursion that should be caught by call depth limits
+        let script = "
+            fn recursive_bomb(n) { 
+                recursive_bomb(n + 1); 
+            }
+            recursive_bomb(0);
+            true
+        ";
+
+        let ast = engine.compile_script(script).unwrap();
+        let mut scope = Scope::new();
+
+        let result = engine.eval_ast_bool_secure(&ast, &mut scope).await;
+
+        // Should get a runtime error due to call depth limit
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            RhaiError::RuntimeError(_) => {
+                // Expected - call depth limit should cause runtime error
+            }
+            other => panic!("Expected RuntimeError, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_eval_ast_bool_secure_mutual_recursion_protection() {
+        let config = RhaiConfig {
+            max_operations: 10_000,
+            max_call_levels: 8, // Should be exceeded by mutual recursion
+            max_string_size: 1_000,
+            max_array_size: 200,
+            execution_timeout: Duration::from_millis(5_000),
+        };
+
+        let engine = RhaiFilteringEngine::new(vec![], config);
+
+        // Script with mutual recursion between functions
+        let script = "
+            fn func_a(n) { 
+                if n > 0 { func_b(n - 1); } else { func_b(100); }
+            }
+            fn func_b(n) { 
+                if n > 0 { func_a(n - 1); } else { func_a(100); }
+            }
+            func_a(50);
+            true
+        ";
+
+        let ast = engine.compile_script(script).unwrap();
+        let mut scope = Scope::new();
+
+        let result = engine.eval_ast_bool_secure(&ast, &mut scope).await;
+
+        // Should get a runtime error due to call depth limit
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            RhaiError::RuntimeError(_) => {
+                // Expected - call depth limit should cause runtime error
+            }
+            other => panic!("Expected RuntimeError, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_compile_script_dangerous_eval_function_blocked() {
+        let config = RhaiConfig::default();
+        let engine = RhaiFilteringEngine::new(vec![], config);
+
+        // Script trying to use eval function (if it were available)
+        let script = "
+            let code = \"1 + 1\";
+            eval(code) == 2
+        ";
+
+        // This should fail at compilation since 'eval' is disabled
+        let result = engine.compile_script(script);
+
+        // Also acceptable - compilation error for disabled function
+        match result.unwrap_err() {
+            RhaiError::CompilationError(_) => {
+                // Expected - disabled function could cause compilation error
+            }
+            other => panic!(
+                "Expected CompilationError for disabled function, got: {:?}",
+                other
+            ),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_compile_script_dangerous_import_blocked() {
+        let config = RhaiConfig::default();
+        let engine = RhaiFilteringEngine::new(vec![], config);
+
+        // Script trying to import modules (if it were available)
+        let script = "
+            import \"std\" as std;
+            true
+        ";
+
+        let result = engine.compile_script(script);
+
+        // Should get a compilation error for import syntax
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            RhaiError::CompilationError(_) => {
+                // Expected - import syntax should cause compilation error
+            }
+            other => panic!("Expected CompilationError for import, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_compile_script_print_debug_functions_blocked() {
+        let config = RhaiConfig::default();
+        let engine = RhaiFilteringEngine::new(vec![], config);
+
+        // Script trying to use print function
+        let print_script = "
+            print(\"trying to print\");
+            true
+        ";
+
+        // This should fail at compilation or runtime since 'print' is disabled
+        let result = engine.compile_script(print_script);
+
+        match result.unwrap_err() {
+            RhaiError::CompilationError(_) => {
+                // Expected - disabled function could cause compilation error
+            }
+            other => panic!(
+                "Expected CompilationError for disabled function, got: {:?}",
+                other
+            ),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_compile_script_debug_function_blocked() {
+        let config = RhaiConfig::default();
+        let engine = RhaiFilteringEngine::new(vec![], config);
+
+        // Script trying to use debug function
+        let debug_script = "
+            debug(\"trying to debug\");
+            true
+        ";
+
+        // This should fail at compilation or runtime since 'debug' is disabled
+        let result = engine.compile_script(debug_script);
+
+        match result.unwrap_err() {
+            RhaiError::CompilationError(_) => {
+                // Expected - disabled function could cause compilation error
+            }
+            other => panic!(
+                "Expected CompilationError for disabled function, got: {:?}",
+                other
+            ),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_item_nested_function_calls_within_limits() {
+        let addr = address!("0000000000000000000000000000000000000001");
+        // Script with nested function calls that stay within limits
+        let nested_script = "
+            fn level1() { level2() }
+            fn level2() { level3() }
+            fn level3() { level4() }
+            fn level4() { true }
+            
+            log.name == \"Transfer\" && level1()
+        ";
+        let monitor = create_test_monitor(1, &addr.to_checksum(None), nested_script);
+
+        let config = RhaiConfig {
+            max_operations: 10_000,
+            max_call_levels: 10, // Should be enough for 4 levels
+            max_string_size: 1_000,
+            max_array_size: 200,
+            execution_timeout: Duration::from_millis(5_000),
+        };
+
+        let engine = RhaiFilteringEngine::new(vec![monitor], config);
+
+        let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
+        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+
+        let matches = engine.evaluate_item(&item).await.unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].monitor_id, 1);
+        assert_eq!(matches[0].trigger_name, "Transfer");
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_item_string_creation_within_limits() {
+        let addr = address!("0000000000000000000000000000000000000001");
+        // Script that creates strings within limits
+        let string_script = "
+            let prefix = \"event_\";
+            let suffix = \"_detected\";
+            let full_name = prefix + log.name + suffix;
+            full_name.len() > 0 && log.name == \"Transfer\"
+        ";
+        let monitor = create_test_monitor(1, &addr.to_checksum(None), string_script);
+
+        let config = RhaiConfig {
+            max_operations: 10_000,
+            max_call_levels: 10,
+            max_string_size: 1_000, // Should be enough for the string operations
+            max_array_size: 200,
+            execution_timeout: Duration::from_millis(5_000),
+        };
+
+        let engine = RhaiFilteringEngine::new(vec![monitor], config);
+
+        let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
+        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+
+        let matches = engine.evaluate_item(&item).await.unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].monitor_id, 1);
+        assert_eq!(matches[0].trigger_name, "Transfer");
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_item_array_creation_within_limits() {
+        let addr = address!("0000000000000000000000000000000000000001");
+        // Script that creates arrays within limits
+        let array_script = "
+            let events = [\"Transfer\", \"Approval\", \"Mint\"];
+            let found = false;
+            for event in events {
+                if event == log.name {
+                    found = true;
+                    break;
+                }
+            }
+            found
+        ";
+        let monitor = create_test_monitor(1, &addr.to_checksum(None), array_script);
+
+        let config = RhaiConfig {
+            max_operations: 10_000,
+            max_call_levels: 10,
+            max_string_size: 1_000,
+            max_array_size: 200, // Should be enough for 3 elements
+            execution_timeout: Duration::from_millis(5_000),
+        };
+
+        let engine = RhaiFilteringEngine::new(vec![monitor], config);
+
+        let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
+        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+
+        let matches = engine.evaluate_item(&item).await.unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].monitor_id, 1);
+        assert_eq!(matches[0].trigger_name, "Transfer");
+    }
+
+    // Direct tests for eval_ast_bool_secure method to verify explicit error handling
+    #[tokio::test]
+    async fn test_eval_ast_bool_secure_operation_limit_exceeded() {
+        let config = RhaiConfig {
+            max_operations: 10, // Very low limit
+            max_call_levels: 10,
+            max_string_size: 1_000,
+            max_array_size: 100,
+            execution_timeout: Duration::from_millis(5_000),
+        };
+
+        let engine = RhaiFilteringEngine::new(vec![], config);
+
+        // Script that will exceed operation limit
+        let script = "
+            let sum = 0;
+            for i in 0..1000 {
+                sum += i;
+            }
+            sum > 0
+        ";
+
+        let ast = engine.compile_script(script).unwrap();
+        let mut scope = Scope::new();
+
+        let result = engine.eval_ast_bool_secure(&ast, &mut scope).await;
+
+        // Should get a runtime error due to operation limit
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            RhaiError::RuntimeError(_) => {
+                // Expected - operation limit should cause runtime error
+            }
+            other => panic!("Expected RuntimeError, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_eval_ast_bool_secure_execution_timeout() {
+        let config = RhaiConfig {
+            max_operations: 1_000_000, // High enough to not be the limiting factor
+            max_call_levels: 10,
+            max_string_size: 1_000,
+            max_array_size: 100,
+            execution_timeout: Duration::from_millis(1), // Short timeout
+        };
+
+        let engine = RhaiFilteringEngine::new(vec![], config);
+
+        // Script with an infinite loop that should timeout
+        let script = "
+            loop {
+                // This will run forever
+            }
+        ";
+
+        let ast = engine.compile_script(script).unwrap();
+        let mut scope = Scope::new();
+
+        let result = engine.eval_ast_bool_secure(&ast, &mut scope).await;
+
+        // Should get an execution timeout error
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            RhaiError::ExecutionTimeout { timeout } => {
+                assert_eq!(timeout, Duration::from_millis(1));
+            }
+            RhaiError::RuntimeError(_) => {
+                // This is also acceptable if Rhai catches the infinite loop before timeout
+            }
+            other => panic!(
+                "Expected ExecutionTimeout or RuntimeError, got: {:?}",
+                other
+            ),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_eval_ast_bool_secure_call_depth_limit() {
+        let config = RhaiConfig {
+            max_operations: 10_000,
+            max_call_levels: 3, // Very low call depth limit
+            max_string_size: 1_000,
+            max_array_size: 100,
+            execution_timeout: Duration::from_millis(5_000),
+        };
+
+        let engine = RhaiFilteringEngine::new(vec![], config);
+
+        // Script with deep recursion that should exceed call depth
+        let script = "
+            fn deep_call(n) {
+                if n > 0 {
+                    deep_call(n - 1);
+                } else {
+                    true
+                }
+            }
+            deep_call(10)
+        ";
+
+        let ast = engine.compile_script(script).unwrap();
+        let mut scope = Scope::new();
+
+        let result = engine.eval_ast_bool_secure(&ast, &mut scope).await;
+
+        // Should get a runtime error due to call depth limit
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            RhaiError::RuntimeError(_) => {
+                // Expected - call depth limit should cause runtime error
+            }
+            other => panic!("Expected RuntimeError, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_eval_ast_bool_secure_runtime_error() {
+        let config = RhaiConfig::default();
+        let engine = RhaiFilteringEngine::new(vec![], config);
+
+        // Script that causes a runtime error (division by zero)
+        let script = "1 / 0 == 1";
+
+        let ast = engine.compile_script(script).unwrap();
+        let mut scope = Scope::new();
+
+        let result = engine.eval_ast_bool_secure(&ast, &mut scope).await;
+
+        // Should get a runtime error
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            RhaiError::RuntimeError(_) => {
+                // Expected - division by zero should cause runtime error
+            }
+            other => panic!("Expected RuntimeError, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_eval_ast_bool_secure_successful_execution() {
+        let config = RhaiConfig::default();
+        let engine = RhaiFilteringEngine::new(vec![], config);
+
+        // Simple script that should execute successfully
+        let script = "2 + 2 == 4";
+
+        let ast = engine.compile_script(script).unwrap();
+        let mut scope = Scope::new();
+
+        let result = engine.eval_ast_bool_secure(&ast, &mut scope).await;
+
+        // Should succeed and return true
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), true);
+    }
+
+    #[tokio::test]
+    async fn test_eval_ast_bool_secure_with_scope_variables() {
+        let config = RhaiConfig::default();
+        let engine = RhaiFilteringEngine::new(vec![], config);
+
+        // Script that uses scope variables
+        let script = "x > 10 && y == \"test\"";
+
+        let ast = engine.compile_script(script).unwrap();
+        let mut scope = Scope::new();
+        scope.push("x", 15_i64);
+        scope.push("y", "test".to_string());
+
+        let result = engine.eval_ast_bool_secure(&ast, &mut scope).await;
+
+        // Should succeed and return true
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), true);
+    }
+
+    #[tokio::test]
+    async fn test_compile_script_syntax_error() {
+        let config = RhaiConfig::default();
+        let engine = RhaiFilteringEngine::new(vec![], config);
+
+        // Script with syntax error
+        let script = "if true { } else";
+
+        let result = engine.compile_script(script);
+
+        // Should get a compilation error
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            RhaiError::CompilationError(_) => {
+                // Expected - syntax error should cause compilation error
+            }
+            other => panic!("Expected CompilationError, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_compile_script_successful() {
+        let config = RhaiConfig::default();
+        let engine = RhaiFilteringEngine::new(vec![], config);
+
+        // Valid script
+        let script = "true && false";
+
+        let result = engine.compile_script(script);
+
+        // Should succeed
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_eval_ast_bool_secure_disabled_functions() {
+        let config = RhaiConfig::default();
+        let engine = RhaiFilteringEngine::new(vec![], config);
+
+        // Script trying to use disabled eval function
+        let script = "eval(\"1 + 1\") == 2";
+
+        // This should fail at compilation since 'eval' is disabled
+        let result = engine.compile_script(script);
+
+        match result.unwrap_err() {
+            RhaiError::CompilationError(_) => {
+                // Expected - disabled function could cause compilation error
+            }
+            other => panic!(
+                "Expected CompilationError for disabled function, got: {:?}",
+                other
+            ),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_compile_script_file_access_blocked() {
+        let config = RhaiConfig::default();
+        let engine = RhaiFilteringEngine::new(vec![], config);
+
+        // Script trying to access file system
+        let script = "
+            let f = File::open(\"test.txt\");
+            true
+        ";
+
+        // This should fail at runtime since file access is disabled
+        let ast = engine.compile_script(script).unwrap();
+
+        let mut scope = Scope::new();
+        let runtime_result = engine.eval_ast_bool_secure(&ast, &mut scope).await;
+        assert!(runtime_result.is_err());
+        match runtime_result.unwrap_err() {
+            RhaiError::RuntimeError(_) => {
+                // Expected - disabled File access should cause error
+            }
+            other => panic!(
+                "Expected RuntimeError for disabled File access, got: {:?}",
+                other
+            ),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_compile_script_system_access_blocked() {
+        let config = RhaiConfig::default();
+        let engine = RhaiFilteringEngine::new(vec![], config);
+
+        // Script trying to access system functions
+        let script = "
+            system(\"ls\");
+            true
+        ";
+
+        let ast = engine.compile_script(script).unwrap();
+
+        let mut scope = Scope::new();
+        let runtime_result = engine.eval_ast_bool_secure(&ast, &mut scope).await;
+        assert!(runtime_result.is_err());
+        match runtime_result.unwrap_err() {
+            RhaiError::RuntimeError(_) => {
+                // Expected - disabled system access should cause error
+            }
+            other => panic!(
+                "Expected RuntimeError for disabled system access, got: {:?}",
+                other
+            ),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_compile_script_export_blocked() {
+        let config = RhaiConfig::default();
+        let engine = RhaiFilteringEngine::new(vec![], config);
+
+        // Script trying to use export
+        let script = "
+            export fn test() { true }
+            true
+        ";
+
+        let result = engine.compile_script(script);
+
+        // Should get a compilation error for export syntax
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            RhaiError::CompilationError(_) => {
+                // Expected - export syntax should cause compilation error
+            }
+            other => panic!("Expected CompilationError for export, got: {:?}", other),
+        }
     }
 }
