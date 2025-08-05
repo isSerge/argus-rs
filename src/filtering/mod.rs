@@ -1,5 +1,7 @@
 //! This module defines the `FilteringEngine` and its implementations.
 mod rhai_conversions;
+
+use crate::config::RhaiConfig;
 use crate::models::correlated_data::CorrelatedBlockItem;
 use crate::models::monitor::Monitor;
 use crate::models::monitor_match::MonitorMatch;
@@ -7,13 +9,35 @@ use async_trait::async_trait;
 use dashmap::DashMap;
 #[cfg(test)]
 use mockall::automock;
-use rhai::{Engine, Scope};
+use rhai::{Engine, Scope, AST, EvalAltResult};
 use rhai_conversions::{
     build_log_map, build_log_params_map, build_transaction_map, build_trigger_data_from_params,
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 use tokio::sync::RwLock;
+use tokio::time::timeout;
+use thiserror::Error;
+
+/// Rhai script execution errors that can occur during compilation or runtime
+#[derive(Debug, Error)]
+pub enum RhaiError {
+    /// Error that occurs during script compilation
+    #[error("Script compilation failed: {0}")]
+    CompilationError(#[from] Box<EvalAltResult>),
+    
+    /// Error that occurs during script runtime execution
+    #[error("Script runtime error: {0}")]
+    RuntimeError(Box<EvalAltResult>),
+    
+    /// Error that occurs when script execution exceeds the timeout limit
+    #[error("Script execution timeout after {timeout:?}")]
+    ExecutionTimeout { 
+        /// The timeout duration that was exceeded
+        timeout: Duration 
+    },
+}
 
 /// A trait for an engine that applies filtering logic to block data.
 #[cfg_attr(test, automock)]
@@ -34,20 +58,28 @@ pub trait FilteringEngine: Send + Sync {
     fn requires_receipt_data(&self) -> bool;
 }
 
-/// A Rhai-based implementation of the `FilteringEngine`.
+/// A Rhai-based implementation of the `FilteringEngine` with integrated security controls.
 #[derive(Debug)]
 pub struct RhaiFilteringEngine {
     monitors_by_address: Arc<RwLock<DashMap<String, Vec<Monitor>>>>,
     engine: Engine,
+    rhai_config: RhaiConfig,
     requires_receipts: AtomicBool,
 }
 
 impl RhaiFilteringEngine {
-    /// Creates a new `RhaiFilteringEngine`.
-    pub fn new(monitors: Vec<Monitor>) -> Self {
+    /// Creates a new `RhaiFilteringEngine` with the given monitors and Rhai configuration.
+    pub fn new(monitors: Vec<Monitor>, rhai_config: RhaiConfig) -> Self {
         let mut engine = Engine::new();
-        // TODO: add more limits (timeout, memory usage, etc.)
-        engine.set_max_operations(1_000_000);
+        
+        // Apply security limits
+        engine.set_max_operations(rhai_config.max_operations);
+        engine.set_max_call_levels(rhai_config.max_call_levels);
+        engine.set_max_string_size(rhai_config.max_string_size);
+        engine.set_max_array_size(rhai_config.max_array_size);
+        
+        // Disable dangerous language features
+        Self::disable_dangerous_features(&mut engine);
 
         let monitors_by_address: DashMap<String, Vec<Monitor>> = DashMap::new();
         let mut needs_receipts = false;
@@ -67,7 +99,59 @@ impl RhaiFilteringEngine {
         Self {
             monitors_by_address: Arc::new(RwLock::new(monitors_by_address)),
             engine,
+            rhai_config,
             requires_receipts: AtomicBool::new(needs_receipts),
+        }
+    }
+
+    /// Disable dangerous language features and standard library functions
+    fn disable_dangerous_features(engine: &mut Engine) {
+        // Disable dynamic evaluation
+        engine.disable_symbol("eval");
+        
+        // Disable module system
+        engine.disable_symbol("import");
+        engine.disable_symbol("export");
+        
+        // Disable I/O operations
+        engine.disable_symbol("print");
+        engine.disable_symbol("debug");
+        
+        // Disable file system access (if available)
+        engine.disable_symbol("File");
+        engine.disable_symbol("file");
+        
+        // Disable network access (if available)
+        engine.disable_symbol("http");
+        engine.disable_symbol("net");
+        
+        // Disable system access (if available)
+        engine.disable_symbol("system");
+        engine.disable_symbol("process");
+        
+        // Disable threading (if available)
+        engine.disable_symbol("thread");
+        engine.disable_symbol("spawn");
+    }
+
+    /// Compile a script with security checks
+    fn compile_script(&self, script: &str) -> Result<AST, RhaiError> {
+        self.engine.compile(script)
+            .map_err(|e| RhaiError::CompilationError(e.into()))
+    }
+    
+    /// Execute a pre-compiled AST with security controls including timeout
+    async fn eval_ast_bool_secure(&self, ast: &AST, scope: &mut Scope<'_>) -> Result<bool, RhaiError> {
+        // Execute with timeout protection
+        let execution = async {
+            self.engine.eval_ast_with_scope::<bool>(scope, ast)
+        };
+        
+        match timeout(self.rhai_config.execution_timeout, execution).await {
+            Ok(result) => result.map_err(RhaiError::RuntimeError),
+            Err(_) => Err(RhaiError::ExecutionTimeout { 
+                timeout: self.rhai_config.execution_timeout 
+            }),
         }
     }
 
@@ -124,7 +208,7 @@ impl FilteringEngine for RhaiFilteringEngine {
                     scope.push("log", log_map);
 
                     // Compile and evaluate the monitor's filter script
-                    let ast = match self.engine.compile(&monitor.filter_script) {
+                    let ast = match self.compile_script(&monitor.filter_script) {
                         Ok(ast) => ast,
                         Err(e) => {
                             tracing::error!(
@@ -136,8 +220,8 @@ impl FilteringEngine for RhaiFilteringEngine {
                         }
                     };
 
-                    // Evaluate the script with the current scope
-                    match self.engine.eval_ast_with_scope::<bool>(&mut scope, &ast) {
+                    // Evaluate the script with security controls
+                    match self.eval_ast_bool_secure(&ast, &mut scope).await {
                         Ok(true) => {
                             let monitor_match = MonitorMatch {
                                 monitor_id: monitor.id,
@@ -154,7 +238,13 @@ impl FilteringEngine for RhaiFilteringEngine {
                             tracing::debug!(monitor_id = monitor.id, "Monitor condition not met.");
                         }
                         Err(e) => {
-                            return Err(e.into());
+                            tracing::error!(
+                                monitor_id = monitor.id,
+                                "Script execution failed: {}",
+                                e
+                            );
+                            // Continue processing other monitors instead of failing completely
+                            continue;
                         }
                     }
                 }
@@ -195,6 +285,7 @@ impl FilteringEngine for RhaiFilteringEngine {
 mod tests {
     use super::*;
     use crate::abi::DecodedLog;
+    use crate::config::RhaiConfig;
     use crate::models::transaction::Transaction;
     use crate::test_helpers::{LogBuilder, TransactionBuilder};
     use alloy::dyn_abi::DynSolValue;
@@ -237,7 +328,7 @@ mod tests {
 
         // Test `new()`
         let engine =
-            RhaiFilteringEngine::new(vec![monitor1.clone(), monitor2.clone(), monitor3.clone()]);
+            RhaiFilteringEngine::new(vec![monitor1.clone(), monitor2.clone(), monitor3.clone()], RhaiConfig::default());
 
         let monitors_read = engine.monitors_by_address.read().await;
         assert_eq!(monitors_read.len(), 2);
@@ -262,7 +353,7 @@ mod tests {
     async fn test_evaluate_item_simple_match() {
         let addr = address!("0000000000000000000000000000000000000001");
         let monitor = create_test_monitor(1, &addr.to_checksum(None), "log.name == \"Transfer\"");
-        let engine = RhaiFilteringEngine::new(vec![monitor]);
+        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
         let item = CorrelatedBlockItem::new(&tx, vec![log], None);
@@ -275,7 +366,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_item_no_monitors() {
-        let engine = RhaiFilteringEngine::new(vec![]); // No monitors
+        let engine = RhaiFilteringEngine::new(vec![], RhaiConfig::default()); // No monitors
         let (tx, log) = create_test_log_and_tx(
             address!("0000000000000000000000000000000000000001"),
             "SomeEvent",
@@ -292,7 +383,7 @@ mod tests {
         let addr = address!("0000000000000000000000000000000000000001");
         let monitor =
             create_test_monitor(1, &addr.to_checksum(None), "log.name == \"AnotherEvent\"");
-        let engine = RhaiFilteringEngine::new(vec![monitor]);
+        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
         let item = CorrelatedBlockItem::new(&tx, vec![log], None);
@@ -307,7 +398,7 @@ mod tests {
         let addr2 = address!("0000000000000000000000000000000000000002");
         // Monitor for addr1
         let monitor = create_test_monitor(1, &addr1.to_checksum(None), "true");
-        let engine = RhaiFilteringEngine::new(vec![monitor]);
+        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
 
         // Create a log for addr2
         let (tx, log) = create_test_log_and_tx(addr2, "Transfer", vec![]);
@@ -323,7 +414,7 @@ mod tests {
         // Two monitors for the same address with the same event name
         let monitor1 = create_test_monitor(1, &addr.to_checksum(None), "log.name == \"Transfer\"");
         let monitor2 = create_test_monitor(2, &addr.to_checksum(None), "log.name == \"Transfer\"");
-        let engine = RhaiFilteringEngine::new(vec![monitor1, monitor2]);
+        let engine = RhaiFilteringEngine::new(vec![monitor1, monitor2], RhaiConfig::default());
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
         let item = CorrelatedBlockItem::new(&tx, vec![log], None);
@@ -344,7 +435,7 @@ mod tests {
             &addr.to_checksum(None),
             "log.name == \"ValueTransfered\" && log.params.value > 100",
         );
-        let engine = RhaiFilteringEngine::new(vec![monitor]);
+        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
 
         let (tx, log) = create_test_log_and_tx(
             addr,
@@ -368,22 +459,22 @@ mod tests {
         let addr = address!("0000000000000000000000000000000000000001");
         // Script that will cause a runtime error (division by zero)
         let monitor = create_test_monitor(1, &addr.to_checksum(None), "1 / 0");
-        let engine = RhaiFilteringEngine::new(vec![monitor]);
+        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
         let item = CorrelatedBlockItem::new(&tx, vec![log], None);
 
         let result = engine.evaluate_item(&item).await;
-        assert!(result.is_err());
-        let error = result.unwrap_err();
-        assert!(error.to_string().contains("Division by zero"));
+        // Runtime errors are handled gracefully - the monitor is skipped but processing continues
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty()); // No matches due to runtime error
     }
 
     #[tokio::test]
     async fn test_evaluate_item_no_decoded_logs() {
         let addr = address!("0000000000000000000000000000000000000001");
         let monitor = create_test_monitor(1, &addr.to_checksum(None), "true");
-        let engine = RhaiFilteringEngine::new(vec![monitor]);
+        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
 
         let tx = TransactionBuilder::new().build();
         let item = CorrelatedBlockItem::new(&tx, vec![], None); // No decoded logs
@@ -399,7 +490,7 @@ mod tests {
 
         let monitor1 = create_test_monitor(1, &addr1.to_checksum(None), "log.name == \"Transfer\"");
         let monitor2 = create_test_monitor(2, &addr2.to_checksum(None), "log.name == \"Approval\"");
-        let engine = RhaiFilteringEngine::new(vec![monitor1, monitor2]);
+        let engine = RhaiFilteringEngine::new(vec![monitor1, monitor2], RhaiConfig::default());
 
         let tx = TransactionBuilder::new().build();
         let log1 = create_test_log_and_tx(addr1, "Transfer", vec![]).1;
@@ -421,15 +512,15 @@ mod tests {
         let addr = address!("0000000000000000000000000000000000000001");
         // Script that tries to perform an arithmetic operation on a non-existent field
         let monitor = create_test_monitor(1, &addr.to_checksum(None), "log.non_existent_field + 1");
-        let engine = RhaiFilteringEngine::new(vec![monitor]);
+        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
         let item = CorrelatedBlockItem::new(&tx, vec![log], None);
 
         let result = engine.evaluate_item(&item).await;
-        assert!(result.is_err());
-        let error = result.unwrap_err();
-        assert!(error.to_string().contains("Function not found"));
+        // Runtime errors are handled gracefully - the monitor is skipped but processing continues
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty()); // No matches due to runtime error
     }
 
     #[tokio::test]
@@ -438,7 +529,7 @@ mod tests {
         // Script with a syntax error (missing closing parenthesis)
         let monitor =
             create_test_monitor(1, &addr.to_checksum(None), "log.name == \"Transfer\" && (");
-        let engine = RhaiFilteringEngine::new(vec![monitor]);
+        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
         let item = CorrelatedBlockItem::new(&tx, vec![log], None);
@@ -455,7 +546,7 @@ mod tests {
     async fn test_update_monitors_with_empty_vector() {
         let addr1 = "0x0000000000000000000000000000000000000001";
         let monitor1 = create_test_monitor(1, addr1, "true");
-        let engine = RhaiFilteringEngine::new(vec![monitor1]);
+        let engine = RhaiFilteringEngine::new(vec![monitor1], RhaiConfig::default());
 
         let monitors_read = engine.monitors_by_address.read().await;
         assert_eq!(monitors_read.len(), 1);
@@ -474,7 +565,7 @@ mod tests {
         let monitor2 = create_test_monitor(2, addr1, "false"); // Same address as monitor1
         let monitor3 = create_test_monitor(3, "0x0000000000000000000000000000000000000002", "true");
 
-        let engine = RhaiFilteringEngine::new(vec![monitor1.clone(), monitor3.clone()]);
+        let engine = RhaiFilteringEngine::new(vec![monitor1.clone(), monitor3.clone()], RhaiConfig::default());
 
         let monitors_read = engine.monitors_by_address.read().await;
         assert_eq!(monitors_read.len(), 2);

@@ -43,7 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize BlockProcessor components
     tracing::debug!("Initializing ABI service and BlockProcessor...");
     let abi_service = Arc::new(AbiService::new());
-    let filtering_engine = RhaiFilteringEngine::new(vec![]);
+    let filtering_engine = RhaiFilteringEngine::new(vec![], config.rhai.clone());
     
     // Determine once if any monitor requires receipt data
     let needs_receipts = filtering_engine.requires_receipt_data();
