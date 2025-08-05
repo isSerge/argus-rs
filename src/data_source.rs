@@ -2,10 +2,12 @@
 
 use crate::block_fetcher::{BlockFetcher, BlockFetcherError};
 use alloy::{
+    primitives::TxHash,
     providers::Provider,
-    rpc::types::{Block, Log},
+    rpc::types::{Block, Log, TransactionReceipt},
 };
 use async_trait::async_trait;
+use std::collections::HashMap;
 use thiserror::Error;
 
 /// Custom error type for data source operations.
@@ -39,6 +41,12 @@ pub trait DataSource {
 
     /// Fetches the current block number from the data source.
     async fn get_current_block_number(&self) -> Result<u64, DataSourceError>;
+
+    /// Fetches transaction receipts for the given transaction hashes.
+    async fn fetch_receipts(
+        &self,
+        tx_hashes: &[TxHash],
+    ) -> Result<HashMap<TxHash, TransactionReceipt>, DataSourceError>;
 }
 
 /// A `DataSource` implementation that fetches data from an EVM RPC endpoint.
@@ -99,5 +107,23 @@ where
             "Successfully fetched current block number."
         );
         Ok(block_number)
+    }
+
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn fetch_receipts(
+        &self,
+        tx_hashes: &[TxHash],
+    ) -> Result<HashMap<TxHash, TransactionReceipt>, DataSourceError> {
+        tracing::debug!(tx_count = tx_hashes.len(), "Fetching transaction receipts.");
+        let receipts = self
+            .block_fetcher
+            .fetch_receipts(tx_hashes)
+            .await
+            .map_err(Into::<DataSourceError>::into)?;
+        tracing::debug!(
+            receipt_count = receipts.len(),
+            "Successfully fetched transaction receipts."
+        );
+        Ok(receipts)
     }
 }

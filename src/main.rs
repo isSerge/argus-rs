@@ -1,14 +1,15 @@
+use alloy::{primitives::TxHash, rpc::types::{Block, TransactionReceipt}};
 use argus::{
     abi::AbiService,
     block_processor::{BlockProcessor, BlockProcessorError},
     config::AppConfig,
     data_source::{DataSource, EvmRpcSource},
-    filtering::DummyFilteringEngine,
+    filtering::{FilteringEngine, RhaiFilteringEngine},
     models::BlockData,
     provider::create_provider,
     state::{SqliteStateRepository, StateRepository},
 };
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use tokio::{
     signal,
     time::{self, Duration},
@@ -42,7 +43,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize BlockProcessor components
     tracing::debug!("Initializing ABI service and BlockProcessor...");
     let abi_service = Arc::new(AbiService::new());
-    let filtering_engine = DummyFilteringEngine;
+    let filtering_engine = RhaiFilteringEngine::new(vec![]);
+    
+    // Determine once if any monitor requires receipt data
+    let needs_receipts = filtering_engine.requires_receipt_data();
+    if needs_receipts {
+        tracing::info!("Monitors require receipt data - will fetch receipts for all transactions.");
+    } else {
+        tracing::info!("No monitors require receipt data - will skip receipt fetching for better performance.");
+    }
+    
     let block_processor = BlockProcessor::new(abi_service, filtering_engine);
     tracing::info!("BlockProcessor initialized successfully.");
 
@@ -121,6 +131,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &repo,
                 &evm_data_source,
                 &block_processor,
+                needs_receipts,
                 &config.network_id,
                 config.block_chunk_size,
                 config.confirmation_blocks,
@@ -146,10 +157,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[tracing::instrument(skip(repo, data_source, block_processor, shutdown_rx), level = "debug")]
-async fn monitor_cycle(
+async fn monitor_cycle<F: FilteringEngine>(
     repo: &SqliteStateRepository,
     data_source: &impl DataSource,
-    block_processor: &BlockProcessor<DummyFilteringEngine>,
+    block_processor: &BlockProcessor<F>,
+    needs_receipts: bool,
     network_id: &str,
     block_chunk_size: u64,
     confirmation_blocks: u64,
@@ -234,22 +246,19 @@ async fn monitor_cycle(
         }
 
         // Fetch block data
-        match data_source.fetch_block_core_data(block_num).await {
-            Ok((block, logs)) => {
-                let block_data =
-                    BlockData::from_raw_data(block, std::collections::HashMap::new(), logs);
-                blocks_to_process.push((block_num, block_data));
-            }
-            Err(e) => {
-                tracing::error!(
-                    network_id = %network_id,
-                    block_number = block_num,
-                    error = %e,
-                    "Failed to fetch block data. Aborting cycle."
-                );
-                return Err(e.into());
-            }
-        }
+        let (block, logs) = data_source.fetch_block_core_data(block_num).await?;
+        
+        // Fetch receipts if needed
+        let receipts = fetch_receipts_if_needed(
+            data_source, 
+            &block, 
+            needs_receipts, 
+            network_id, 
+            block_num
+        ).await;
+
+        let block_data = BlockData::from_raw_data(block, receipts, logs);
+        blocks_to_process.push((block_num, block_data));
     }
 
     // Process all collected blocks in batch
@@ -368,6 +377,37 @@ async fn monitor_cycle(
     Ok(())
 }
 
+/// Helper function to fetch receipts if needed
+async fn fetch_receipts_if_needed(
+    data_source: &impl DataSource,
+    block: &Block,
+    needs_receipts: bool,
+    network_id: &str,
+    block_num: u64,
+) -> HashMap<TxHash, TransactionReceipt> {
+    if !needs_receipts {
+        return HashMap::new();
+    }
+
+    let tx_hashes: Vec<_> = block.transactions.hashes().collect();
+    if tx_hashes.is_empty() {
+        return HashMap::new();
+    }
+
+    match data_source.fetch_receipts(&tx_hashes).await {
+        Ok(receipts) => receipts,
+        Err(e) => {
+            tracing::warn!(
+                network_id = %network_id,
+                block_number = block_num,
+                error = %e,
+                "Failed to fetch receipts, proceeding without them."
+            );
+            HashMap::new()
+        }
+    }
+}
+
 /// Performs graceful cleanup operations during shutdown
 async fn graceful_cleanup(
     repo: &SqliteStateRepository,
@@ -427,4 +467,179 @@ async fn graceful_cleanup(
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::{
+        primitives::{TxHash, B256},
+        rpc::types::{Block, Log, TransactionReceipt},
+    };
+    use argus::{
+        data_source::DataSourceError,
+        test_helpers::{BlockBuilder, ReceiptBuilder, TransactionBuilder},
+    };
+    use mockall::predicate::*;
+    use std::collections::HashMap;
+
+    // Mock DataSource for testing
+    mockall::mock! {
+        TestDataSource {}
+
+        #[async_trait::async_trait]
+        impl DataSource for TestDataSource {
+            async fn fetch_block_core_data(&self, block_number: u64) -> Result<(Block, Vec<Log>), DataSourceError>;
+            async fn get_current_block_number(&self) -> Result<u64, DataSourceError>;
+            async fn fetch_receipts(&self, tx_hashes: &[TxHash]) -> Result<HashMap<TxHash, TransactionReceipt>, DataSourceError>;
+        }
+    }
+
+    #[tokio::test]
+    async fn test_fetch_receipts_if_needed_when_not_needed() {
+        let mut mock_data_source = MockTestDataSource::new();
+        
+        // Should not call fetch_receipts when needs_receipts is false
+        mock_data_source.expect_fetch_receipts().times(0);
+        
+        let block = BlockBuilder::new().build();
+        let result = fetch_receipts_if_needed(
+            &mock_data_source,
+            &block,
+            false, // needs_receipts = false
+            "test_network",
+            123,
+        ).await;
+        
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_fetch_receipts_if_needed_empty_block() {
+        let mut mock_data_source = MockTestDataSource::new();
+        
+        // Should not call fetch_receipts when block has no transactions
+        mock_data_source.expect_fetch_receipts().times(0);
+        
+        let block = BlockBuilder::new().build(); // Empty block with no transactions
+        let result = fetch_receipts_if_needed(
+            &mock_data_source,
+            &block,
+            true, // needs_receipts = true
+            "test_network",
+            123,
+        ).await;
+        
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_fetch_receipts_if_needed_success() {
+        let mut mock_data_source = MockTestDataSource::new();
+        
+        let tx_hash = B256::from([1u8; 32]);
+        let receipt = ReceiptBuilder::new()
+            .transaction_hash(tx_hash)
+            .block_number(123)
+            .build();
+        
+        let mut expected_receipts = HashMap::new();
+        expected_receipts.insert(tx_hash, receipt.clone());
+        
+        mock_data_source
+            .expect_fetch_receipts()
+            .with(eq(vec![tx_hash]))
+            .times(1)
+            .returning(move |_| Ok(expected_receipts.clone()));
+        
+        let tx = TransactionBuilder::new().hash(tx_hash).build();
+        let block = BlockBuilder::new().transaction(tx).build();
+        
+        let result = fetch_receipts_if_needed(
+            &mock_data_source,
+            &block,
+            true, // needs_receipts = true
+            "test_network",
+            123,
+        ).await;
+        
+        assert_eq!(result.len(), 1);
+        assert!(result.contains_key(&tx_hash));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_receipts_if_needed_failure_handling() {
+        let mut mock_data_source = MockTestDataSource::new();
+        
+        let tx_hash = B256::from([1u8; 32]);
+        
+        mock_data_source
+            .expect_fetch_receipts()
+            .with(eq(vec![tx_hash]))
+            .times(1)
+            .returning(|_| Err(DataSourceError::Provider(Box::new(std::io::Error::new(
+                std::io::ErrorKind::ConnectionRefused,
+                "Connection failed"
+            )))));
+        
+        let tx = TransactionBuilder::new().hash(tx_hash).build();
+        let block = BlockBuilder::new().transaction(tx).build();
+        
+        let result = fetch_receipts_if_needed(
+            &mock_data_source,
+            &block,
+            true, // needs_receipts = true
+            "test_network",
+            123,
+        ).await;
+        
+        // Should return empty HashMap on error, not panic
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_fetch_receipts_if_needed_multiple_transactions() {
+        let mut mock_data_source = MockTestDataSource::new();
+        
+        let tx_hash1 = B256::from([1u8; 32]);
+        let tx_hash2 = B256::from([2u8; 32]);
+        
+        let receipt1 = ReceiptBuilder::new()
+            .transaction_hash(tx_hash1)
+            .block_number(123)
+            .build();
+        let receipt2 = ReceiptBuilder::new()
+            .transaction_hash(tx_hash2)
+            .block_number(123)
+            .build();
+        
+        let mut expected_receipts = HashMap::new();
+        expected_receipts.insert(tx_hash1, receipt1);
+        expected_receipts.insert(tx_hash2, receipt2);
+        
+        mock_data_source
+            .expect_fetch_receipts()
+            .with(always()) // Simplified predicate
+            .times(1)
+            .returning(move |_| Ok(expected_receipts.clone()));
+        
+        let tx1 = TransactionBuilder::new().hash(tx_hash1).build();
+        let tx2 = TransactionBuilder::new().hash(tx_hash2).build();
+        let block = BlockBuilder::new()
+            .transaction(tx1)
+            .transaction(tx2)
+            .build();
+        
+        let result = fetch_receipts_if_needed(
+            &mock_data_source,
+            &block,
+            true, // needs_receipts = true
+            "test_network",
+            123,
+        ).await;
+        
+        assert_eq!(result.len(), 2);
+        assert!(result.contains_key(&tx_hash1));
+        assert!(result.contains_key(&tx_hash2));
+    }
 }

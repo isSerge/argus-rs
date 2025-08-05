@@ -6,6 +6,7 @@
 
 use crate::abi::{AbiService, DecodedLog};
 use crate::filtering::FilteringEngine;
+use crate::models::transaction::Transaction;
 use crate::models::{BlockData, CorrelatedBlockItem, monitor_match::MonitorMatch};
 use alloy::rpc::types::BlockTransactions;
 use std::sync::Arc;
@@ -54,7 +55,7 @@ impl<F: FilteringEngine> BlockProcessor<F> {
         match block_data.block.transactions {
             BlockTransactions::Full(transactions) => {
                 for tx in transactions {
-                    let tx: crate::models::transaction::Transaction = tx.into();
+                    let tx: Transaction = tx.into();
                     let tx_hash = tx.hash();
 
                     // Get the logs for this transaction, if any.
@@ -80,9 +81,7 @@ impl<F: FilteringEngine> BlockProcessor<F> {
                         }
                     }
 
-                    // TODO: Implement intelligent receipt requirement logic when FilteringEngine is functional
-                    // This should check monitor rules to determine if this transaction needs receipt data
-                    // For now, let's assume all transactions might need receipts for some rule.
+                    // Get the receipt for this transaction, if available
                     let receipt = block_data.receipts.get(&tx_hash);
 
                     let correlated_item = CorrelatedBlockItem::new(&tx, decoded_logs, receipt);
@@ -171,18 +170,16 @@ mod tests {
     use super::*;
     use crate::{
         abi::AbiService,
-        filtering::FilteringEngine,
-        models::{
-            block_data::BlockData, correlated_data::CorrelatedBlockItem,
-            monitor_match::MonitorMatch,
-        },
+        filtering::MockFilteringEngine,
+        models::{block_data::BlockData, monitor_match::MonitorMatch},
         test_helpers::{BlockBuilder, LogBuilder, TransactionBuilder},
     };
     use alloy::{
         json_abi::JsonAbi,
-        primitives::{B256, address, b256, bytes},
+        primitives::{Address, B256, Bytes, U256, address, b256},
     };
-    use async_trait::async_trait;
+    use mockall::predicate::*;
+    use serde_json::Value;
     use std::{collections::HashMap, sync::Arc};
 
     fn simple_abi() -> JsonAbi {
@@ -203,64 +200,35 @@ mod tests {
         .unwrap()
     }
 
-    // A mock filtering engine for testing purposes.
-    struct MockFilteringEngine;
-
-    #[async_trait]
-    impl FilteringEngine for MockFilteringEngine {
-        async fn evaluate_item(
-            &self,
-            item: &CorrelatedBlockItem<'_>,
-        ) -> Result<Vec<MonitorMatch>, Box<dyn std::error::Error + Send + Sync>> {
-            // If we see a decoded "Transfer" event, return a match.
-            if item.decoded_logs.iter().any(|log| log.name == "Transfer") {
-                let monitor_match = MonitorMatch {
-                    monitor_id: "test_monitor".to_string(),
-                    transaction_hash: item.tx_hash(),
-                    block_number: item.transaction.block_number().unwrap_or(0),
-                    log_index: None,
-                    data: Default::default(),
-                };
-                return Ok(vec![monitor_match]);
-            }
-            Ok(vec![])
-        }
-    }
-
     #[tokio::test]
     async fn test_process_block_happy_path() {
         let block_number = 123;
+        let contract_address = address!("0000000000000000000000000000000000000001");
+        let tx_hash = b256!("1111111111111111111111111111111111111111111111111111111111111111");
+
         // 1. Setup ABI Service
         let abi_service = Arc::new(AbiService::new());
-        let contract_address = address!("0000000000000000000000000000000000000001");
         abi_service.add_abi(contract_address, &simple_abi());
 
-        // 2. Setup Transaction and Log
-        let tx_hash = b256!("1111111111111111111111111111111111111111111111111111111111111111");
+        // 2. Setup BlockData
         let tx = TransactionBuilder::new()
             .hash(tx_hash)
             .to(Some(contract_address))
             .block_number(block_number)
             .build();
 
-        let from_addr = address!("1111111111111111111111111111111111111111");
-        let to_addr = address!("2222222222222222222222222222222222222222");
-
         let log = LogBuilder::new()
             .address(contract_address)
             .topic(b256!(
                 "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
             ))
-            .topic(from_addr.into_word())
-            .topic(to_addr.into_word())
-            .data(bytes!(
-                "0000000000000000000000000000000000000000000000000000000000000064"
-            ))
+            .topic(Address::default().into_word())
+            .topic(Address::default().into_word())
+            .data(Bytes::from(U256::from(1000).to_be_bytes::<32>()))
             .transaction_hash(tx_hash)
             .block_number(block_number)
             .build();
 
-        // 3. Setup BlockData
         let block = BlockBuilder::new()
             .number(block_number)
             .transaction(tx)
@@ -271,8 +239,32 @@ mod tests {
 
         let block_data = BlockData::new(block, HashMap::new(), logs_by_tx);
 
+        // 3. Setup MockFilteringEngine
+        let mut filtering_engine = MockFilteringEngine::new();
+        filtering_engine
+            .expect_evaluate_item()
+            .times(1)
+            .returning(move |item| {
+                if item.decoded_logs.iter().any(|log| log.name == "Transfer") {
+                    let monitor_match = MonitorMatch {
+                        monitor_id: 1,
+                        transaction_hash: item.tx_hash(),
+                        block_number: item.transaction.block_number().unwrap_or(0),
+                        contract_address: item.transaction.to().unwrap_or_default(),
+                        trigger_name: "Transfer".to_string(),
+                        trigger_data: Value::Null,
+                        log_index: None,
+                    };
+                    return Ok(vec![monitor_match]);
+                }
+                Ok(vec![])
+            });
+
+        // This is required for the mock to be valid
+        filtering_engine.expect_update_monitors().returning(|_| ());
+        filtering_engine.expect_requires_receipt_data().returning(|| false); // Don't need receipts for this test
+
         // 4. Setup BlockProcessor
-        let filtering_engine = MockFilteringEngine;
         let block_processor = BlockProcessor::new(abi_service, filtering_engine);
 
         // 5. Process block
@@ -281,20 +273,21 @@ mod tests {
         // 6. Assertions
         assert_eq!(matches.len(), 1);
         let a_match = &matches[0];
-        assert_eq!(a_match.monitor_id, "test_monitor");
+        assert_eq!(a_match.monitor_id, 1);
         assert_eq!(a_match.transaction_hash, tx_hash);
     }
-
     #[tokio::test]
     async fn test_process_block_no_full_transactions() {
         let abi_service = Arc::new(AbiService::new());
-        let filtering_engine = MockFilteringEngine;
+        let mut filtering_engine = MockFilteringEngine::new();
+        // Expect evaluate_item to not be called
+        filtering_engine.expect_evaluate_item().times(0);
+        filtering_engine.expect_update_monitors().returning(|_| ());
+        filtering_engine.expect_requires_receipt_data().returning(|| false);
         let block_processor = BlockProcessor::new(abi_service, filtering_engine);
-
         // Create a block with no full transactions
         let block = BlockBuilder::new().build();
         let block_data = BlockData::new(block, HashMap::new(), HashMap::new());
-
         let matches = block_processor.process_block(block_data).await.unwrap();
         assert!(matches.is_empty());
     }
@@ -302,30 +295,58 @@ mod tests {
     #[tokio::test]
     async fn test_process_block_log_decoding_error() {
         let abi_service = Arc::new(AbiService::new()); // No ABIs added
-        let filtering_engine = MockFilteringEngine;
-        let block_processor = BlockProcessor::new(abi_service, filtering_engine);
+        let mut filtering_engine = MockFilteringEngine::new();
+        // We expect evaluation, but the decoded_logs will be empty
+        filtering_engine
+            .expect_evaluate_item()
+            .times(1)
+            .with(always())
+            .returning(|_| Ok(vec![]));
 
+        filtering_engine.expect_update_monitors().returning(|_| ());
+        filtering_engine.expect_requires_receipt_data().returning(|| false);
+
+        let block_processor = BlockProcessor::new(abi_service, filtering_engine);
         let tx_hash = B256::default();
         let tx = TransactionBuilder::new().hash(tx_hash).build();
         let log = LogBuilder::new().transaction_hash(tx_hash).build();
         let block = BlockBuilder::new().transaction(tx).build();
-
         let mut logs_by_tx = HashMap::new();
+
         logs_by_tx.insert(tx_hash, vec![log.into()]);
+
         let block_data = BlockData::new(block, HashMap::new(), logs_by_tx);
 
         // Should run without error, but no matches will be found as decoding fails silently.
         let matches = block_processor.process_block(block_data).await.unwrap();
         assert!(matches.is_empty());
     }
-
     #[tokio::test]
     async fn test_process_blocks_batch_multiple_blocks() {
         let abi_service = Arc::new(AbiService::new());
         let contract_address = address!("0000000000000000000000000000000000000001");
         abi_service.add_abi(contract_address, &simple_abi());
+        let mut filtering_engine = MockFilteringEngine::new();
 
-        let filtering_engine = MockFilteringEngine;
+        // Expect evaluate_item to be called for each transaction (3 times)
+        filtering_engine
+            .expect_evaluate_item()
+            .times(3)
+            .returning(|_| {
+                Ok(vec![MonitorMatch {
+                    monitor_id: 1,
+                    transaction_hash: B256::default(),
+                    block_number: 0,
+                    contract_address: Address::default(),
+                    trigger_name: "Transfer".to_string(),
+                    trigger_data: Value::Null,
+                    log_index: None,
+                }])
+            });
+
+        filtering_engine.expect_update_monitors().returning(|_| ());
+        filtering_engine.expect_requires_receipt_data().returning(|| false);
+
         let block_processor = BlockProcessor::new(abi_service, filtering_engine);
 
         // Create multiple blocks for batch processing
@@ -339,19 +360,14 @@ mod tests {
                 .block_number(block_num)
                 .build();
 
-            let from_addr = address!("1111111111111111111111111111111111111111");
-            let to_addr = address!("2222222222222222222222222222222222222222");
-
             let log = LogBuilder::new()
                 .address(contract_address)
                 .topic(b256!(
                     "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
                 ))
-                .topic(from_addr.into_word())
-                .topic(to_addr.into_word())
-                .data(bytes!(
-                    "0000000000000000000000000000000000000000000000000000000000000064"
-                ))
+                .topic(Address::default().into_word())
+                .topic(Address::default().into_word())
+                .data(Bytes::from(U256::from(1000).to_be_bytes::<32>()))
                 .transaction_hash(tx_hash)
                 .block_number(block_num)
                 .build();
@@ -374,16 +390,19 @@ mod tests {
         // Should have one match per block (3 total)
         assert_eq!(matches.len(), 3);
 
-        // Verify each match has the correct monitor_id
         for a_match in &matches {
-            assert_eq!(a_match.monitor_id, "test_monitor");
+            assert_eq!(a_match.monitor_id, 1);
         }
     }
-
     #[tokio::test]
     async fn test_process_blocks_batch_empty() {
         let abi_service = Arc::new(AbiService::new());
-        let filtering_engine = MockFilteringEngine;
+        let mut filtering_engine = MockFilteringEngine::new();
+
+        filtering_engine.expect_evaluate_item().times(0);
+        filtering_engine.expect_update_monitors().returning(|_| ());
+        filtering_engine.expect_requires_receipt_data().returning(|| false);
+
         let block_processor = BlockProcessor::new(abi_service, filtering_engine);
 
         let matches = block_processor
@@ -396,7 +415,13 @@ mod tests {
     #[tokio::test]
     async fn test_process_blocks_batch_no_full_transactions() {
         let abi_service = Arc::new(AbiService::new());
-        let filtering_engine = MockFilteringEngine;
+        let mut filtering_engine = MockFilteringEngine::new();
+
+        // Expect evaluate_item to not be called since there are no full transactions
+        filtering_engine.expect_evaluate_item().times(0);
+        filtering_engine.expect_update_monitors().returning(|_| ());
+        filtering_engine.expect_requires_receipt_data().returning(|| false);
+
         let block_processor = BlockProcessor::new(abi_service, filtering_engine);
 
         // Create a block with no full transactions
@@ -413,7 +438,17 @@ mod tests {
     #[tokio::test]
     async fn test_process_blocks_batch_log_decoding_error() {
         let abi_service = Arc::new(AbiService::new()); // No ABIs added
-        let filtering_engine = MockFilteringEngine;
+        let mut filtering_engine = MockFilteringEngine::new();
+
+        // We expect evaluation once, but the decoded_logs will be empty due to decoding failure
+        filtering_engine
+            .expect_evaluate_item()
+            .times(1)
+            .with(always())
+            .returning(|_| Ok(vec![]));
+        filtering_engine.expect_update_monitors().returning(|_| ());
+        filtering_engine.expect_requires_receipt_data().returning(|| false);
+
         let block_processor = BlockProcessor::new(abi_service, filtering_engine);
 
         let tx_hash = B256::default();
