@@ -57,13 +57,9 @@ fn default_max_array_size() -> usize {
     1_000
 }
 
-fn default_execution_timeout_ms() -> u64 {
-    5_000
-}
-
 /// Default value for execution timeout
 fn default_execution_timeout() -> Duration {
-    Duration::from_millis(default_execution_timeout_ms())
+    Duration::from_millis(5_000)
 }
 
 /// Custom deserializer for Duration from milliseconds
