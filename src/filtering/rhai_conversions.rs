@@ -100,8 +100,8 @@ pub fn build_log_params_map(params: &[(String, DynSolValue)]) -> Map {
     map
 }
 
-/// Builds a Rhai `Map` from a transaction.
-pub fn build_transaction_map(transaction: &Transaction) -> Map {
+/// Builds a Rhai `Map` from a transaction and optional receipt.
+pub fn build_transaction_map(transaction: &Transaction, receipt: Option<&alloy::rpc::types::TransactionReceipt>) -> Map {
     let mut map = Map::new();
 
     if let Some(to) = transaction.to() {
@@ -175,6 +175,30 @@ pub fn build_transaction_map(transaction: &Transaction) -> Map {
         _ => { /* Other transaction types are not explicitly handled for gas fields */ }
     }
 
+    // Add receipt fields if available
+    if let Some(receipt) = receipt {
+        map.insert(
+            "gas_used".into(),
+            convert_u256_to_rhai(U256::from(receipt.gas_used)),
+        );
+        
+        // Use the actual status from the receipt envelope
+        map.insert(
+            "status".into(),
+            receipt.inner.status().into(),
+        );
+        
+        map.insert(
+            "effective_gas_price".into(),
+            convert_u256_to_rhai(U256::from(receipt.effective_gas_price)),
+        );
+    } else {
+        // When no receipt is available, set receipt fields to UNIT (null)
+        map.insert("gas_used".into(), Dynamic::UNIT);
+        map.insert("status".into(), Dynamic::UNIT);
+        map.insert("effective_gas_price".into(), Dynamic::UNIT);
+    }
+
     map
 }
 
@@ -246,7 +270,7 @@ pub fn build_trigger_data_from_params(params: &[(String, DynSolValue)]) -> Value
 
 #[cfg(test)]
 mod tests {
-    use crate::test_helpers::{LogBuilder, TransactionBuilder};
+    use crate::test_helpers::{LogBuilder, ReceiptBuilder, TransactionBuilder};
 
     use super::*;
     use alloy::{
@@ -593,7 +617,7 @@ mod tests {
     #[test]
     fn test_build_transaction_map_contract_creation() {
         let tx = TransactionBuilder::new().to(None).build();
-        let map = build_transaction_map(&tx);
+        let map = build_transaction_map(&tx, None);
 
         assert!(!map.contains_key("to"));
         assert_eq!(
@@ -608,6 +632,11 @@ mod tests {
             map.get("value").unwrap().clone().cast::<i64>(),
             tx.value().to::<i64>()
         );
+        
+        // Verify receipt fields are UNIT when no receipt provided
+        assert!(map.get("gas_used").unwrap().is_unit());
+        assert!(map.get("status").unwrap().is_unit());
+        assert!(map.get("effective_gas_price").unwrap().is_unit());
     }
 
     #[test]
@@ -625,7 +654,7 @@ mod tests {
             .tx_type(TxType::Eip1559)
             .build();
 
-        let map = build_transaction_map(&tx);
+        let map = build_transaction_map(&tx, None);
 
         assert_eq!(
             map.get("to").unwrap().clone().cast::<String>(),
@@ -693,7 +722,7 @@ mod tests {
             .tx_type(TxType::Legacy)
             .build();
 
-        let map = build_transaction_map(&tx);
+        let map = build_transaction_map(&tx, None);
 
         assert_eq!(
             map.get("to").unwrap().clone().cast::<String>(),
@@ -784,5 +813,62 @@ mod tests {
             map.get("transaction_index").unwrap().clone().cast::<i64>(),
             2
         );
+    }
+
+    #[test]
+    fn test_build_transaction_map_with_receipt() {
+        let tx_hash = b256!("0x1111111111111111111111111111111111111111111111111111111111111111");
+        let tx = TransactionBuilder::new()
+            .hash(tx_hash)
+            .to(Some(address!("0x0000000000000000000000000000000000000003")))
+            .value(U256::from(1000))
+            .gas_limit(21000)
+            .nonce(5)
+            .build();
+
+        let receipt = ReceiptBuilder::new()
+            .transaction_hash(tx_hash)
+            .gas_used(18500)
+            .status(true) 
+            .effective_gas_price(145)
+            .build();
+
+        let map = build_transaction_map(&tx, Some(&receipt));
+
+        // Verify basic transaction fields are still there
+        assert_eq!(
+            map.get("to").unwrap().clone().cast::<String>(),
+            tx.to().unwrap().to_checksum(None)
+        );
+        assert_eq!(
+            map.get("hash").unwrap().clone().cast::<String>(),
+            tx.hash().to_string()
+        );
+
+        // Verify receipt fields are included
+        assert_eq!(map.get("gas_used").unwrap().clone().cast::<i64>(), 18500);
+        assert_eq!(map.get("status").unwrap().clone().cast::<bool>(), true);
+        assert_eq!(map.get("effective_gas_price").unwrap().clone().cast::<i64>(), 145);
+    }
+
+    #[test]
+    fn test_build_transaction_map_with_failed_receipt() {
+        let tx_hash = b256!("0x2222222222222222222222222222222222222222222222222222222222222222");
+        let tx = TransactionBuilder::new()
+            .hash(tx_hash)
+            .to(Some(address!("0x0000000000000000000000000000000000000004")))
+            .build();
+
+        let receipt = ReceiptBuilder::new()
+            .transaction_hash(tx_hash)
+            .gas_used(21000)
+            .status(false) // Failure
+            .build();
+
+        let map = build_transaction_map(&tx, Some(&receipt));
+
+        // Verify receipt fields for failed transaction
+        assert_eq!(map.get("gas_used").unwrap().clone().cast::<i64>(), 21000);
+        assert_eq!(map.get("status").unwrap().clone().cast::<bool>(), false);
     }
 }
