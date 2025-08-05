@@ -49,7 +49,7 @@ pub type BigNumberResult<T> = Result<T, BigNumberError>;
 
 /// A universal number type that can represent values of any size
 /// and supports transparent operations between different number types.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UniversalNumber {
     /// Small integers that fit in i64 (most common case)
     Small(i64),
@@ -182,6 +182,97 @@ impl UniversalNumber {
             UniversalNumber::Small(value) => *value < 0,
             UniversalNumber::BigUint(_) => false, // U256 is always non-negative
             UniversalNumber::BigInt(value) => value.is_negative(),
+        }
+    }
+}
+
+impl PartialOrd for UniversalNumber {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for UniversalNumber {
+    fn cmp(&self, other: &Self) -> Ordering {
+        use UniversalNumber::*;
+        
+        match (self, other) {
+            // Both are Small - direct comparison
+            (Small(a), Small(b)) => a.cmp(b),
+            
+            // Small vs BigUint
+            (Small(a), BigUint(b)) => {
+                if *a < 0 {
+                    // Negative Small is always less than positive BigUint
+                    Ordering::Less
+                } else {
+                    // Compare positive Small with BigUint
+                    U256::from(*a as u64).cmp(b)
+                }
+            }
+            (BigUint(a), Small(b)) => {
+                if *b < 0 {
+                    // Positive BigUint is always greater than negative Small
+                    Ordering::Greater
+                } else {
+                    // Compare BigUint with positive Small
+                    a.cmp(&U256::from(*b as u64))
+                }
+            }
+            
+            // Small vs BigInt
+            (Small(a), BigInt(b)) => {
+                // Convert Small to I256 for comparison
+                let a_i256 = I256::try_from(*a).expect("i64 should always fit in I256");
+                a_i256.cmp(b)
+            }
+            (BigInt(a), Small(b)) => {
+                // Convert Small to I256 for comparison
+                let b_i256 = I256::try_from(*b).expect("i64 should always fit in I256");
+                a.cmp(&b_i256)
+            }
+            
+            // BigUint vs BigInt
+            (BigUint(a), BigInt(b)) => {
+                if b.is_negative() {
+                    // Positive BigUint is always greater than negative BigInt
+                    Ordering::Greater
+                } else {
+                    // Both are non-negative, convert BigUint to I256 for comparison
+                    // Since BigUint can be larger than I256::MAX, we need to handle overflow
+                    if *a > U256::from(I256::MAX) {
+                        // BigUint is larger than max I256
+                        Ordering::Greater
+                    } else {
+                        // Safe to convert BigUint to I256
+                        let a_i256 = I256::try_from(*a).expect("BigUint should fit in I256 when <= I256::MAX");
+                        a_i256.cmp(b)
+                    }
+                }
+            }
+            (BigInt(a), BigUint(b)) => {
+                if a.is_negative() {
+                    // Negative BigInt is always less than positive BigUint
+                    Ordering::Less
+                } else {
+                    // Both are non-negative, convert BigUint to I256 for comparison
+                    // Since BigUint can be larger than I256::MAX, we need to handle overflow
+                    if *b > U256::from(I256::MAX) {
+                        // BigUint is larger than max I256
+                        Ordering::Less
+                    } else {
+                        // Safe to convert BigUint to I256
+                        let b_i256 = I256::try_from(*b).expect("BigUint should fit in I256 when <= I256::MAX");
+                        a.cmp(&b_i256)
+                    }
+                }
+            }
+            
+            // Both are BigUint
+            (BigUint(a), BigUint(b)) => a.cmp(b),
+            
+            // Both are BigInt
+            (BigInt(a), BigInt(b)) => a.cmp(b),
         }
     }
 }
