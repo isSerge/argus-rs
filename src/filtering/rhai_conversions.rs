@@ -21,10 +21,12 @@ pub fn dyn_sol_value_to_rhai(value: &DynSolValue) -> Dynamic {
 
         // Handle large signed integers
         DynSolValue::Int(i, _) => {
-            // Try to fit in i64, otherwise use string
-            match i.to_string().parse::<i64>() {
-                Ok(val) => val.into(),
-                Err(_) => i.to_string().into(),
+            // Try to convert to i64 first, fallback to string for large numbers
+            if let Ok(small_int) = i64::try_from(*i) {
+                small_int.into()
+            } else {
+                // Too large for i64, use string representation
+                i.to_string().into()
             }
         }
 
@@ -32,12 +34,8 @@ pub fn dyn_sol_value_to_rhai(value: &DynSolValue) -> Dynamic {
 
         // Handle large unsigned integers
         DynSolValue::Uint(u, _) => {
-            // Try to fit in i64 (Rhai's native int type), otherwise use string
-            let u_str = u.to_string();
-            match u_str.parse::<i64>() {
-                Ok(val) => val.into(),
-                Err(_) => u_str.into(),
-            }
+            // Use the same logic as u256_to_dynamic
+            u256_to_dynamic(*u)
         }
 
         // Handle arrays and tuples
@@ -74,10 +72,10 @@ pub fn dyn_sol_value_to_json(value: &DynSolValue) -> Value {
         // Handle large unsigned integers
         DynSolValue::Uint(u, _) => {
             // Try to fit in i64, otherwise use string
-            let u_str = u.to_string();
-            match u_str.parse::<i64>() {
-                Ok(val) => Value::Number(serde_json::Number::from(val)),
-                Err(_) => Value::String(u_str),
+            if *u <= U256::from(i64::MAX as u64) {
+                Value::Number(serde_json::Number::from(u.to::<u64>() as i64))
+            } else {
+                Value::String(u.to_string())
             }
         }
 
@@ -116,16 +114,16 @@ pub fn build_transaction_map(
 
     // Convert transaction value directly to appropriate type
     let value_u256 = transaction.value();
-    let value_dynamic = convert_u256_to_rhai(value_u256);
+    let value_dynamic = u256_to_dynamic(value_u256);
     map.insert("value".into(), value_dynamic);
 
     map.insert(
         "gas_limit".into(),
-        convert_u256_to_rhai(U256::from(transaction.gas())),
+        u256_to_dynamic(U256::from(transaction.gas())),
     );
     map.insert(
         "nonce".into(),
-        convert_u256_to_rhai(U256::from(transaction.nonce())),
+        u256_to_dynamic(U256::from(transaction.nonce())),
     );
     map.insert(
         "input".into(),
@@ -135,7 +133,7 @@ pub fn build_transaction_map(
     if let Some(block_number) = transaction.block_number() {
         map.insert(
             "block_number".into(),
-            convert_u256_to_rhai(U256::from(block_number)),
+            u256_to_dynamic(U256::from(block_number)),
         );
     } else {
         map.insert("block_number".into(), Dynamic::UNIT);
@@ -144,7 +142,7 @@ pub fn build_transaction_map(
     if let Some(transaction_index) = transaction.transaction_index() {
         map.insert(
             "transaction_index".into(),
-            convert_u256_to_rhai(U256::from(transaction_index)),
+            u256_to_dynamic(U256::from(transaction_index)),
         );
     } else {
         map.insert("transaction_index".into(), Dynamic::UNIT);
@@ -155,7 +153,7 @@ pub fn build_transaction_map(
             if let Some(gas_price) = transaction.gas_price() {
                 map.insert(
                     "gas_price".into(),
-                    convert_u256_to_rhai(U256::from(gas_price)),
+                    u256_to_dynamic(U256::from(gas_price)),
                 );
             } else {
                 map.insert("gas_price".into(), Dynamic::UNIT);
@@ -164,12 +162,12 @@ pub fn build_transaction_map(
         TxType::Eip1559 => {
             map.insert(
                 "max_fee_per_gas".into(),
-                convert_u256_to_rhai(U256::from(transaction.max_fee_per_gas())),
+                u256_to_dynamic(U256::from(transaction.max_fee_per_gas())),
             );
             if let Some(max_priority_fee_per_gas) = transaction.max_priority_fee_per_gas() {
                 map.insert(
                     "max_priority_fee_per_gas".into(),
-                    convert_u256_to_rhai(U256::from(max_priority_fee_per_gas)),
+                    u256_to_dynamic(U256::from(max_priority_fee_per_gas)),
                 );
             } else {
                 map.insert("max_priority_fee_per_gas".into(), Dynamic::UNIT);
@@ -182,7 +180,7 @@ pub fn build_transaction_map(
     if let Some(receipt) = receipt {
         map.insert(
             "gas_used".into(),
-            convert_u256_to_rhai(U256::from(receipt.gas_used)),
+            u256_to_dynamic(U256::from(receipt.gas_used)),
         );
 
         // Use the actual status from the receipt envelope
@@ -190,7 +188,7 @@ pub fn build_transaction_map(
 
         map.insert(
             "effective_gas_price".into(),
-            convert_u256_to_rhai(U256::from(receipt.effective_gas_price)),
+            u256_to_dynamic(U256::from(receipt.effective_gas_price)),
         );
     } else {
         // When no receipt is available, set receipt fields to UNIT (null)
@@ -213,7 +211,7 @@ pub fn build_log_map(log: &DecodedLog, params_map: Map) -> Map {
     if let Some(block_number) = log.log.block_number() {
         log_map.insert(
             "block_number".into(),
-            convert_u256_to_rhai(U256::from(block_number)),
+            u256_to_dynamic(U256::from(block_number)),
         );
     } else {
         log_map.insert("block_number".into(), Dynamic::UNIT);
@@ -229,7 +227,7 @@ pub fn build_log_map(log: &DecodedLog, params_map: Map) -> Map {
     if let Some(log_index) = log.log.log_index() {
         log_map.insert(
             "log_index".into(),
-            convert_u256_to_rhai(U256::from(log_index)),
+            u256_to_dynamic(U256::from(log_index)),
         );
     } else {
         log_map.insert("log_index".into(), Dynamic::UNIT);
@@ -237,7 +235,7 @@ pub fn build_log_map(log: &DecodedLog, params_map: Map) -> Map {
     if let Some(transaction_index) = log.log.transaction_index() {
         log_map.insert(
             "transaction_index".into(),
-            convert_u256_to_rhai(U256::from(transaction_index)),
+            u256_to_dynamic(U256::from(transaction_index)),
         );
     } else {
         log_map.insert("transaction_index".into(), Dynamic::UNIT);
@@ -247,12 +245,13 @@ pub fn build_log_map(log: &DecodedLog, params_map: Map) -> Map {
 }
 
 /// Converts a U256 value to the most appropriate Rhai type.
-fn convert_u256_to_rhai(value: U256) -> Dynamic {
+fn u256_to_dynamic(value: U256) -> Dynamic {
     // Try to fit in i64 (Rhai's native integer type)
     if value <= U256::from(i64::MAX as u64) {
         (value.to::<u64>() as i64).into()
     } else {
         // Too large for i64, use string representation
+        // Users can wrap with bigint() in their scripts for arithmetic
         value.to_string().into()
     }
 }
@@ -361,20 +360,20 @@ mod tests {
     }
 
     #[test]
-    fn test_convert_u256_to_rhai() {
+    fn test_u256_to_dynamic() {
         // Small value
-        assert_eq!(convert_u256_to_rhai(U256::from(123)).cast::<i64>(), 123);
+        assert_eq!(u256_to_dynamic(U256::from(123)).cast::<i64>(), 123);
 
         // At boundary
         assert_eq!(
-            convert_u256_to_rhai(U256::from(i64::MAX as u64)).cast::<i64>(),
+            u256_to_dynamic(U256::from(i64::MAX as u64)).cast::<i64>(),
             i64::MAX
         );
 
         // Beyond boundary
         let large = U256::from(i64::MAX as u64) + U256::from(1);
         assert_eq!(
-            convert_u256_to_rhai(large).cast::<String>(),
+            u256_to_dynamic(large).cast::<String>(),
             large.to_string()
         );
     }

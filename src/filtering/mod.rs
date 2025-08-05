@@ -1,5 +1,6 @@
 //! This module defines the `FilteringEngine` and its implementations.
 mod rhai_conversions;
+mod bigint;
 
 use crate::config::RhaiConfig;
 use crate::models::correlated_data::CorrelatedBlockItem;
@@ -19,6 +20,7 @@ use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::RwLock;
 use tokio::time::timeout;
+use bigint::register_bigint_with_rhai;
 
 /// Rhai script execution errors that can occur during compilation or runtime
 #[derive(Debug, Error)]
@@ -80,6 +82,11 @@ impl RhaiFilteringEngine {
 
         // Disable dangerous language features
         Self::disable_dangerous_features(&mut engine);
+
+        // Register BigInt wrapper for transparent big number handling
+        // This provides seamless arithmetic and comparison operations while
+        // maintaining Rhai's Fast Operators Mode for performance with standard types
+        register_bigint_with_rhai(&mut engine);
 
         let monitors_by_address: DashMap<String, Vec<Monitor>> = DashMap::new();
         let mut needs_receipts = false;
@@ -193,18 +200,16 @@ impl FilteringEngine for RhaiFilteringEngine {
 
             // Efficiently look up monitors for the current log's address
             if let Some(monitors) = monitors_by_address_read_guard.get(&log_address_str) {
+                // Build shared data structures once per log to avoid repeated allocations
+                let params_map = build_log_params_map(&log.params);
+                let log_map = build_log_map(log, params_map);
+                let trigger_data = build_trigger_data_from_params(&log.params);
+
                 for monitor in monitors.iter() {
-                    // Build trigger data from log parameters
-                    let params_map = build_log_params_map(&log.params);
-                    let log_map = build_log_map(log, params_map);
-
-                    // Build trigger data using the same conversion logic as Rhai for consistency
-                    let trigger_data = build_trigger_data_from_params(&log.params);
-
                     // Create a new scope for the monitor evaluation
                     let mut scope = Scope::new();
                     scope.push("tx", tx_map.clone());
-                    scope.push("log", log_map);
+                    scope.push("log", log_map.clone());
 
                     // Compile and evaluate the monitor's filter script
                     let ast = match self.compile_script(&monitor.filter_script) {
@@ -228,7 +233,7 @@ impl FilteringEngine for RhaiFilteringEngine {
                                 transaction_hash: log.log.transaction_hash().unwrap_or_default(),
                                 contract_address: log.log.address(),
                                 trigger_name: log.name.clone(),
-                                trigger_data,
+                                trigger_data: trigger_data.clone(),
                                 log_index: log.log.log_index(),
                             };
                             matches.push(monitor_match);
@@ -303,6 +308,21 @@ mod tests {
     }
 
     fn create_test_log_and_tx<'a>(
+        log_address: Address,
+        log_name: &'a str,
+        log_params: Vec<(String, DynSolValue)>,
+    ) -> (Transaction, DecodedLog<'a>) {
+        let tx = TransactionBuilder::new().build();
+        let log_raw = LogBuilder::new().address(log_address).build();
+        let log = DecodedLog {
+            name: log_name.to_string(),
+            params: log_params,
+            log: Box::leak(Box::new(log_raw)), // Leak to get 'a lifetime
+        };
+        (tx.into(), log)
+    }
+
+    fn create_test_log_and_tx_with_params<'a>(
         log_address: Address,
         log_name: &'a str,
         log_params: Vec<(String, DynSolValue)>,
@@ -849,10 +869,7 @@ mod tests {
             RhaiError::CompilationError(_) => {
                 // Expected - disabled function could cause compilation error
             }
-            other => panic!(
-                "Expected CompilationError for disabled function, got: {:?}",
-                other
-            ),
+            other => panic!("Expected CompilationError, got: {:?}", other),
         }
     }
 
@@ -1339,4 +1356,52 @@ mod tests {
             other => panic!("Expected CompilationError for export, got: {:?}", other),
         }
     }
+
+    #[tokio::test]
+    async fn test_evaluate_item_with_big_numbers() {
+        let addr = address!("0000000000000000000000000000000000000001");
+        // Test script that uses BigInt operations  
+        let script = r#"
+            log.name == "Transfer" && 
+            bigint(log.params.value) > bigint("1000000000000000000000") &&
+            (bigint(log.params.value) + bigint("500000000000000000000")) > bigint("1500000000000000000000")
+        "#;
+        let monitor = create_test_monitor(1, &addr.to_checksum(None), script);
+        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
+
+        // Create a test log with a large value parameter
+        let large_value = "2000000000000000000000"; // 2000 ETH in wei
+        let params = vec![
+            ("value".to_string(), DynSolValue::Uint(large_value.parse().unwrap(), 256))
+        ];
+        let (tx, log) = create_test_log_and_tx_with_params(addr, "Transfer", params);
+        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+
+        let matches = engine.evaluate_item(&item).await.unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].monitor_id, 1);
+        assert_eq!(matches[0].trigger_name, "Transfer");
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_item_explicit_big_number_functions() {
+        let addr = address!("0000000000000000000000000000000000000001");
+        // Test script that uses BigInt operations
+        let script = r#"
+            log.name == "Transfer" && 
+            bigint(42) + bigint("100") == bigint(142) &&
+            bigint("1000") > bigint(999)
+        "#;
+        let monitor = create_test_monitor(1, &addr.to_checksum(None), script);
+        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
+
+        let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
+        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+
+        let matches = engine.evaluate_item(&item).await.unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].monitor_id, 1);
+        assert_eq!(matches[0].trigger_name, "Transfer");
+    }
+
 }
