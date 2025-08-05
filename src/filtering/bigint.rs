@@ -55,7 +55,8 @@ impl BigInt {
     /// Create a BigInt from an i64 value
     pub fn from_int(value: i64) -> Self {
         if value < 0 {
-            Self::new(U256::from((-value) as u64), true)
+            // Use unsigned_abs() to safely get the absolute value without overflow
+            Self::new(U256::from(value.unsigned_abs()), true)
         } else {
             Self::new(U256::from(value as u64), false)
         }
@@ -507,5 +508,25 @@ mod tests {
             message: "invalid digit found".to_string(),
         };
         assert_eq!(parse_err.to_string(), "Failed to parse 'abc' as BigInt: invalid digit found");
+    }
+
+    #[test]
+    fn test_i64_min_edge_case() {
+        // Test that i64::MIN is handled correctly
+        let big_min = BigInt::from_int(i64::MIN);
+        assert!(big_min.is_negative());
+        assert_eq!(big_min.magnitude, U256::from(9223372036854775808u64)); // 2^63
+        assert_eq!(big_min.to_string(), "-9223372036854775808");
+        
+        // Test that i64::MAX works correctly
+        let big_max = BigInt::from_int(i64::MAX);
+        assert!(!big_max.is_negative());
+        assert_eq!(big_max.magnitude, U256::from(9223372036854775807u64)); // 2^63 - 1
+        assert_eq!(big_max.to_string(), "9223372036854775807");
+        
+        // Test arithmetic with i64::MIN
+        let one = BigInt::from_int(1);
+        let result = big_min.add(&one).unwrap();
+        assert_eq!(result.to_string(), "-9223372036854775807");
     }
 }
