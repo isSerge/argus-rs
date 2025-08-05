@@ -262,7 +262,9 @@ mod tests {
 
         // This is required for the mock to be valid
         filtering_engine.expect_update_monitors().returning(|_| ());
-        filtering_engine.expect_requires_receipt_data().returning(|| false); // Don't need receipts for this test
+        filtering_engine
+            .expect_requires_receipt_data()
+            .returning(|| false); // Don't need receipts for this test
 
         // 4. Setup BlockProcessor
         let block_processor = BlockProcessor::new(abi_service, filtering_engine);
@@ -283,7 +285,9 @@ mod tests {
         // Expect evaluate_item to not be called
         filtering_engine.expect_evaluate_item().times(0);
         filtering_engine.expect_update_monitors().returning(|_| ());
-        filtering_engine.expect_requires_receipt_data().returning(|| false);
+        filtering_engine
+            .expect_requires_receipt_data()
+            .returning(|| false);
         let block_processor = BlockProcessor::new(abi_service, filtering_engine);
         // Create a block with no full transactions
         let block = BlockBuilder::new().build();
@@ -304,7 +308,9 @@ mod tests {
             .returning(|_| Ok(vec![]));
 
         filtering_engine.expect_update_monitors().returning(|_| ());
-        filtering_engine.expect_requires_receipt_data().returning(|| false);
+        filtering_engine
+            .expect_requires_receipt_data()
+            .returning(|| false);
 
         let block_processor = BlockProcessor::new(abi_service, filtering_engine);
         let tx_hash = B256::default();
@@ -345,7 +351,9 @@ mod tests {
             });
 
         filtering_engine.expect_update_monitors().returning(|_| ());
-        filtering_engine.expect_requires_receipt_data().returning(|| false);
+        filtering_engine
+            .expect_requires_receipt_data()
+            .returning(|| false);
 
         let block_processor = BlockProcessor::new(abi_service, filtering_engine);
 
@@ -401,7 +409,9 @@ mod tests {
 
         filtering_engine.expect_evaluate_item().times(0);
         filtering_engine.expect_update_monitors().returning(|_| ());
-        filtering_engine.expect_requires_receipt_data().returning(|| false);
+        filtering_engine
+            .expect_requires_receipt_data()
+            .returning(|| false);
 
         let block_processor = BlockProcessor::new(abi_service, filtering_engine);
 
@@ -420,7 +430,9 @@ mod tests {
         // Expect evaluate_item to not be called since there are no full transactions
         filtering_engine.expect_evaluate_item().times(0);
         filtering_engine.expect_update_monitors().returning(|_| ());
-        filtering_engine.expect_requires_receipt_data().returning(|| false);
+        filtering_engine
+            .expect_requires_receipt_data()
+            .returning(|| false);
 
         let block_processor = BlockProcessor::new(abi_service, filtering_engine);
 
@@ -447,7 +459,9 @@ mod tests {
             .with(always())
             .returning(|_| Ok(vec![]));
         filtering_engine.expect_update_monitors().returning(|_| ());
-        filtering_engine.expect_requires_receipt_data().returning(|| false);
+        filtering_engine
+            .expect_requires_receipt_data()
+            .returning(|| false);
 
         let block_processor = BlockProcessor::new(abi_service, filtering_engine);
 

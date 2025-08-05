@@ -9,16 +9,16 @@ use async_trait::async_trait;
 use dashmap::DashMap;
 #[cfg(test)]
 use mockall::automock;
-use rhai::{Engine, Scope, AST, EvalAltResult};
+use rhai::{AST, Engine, EvalAltResult, Scope};
 use rhai_conversions::{
     build_log_map, build_log_params_map, build_transaction_map, build_trigger_data_from_params,
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
+use thiserror::Error;
 use tokio::sync::RwLock;
 use tokio::time::timeout;
-use thiserror::Error;
 
 /// Rhai script execution errors that can occur during compilation or runtime
 #[derive(Debug, Error)]
@@ -26,16 +26,16 @@ pub enum RhaiError {
     /// Error that occurs during script compilation
     #[error("Script compilation failed: {0}")]
     CompilationError(#[from] Box<EvalAltResult>),
-    
+
     /// Error that occurs during script runtime execution
     #[error("Script runtime error: {0}")]
     RuntimeError(Box<EvalAltResult>),
-    
+
     /// Error that occurs when script execution exceeds the timeout limit
     #[error("Script execution timeout after {timeout:?}")]
-    ExecutionTimeout { 
+    ExecutionTimeout {
         /// The timeout duration that was exceeded
-        timeout: Duration 
+        timeout: Duration,
     },
 }
 
@@ -71,13 +71,13 @@ impl RhaiFilteringEngine {
     /// Creates a new `RhaiFilteringEngine` with the given monitors and Rhai configuration.
     pub fn new(monitors: Vec<Monitor>, rhai_config: RhaiConfig) -> Self {
         let mut engine = Engine::new();
-        
+
         // Apply security limits
         engine.set_max_operations(rhai_config.max_operations);
         engine.set_max_call_levels(rhai_config.max_call_levels);
         engine.set_max_string_size(rhai_config.max_string_size);
         engine.set_max_array_size(rhai_config.max_array_size);
-        
+
         // Disable dangerous language features
         Self::disable_dangerous_features(&mut engine);
 
@@ -108,27 +108,27 @@ impl RhaiFilteringEngine {
     fn disable_dangerous_features(engine: &mut Engine) {
         // Disable dynamic evaluation
         engine.disable_symbol("eval");
-        
+
         // Disable module system
         engine.disable_symbol("import");
         engine.disable_symbol("export");
-        
+
         // Disable I/O operations
         engine.disable_symbol("print");
         engine.disable_symbol("debug");
-        
+
         // Disable file system access (if available)
         engine.disable_symbol("File");
         engine.disable_symbol("file");
-        
+
         // Disable network access (if available)
         engine.disable_symbol("http");
         engine.disable_symbol("net");
-        
+
         // Disable system access (if available)
         engine.disable_symbol("system");
         engine.disable_symbol("process");
-        
+
         // Disable threading (if available)
         engine.disable_symbol("thread");
         engine.disable_symbol("spawn");
@@ -136,21 +136,24 @@ impl RhaiFilteringEngine {
 
     /// Compile a script with security checks
     fn compile_script(&self, script: &str) -> Result<AST, RhaiError> {
-        self.engine.compile(script)
+        self.engine
+            .compile(script)
             .map_err(|e| RhaiError::CompilationError(e.into()))
     }
-    
+
     /// Execute a pre-compiled AST with security controls including timeout
-    async fn eval_ast_bool_secure(&self, ast: &AST, scope: &mut Scope<'_>) -> Result<bool, RhaiError> {
+    async fn eval_ast_bool_secure(
+        &self,
+        ast: &AST,
+        scope: &mut Scope<'_>,
+    ) -> Result<bool, RhaiError> {
         // Execute with timeout protection
-        let execution = async {
-            self.engine.eval_ast_with_scope::<bool>(scope, ast)
-        };
-        
+        let execution = async { self.engine.eval_ast_with_scope::<bool>(scope, ast) };
+
         match timeout(self.rhai_config.execution_timeout, execution).await {
             Ok(result) => result.map_err(RhaiError::RuntimeError),
-            Err(_) => Err(RhaiError::ExecutionTimeout { 
-                timeout: self.rhai_config.execution_timeout 
+            Err(_) => Err(RhaiError::ExecutionTimeout {
+                timeout: self.rhai_config.execution_timeout,
             }),
         }
     }
@@ -158,11 +161,7 @@ impl RhaiFilteringEngine {
     /// Analyzes a Rhai script to determine if it accesses receipt-related transaction fields.
     fn script_needs_receipt_data(script: &str) -> bool {
         // Receipt-specific fields that are only available from transaction receipts
-        let receipt_fields = [
-            "tx.gas_used",
-            "tx.status", 
-            "tx.effective_gas_price",
-        ];
+        let receipt_fields = ["tx.gas_used", "tx.status", "tx.effective_gas_price"];
 
         // Simple string search for receipt-specific fields
         receipt_fields.iter().any(|field| script.contains(field))
@@ -258,7 +257,7 @@ impl FilteringEngine for RhaiFilteringEngine {
     async fn update_monitors(&self, monitors: Vec<Monitor>) {
         let monitors_by_address_write_guard = self.monitors_by_address.write().await;
         monitors_by_address_write_guard.clear();
-        
+
         // Recalculate receipt requirements for new monitors
         let mut needs_receipts = false;
         for monitor in &monitors {
@@ -271,9 +270,10 @@ impl FilteringEngine for RhaiFilteringEngine {
                 needs_receipts = true;
             }
         }
-        
+
         // Update the cached receipt requirement
-        self.requires_receipts.store(needs_receipts, Ordering::Relaxed);
+        self.requires_receipts
+            .store(needs_receipts, Ordering::Relaxed);
     }
 
     fn requires_receipt_data(&self) -> bool {
@@ -327,8 +327,10 @@ mod tests {
         let monitor3 = create_test_monitor(3, addr1, "true");
 
         // Test `new()`
-        let engine =
-            RhaiFilteringEngine::new(vec![monitor1.clone(), monitor2.clone(), monitor3.clone()], RhaiConfig::default());
+        let engine = RhaiFilteringEngine::new(
+            vec![monitor1.clone(), monitor2.clone(), monitor3.clone()],
+            RhaiConfig::default(),
+        );
 
         let monitors_read = engine.monitors_by_address.read().await;
         assert_eq!(monitors_read.len(), 2);
@@ -565,7 +567,10 @@ mod tests {
         let monitor2 = create_test_monitor(2, addr1, "false"); // Same address as monitor1
         let monitor3 = create_test_monitor(3, "0x0000000000000000000000000000000000000002", "true");
 
-        let engine = RhaiFilteringEngine::new(vec![monitor1.clone(), monitor3.clone()], RhaiConfig::default());
+        let engine = RhaiFilteringEngine::new(
+            vec![monitor1.clone(), monitor3.clone()],
+            RhaiConfig::default(),
+        );
 
         let monitors_read = engine.monitors_by_address.read().await;
         assert_eq!(monitors_read.len(), 2);
