@@ -72,10 +72,10 @@ pub fn dyn_sol_value_to_json(value: &DynSolValue) -> Value {
         // Handle large unsigned integers
         DynSolValue::Uint(u, _) => {
             // Try to fit in i64, otherwise use string
-            let u_str = u.to_string();
-            match u_str.parse::<i64>() {
-                Ok(val) => Value::Number(serde_json::Number::from(val)),
-                Err(_) => Value::String(u_str),
+            if *u <= U256::from(i64::MAX as u64) {
+                Value::Number(serde_json::Number::from(u.to::<u64>() as i64))
+            } else {
+                Value::String(u.to_string())
             }
         }
 
