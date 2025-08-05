@@ -21,10 +21,12 @@ pub fn dyn_sol_value_to_rhai(value: &DynSolValue) -> Dynamic {
 
         // Handle large signed integers
         DynSolValue::Int(i, _) => {
-            // Try to fit in i64, otherwise use string
-            match i.to_string().parse::<i64>() {
-                Ok(val) => val.into(),
-                Err(_) => i.to_string().into(),
+            // Try to convert to i64 first, fallback to string for large numbers
+            if let Ok(small_int) = i64::try_from(*i) {
+                small_int.into()
+            } else {
+                // Too large for i64, use string representation
+                i.to_string().into()
             }
         }
 
@@ -32,12 +34,8 @@ pub fn dyn_sol_value_to_rhai(value: &DynSolValue) -> Dynamic {
 
         // Handle large unsigned integers
         DynSolValue::Uint(u, _) => {
-            // Try to fit in i64 (Rhai's native int type), otherwise use string
-            let u_str = u.to_string();
-            match u_str.parse::<i64>() {
-                Ok(val) => val.into(),
-                Err(_) => u_str.into(),
-            }
+            // Use the same logic as convert_u256_to_rhai
+            convert_u256_to_rhai(*u)
         }
 
         // Handle arrays and tuples
@@ -253,6 +251,7 @@ fn convert_u256_to_rhai(value: U256) -> Dynamic {
         (value.to::<u64>() as i64).into()
     } else {
         // Too large for i64, use string representation
+        // Users can wrap with bigint() in their scripts for arithmetic
         value.to_string().into()
     }
 }
