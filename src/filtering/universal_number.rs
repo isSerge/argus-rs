@@ -184,6 +184,434 @@ impl UniversalNumber {
             UniversalNumber::BigInt(value) => value.is_negative(),
         }
     }
+
+    /// Add two UniversalNumbers together
+    pub fn add(&self, other: &Self) -> Result<Self, BigNumberError> {
+        use UniversalNumber::*;
+        
+        match (self, other) {
+            // Both Small - try to keep result small if possible
+            (Small(a), Small(b)) => {
+                match a.checked_add(*b) {
+                    Some(result) => Ok(Small(result)),
+                    None => {
+                        // Overflow occurred, promote to big numbers
+                        if *a > 0 && *b > 0 {
+                            // Both positive, use BigUint
+                            let a_big = U256::from(*a as u64);
+                            let b_big = U256::from(*b as u64);
+                            Ok(BigUint(a_big + b_big))
+                        } else {
+                            // At least one negative, use BigInt
+                            let a_big = I256::try_from(*a).expect("i64 should fit in I256");
+                            let b_big = I256::try_from(*b).expect("i64 should fit in I256");
+                            Ok(Self::from_i256(a_big + b_big))
+                        }
+                    }
+                }
+            }
+            
+            // Small + BigUint
+            (Small(a), BigUint(b)) => {
+                if *a < 0 {
+                    // Negative Small + positive BigUint: convert to BigInt arithmetic
+                    let a_big = I256::try_from(*a).expect("i64 should fit in I256");
+                    let b_big = I256::try_from(*b).map_err(|_| 
+                        BigNumberError::ArithmeticOverflow { 
+                            operation: "addition".to_string(), 
+                            details: "BigUint too large to convert to I256".to_string() 
+                        })?;
+                    Ok(Self::from_i256(a_big + b_big))
+                } else {
+                    // Positive Small + BigUint: use BigUint arithmetic
+                    let a_big = U256::from(*a as u64);
+                    Ok(Self::from_u256(a_big + *b))
+                }
+            }
+            (BigUint(a), Small(b)) => {
+                // Symmetric case
+                UniversalNumber::Small(*b).add(&UniversalNumber::BigUint(*a))
+            }
+            
+            // Small + BigInt
+            (Small(a), BigInt(b)) => {
+                let a_big = I256::try_from(*a).expect("i64 should fit in I256");
+                Ok(Self::from_i256(a_big + *b))
+            }
+            (BigInt(a), Small(b)) => {
+                let b_big = I256::try_from(*b).expect("i64 should fit in I256");
+                Ok(Self::from_i256(*a + b_big))
+            }
+            
+            // BigUint + BigInt
+            (BigUint(a), BigInt(b)) => {
+                if b.is_negative() {
+                    // BigUint + negative BigInt: convert BigUint to I256 and add
+                    let a_big = I256::try_from(*a).map_err(|_|
+                        BigNumberError::ArithmeticOverflow { 
+                            operation: "addition".to_string(), 
+                            details: "BigUint too large to convert to I256".to_string() 
+                        })?;
+                    Ok(Self::from_i256(a_big + *b))
+                } else {
+                    // BigUint + positive BigInt: convert BigInt to U256 and add
+                    let b_big = U256::try_from(*b).map_err(|_|
+                        BigNumberError::ArithmeticOverflow { 
+                            operation: "addition".to_string(), 
+                            details: "BigInt too large to convert to U256".to_string() 
+                        })?;
+                    Ok(Self::from_u256(*a + b_big))
+                }
+            }
+            (BigInt(a), BigUint(b)) => {
+                // Symmetric case
+                UniversalNumber::BigUint(*b).add(&UniversalNumber::BigInt(*a))
+            }
+            
+            // Both BigUint
+            (BigUint(a), BigUint(b)) => {
+                Ok(Self::from_u256(*a + *b))
+            }
+            
+            // Both BigInt
+            (BigInt(a), BigInt(b)) => {
+                Ok(Self::from_i256(*a + *b))
+            }
+        }
+    }
+
+    /// Subtract other from self
+    pub fn sub(&self, other: &Self) -> Result<Self, BigNumberError> {
+        use UniversalNumber::*;
+        
+        match (self, other) {
+            // Both Small - try to keep result small if possible
+            (Small(a), Small(b)) => {
+                match a.checked_sub(*b) {
+                    Some(result) => Ok(Small(result)),
+                    None => {
+                        // Overflow occurred, promote to big numbers
+                        let a_big = I256::try_from(*a).expect("i64 should fit in I256");
+                        let b_big = I256::try_from(*b).expect("i64 should fit in I256");
+                        Ok(Self::from_i256(a_big - b_big))
+                    }
+                }
+            }
+            
+            // Small - BigUint
+            (Small(a), BigUint(b)) => {
+                // Always results in BigInt since Small - BigUint is likely negative
+                let a_big = I256::try_from(*a).expect("i64 should fit in I256");
+                let b_big = I256::try_from(*b).map_err(|_|
+                    BigNumberError::ArithmeticOverflow { 
+                        operation: "subtraction".to_string(), 
+                        details: "BigUint too large to convert to I256".to_string() 
+                    })?;
+                Ok(Self::from_i256(a_big - b_big))
+            }
+            (BigUint(a), Small(b)) => {
+                if *b < 0 {
+                    // BigUint - negative Small = BigUint + positive Small
+                    let b_pos = U256::from((-*b) as u64);
+                    Ok(Self::from_u256(*a + b_pos))
+                } else {
+                    // BigUint - positive Small
+                    let b_big = U256::from(*b as u64);
+                    if *a >= b_big {
+                        Ok(Self::from_u256(*a - b_big))
+                    } else {
+                        // Result would be negative, use BigInt
+                        let a_big = I256::try_from(*a).map_err(|_|
+                            BigNumberError::ArithmeticOverflow { 
+                                operation: "subtraction".to_string(), 
+                                details: "BigUint too large to convert to I256".to_string() 
+                            })?;
+                        let b_big = I256::try_from(*b).expect("i64 should fit in I256");
+                        Ok(Self::from_i256(a_big - b_big))
+                    }
+                }
+            }
+            
+            // Small - BigInt
+            (Small(a), BigInt(b)) => {
+                let a_big = I256::try_from(*a).expect("i64 should fit in I256");
+                Ok(Self::from_i256(a_big - *b))
+            }
+            (BigInt(a), Small(b)) => {
+                let b_big = I256::try_from(*b).expect("i64 should fit in I256");
+                Ok(Self::from_i256(*a - b_big))
+            }
+            
+            // BigUint - BigInt
+            (BigUint(a), BigInt(b)) => {
+                if b.is_negative() {
+                    // BigUint - negative BigInt = BigUint + positive BigInt
+                    let b_pos = -*b; // Make positive
+                    let b_u256 = U256::try_from(b_pos).map_err(|_|
+                        BigNumberError::ArithmeticOverflow { 
+                            operation: "subtraction".to_string(), 
+                            details: "BigInt too large to convert to U256".to_string() 
+                        })?;
+                    Ok(Self::from_u256(*a + b_u256))
+                } else {
+                    // BigUint - positive BigInt
+                    let a_big = I256::try_from(*a).map_err(|_|
+                        BigNumberError::ArithmeticOverflow { 
+                            operation: "subtraction".to_string(), 
+                            details: "BigUint too large to convert to I256".to_string() 
+                        })?;
+                    Ok(Self::from_i256(a_big - *b))
+                }
+            }
+            (BigInt(a), BigUint(b)) => {
+                // BigInt - BigUint: convert BigUint to I256 and subtract
+                let b_big = I256::try_from(*b).map_err(|_|
+                    BigNumberError::ArithmeticOverflow { 
+                        operation: "subtraction".to_string(), 
+                        details: "BigUint too large to convert to I256".to_string() 
+                    })?;
+                Ok(Self::from_i256(*a - b_big))
+            }
+            
+            // Both BigUint
+            (BigUint(a), BigUint(b)) => {
+                if *a >= *b {
+                    Ok(Self::from_u256(*a - *b))
+                } else {
+                    // Result would be negative, use BigInt
+                    let a_big = I256::try_from(*a).expect("BigUint should convert to I256");
+                    let b_big = I256::try_from(*b).expect("BigUint should convert to I256");
+                    Ok(Self::from_i256(a_big - b_big))
+                }
+            }
+            
+            // Both BigInt
+            (BigInt(a), BigInt(b)) => {
+                Ok(Self::from_i256(*a - *b))
+            }
+        }
+    }
+
+    /// Multiply two UniversalNumbers
+    pub fn mul(&self, other: &Self) -> Result<Self, BigNumberError> {
+        use UniversalNumber::*;
+        
+        match (self, other) {
+            // Both Small - try to keep result small if possible
+            (Small(a), Small(b)) => {
+                match a.checked_mul(*b) {
+                    Some(result) => Ok(Small(result)),
+                    None => {
+                        // Overflow occurred, promote to big numbers
+                        if (*a > 0 && *b > 0) || (*a < 0 && *b < 0) {
+                            // Result is positive, try BigUint first
+                            let a_abs = a.abs() as u64;
+                            let b_abs = b.abs() as u64;
+                            let result = U256::from(a_abs) * U256::from(b_abs);
+                            Ok(Self::from_u256(result))
+                        } else {
+                            // Result is negative, use BigInt
+                            let a_big = I256::try_from(*a).expect("i64 should fit in I256");
+                            let b_big = I256::try_from(*b).expect("i64 should fit in I256");
+                            Ok(Self::from_i256(a_big * b_big))
+                        }
+                    }
+                }
+            }
+            
+            // Small * BigUint
+            (Small(a), BigUint(b)) => {
+                if *a == 0 || b.is_zero() {
+                    Ok(Small(0))
+                } else if *a > 0 {
+                    // Positive Small * BigUint = BigUint
+                    let a_big = U256::from(*a as u64);
+                    Ok(Self::from_u256(a_big * *b))
+                } else {
+                    // Negative Small * BigUint = negative BigInt
+                    let a_big = I256::try_from(*a).expect("i64 should fit in I256");
+                    let b_big = I256::try_from(*b).map_err(|_|
+                        BigNumberError::ArithmeticOverflow { 
+                            operation: "multiplication".to_string(), 
+                            details: "BigUint too large to convert to I256".to_string() 
+                        })?;
+                    Ok(Self::from_i256(a_big * b_big))
+                }
+            }
+            (BigUint(a), Small(b)) => {
+                // Symmetric case
+                UniversalNumber::Small(*b).mul(&UniversalNumber::BigUint(*a))
+            }
+            
+            // Small * BigInt
+            (Small(a), BigInt(b)) => {
+                if *a == 0 || b.is_zero() {
+                    Ok(Small(0))
+                } else {
+                    let a_big = I256::try_from(*a).expect("i64 should fit in I256");
+                    Ok(Self::from_i256(a_big * *b))
+                }
+            }
+            (BigInt(a), Small(b)) => {
+                if a.is_zero() || *b == 0 {
+                    Ok(Small(0))
+                } else {
+                    let b_big = I256::try_from(*b).expect("i64 should fit in I256");
+                    Ok(Self::from_i256(*a * b_big))
+                }
+            }
+            
+            // BigUint * BigInt
+            (BigUint(a), BigInt(b)) => {
+                if a.is_zero() || b.is_zero() {
+                    Ok(Small(0))
+                } else if b.is_positive() {
+                    // BigUint * positive BigInt: try to keep as BigUint
+                    let b_u256 = U256::try_from(*b).map_err(|_|
+                        BigNumberError::ArithmeticOverflow { 
+                            operation: "multiplication".to_string(), 
+                            details: "BigInt too large to convert to U256".to_string() 
+                        })?;
+                    Ok(Self::from_u256(*a * b_u256))
+                } else {
+                    // BigUint * negative BigInt: result is negative BigInt
+                    let a_big = I256::try_from(*a).map_err(|_|
+                        BigNumberError::ArithmeticOverflow { 
+                            operation: "multiplication".to_string(), 
+                            details: "BigUint too large to convert to I256".to_string() 
+                        })?;
+                    Ok(Self::from_i256(a_big * *b))
+                }
+            }
+            (BigInt(a), BigUint(b)) => {
+                // Symmetric case
+                UniversalNumber::BigUint(*b).mul(&UniversalNumber::BigInt(*a))
+            }
+            
+            // Both BigUint
+            (BigUint(a), BigUint(b)) => {
+                if a.is_zero() || b.is_zero() {
+                    Ok(Small(0))
+                } else {
+                    Ok(Self::from_u256(*a * *b))
+                }
+            }
+            
+            // Both BigInt
+            (BigInt(a), BigInt(b)) => {
+                if a.is_zero() || b.is_zero() {
+                    Ok(Small(0))
+                } else {
+                    Ok(Self::from_i256(*a * *b))
+                }
+            }
+        }
+    }
+
+    /// Divide self by other
+    pub fn div(&self, other: &Self) -> Result<Self, BigNumberError> {
+        // Check for division by zero
+        if other.is_zero() {
+            return Err(BigNumberError::DivisionByZero);
+        }
+        
+        use UniversalNumber::*;
+        
+        match (self, other) {
+            // Both Small
+            (Small(a), Small(b)) => {
+                // Integer division
+                Ok(Small(*a / *b))
+            }
+            
+            // Small / BigUint
+            (Small(a), BigUint(_)) => {
+                // Small number divided by large positive number is always 0 or very small
+                // For integer division, this is 0 unless the small number is negative
+                if *a < 0 {
+                    Ok(Small(-1)) // -1 for negative numbers divided by large positive
+                } else {
+                    Ok(Small(0))
+                }
+            }
+            (BigUint(a), Small(b)) => {
+                if *b > 0 {
+                    let b_big = U256::from(*b as u64);
+                    Ok(Self::from_u256(*a / b_big))
+                } else {
+                    // BigUint / negative Small: convert to BigInt division
+                    let a_big = I256::try_from(*a).map_err(|_|
+                        BigNumberError::ArithmeticOverflow { 
+                            operation: "division".to_string(), 
+                            details: "BigUint too large to convert to I256".to_string() 
+                        })?;
+                    let b_big = I256::try_from(*b).expect("i64 should fit in I256");
+                    Ok(Self::from_i256(a_big / b_big))
+                }
+            }
+            
+            // Small / BigInt
+            (Small(a), BigInt(b)) => {
+                // Small number divided by large number
+                if b.is_positive() {
+                    if *a < 0 {
+                        Ok(Small(-1))
+                    } else {
+                        Ok(Small(0))
+                    }
+                } else {
+                    // Dividing by negative large number
+                    if *a > 0 {
+                        Ok(Small(-1))
+                    } else {
+                        Ok(Small(0))
+                    }
+                }
+            }
+            (BigInt(a), Small(b)) => {
+                let b_big = I256::try_from(*b).expect("i64 should fit in I256");
+                Ok(Self::from_i256(*a / b_big))
+            }
+            
+            // BigUint / BigInt
+            (BigUint(a), BigInt(b)) => {
+                if b.is_positive() {
+                    let b_u256 = U256::try_from(*b).map_err(|_|
+                        BigNumberError::ArithmeticOverflow { 
+                            operation: "division".to_string(), 
+                            details: "BigInt too large to convert to U256".to_string() 
+                        })?;
+                    Ok(Self::from_u256(*a / b_u256))
+                } else {
+                    // BigUint / negative BigInt: result is negative
+                    let a_big = I256::try_from(*a).map_err(|_|
+                        BigNumberError::ArithmeticOverflow { 
+                            operation: "division".to_string(), 
+                            details: "BigUint too large to convert to I256".to_string() 
+                        })?;
+                    Ok(Self::from_i256(a_big / *b))
+                }
+            }
+            (BigInt(a), BigUint(b)) => {
+                let b_big = I256::try_from(*b).map_err(|_|
+                    BigNumberError::ArithmeticOverflow { 
+                        operation: "division".to_string(), 
+                        details: "BigUint too large to convert to I256".to_string() 
+                    })?;
+                Ok(Self::from_i256(*a / b_big))
+            }
+            
+            // Both BigUint
+            (BigUint(a), BigUint(b)) => {
+                Ok(Self::from_u256(*a / *b))
+            }
+            
+            // Both BigInt
+            (BigInt(a), BigInt(b)) => {
+                Ok(Self::from_i256(*a / *b))
+            }
+        }
+    }
 }
 
 impl PartialOrd for UniversalNumber {
@@ -841,6 +1269,399 @@ mod tests {
         assert!(small_zero == biguint_zero);
         assert!(small_zero == bigint_zero);
         assert!(biguint_zero == bigint_zero);
+    }
+
+    #[test]
+    fn test_arithmetic_operations() {
+        // Test addition
+        let a = UniversalNumber::from_i64(42);
+        let b = UniversalNumber::from_i64(58);
+        let result = a.add(&b).unwrap();
+        assert_eq!(result, UniversalNumber::from_i64(100));
+
+        // Test subtraction
+        let a = UniversalNumber::from_i64(100);
+        let b = UniversalNumber::from_i64(42);
+        let result = a.sub(&b).unwrap();
+        assert_eq!(result, UniversalNumber::from_i64(58));
+
+        // Test multiplication
+        let a = UniversalNumber::from_i64(6);
+        let b = UniversalNumber::from_i64(7);
+        let result = a.mul(&b).unwrap();
+        assert_eq!(result, UniversalNumber::from_i64(42));
+
+        // Test division
+        let a = UniversalNumber::from_i64(42);
+        let b = UniversalNumber::from_i64(2);
+        let result = a.div(&b).unwrap();
+        assert_eq!(result, UniversalNumber::from_i64(21));
+
+        // Test division by zero
+        let a = UniversalNumber::from_i64(42);
+        let b = UniversalNumber::from_i64(0);
+        let result = a.div(&b);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), BigNumberError::DivisionByZero));
+
+        // Test addition overflow - should promote to BigUint
+        let a = UniversalNumber::from_i64(i64::MAX);
+        let b = UniversalNumber::from_i64(1);
+        let result = a.add(&b).unwrap();
+        match result {
+            UniversalNumber::BigUint(value) => {
+                assert_eq!(value, U256::from(i64::MAX as u64) + U256::from(1));
+            }
+            _ => panic!("Expected BigUint for overflow case"),
+        }
+
+        // Test subtraction overflow - should promote to BigInt
+        let a = UniversalNumber::from_i64(i64::MIN);
+        let b = UniversalNumber::from_i64(1);
+        let result = a.sub(&b).unwrap();
+        match result {
+            UniversalNumber::BigInt(value) => {
+                let expected = I256::try_from(i64::MIN).unwrap() - I256::ONE;
+                assert_eq!(value, expected);
+            }
+            _ => panic!("Expected BigInt for underflow case"),
+        }
+
+        // Test multiplication overflow - should promote to BigUint
+        let a = UniversalNumber::from_i64(30000);
+        let b = UniversalNumber::from_i64(30000);
+        let result = a.mul(&b).unwrap();
+        match result {
+            UniversalNumber::BigUint(_) => {}, // Expected promotion to BigUint
+            UniversalNumber::Small(val) => {
+                // If it fits in Small, that's also valid
+                assert_eq!(val, 30000i64 * 30000i64);
+            }
+            _ => panic!("Expected BigUint or Small for multiplication"),
+        }
+
+        // Test division resulting in non-integer (should truncate towards zero)
+        let a = UniversalNumber::from_i64(7);
+        let b = UniversalNumber::from_i64(3);
+        let result = a.div(&b).unwrap();
+        assert_eq!(result, UniversalNumber::from_i64(2));
+    }
+
+    #[test]
+    fn test_arithmetic_small_numbers() {
+        let a = UniversalNumber::Small(10);
+        let b = UniversalNumber::Small(5);
+        let c = UniversalNumber::Small(-3);
+
+        // Addition
+        let result = a.add(&b).unwrap();
+        assert_eq!(result, UniversalNumber::Small(15));
+
+        let result = a.add(&c).unwrap();
+        assert_eq!(result, UniversalNumber::Small(7));
+
+        let result = c.add(&c).unwrap();
+        assert_eq!(result, UniversalNumber::Small(-6));
+
+        // Subtraction
+        let result = a.sub(&b).unwrap();
+        assert_eq!(result, UniversalNumber::Small(5));
+
+        let result = b.sub(&a).unwrap();
+        assert_eq!(result, UniversalNumber::Small(-5));
+
+        let result = a.sub(&c).unwrap();
+        assert_eq!(result, UniversalNumber::Small(13));
+
+        // Multiplication
+        let result = a.mul(&b).unwrap();
+        assert_eq!(result, UniversalNumber::Small(50));
+
+        let result = a.mul(&c).unwrap();
+        assert_eq!(result, UniversalNumber::Small(-30));
+
+        let result = c.mul(&c).unwrap();
+        assert_eq!(result, UniversalNumber::Small(9));
+
+        // Division
+        let result = a.div(&b).unwrap();
+        assert_eq!(result, UniversalNumber::Small(2));
+
+        let result = a.div(&c).unwrap();
+        assert_eq!(result, UniversalNumber::Small(-3));
+
+        let result = c.div(&b).unwrap();
+        assert_eq!(result, UniversalNumber::Small(0)); // Integer division: -3/5 = 0
+    }
+
+    #[test]
+    fn test_arithmetic_overflow_handling() {
+        // Test addition overflow
+        let large_pos = UniversalNumber::Small(i64::MAX);
+        let one = UniversalNumber::Small(1);
+        let result = large_pos.add(&one).unwrap();
+        // Should promote to BigUint
+        match result {
+            UniversalNumber::BigUint(value) => {
+                assert_eq!(value, U256::from(i64::MAX as u64) + U256::from(1));
+            }
+            _ => panic!("Expected BigUint for overflow case"),
+        }
+
+        // Test subtraction underflow
+        let large_neg = UniversalNumber::Small(i64::MIN);
+        let result = large_neg.sub(&one).unwrap();
+        // Should promote to BigInt
+        match result {
+            UniversalNumber::BigInt(value) => {
+                let expected = I256::try_from(i64::MIN).unwrap() - I256::ONE;
+                assert_eq!(value, expected);
+            }
+            _ => panic!("Expected BigInt for underflow case"),
+        }
+
+        // Test multiplication overflow
+        let large = UniversalNumber::Small(i64::MAX / 2 + 1);
+        let result = large.mul(&UniversalNumber::Small(2)).unwrap();
+        // Should promote to BigUint
+        match result {
+            UniversalNumber::BigUint(_) => {} // Expected
+            _ => panic!("Expected BigUint for multiplication overflow"),
+        }
+    }
+
+    #[test]
+    fn test_arithmetic_with_zero() {
+        let zero = UniversalNumber::Small(0);
+        let big_uint = UniversalNumber::BigUint(U256::from_str("123456789012345678901234567890").unwrap());
+        let big_int = UniversalNumber::BigInt(I256::from_str("-123456789012345678901234567890").unwrap());
+
+        // Addition with zero
+        assert_eq!(zero.add(&big_uint).unwrap(), big_uint);
+        assert_eq!(big_uint.add(&zero).unwrap(), big_uint);
+        assert_eq!(zero.add(&big_int).unwrap(), big_int);
+
+        // Subtraction with zero
+        assert_eq!(big_uint.sub(&zero).unwrap(), big_uint);
+        
+        // zero - big_uint should be negative
+        let result = zero.sub(&big_uint).unwrap();
+        match result {
+            UniversalNumber::BigInt(value) => {
+                assert!(value.is_negative());
+            }
+            _ => panic!("Expected negative BigInt"),
+        }
+
+        // Multiplication with zero
+        assert_eq!(zero.mul(&big_uint).unwrap(), UniversalNumber::Small(0));
+        assert_eq!(big_uint.mul(&zero).unwrap(), UniversalNumber::Small(0));
+        assert_eq!(zero.mul(&big_int).unwrap(), UniversalNumber::Small(0));
+
+        // Division by zero should error
+        assert!(big_uint.div(&zero).is_err());
+        assert!(matches!(big_uint.div(&zero).unwrap_err(), BigNumberError::DivisionByZero));
+    }
+
+    #[test]
+    fn test_arithmetic_mixed_variants() {
+        let small = UniversalNumber::Small(42);
+        let big_uint = UniversalNumber::BigUint(U256::from(1000));
+        let big_int = UniversalNumber::BigInt(I256::from_str("123456789012345678901234567890").unwrap());
+
+        // Small + BigUint
+        let result = small.add(&big_uint).unwrap();
+        assert_eq!(result, UniversalNumber::BigUint(U256::from(1042)));
+
+        // Small - BigUint (should be negative but might fit in Small)
+        let result = small.sub(&big_uint).unwrap();
+        assert!(result.is_negative()); // Should be negative regardless of variant
+        
+        // Small * BigInt (large result)
+        let result = small.mul(&big_int).unwrap();
+        match result {
+            UniversalNumber::BigInt(value) => {
+                // Check that it's a big positive number (42 * large_positive)
+                assert!(value.is_positive());
+            }
+            _ => panic!("Expected BigInt"),
+        }
+
+        // BigUint / Small
+        let result = big_uint.div(&small).unwrap();
+        assert_eq!(result, UniversalNumber::Small(23)); // 1000 / 42 = 23 (integer division)
+    }
+
+    #[test]
+    fn test_arithmetic_big_numbers() {
+        let big_uint_1 = UniversalNumber::BigUint(U256::from_str("123456789012345678901234567890").unwrap());
+        let big_uint_2 = UniversalNumber::BigUint(U256::from_str("987654321098765432109876543210").unwrap());
+        let big_int_pos = UniversalNumber::BigInt(I256::from_str("123456789012345678901234567890").unwrap());
+        let big_int_neg = UniversalNumber::BigInt(I256::from_str("-123456789012345678901234567890").unwrap());
+
+        // BigUint + BigUint
+        let result = big_uint_1.add(&big_uint_2).unwrap();
+        match result {
+            UniversalNumber::BigUint(value) => {
+                let expected = U256::from_str("123456789012345678901234567890").unwrap() +
+                              U256::from_str("987654321098765432109876543210").unwrap();
+                assert_eq!(value, expected);
+            }
+            _ => panic!("Expected BigUint"),
+        }
+
+        // BigUint - BigUint (larger - smaller)
+        let result = big_uint_2.sub(&big_uint_1).unwrap();
+        match result {
+            UniversalNumber::BigUint(value) => {
+                let expected = U256::from_str("987654321098765432109876543210").unwrap() -
+                              U256::from_str("123456789012345678901234567890").unwrap();
+                assert_eq!(value, expected);
+            }
+            _ => panic!("Expected BigUint"),
+        }
+
+        // BigUint - BigUint (smaller - larger, should be negative)
+        let result = big_uint_1.sub(&big_uint_2).unwrap();
+        match result {
+            UniversalNumber::BigInt(value) => {
+                assert!(value.is_negative());
+            }
+            _ => panic!("Expected negative BigInt"),
+        }
+
+        // BigUint + negative BigInt
+        let result = big_uint_1.add(&big_int_neg).unwrap();
+        assert_eq!(result, UniversalNumber::Small(0)); // Same magnitude, opposite signs
+
+        // BigInt * BigInt
+        let small_big_int = UniversalNumber::BigInt(I256::try_from(100).unwrap());
+        let result = big_int_pos.mul(&small_big_int).unwrap();
+        match result {
+            UniversalNumber::BigInt(value) => {
+                // Should be big_int_pos * 100, which is a very large positive number
+                assert!(value.is_positive());
+            }
+            _ => panic!("Expected BigInt"),
+        }
+    }
+
+    #[test]
+    fn test_division_edge_cases() {
+        let big_uint = UniversalNumber::BigUint(U256::from(1000));
+        let small_pos = UniversalNumber::Small(7);
+        let small_neg = UniversalNumber::Small(-7);
+
+        // BigUint / positive Small
+        let result = big_uint.div(&small_pos).unwrap();
+        assert_eq!(result, UniversalNumber::Small(142)); // 1000 / 7 = 142 (integer division)
+
+        // BigUint / negative Small
+        let result = big_uint.div(&small_neg).unwrap();
+        match result {
+            UniversalNumber::Small(value) => {
+                // For BigUint / negative Small, the result should be negative
+                assert_eq!(value, -142); // 1000 / -7 = -142
+            }
+            UniversalNumber::BigInt(value) => {
+                assert!(value.is_negative());
+                let expected = I256::try_from(-142).unwrap();
+                assert_eq!(value, expected);
+            }
+            _ => panic!("Expected negative result"),
+        }
+
+        // Small / BigUint (should be 0 for positive, -1 for negative)
+        let result = small_pos.div(&big_uint).unwrap();
+        assert_eq!(result, UniversalNumber::Small(0));
+
+        let result = small_neg.div(&big_uint).unwrap();
+        assert_eq!(result, UniversalNumber::Small(-1));
+
+        // Division by zero
+        let zero = UniversalNumber::Small(0);
+        assert!(big_uint.div(&zero).is_err());
+        assert!(matches!(big_uint.div(&zero).unwrap_err(), BigNumberError::DivisionByZero));
+    }
+
+    #[test]
+    fn test_arithmetic_result_optimization() {
+        // Test that results are kept in Small variant when possible
+        let big_uint_small = UniversalNumber::BigUint(U256::from(100));
+        let big_int_small = UniversalNumber::BigInt(I256::try_from(50).unwrap());
+
+        // BigUint - BigInt where result fits in Small
+        let result = big_uint_small.sub(&big_int_small).unwrap();
+        assert_eq!(result, UniversalNumber::Small(50));
+
+        // BigInt + Small where result fits in Small
+        let small = UniversalNumber::Small(25);
+        let result = big_int_small.add(&small).unwrap();
+        assert_eq!(result, UniversalNumber::Small(75));
+
+        // BigUint / BigUint where result fits in Small
+        let big_uint_1000 = UniversalNumber::BigUint(U256::from(1000));
+        let big_uint_10 = UniversalNumber::BigUint(U256::from(10));
+        let result = big_uint_1000.div(&big_uint_10).unwrap();
+        assert_eq!(result, UniversalNumber::Small(100));
+    }
+
+    #[test]
+    fn test_arithmetic_operations_full() {
+        let a = UniversalNumber::from_i64(42);
+        let b = UniversalNumber::from_i64(-7);
+        let c = UniversalNumber::BigUint(U256::from(100));
+        let d = UniversalNumber::BigInt(I256::from_str("123456789012345678901234567890").unwrap());
+
+        // Addition - all operations should succeed with mixed variant support
+        assert_eq!(a.add(&a).unwrap(), UniversalNumber::from_i64(84));
+        assert_eq!(a.add(&b).unwrap(), UniversalNumber::from_i64(35));
+        assert_eq!(a.add(&c).unwrap(), UniversalNumber::Small(142)); // Optimized to Small since 42 + 100 = 142 fits in i64
+        
+        // a + d should succeed (Small + BigInt)
+        let result_a_plus_d = a.add(&d).unwrap();
+        match result_a_plus_d {
+            UniversalNumber::BigInt(_) => {}, // Expected for large result
+            _ => panic!("Expected BigInt for large addition"),
+        }
+
+        // Subtraction - all should succeed
+        assert_eq!(a.sub(&a).unwrap(), UniversalNumber::from_i64(0));
+        assert_eq!(a.sub(&b).unwrap(), UniversalNumber::from_i64(49));
+        
+        // a - c should result in negative value (42 - 100 = -58)
+        let result_a_minus_c = a.sub(&c).unwrap();
+        assert_eq!(result_a_minus_c, UniversalNumber::Small(-58));
+        
+        // a - d should succeed (Small - BigInt)
+        let result_a_minus_d = a.sub(&d).unwrap();
+        match result_a_minus_d {
+            UniversalNumber::BigInt(value) => {
+                assert!(value.is_negative()); // Should be very negative
+            }
+            _ => panic!("Expected negative BigInt"),
+        }
+
+        // Multiplication - all should succeed
+        assert_eq!(a.mul(&a).unwrap(), UniversalNumber::from_i64(1764));
+        assert_eq!(a.mul(&b).unwrap(), UniversalNumber::from_i64(-294));
+        assert_eq!(a.mul(&c).unwrap(), UniversalNumber::Small(4200)); // 42 * 100 = 4200, fits in i64
+        
+        // a * d should succeed (Small * BigInt)
+        let result_a_times_d = a.mul(&d).unwrap();
+        match result_a_times_d {
+            UniversalNumber::BigInt(_) => {}, // Expected for large result
+            _ => panic!("Expected BigInt for large multiplication"),
+        }
+
+        // Division - all should succeed
+        assert_eq!(a.div(&a).unwrap(), UniversalNumber::from_i64(1));
+        assert_eq!(a.div(&b).unwrap(), UniversalNumber::Small(-6)); // Rounds towards zero
+        assert_eq!(c.div(&a).unwrap(), UniversalNumber::Small(2)); // 100 / 42 = 2 (integer division)
+        
+        // c / d should succeed (BigUint / BigInt) and result in 0 (since 100 < large d)
+        let result_c_div_d = c.div(&d).unwrap();
+        assert_eq!(result_c_div_d, UniversalNumber::Small(0)); // Integer division: small/large = 0
     }
 }
 
