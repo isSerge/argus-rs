@@ -183,4 +183,110 @@ mod tests {
 
         assert_eq!(app_config.shutdown_timeout_secs, 60);
     }
+
+    #[test]
+    fn test_config_with_rhai_config() {
+        let yaml = "
+            database_url: 'sqlite:test.db'
+            rpc_urls: ['http://localhost:8545']
+            network_id: 'testnet'
+            block_chunk_size: 10
+            polling_interval_ms: 1000
+            confirmation_blocks: 12
+            rhai:
+              max_operations: 250000
+              max_call_levels: 15
+              max_string_size: 16384
+              max_array_size: 2000
+              execution_timeout: 7500
+        ";
+
+        let builder =
+            Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
+        let app_config: AppConfig = builder.build().unwrap().try_deserialize().unwrap();
+
+        assert_eq!(app_config.rhai.max_operations, 250_000);
+        assert_eq!(app_config.rhai.max_call_levels, 15);
+        assert_eq!(app_config.rhai.max_string_size, 16_384);
+        assert_eq!(app_config.rhai.max_array_size, 2_000);
+        assert_eq!(
+            app_config.rhai.execution_timeout,
+            std::time::Duration::from_millis(7_500)
+        );
+    }
+
+    #[test]
+    fn test_config_without_rhai_uses_defaults() {
+        let yaml = "
+            database_url: 'sqlite:test.db'
+            rpc_urls: ['http://localhost:8545']
+            network_id: 'testnet'
+            block_chunk_size: 10
+            polling_interval_ms: 1000
+            confirmation_blocks: 12
+        ";
+
+        let builder =
+            Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
+        let app_config: AppConfig = builder.build().unwrap().try_deserialize().unwrap();
+
+        let default_rhai_config = RhaiConfig::default();
+        assert_eq!(app_config.rhai.max_operations, default_rhai_config.max_operations);
+        assert_eq!(app_config.rhai.max_call_levels, default_rhai_config.max_call_levels);
+        assert_eq!(app_config.rhai.max_string_size, default_rhai_config.max_string_size);
+        assert_eq!(app_config.rhai.max_array_size, default_rhai_config.max_array_size);
+        assert_eq!(app_config.rhai.execution_timeout, default_rhai_config.execution_timeout);
+    }
+
+    #[test]
+    fn test_config_with_partial_rhai_config() {
+        let yaml = "
+            database_url: 'sqlite:test.db'
+            rpc_urls: ['http://localhost:8545']
+            network_id: 'testnet'
+            block_chunk_size: 10
+            polling_interval_ms: 1000
+            confirmation_blocks: 12
+            rhai:
+              max_operations: 500000
+              execution_timeout: 10000
+        ";
+
+        let builder =
+            Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
+        let app_config: AppConfig = builder.build().unwrap().try_deserialize().unwrap();
+
+        // Specified values should be used
+        assert_eq!(app_config.rhai.max_operations, 500_000);
+        assert_eq!(
+            app_config.rhai.execution_timeout,
+            std::time::Duration::from_millis(10_000)
+        );
+
+        // Non-specified values should use defaults
+        let default_rhai_config = RhaiConfig::default();
+        assert_eq!(app_config.rhai.max_call_levels, default_rhai_config.max_call_levels);
+        assert_eq!(app_config.rhai.max_string_size, default_rhai_config.max_string_size);
+        assert_eq!(app_config.rhai.max_array_size, default_rhai_config.max_array_size);
+    }
+
+    #[test]
+    fn test_config_with_invalid_rhai_values() {
+        let yaml = "
+            database_url: 'sqlite:test.db'
+            rpc_urls: ['http://localhost:8545']
+            network_id: 'testnet'
+            block_chunk_size: 10
+            polling_interval_ms: 1000
+            confirmation_blocks: 12
+            rhai:
+              max_operations: 'invalid_number'
+              execution_timeout: 5000
+        ";
+
+        let builder =
+            Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
+        let result: Result<AppConfig, _> = builder.build().unwrap().try_deserialize();
+        assert!(result.is_err()); // Should fail due to invalid max_operations value
+    }
 }
