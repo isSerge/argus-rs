@@ -8,6 +8,31 @@ use alloy::primitives::U256;
 use rhai::EvalAltResult;
 use std::fmt;
 use std::cmp::Ordering;
+use thiserror::Error;
+
+/// Errors that can occur during BigInt operations
+#[derive(Debug, Error, PartialEq)]
+pub enum BigIntError {
+    /// Error parsing a string into a BigInt
+    #[error("Failed to parse '{input}' as BigInt: {message}")]
+    ParseError {
+        /// The input string that failed to parse
+        input: String,
+        /// The underlying parsing error message
+        message: String,
+    },
+    
+    /// Arithmetic overflow during operation
+    #[error("BigInt {operation} overflow")]
+    ArithmeticOverflow {
+        /// The operation that caused the overflow
+        operation: String,
+    },
+    
+    /// Division by zero
+    #[error("Division by zero")]
+    DivisionByZero,
+}
 
 /// BigInt wrapper for handling arbitrarily large numbers in Rhai scripts
 /// 
@@ -37,7 +62,7 @@ impl BigInt {
     }
     
     /// Create a BigInt from a string representation
-    pub fn from_string(value: &str) -> Result<Self, String> {
+    pub fn from_string(value: &str) -> Result<Self, BigIntError> {
         let trimmed = value.trim();
         
         if trimmed.starts_with('-') {
@@ -45,12 +70,18 @@ impl BigInt {
             let positive_str = &trimmed[1..];
             positive_str.parse::<U256>()
                 .map(|magnitude| Self::new(magnitude, true))
-                .map_err(|e| format!("Invalid negative number '{}': {}", value, e))
+                .map_err(|e| BigIntError::ParseError {
+                    input: value.to_string(),
+                    message: e.to_string(),
+                })
         } else {
             // Positive number
             trimmed.parse::<U256>()
                 .map(|magnitude| Self::new(magnitude, false))
-                .map_err(|e| format!("Invalid positive number '{}': {}", value, e))
+                .map_err(|e| BigIntError::ParseError {
+                    input: value.to_string(),
+                    message: e.to_string(),
+                })
         }
     }
     
@@ -68,19 +99,23 @@ impl BigInt {
 // Arithmetic operations
 impl BigInt {
     /// Add two BigInt values
-    pub fn add(&self, other: &BigInt) -> Result<BigInt, String> {
+    pub fn add(&self, other: &BigInt) -> Result<BigInt, BigIntError> {
         match (self.is_negative(), other.is_negative()) {
             (false, false) => {
                 // Both positive: simple addition
                 self.magnitude.checked_add(other.magnitude)
                     .map(|result| BigInt::new(result, false))
-                    .ok_or_else(|| "BigInt addition overflow".to_string())
+                    .ok_or(BigIntError::ArithmeticOverflow {
+                        operation: "addition".to_string(),
+                    })
             }
             (true, true) => {
                 // Both negative: add magnitudes, result is negative
                 self.magnitude.checked_add(other.magnitude)
                     .map(|result| BigInt::new(result, true))
-                    .ok_or_else(|| "BigInt addition overflow".to_string())
+                    .ok_or(BigIntError::ArithmeticOverflow {
+                        operation: "addition".to_string(),
+                    })
             }
             (false, true) => {
                 // self positive, other negative: self - other.magnitude
@@ -102,17 +137,21 @@ impl BigInt {
     }
     
     /// Subtract two BigInt values (self - other)
-    pub fn sub(&self, other: &BigInt) -> Result<BigInt, String> {
+    pub fn sub(&self, other: &BigInt) -> Result<BigInt, BigIntError> {
         match (self.is_negative(), other.is_negative()) {
             (false, true) => { // self is positive, other is negative: self - (-other) = self + other
                 self.magnitude.checked_add(other.magnitude)
                     .map(|result| BigInt::new(result, false))
-                    .ok_or_else(|| "BigInt subtraction overflow".to_string())
+                    .ok_or(BigIntError::ArithmeticOverflow {
+                        operation: "subtraction".to_string(),
+                    })
             }
             (true, false) => { // self is negative, other is positive: -self - other = -(self + other)
                 self.magnitude.checked_add(other.magnitude)
                     .map(|result| BigInt::new(result, true))
-                    .ok_or_else(|| "BigInt subtraction overflow".to_string())
+                    .ok_or(BigIntError::ArithmeticOverflow {
+                        operation: "subtraction".to_string(),
+                    })
             }
             (false, false) => { // both positive: self - other
                 if self.magnitude >= other.magnitude {
@@ -132,7 +171,7 @@ impl BigInt {
     }
     
     /// Multiply two BigInt values
-    pub fn mul(&self, other: &BigInt) -> Result<BigInt, String> {
+    pub fn mul(&self, other: &BigInt) -> Result<BigInt, BigIntError> {
         if self.is_zero() || other.is_zero() {
             return Ok(BigInt::new(U256::ZERO, false));
         }
@@ -143,13 +182,15 @@ impl BigInt {
                 let result_negative = self.is_negative != other.is_negative;
                 BigInt::new(result, result_negative)
             })
-            .ok_or_else(|| "BigInt multiplication overflow".to_string())
+            .ok_or(BigIntError::ArithmeticOverflow {
+                operation: "multiplication".to_string(),
+            })
     }
     
     /// Divide two BigInt values
-    pub fn div(&self, other: &BigInt) -> Result<BigInt, String> {
+    pub fn div(&self, other: &BigInt) -> Result<BigInt, BigIntError> {
         if other.is_zero() {
-            return Err("Division by zero".to_string());
+            return Err(BigIntError::DivisionByZero);
         }
         
         if self.is_zero() {
@@ -162,7 +203,9 @@ impl BigInt {
                 let result_negative = self.is_negative != other.is_negative;
                 BigInt::new(result, result_negative)
             })
-            .ok_or_else(|| "BigInt division overflow".to_string())
+            .ok_or(BigIntError::ArithmeticOverflow {
+                operation: "division".to_string(),
+            })
     }
 }
 
@@ -227,7 +270,7 @@ pub fn bigint_constructor_int(value: i64) -> BigInt {
 /// Constructor function for creating BigInt from string
 pub fn bigint_constructor_string(value: String) -> Result<BigInt, Box<EvalAltResult>> {
     BigInt::from_string(&value)
-        .map_err(|e| format!("Failed to create BigInt from string '{}': {}", value, e).into())
+        .map_err(|e| format!("Failed to create BigInt from string: {}", e).into())
 }
 
 /// Register BigInt type and operations with Rhai engine
@@ -433,5 +476,37 @@ mod tests {
         let res = a.sub(&b).unwrap();
         assert_eq!(res.to_string(), "-5");
         assert!(res.is_negative());
+    }
+
+    #[test]
+    fn test_structured_errors() {
+        // Test parsing error
+        let parse_err = BigInt::from_string("not_a_number");
+        assert!(parse_err.is_err());
+        let err = parse_err.unwrap_err();
+        match err {
+            BigIntError::ParseError { input, message: _ } => {
+                assert_eq!(input, "not_a_number");
+            }
+            _ => panic!("Expected ParseError"),
+        }
+        
+        // Test division by zero error
+        let zero = BigInt::from_int(0);
+        let one = BigInt::from_int(1);
+        let div_err = one.div(&zero);
+        assert!(div_err.is_err());
+        let err = div_err.unwrap_err();
+        assert_eq!(err, BigIntError::DivisionByZero);
+        
+        // Test that we can format errors nicely
+        assert_eq!(err.to_string(), "Division by zero");
+        
+        // Test error display for parse error
+        let parse_err = BigIntError::ParseError {
+            input: "abc".to_string(),
+            message: "invalid digit found".to_string(),
+        };
+        assert_eq!(parse_err.to_string(), "Failed to parse 'abc' as BigInt: invalid digit found");
     }
 }
