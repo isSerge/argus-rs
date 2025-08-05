@@ -74,3 +74,58 @@ where
     let millis = u64::deserialize(deserializer)?;
     Ok(Duration::from_millis(millis))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use config::Config;
+
+    #[test]
+    fn test_rhai_config_default() {
+        let config = RhaiConfig::default();
+        assert_eq!(config.max_operations, 100_000);
+        assert_eq!(config.max_call_levels, 10);
+        assert_eq!(config.max_string_size, 8_192);
+        assert_eq!(config.max_array_size, 1_000);
+        assert_eq!(config.execution_timeout, Duration::from_millis(5_000));
+    }
+
+    #[test]
+    fn test_rhai_config_custom_values_yaml() {
+        let yaml = "
+            max_operations: 50000
+            max_call_levels: 5
+            max_string_size: 4096
+            max_array_size: 500
+            execution_timeout: 3000
+        ";
+
+        let builder = Config::builder()
+            .add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
+        let config: RhaiConfig = builder.build().unwrap().try_deserialize().unwrap();
+
+        assert_eq!(config.max_operations, 50_000);
+        assert_eq!(config.max_call_levels, 5);
+        assert_eq!(config.max_string_size, 4_096);
+        assert_eq!(config.max_array_size, 500);
+        assert_eq!(config.execution_timeout, Duration::from_millis(3_000));
+    }
+
+    #[test]
+    fn test_rhai_config_partial_yaml_uses_defaults() {
+        let yaml = "
+            max_operations: 75000
+            execution_timeout: 7500
+        ";
+
+        let builder = Config::builder()
+            .add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
+        let config: RhaiConfig = builder.build().unwrap().try_deserialize().unwrap();
+
+        assert_eq!(config.max_operations, 75_000);
+        assert_eq!(config.max_call_levels, default_max_call_levels()); // Should use default
+        assert_eq!(config.max_string_size, default_max_string_size()); // Should use default
+        assert_eq!(config.max_array_size, default_max_array_size()); // Should use default
+        assert_eq!(config.execution_timeout, Duration::from_millis(7_500));
+    }
+}
