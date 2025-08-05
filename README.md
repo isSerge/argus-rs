@@ -117,3 +117,20 @@ Once the setup is complete, you can run the application.
     ```bash
     cargo run --release
     ```
+
+## Project Structure
+
+The `src` directory is organized into several modules, each with a distinct responsibility, reflecting the project's modular architecture.
+
+-   `abi`: Handles ABI parsing, decoding, and management.
+-   `config`: Manages application configuration loading and validation.
+-   `engine`: The core processing and filtering logic. It contains the `BlockProcessor` and the `FilteringEngine`, which uses Rhai for script execution.
+-   `http_server`: (Future) Will contain the REST API server (`axum`) for dynamic monitor management.
+-   `models`: Defines the core data structures used throughout the application (e.g., `Monitor`, `BlockData`, `Transaction`).
+-   `notifiers`: (Future) Will contain implementations for various notification services (e.g., Webhook, Slack).
+-   `persistence`: Manages the application's state. It defines the `StateRepository` trait and includes its `SQLite` implementation.
+-   `providers`: Responsible for fetching data from external sources. It defines the `DataSource` trait and includes the `EvmRpcSource` for communicating with EVM nodes.
+-   `supervisor`: The top-level orchestrator that initializes and coordinates all the other components.
+-   `main.rs`: The entry point of the application. It initializes the configuration and starts the `supervisor`.
+-   `lib.rs`: The library crate root, where all modules are declared.
+-   `test_helpers`: Contains utility functions and mock objects for use in integration and unit tests.

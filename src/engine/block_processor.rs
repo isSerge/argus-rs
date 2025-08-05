@@ -4,8 +4,8 @@
 //! including log decoding, data correlation, and applying filtering logic.
 //! It supports both single block processing and batch processing for improved throughput.
 
+use super::filtering::FilteringEngine;
 use crate::abi::{AbiService, DecodedLog};
-use crate::filtering::FilteringEngine;
 use crate::models::transaction::Transaction;
 use crate::models::{BlockData, CorrelatedBlockItem, monitor_match::MonitorMatch};
 use alloy::rpc::types::BlockTransactions;
@@ -170,7 +170,7 @@ mod tests {
     use super::*;
     use crate::{
         abi::AbiService,
-        filtering::MockFilteringEngine,
+        engine::filtering::MockFilteringEngine,
         models::{block_data::BlockData, monitor_match::MonitorMatch},
         test_helpers::{BlockBuilder, LogBuilder, TransactionBuilder},
     };

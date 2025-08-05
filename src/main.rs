@@ -4,13 +4,17 @@ use alloy::{
 };
 use argus::{
     abi::AbiService,
-    block_processor::{BlockProcessor, BlockProcessorError},
     config::AppConfig,
-    data_source::{DataSource, EvmRpcSource},
-    filtering::{FilteringEngine, RhaiFilteringEngine},
+    engine::{
+        block_processor::{BlockProcessor, BlockProcessorError},
+        filtering::{FilteringEngine, RhaiFilteringEngine},
+    },
     models::BlockData,
-    provider::create_provider,
-    state::{SqliteStateRepository, StateRepository},
+    persistence::{sqlite::SqliteStateRepository, traits::StateRepository},
+    providers::{
+        rpc::{EvmRpcSource, create_provider},
+        traits::DataSource,
+    },
 };
 use std::{collections::HashMap, sync::Arc};
 use tokio::{
@@ -478,7 +482,7 @@ mod tests {
         rpc::types::{Block, Log, TransactionReceipt},
     };
     use argus::{
-        data_source::DataSourceError,
+        providers::traits::DataSourceError,
         test_helpers::{BlockBuilder, ReceiptBuilder, TransactionBuilder},
     };
     use mockall::predicate::*;
