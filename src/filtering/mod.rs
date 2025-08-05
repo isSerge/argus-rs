@@ -200,18 +200,16 @@ impl FilteringEngine for RhaiFilteringEngine {
 
             // Efficiently look up monitors for the current log's address
             if let Some(monitors) = monitors_by_address_read_guard.get(&log_address_str) {
+                // Build shared data structures once per log to avoid repeated allocations
+                let params_map = build_log_params_map(&log.params);
+                let log_map = build_log_map(log, params_map);
+                let trigger_data = build_trigger_data_from_params(&log.params);
+
                 for monitor in monitors.iter() {
-                    // Build trigger data from log parameters
-                    let params_map = build_log_params_map(&log.params);
-                    let log_map = build_log_map(log, params_map);
-
-                    // Build trigger data using the same conversion logic as Rhai for consistency
-                    let trigger_data = build_trigger_data_from_params(&log.params);
-
                     // Create a new scope for the monitor evaluation
                     let mut scope = Scope::new();
                     scope.push("tx", tx_map.clone());
-                    scope.push("log", log_map);
+                    scope.push("log", log_map.clone());
 
                     // Compile and evaluate the monitor's filter script
                     let ast = match self.compile_script(&monitor.filter_script) {
@@ -235,7 +233,7 @@ impl FilteringEngine for RhaiFilteringEngine {
                                 transaction_hash: log.log.transaction_hash().unwrap_or_default(),
                                 contract_address: log.log.address(),
                                 trigger_name: log.name.clone(),
-                                trigger_data,
+                                trigger_data: trigger_data.clone(),
                                 log_index: log.log.log_index(),
                             };
                             matches.push(monitor_match);
