@@ -1,7 +1,11 @@
 //! This module defines the `FilteringEngine` and its implementations.
-mod rhai_conversions;
-mod bigint;
 
+use super::rhai::{
+    bigint::register_bigint_with_rhai,
+    conversions::{
+        build_log_map, build_log_params_map, build_transaction_map, build_trigger_data_from_params,
+    },
+};
 use crate::config::RhaiConfig;
 use crate::models::correlated_data::CorrelatedBlockItem;
 use crate::models::monitor::Monitor;
@@ -11,16 +15,12 @@ use dashmap::DashMap;
 #[cfg(test)]
 use mockall::automock;
 use rhai::{AST, Engine, EvalAltResult, Scope};
-use rhai_conversions::{
-    build_log_map, build_log_params_map, build_transaction_map, build_trigger_data_from_params,
-};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::RwLock;
 use tokio::time::timeout;
-use bigint::register_bigint_with_rhai;
 
 /// Rhai script execution errors that can occur during compilation or runtime
 #[derive(Debug, Error)]
@@ -116,25 +116,13 @@ impl RhaiFilteringEngine {
         // List of dangerous symbols to disable
         const DANGEROUS_SYMBOLS: &[&str] = &[
             // Dynamic evaluation
-            "eval",
-            // Module system
-            "import",
-            "export",
-            // I/O operations
-            "print",
-            "debug",
-            // File system access
-            "File",
-            "file",
-            // Network access
-            "http",
-            "net",
-            // System access
-            "system",
-            "process",
-            // Threading
-            "thread",
-            "spawn",
+            "eval", // Module system
+            "import", "export", // I/O operations
+            "print", "debug", // File system access
+            "File", "file", // Network access
+            "http", "net", // System access
+            "system", "process", // Threading
+            "thread", "spawn",
         ];
         for &symbol in DANGEROUS_SYMBOLS {
             engine.disable_symbol(symbol);
@@ -1360,7 +1348,7 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_item_with_big_numbers() {
         let addr = address!("0000000000000000000000000000000000000001");
-        // Test script that uses BigInt operations  
+        // Test script that uses BigInt operations
         let script = r#"
             log.name == "Transfer" && 
             bigint(log.params.value) > bigint("1000000000000000000000") &&
@@ -1371,9 +1359,10 @@ mod tests {
 
         // Create a test log with a large value parameter
         let large_value = "2000000000000000000000"; // 2000 ETH in wei
-        let params = vec![
-            ("value".to_string(), DynSolValue::Uint(large_value.parse().unwrap(), 256))
-        ];
+        let params = vec![(
+            "value".to_string(),
+            DynSolValue::Uint(large_value.parse().unwrap(), 256),
+        )];
         let (tx, log) = create_test_log_and_tx_with_params(addr, "Transfer", params);
         let item = CorrelatedBlockItem::new(&tx, vec![log], None);
 
@@ -1403,5 +1392,4 @@ mod tests {
         assert_eq!(matches[0].monitor_id, 1);
         assert_eq!(matches[0].trigger_name, "Transfer");
     }
-
 }

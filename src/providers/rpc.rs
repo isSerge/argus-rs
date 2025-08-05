@@ -1,53 +1,23 @@
-//! This module defines the interface for fetching data from an EVM-compatible blockchain.
+//! This module provides functionality to create a provider for EVM RPC requests
+//! with retry logic and backoff strategies.
 
-use crate::block_fetcher::{BlockFetcher, BlockFetcherError};
+use super::block_fetcher::{BlockFetcher, BlockFetcherError};
+use super::traits::{DataSource, DataSourceError};
+use crate::config::RetryConfig;
+use alloy::primitives::TxHash;
+use alloy::rpc::types::{Block, Log, TransactionReceipt};
 use alloy::{
-    primitives::TxHash,
-    providers::Provider,
-    rpc::types::{Block, Log, TransactionReceipt},
+    providers::{Provider, ProviderBuilder, layers::CallBatchLayer},
+    rpc::client::RpcClient,
+    transports::{
+        http::{Http, reqwest::Url},
+        layers::{FallbackLayer, RetryBackoffLayer},
+    },
 };
 use async_trait::async_trait;
 use std::collections::HashMap;
-use thiserror::Error;
-
-/// Custom error type for data source operations.
-#[derive(Error, Debug)]
-pub enum DataSourceError {
-    /// Error when parsing the RPC URL.
-    #[error("Failed to parse RPC URL: {0}")]
-    UrlParse(#[from] url::ParseError),
-
-    /// Error when interacting with the provider.
-    #[error("Provider error: {0}")]
-    Provider(#[from] Box<dyn std::error::Error + Send + Sync>),
-
-    /// Error originating from the `BlockFetcher`.
-    #[error("Block fetcher error: {0}")]
-    BlockFetcher(#[from] BlockFetcherError),
-
-    /// Indicates that the requested block was not found.
-    #[error("Block not found: {0}")]
-    BlockNotFound(u64),
-}
-
-/// A trait for a data source that can fetch blockchain data.
-#[async_trait]
-pub trait DataSource {
-    /// Fetches the core data for a single block (block with transactions and logs).
-    async fn fetch_block_core_data(
-        &self,
-        block_number: u64,
-    ) -> Result<(Block, Vec<Log>), DataSourceError>;
-
-    /// Fetches the current block number from the data source.
-    async fn get_current_block_number(&self) -> Result<u64, DataSourceError>;
-
-    /// Fetches transaction receipts for the given transaction hashes.
-    async fn fetch_receipts(
-        &self,
-        tx_hashes: &[TxHash],
-    ) -> Result<HashMap<TxHash, TransactionReceipt>, DataSourceError>;
-}
+use std::num::NonZeroUsize;
+use tower::ServiceBuilder;
 
 /// A `DataSource` implementation that fetches data from an EVM RPC endpoint.
 pub struct EvmRpcSource<P> {
@@ -126,4 +96,50 @@ where
         );
         Ok(receipts)
     }
+}
+
+/// Custom error type for provider operations.
+#[derive(Debug, thiserror::Error)]
+pub enum ProviderError {
+    /// Error when creating the provider.
+    #[error("Provider creation failed: {0}")]
+    CreationError(String),
+}
+
+/// Creates a new provider with the given RPC URLs.
+pub fn create_provider(
+    urls: Vec<Url>,
+    retry_config: RetryConfig,
+) -> Result<impl Provider, ProviderError> {
+    if urls.is_empty() {
+        return Err(ProviderError::CreationError(
+            "RPC URL list cannot be empty".into(),
+        ));
+    }
+
+    // Create a FallbackLayer with the provided URLs
+    let fallback_layer = FallbackLayer::default().with_active_transport_count(
+        NonZeroUsize::new(urls.len()).expect("At least one URL is required"),
+    );
+
+    let transports: Vec<_> = urls.into_iter().map(Http::new).collect();
+
+    // Instantiate the RetryBackoffLayer with the configuration
+    let retry_layer = RetryBackoffLayer::new(
+        retry_config.max_retry,
+        retry_config.backoff_ms,
+        retry_config.compute_units_per_second,
+    );
+
+    // Apply the layers
+    let service = ServiceBuilder::new()
+        .layer(retry_layer)
+        .layer(fallback_layer)
+        .service(transports);
+
+    let client = RpcClient::builder().transport(service, false);
+    let provider = ProviderBuilder::new()
+        .layer(CallBatchLayer::new())
+        .connect_client(client);
+    Ok(provider)
 }
