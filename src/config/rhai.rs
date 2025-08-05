@@ -100,8 +100,8 @@ mod tests {
             execution_timeout: 3000
         ";
 
-        let builder = Config::builder()
-            .add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
+        let builder =
+            Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
         let config: RhaiConfig = builder.build().unwrap().try_deserialize().unwrap();
 
         assert_eq!(config.max_operations, 50_000);
@@ -118,8 +118,8 @@ mod tests {
             execution_timeout: 7500
         ";
 
-        let builder = Config::builder()
-            .add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
+        let builder =
+            Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
         let config: RhaiConfig = builder.build().unwrap().try_deserialize().unwrap();
 
         assert_eq!(config.max_operations, 75_000);

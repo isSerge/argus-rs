@@ -231,11 +231,26 @@ mod tests {
         let app_config: AppConfig = builder.build().unwrap().try_deserialize().unwrap();
 
         let default_rhai_config = RhaiConfig::default();
-        assert_eq!(app_config.rhai.max_operations, default_rhai_config.max_operations);
-        assert_eq!(app_config.rhai.max_call_levels, default_rhai_config.max_call_levels);
-        assert_eq!(app_config.rhai.max_string_size, default_rhai_config.max_string_size);
-        assert_eq!(app_config.rhai.max_array_size, default_rhai_config.max_array_size);
-        assert_eq!(app_config.rhai.execution_timeout, default_rhai_config.execution_timeout);
+        assert_eq!(
+            app_config.rhai.max_operations,
+            default_rhai_config.max_operations
+        );
+        assert_eq!(
+            app_config.rhai.max_call_levels,
+            default_rhai_config.max_call_levels
+        );
+        assert_eq!(
+            app_config.rhai.max_string_size,
+            default_rhai_config.max_string_size
+        );
+        assert_eq!(
+            app_config.rhai.max_array_size,
+            default_rhai_config.max_array_size
+        );
+        assert_eq!(
+            app_config.rhai.execution_timeout,
+            default_rhai_config.execution_timeout
+        );
     }
 
     #[test]
@@ -265,9 +280,18 @@ mod tests {
 
         // Non-specified values should use defaults
         let default_rhai_config = RhaiConfig::default();
-        assert_eq!(app_config.rhai.max_call_levels, default_rhai_config.max_call_levels);
-        assert_eq!(app_config.rhai.max_string_size, default_rhai_config.max_string_size);
-        assert_eq!(app_config.rhai.max_array_size, default_rhai_config.max_array_size);
+        assert_eq!(
+            app_config.rhai.max_call_levels,
+            default_rhai_config.max_call_levels
+        );
+        assert_eq!(
+            app_config.rhai.max_string_size,
+            default_rhai_config.max_string_size
+        );
+        assert_eq!(
+            app_config.rhai.max_array_size,
+            default_rhai_config.max_array_size
+        );
     }
 
     #[test]
