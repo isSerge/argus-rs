@@ -49,7 +49,7 @@ pub type BigNumberResult<T> = Result<T, BigNumberError>;
 
 /// A universal number type that can represent values of any size
 /// and supports transparent operations between different number types.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum UniversalNumber {
     /// Small integers that fit in i64 (most common case)
     Small(i64),
@@ -276,6 +276,14 @@ impl Ord for UniversalNumber {
         }
     }
 }
+
+impl PartialEq for UniversalNumber {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Eq for UniversalNumber {}
 
 #[cfg(test)]
 mod tests {
@@ -701,6 +709,138 @@ mod tests {
         // This should fail since we don't handle decimal numbers
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), BigNumberError::ParseError { .. }));
+    }
+
+    #[test]
+    fn test_comparison_small_numbers() {
+        let a = UniversalNumber::Small(42);
+        let b = UniversalNumber::Small(100);
+        let c = UniversalNumber::Small(42);
+        let d = UniversalNumber::Small(-10);
+
+        // Test ordering
+        assert!(a < b);
+        assert!(b > a);
+        assert!(a == c);
+        assert!(a >= c);
+        assert!(a <= c);
+        assert!(d < a);
+        assert!(a > d);
+
+        // Test with zero
+        let zero = UniversalNumber::Small(0);
+        assert!(d < zero);
+        assert!(zero < a);
+        assert!(zero > d);
+    }
+
+    #[test]
+    fn test_comparison_small_vs_biguint() {
+        let small_pos = UniversalNumber::Small(42);
+        let small_neg = UniversalNumber::Small(-42);
+        let small_zero = UniversalNumber::Small(0);
+        let big_uint = UniversalNumber::BigUint(U256::from(100));
+        let big_uint_large = UniversalNumber::BigUint(U256::from_str("123456789012345678901234567890").unwrap());
+
+        // Positive small vs BigUint
+        assert!(small_pos < big_uint);
+        assert!(big_uint > small_pos);
+        assert!(small_pos < big_uint_large);
+
+        // Negative small vs BigUint (negative always less than positive BigUint)
+        assert!(small_neg < big_uint);
+        assert!(big_uint > small_neg);
+        assert!(small_neg < big_uint_large);
+
+        // Zero vs BigUint
+        let big_uint_zero = UniversalNumber::BigUint(U256::ZERO);
+        assert!(small_zero == big_uint_zero);
+        assert!(small_zero < big_uint);
+    }
+
+    #[test]
+    fn test_comparison_small_vs_bigint() {
+        let small_pos = UniversalNumber::Small(42);
+        let small_neg = UniversalNumber::Small(-42);
+        let big_int_pos = UniversalNumber::BigInt(I256::from_str("123456789012345678901234567890").unwrap());
+        let big_int_neg = UniversalNumber::BigInt(I256::from_str("-123456789012345678901234567890").unwrap());
+
+        // Small positive vs BigInt positive
+        assert!(small_pos < big_int_pos);
+        assert!(big_int_pos > small_pos);
+
+        // Small negative vs BigInt negative (smaller magnitude)
+        assert!(small_neg > big_int_neg);
+        assert!(big_int_neg < small_neg);
+
+        // Small positive vs BigInt negative
+        assert!(small_pos > big_int_neg);
+        assert!(big_int_neg < small_pos);
+
+        // Small negative vs BigInt positive
+        assert!(small_neg < big_int_pos);
+        assert!(big_int_pos > small_neg);
+    }
+
+    #[test]
+    fn test_comparison_biguint_vs_bigint() {
+        let big_uint = UniversalNumber::BigUint(U256::from_str("123456789012345678901234567890").unwrap());
+        let big_uint_zero = UniversalNumber::BigUint(U256::ZERO);
+        let big_int_pos = UniversalNumber::BigInt(I256::from_str("123456789012345678901234567890").unwrap());
+        let big_int_neg = UniversalNumber::BigInt(I256::from_str("-123456789012345678901234567890").unwrap());
+        let big_int_zero = UniversalNumber::BigInt(I256::ZERO);
+
+        // BigUint vs negative BigInt
+        assert!(big_uint > big_int_neg);
+        assert!(big_int_neg < big_uint);
+
+        // BigUint vs positive BigInt (same value)
+        assert!(big_uint == big_int_pos);
+        assert!(big_int_pos == big_uint);
+
+        // Zero comparisons
+        assert!(big_uint_zero == big_int_zero);
+        assert!(big_uint > big_int_neg);
+        assert!(big_uint_zero > big_int_neg);
+    }
+
+    #[test]
+    fn test_comparison_same_variants() {
+        // BigUint vs BigUint
+        let big_uint_1 = UniversalNumber::BigUint(U256::from(100));
+        let big_uint_2 = UniversalNumber::BigUint(U256::from(200));
+        assert!(big_uint_1 < big_uint_2);
+        assert!(big_uint_2 > big_uint_1);
+
+        // BigInt vs BigInt
+        let big_int_1 = UniversalNumber::BigInt(I256::from_str("100").unwrap());
+        let big_int_2 = UniversalNumber::BigInt(I256::from_str("200").unwrap());
+        let big_int_neg = UniversalNumber::BigInt(I256::from_str("-100").unwrap());
+        assert!(big_int_1 < big_int_2);
+        assert!(big_int_2 > big_int_1);
+        assert!(big_int_neg < big_int_1);
+        assert!(big_int_1 > big_int_neg);
+    }
+
+    #[test]
+    fn test_comparison_edge_cases() {
+        // i64::MAX boundary cases
+        let small_max = UniversalNumber::Small(i64::MAX);
+        let big_uint_just_above = UniversalNumber::BigUint(U256::from((i64::MAX as u64) + 1));
+        assert!(small_max < big_uint_just_above);
+
+        // Large BigUint vs I256::MAX boundary
+        let very_large_biguint = UniversalNumber::BigUint(U256::from_str("99999999999999999999999999999999999999999999999999999999999999999999999999999").unwrap());
+        let i256_max_bigint = UniversalNumber::BigInt(I256::MAX);
+        assert!(very_large_biguint > i256_max_bigint);
+
+        // Zero across all variants
+        let small_zero = UniversalNumber::Small(0);
+        let biguint_zero = UniversalNumber::BigUint(U256::ZERO);
+        let bigint_zero = UniversalNumber::BigInt(I256::ZERO);
+        assert!(small_zero == biguint_zero);
+        assert!(small_zero == bigint_zero);
+        assert!(biguint_zero == bigint_zero);
     }
 }
 
