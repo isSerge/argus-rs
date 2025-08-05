@@ -4,8 +4,8 @@
 //! numbers in Rhai scripts while maintaining performance for standard integer operations.
 //! Users wrap large numbers with `bigint()` and can then use standard operators seamlessly.
 
-use alloy::primitives::{I256, U256};
-use rhai::{Dynamic, EvalAltResult};
+use alloy::primitives::U256;
+use rhai::EvalAltResult;
 use std::fmt;
 use std::cmp::Ordering;
 
@@ -25,16 +25,6 @@ impl BigInt {
     /// Create a new BigInt from a U256 magnitude and sign
     pub fn new(magnitude: U256, is_negative: bool) -> Self {
         Self { magnitude, is_negative }
-    }
-    
-    /// Create a BigInt from a U256 value (always positive)
-    pub fn from_u256(value: U256) -> Self {
-        Self::new(value, false)
-    }
-    
-    /// Create a BigInt from an I256 value (preserving sign)
-    pub fn from_i256(value: I256) -> Self {
-        Self::new(value.unsigned_abs(), value.is_negative())
     }
     
     /// Create a BigInt from an i64 value
@@ -64,82 +54,14 @@ impl BigInt {
         }
     }
     
-    /// Get the magnitude (absolute value) as U256
-    pub fn magnitude(&self) -> U256 {
-        self.magnitude
-    }
-    
     /// Check if the value is negative
     pub fn is_negative(&self) -> bool {
         self.is_negative && !self.magnitude.is_zero()
     }
     
-    /// Check if the value is positive
-    pub fn is_positive(&self) -> bool {
-        !self.is_negative && !self.magnitude.is_zero()
-    }
-    
     /// Check if the value is zero
     pub fn is_zero(&self) -> bool {
         self.magnitude.is_zero()
-    }
-    
-    /// Convert to Dynamic for returning to Rhai
-    pub fn to_dynamic(&self) -> Dynamic {
-        // Try to fit in i64 first
-        if let Some(i64_val) = self.to_i64() {
-            Dynamic::from(i64_val)
-        } else {
-            // Return as string for large values
-            Dynamic::from(self.to_string())
-        }
-    }
-    
-    /// Try to convert to i64, returning None if out of range
-    pub fn to_i64(&self) -> Option<i64> {
-        if self.magnitude <= U256::from(i64::MAX as u64) {
-            let magnitude_i64 = self.magnitude.to::<u64>() as i64;
-            if self.is_negative {
-                Some(-magnitude_i64)
-            } else {
-                Some(magnitude_i64)
-            }
-        } else {
-            None
-        }
-    }
-    
-    /// Convert to I256 if possible
-    pub fn to_i256(&self) -> Option<I256> {
-        if self.is_negative {
-            // For negative values, check if magnitude fits in I256 positive range
-            if self.magnitude <= U256::try_from(I256::MAX).unwrap_or(U256::ZERO) {
-                I256::try_from(self.magnitude).ok().map(|val| -val)
-            } else {
-                None // Too large negative value for I256
-            }
-        } else {
-            // For positive values, convert directly
-            I256::try_from(self.magnitude).ok()
-        }
-    }
-    
-    /// Convert to U256 if positive, None if negative
-    pub fn to_u256(&self) -> Option<U256> {
-        if self.is_negative {
-            None
-        } else {
-            Some(self.magnitude)
-        }
-    }
-    
-    /// Convert to string representation
-    pub fn to_string(&self) -> String {
-        if self.is_negative && !self.is_zero() {
-            format!("-{}", self.magnitude)
-        } else {
-            self.magnitude.to_string()
-        }
     }
 }
 
@@ -347,7 +269,6 @@ pub fn register_bigint_with_rhai(engine: &mut rhai::Engine) {
 mod tests {
     use super::*;
     use rhai::Engine;
-    use std::str::FromStr;
 
     #[test]
     fn test_bigint_creation() {
@@ -467,36 +388,6 @@ mod tests {
         // Test division by zero
         let result = engine.eval::<BigInt>("bigint(42) / bigint(0)");
         assert!(result.is_err());
-    }
-    
-    #[test]
-    fn test_large_u256_values() {
-        // Test with U256::MAX (largest possible U256 value)
-        let u256_max_str = U256::MAX.to_string();
-        let big_u256_max = BigInt::from_string(&u256_max_str).unwrap();
-        assert!(!big_u256_max.is_negative());
-        assert_eq!(big_u256_max.to_string(), u256_max_str);
-        
-        // Test with a value larger than I256::MAX but smaller than U256::MAX
-        let large_u256 = U256::from_str("57896044618658097711785492504343953926634992332820282019728792003956564819968").unwrap(); // 2^255
-        let big_large = BigInt::from_u256(large_u256);
-        assert!(!big_large.is_negative());
-        assert_eq!(big_large.magnitude(), large_u256);
-        
-        // Test arithmetic with very large values
-        let big1 = BigInt::from_string("340282366920938463463374607431768211455").unwrap(); // 2^128 - 1
-        let big2 = BigInt::from_string("340282366920938463463374607431768211455").unwrap();
-        let result = big1.add(&big2).unwrap();
-        assert_eq!(result.to_string(), "680564733841876926926749214863536422910"); // 2^129 - 2
-    }
-
-    #[test]
-    fn test_from_i256_min() {
-        let i256_min = I256::MIN;
-        let big_int = BigInt::from_i256(i256_min);
-        assert!(big_int.is_negative());
-        assert_eq!(big_int.magnitude, i256_min.unsigned_abs());
-        assert_eq!(big_int.to_string(), i256_min.to_string());
     }
 
     #[test]
