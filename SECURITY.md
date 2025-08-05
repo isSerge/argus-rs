@@ -8,7 +8,7 @@ Security settings are configured in `config.yaml`:
 
 ```yaml
 rhai:
-  max_operations: 100000        # Maximum operations per script
+  max_operations: 100000       # Maximum operations per script
   max_call_levels: 10          # Maximum function nesting depth
   max_string_size: 8192        # Maximum string size in characters
   max_array_size: 1000         # Maximum array elements
