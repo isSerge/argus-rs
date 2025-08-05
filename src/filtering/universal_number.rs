@@ -514,5 +514,102 @@ mod tests {
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), BigNumberError::ParseError { .. }));
     }
+
+    #[test]
+    fn test_from_dynamic() {
+        // Test Rhai INT (i64) values
+        let rhai_int = rhai::Dynamic::from(42i64);
+        let result = UniversalNumber::from_dynamic(&rhai_int);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), UniversalNumber::Small(42));
+
+        // Test negative Rhai INT
+        let rhai_negative = rhai::Dynamic::from(-123i64);
+        let result = UniversalNumber::from_dynamic(&rhai_negative);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), UniversalNumber::Small(-123));
+
+        // Test zero Rhai INT
+        let rhai_zero = rhai::Dynamic::from(0i64);
+        let result = UniversalNumber::from_dynamic(&rhai_zero);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), UniversalNumber::Small(0));
+
+        // Test Rhai INT at boundaries
+        let rhai_max = rhai::Dynamic::from(i64::MAX);
+        let result = UniversalNumber::from_dynamic(&rhai_max);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), UniversalNumber::Small(i64::MAX));
+
+        let rhai_min = rhai::Dynamic::from(i64::MIN);
+        let result = UniversalNumber::from_dynamic(&rhai_min);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), UniversalNumber::Small(i64::MIN));
+
+        // Test String that fits in i64
+        let string_small = rhai::Dynamic::from("42".to_string());
+        let result = UniversalNumber::from_dynamic(&string_small);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), UniversalNumber::Small(42));
+
+        // Test String with negative number
+        let string_negative = rhai::Dynamic::from("-123".to_string());
+        let result = UniversalNumber::from_dynamic(&string_negative);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), UniversalNumber::Small(-123));
+
+        // Test String with large positive number
+        let string_large_pos = rhai::Dynamic::from("123456789012345678901234567890".to_string());
+        let result = UniversalNumber::from_dynamic(&string_large_pos);
+        assert!(result.is_ok());
+        match result.unwrap() {
+            UniversalNumber::BigUint(value) => {
+                assert_eq!(value, U256::from_str("123456789012345678901234567890").unwrap());
+            }
+            _ => panic!("Expected BigUint variant"),
+        }
+
+        // Test String with large negative number
+        let string_large_neg = rhai::Dynamic::from("-123456789012345678901234567890".to_string());
+        let result = UniversalNumber::from_dynamic(&string_large_neg);
+        assert!(result.is_ok());
+        match result.unwrap() {
+            UniversalNumber::BigInt(value) => {
+                assert_eq!(value, I256::from_str("-123456789012345678901234567890").unwrap());
+            }
+            _ => panic!("Expected BigInt variant"),
+        }
+
+        // Test String with whitespace
+        let string_whitespace = rhai::Dynamic::from("  42  ".to_string());
+        let result = UniversalNumber::from_dynamic(&string_whitespace);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), UniversalNumber::Small(42));
+
+        // Test invalid String
+        let invalid_string = rhai::Dynamic::from("not_a_number".to_string());
+        let result = UniversalNumber::from_dynamic(&invalid_string);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), BigNumberError::ParseError { .. }));
+
+        // Test empty String
+        let empty_string = rhai::Dynamic::from("".to_string());
+        let result = UniversalNumber::from_dynamic(&empty_string);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), BigNumberError::ParseError { .. }));
+
+        // Test boolean (should convert to string and fail parsing)
+        let rhai_bool = rhai::Dynamic::from(true);
+        let result = UniversalNumber::from_dynamic(&rhai_bool);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), BigNumberError::ParseError { .. }));
+
+        // Test float (should convert to string)
+        let rhai_float = rhai::Dynamic::from(42.5f64);
+        let result = UniversalNumber::from_dynamic(&rhai_float);
+        // This should fail since we don't handle decimal numbers
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), BigNumberError::ParseError { .. }));
+    }
 }
 
