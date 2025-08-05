@@ -106,32 +106,32 @@ impl RhaiFilteringEngine {
 
     /// Disable dangerous language features and standard library functions
     fn disable_dangerous_features(engine: &mut Engine) {
-        // Disable dynamic evaluation
-        engine.disable_symbol("eval");
-
-        // Disable module system
-        engine.disable_symbol("import");
-        engine.disable_symbol("export");
-
-        // Disable I/O operations
-        engine.disable_symbol("print");
-        engine.disable_symbol("debug");
-
-        // Disable file system access (if available)
-        engine.disable_symbol("File");
-        engine.disable_symbol("file");
-
-        // Disable network access (if available)
-        engine.disable_symbol("http");
-        engine.disable_symbol("net");
-
-        // Disable system access (if available)
-        engine.disable_symbol("system");
-        engine.disable_symbol("process");
-
-        // Disable threading (if available)
-        engine.disable_symbol("thread");
-        engine.disable_symbol("spawn");
+        // List of dangerous symbols to disable
+        const DANGEROUS_SYMBOLS: &[&str] = &[
+            // Dynamic evaluation
+            "eval",
+            // Module system
+            "import",
+            "export",
+            // I/O operations
+            "print",
+            "debug",
+            // File system access
+            "File",
+            "file",
+            // Network access
+            "http",
+            "net",
+            // System access
+            "system",
+            "process",
+            // Threading
+            "thread",
+            "spawn",
+        ];
+        for &symbol in DANGEROUS_SYMBOLS {
+            engine.disable_symbol(symbol);
+        }
     }
 
     /// Compile a script with security checks
