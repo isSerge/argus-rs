@@ -596,4 +596,158 @@ mod tests {
         );
         drop(monitors_read);
     }
+
+    #[tokio::test]
+    async fn test_evaluate_item_with_custom_rhai_config() {
+        let addr = address!("0000000000000000000000000000000000000001");
+        let monitor = create_test_monitor(1, &addr.to_checksum(None), "log.name == \"Transfer\"");
+        
+        // Create a custom RhaiConfig with restrictive limits
+        let custom_config = RhaiConfig {
+            max_operations: 1000,
+            max_call_levels: 5,
+            max_string_size: 100,
+            max_array_size: 10,
+            execution_timeout: Duration::from_millis(1000),
+        };
+        
+        let engine = RhaiFilteringEngine::new(vec![monitor], custom_config);
+
+        let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
+        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+
+        let matches = engine.evaluate_item(&item).await.unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].monitor_id, 1);
+        assert_eq!(matches[0].trigger_name, "Transfer");
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_item_with_very_restrictive_config() {
+        let addr = address!("0000000000000000000000000000000000000001");
+        // A more complex script that might hit operation limits
+        let monitor = create_test_monitor(
+            1,
+            &addr.to_checksum(None),
+            "log.name == \"Transfer\" && log.params.value > 0 && log.params.to != \"\" && log.params.from != \"\"",
+        );
+        
+        // Create a very restrictive RhaiConfig
+        let restrictive_config = RhaiConfig {
+            max_operations: 1, // Very low limit
+            max_call_levels: 1,
+            max_string_size: 10,
+            max_array_size: 1,
+            execution_timeout: Duration::from_millis(1),
+        };
+        
+        let engine = RhaiFilteringEngine::new(vec![monitor], restrictive_config);
+
+        let (tx, log) = create_test_log_and_tx(
+            addr,
+            "Transfer",
+            vec![
+                ("value".to_string(), DynSolValue::Uint(U256::from(100).into(), 256)),
+                ("to".to_string(), DynSolValue::String("0x123".to_string())),
+                ("from".to_string(), DynSolValue::String("0x456".to_string())),
+            ],
+        );
+        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+
+        let result = engine.evaluate_item(&item).await;
+        // With very restrictive limits, the script execution might fail,
+        // but the function should still return Ok and handle errors gracefully
+        assert!(result.is_ok());
+        // The matches might be empty due to execution limits, which is acceptable
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_item_with_zero_config_values() {
+        let addr = address!("0000000000000000000000000000000000000001");
+        let monitor = create_test_monitor(1, &addr.to_checksum(None), "true");
+        
+        // Create config with zero values (edge case)
+        let zero_config = RhaiConfig {
+            max_operations: 0,
+            max_call_levels: 0,
+            max_string_size: 0,
+            max_array_size: 0,
+            execution_timeout: Duration::from_millis(0),
+        };
+        
+        let engine = RhaiFilteringEngine::new(vec![monitor], zero_config);
+
+        let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
+        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+
+        let result = engine.evaluate_item(&item).await;
+        // Zero limits may prevent script execution, but Rhai might handle this differently
+        // The main thing is that the function handles this gracefully without panicking
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_item_complex_script_with_loops() {
+        let addr = address!("0000000000000000000000000000000000000001");
+        // Script with a loop that could potentially hit operation limits
+        let complex_script = "
+            let count = 0;
+            for i in 0..100 {
+                count += 1;
+            }
+            log.name == \"Transfer\" && count == 100
+        ";
+        let monitor = create_test_monitor(1, &addr.to_checksum(None), complex_script);
+        
+        let normal_config = RhaiConfig {
+            max_operations: 10_000, // Should be enough for the loop
+            max_call_levels: 10,
+            max_string_size: 1_000,
+            max_array_size: 200,
+            execution_timeout: Duration::from_millis(5_000),
+        };
+        
+        let engine = RhaiFilteringEngine::new(vec![monitor], normal_config);
+
+        let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
+        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+
+        let matches = engine.evaluate_item(&item).await.unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].monitor_id, 1);
+        assert_eq!(matches[0].trigger_name, "Transfer");
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_item_complex_script_exceeds_operation_limit() {
+        let addr = address!("0000000000000000000000000000000000000001");
+        // Script with a loop that will exceed operation limits
+        let complex_script = "
+            let count = 0;
+            for i in 0..1000 {
+                count += 1;
+            }
+            log.name == \"Transfer\"
+        ";
+        let monitor = create_test_monitor(1, &addr.to_checksum(None), complex_script);
+        
+        let restrictive_config = RhaiConfig {
+            max_operations: 100, // Not enough for the loop
+            max_call_levels: 10,
+            max_string_size: 1_000,
+            max_array_size: 200,
+            execution_timeout: Duration::from_millis(5_000),
+        };
+        
+        let engine = RhaiFilteringEngine::new(vec![monitor], restrictive_config);
+
+        let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
+        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+
+        let result = engine.evaluate_item(&item).await;
+        // Should handle operation limit gracefully
+        assert!(result.is_ok());
+        // No matches expected due to operation limit being exceeded
+        assert!(result.unwrap().is_empty());
+    }
 }
