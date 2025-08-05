@@ -65,9 +65,8 @@ impl BigInt {
     pub fn from_string(value: &str) -> Result<Self, BigIntError> {
         let trimmed = value.trim();
         
-        if trimmed.starts_with('-') {
+        if let Some(positive_str) = trimmed.strip_prefix('-') {
             // Negative number - parse without the minus sign
-            let positive_str = &trimmed[1..];
             positive_str.parse::<U256>()
                 .map(|magnitude| Self::new(magnitude, true))
                 .map_err(|e| BigIntError::ParseError {
@@ -270,7 +269,7 @@ pub fn bigint_constructor_int(value: i64) -> BigInt {
 /// Constructor function for creating BigInt from string
 pub fn bigint_constructor_string(value: String) -> Result<BigInt, Box<EvalAltResult>> {
     BigInt::from_string(&value)
-        .map_err(|e| format!("Failed to create BigInt from string: {}", e).into())
+        .map_err(|e| format!("Failed to create BigInt from string: {e}").into())
 }
 
 /// Register BigInt type and operations with Rhai engine
@@ -284,19 +283,19 @@ pub fn register_bigint_with_rhai(engine: &mut rhai::Engine) {
     
     // Register arithmetic operators for BigInt
     engine.register_fn("+", |left: BigInt, right: BigInt| -> Result<BigInt, Box<EvalAltResult>> {
-        left.add(&right).map_err(|e| format!("BigInt addition failed: {}", e).into())
+        left.add(&right).map_err(|e| format!("BigInt addition failed: {e}").into())
     });
     
     engine.register_fn("-", |left: BigInt, right: BigInt| -> Result<BigInt, Box<EvalAltResult>> {
-        left.sub(&right).map_err(|e| format!("BigInt subtraction failed: {}", e).into())
+        left.sub(&right).map_err(|e| format!("BigInt subtraction failed: {e}").into())
     });
     
     engine.register_fn("*", |left: BigInt, right: BigInt| -> Result<BigInt, Box<EvalAltResult>> {
-        left.mul(&right).map_err(|e| format!("BigInt multiplication failed: {}", e).into())
+        left.mul(&right).map_err(|e| format!("BigInt multiplication failed: {e}").into())
     });
     
     engine.register_fn("/", |left: BigInt, right: BigInt| -> Result<BigInt, Box<EvalAltResult>> {
-        left.div(&right).map_err(|e| format!("BigInt division failed: {}", e).into())
+        left.div(&right).map_err(|e| format!("BigInt division failed: {e}").into())
     });
     
     // Register comparison operators for BigInt
