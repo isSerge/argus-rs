@@ -147,5 +147,42 @@ impl UniversalNumber {
             Self::from_string(&string_repr)
         }
     }
+    
+    /// Convert a UniversalNumber to a Rhai Dynamic value
+    /// Large numbers are converted to strings to preserve precision
+    pub fn to_dynamic(&self) -> rhai::Dynamic {
+        match self {
+            UniversalNumber::Small(value) => (*value).into(),
+            UniversalNumber::BigUint(value) => value.to_string().into(),
+            UniversalNumber::BigInt(value) => value.to_string().into(),
+        }
+    }
+
+    /// Check if the number is zero
+    pub fn is_zero(&self) -> bool {
+        match self {
+            UniversalNumber::Small(value) => *value == 0,
+            UniversalNumber::BigUint(value) => value.is_zero(),
+            UniversalNumber::BigInt(value) => value.is_zero(),
+        }
+    }
+
+    /// Check if the number is positive (greater than zero)
+    pub fn is_positive(&self) -> bool {
+        match self {
+            UniversalNumber::Small(value) => *value > 0,
+            UniversalNumber::BigUint(value) => !value.is_zero(), // U256 is always non-negative, so non-zero means positive
+            UniversalNumber::BigInt(value) => value.is_positive(),
+        }
+    }
+
+    /// Check if the number is negative (less than zero)
+    pub fn is_negative(&self) -> bool {
+        match self {
+            UniversalNumber::Small(value) => *value < 0,
+            UniversalNumber::BigUint(_) => false, // U256 is always non-negative
+            UniversalNumber::BigInt(value) => value.is_negative(),
+        }
+    }
 }
 
