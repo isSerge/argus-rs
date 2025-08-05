@@ -34,14 +34,7 @@ impl BigInt {
     
     /// Create a BigInt from an I256 value (preserving sign)
     pub fn from_i256(value: I256) -> Self {
-        if value.is_negative() {
-            // Convert negative I256 to positive U256 magnitude
-            let magnitude = U256::try_from(-value).unwrap_or(U256::ZERO);
-            Self::new(magnitude, true)
-        } else {
-            let magnitude = U256::try_from(value).unwrap_or(U256::ZERO);
-            Self::new(magnitude, false)
-        }
+        Self::new(value.unsigned_abs(), value.is_negative())
     }
     
     /// Create a BigInt from an i64 value
@@ -154,7 +147,7 @@ impl BigInt {
 impl BigInt {
     /// Add two BigInt values
     pub fn add(&self, other: &BigInt) -> Result<BigInt, String> {
-        match (self.is_negative, other.is_negative) {
+        match (self.is_negative(), other.is_negative()) {
             (false, false) => {
                 // Both positive: simple addition
                 self.magnitude.checked_add(other.magnitude)
@@ -188,9 +181,32 @@ impl BigInt {
     
     /// Subtract two BigInt values (self - other)
     pub fn sub(&self, other: &BigInt) -> Result<BigInt, String> {
-        // Subtraction is addition with negated second operand
-        let negated_other = BigInt::new(other.magnitude, !other.is_negative);
-        self.add(&negated_other)
+        match (self.is_negative(), other.is_negative()) {
+            (false, true) => { // self is positive, other is negative: self - (-other) = self + other
+                self.magnitude.checked_add(other.magnitude)
+                    .map(|result| BigInt::new(result, false))
+                    .ok_or_else(|| "BigInt subtraction overflow".to_string())
+            }
+            (true, false) => { // self is negative, other is positive: -self - other = -(self + other)
+                self.magnitude.checked_add(other.magnitude)
+                    .map(|result| BigInt::new(result, true))
+                    .ok_or_else(|| "BigInt subtraction overflow".to_string())
+            }
+            (false, false) => { // both positive: self - other
+                if self.magnitude >= other.magnitude {
+                    Ok(BigInt::new(self.magnitude - other.magnitude, false))
+                } else {
+                    Ok(BigInt::new(other.magnitude - self.magnitude, true))
+                }
+            }
+            (true, true) => { // both negative: -self - (-other) = other - self
+                if other.magnitude >= self.magnitude {
+                    Ok(BigInt::new(other.magnitude - self.magnitude, false))
+                } else {
+                    Ok(BigInt::new(self.magnitude - other.magnitude, true))
+                }
+            }
+        }
     }
     
     /// Multiply two BigInt values
@@ -337,11 +353,10 @@ mod tests {
     fn test_bigint_creation() {
         let big1 = BigInt::from_int(42);
         assert!(!big1.is_zero());
-        assert!(big1.is_positive());
         assert!(!big1.is_negative());
         
         let big2 = BigInt::from_string("123456789012345678901234567890").unwrap();
-        assert!(big2.is_positive());
+        assert!(!big2.is_negative());
         
         let big3 = BigInt::from_string("-999999999999999999999999999999").unwrap();
         assert!(big3.is_negative());
@@ -358,6 +373,9 @@ mod tests {
         let result = big1.sub(&big2).unwrap();
         assert_eq!(result.to_string(), "-16");
         
+        let result = big2.sub(&big1).unwrap();
+        assert_eq!(result.to_string(), "16");
+
         let result = big1.mul(&big2).unwrap();
         assert_eq!(result.to_string(), "2436");
         
@@ -456,13 +474,13 @@ mod tests {
         // Test with U256::MAX (largest possible U256 value)
         let u256_max_str = U256::MAX.to_string();
         let big_u256_max = BigInt::from_string(&u256_max_str).unwrap();
-        assert!(big_u256_max.is_positive());
+        assert!(!big_u256_max.is_negative());
         assert_eq!(big_u256_max.to_string(), u256_max_str);
         
         // Test with a value larger than I256::MAX but smaller than U256::MAX
         let large_u256 = U256::from_str("57896044618658097711785492504343953926634992332820282019728792003956564819968").unwrap(); // 2^255
         let big_large = BigInt::from_u256(large_u256);
-        assert!(big_large.is_positive());
+        assert!(!big_large.is_negative());
         assert_eq!(big_large.magnitude(), large_u256);
         
         // Test arithmetic with very large values
@@ -470,5 +488,59 @@ mod tests {
         let big2 = BigInt::from_string("340282366920938463463374607431768211455").unwrap();
         let result = big1.add(&big2).unwrap();
         assert_eq!(result.to_string(), "680564733841876926926749214863536422910"); // 2^129 - 2
+    }
+
+    #[test]
+    fn test_from_i256_min() {
+        let i256_min = I256::MIN;
+        let big_int = BigInt::from_i256(i256_min);
+        assert!(big_int.is_negative());
+        assert_eq!(big_int.magnitude, i256_min.unsigned_abs());
+        assert_eq!(big_int.to_string(), i256_min.to_string());
+    }
+
+    #[test]
+    fn test_subtraction_scenarios() {
+        // pos - neg = pos
+        let a = BigInt::from_int(10);
+        let b = BigInt::from_int(-5);
+        let res = a.sub(&b).unwrap();
+        assert_eq!(res.to_string(), "15");
+        assert!(!res.is_negative());
+
+        // neg - pos = neg
+        let a = BigInt::from_int(-10);
+        let b = BigInt::from_int(5);
+        let res = a.sub(&b).unwrap();
+        assert_eq!(res.to_string(), "-15");
+        assert!(res.is_negative());
+
+        // pos - pos (res pos)
+        let a = BigInt::from_int(10);
+        let b = BigInt::from_int(5);
+        let res = a.sub(&b).unwrap();
+        assert_eq!(res.to_string(), "5");
+        assert!(!res.is_negative());
+
+        // pos - pos (res neg)
+        let a = BigInt::from_int(5);
+        let b = BigInt::from_int(10);
+        let res = a.sub(&b).unwrap();
+        assert_eq!(res.to_string(), "-5");
+        assert!(res.is_negative());
+
+        // neg - neg (res pos)
+        let a = BigInt::from_int(-5);
+        let b = BigInt::from_int(-10);
+        let res = a.sub(&b).unwrap();
+        assert_eq!(res.to_string(), "5");
+        assert!(!res.is_negative());
+
+        // neg - neg (res neg)
+        let a = BigInt::from_int(-10);
+        let b = BigInt::from_int(-5);
+        let res = a.sub(&b).unwrap();
+        assert_eq!(res.to_string(), "-5");
+        assert!(res.is_negative());
     }
 }
