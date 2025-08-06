@@ -2,6 +2,7 @@
 
 mod retry;
 mod rhai;
+mod monitor_loader;
 
 use config::{Config, ConfigError, File};
 pub use retry::RetryConfig;
