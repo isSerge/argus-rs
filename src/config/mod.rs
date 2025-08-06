@@ -1,13 +1,13 @@
 //! Configuration module for Argus.
 
+mod monitor_loader;
 mod retry;
 mod rhai;
-mod monitor_loader;
 
 use config::{Config, ConfigError, File};
+pub use monitor_loader::{MonitorLoader, MonitorLoaderError};
 pub use retry::RetryConfig;
 pub use rhai::RhaiConfig;
-pub use monitor_loader::{MonitorLoader, MonitorLoaderError};
 use serde::{Deserialize, Deserializer};
 use url::Url;
 
