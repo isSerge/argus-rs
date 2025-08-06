@@ -76,7 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    let block_processor = BlockProcessor::new(abi_service, filtering_engine);
+    let block_processor = BlockProcessor::new(abi_service);
     tracing::info!("BlockProcessor initialized successfully.");
 
     tracing::info!(network_id = %config.network_id, "Starting EVM monitor.");
@@ -180,10 +180,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[tracing::instrument(skip(repo, data_source, block_processor, shutdown_rx), level = "debug")]
-async fn monitor_cycle<F: FilteringEngine>(
+async fn monitor_cycle(
     repo: &SqliteStateRepository,
     data_source: &impl DataSource,
-    block_processor: &BlockProcessor<F>,
+    block_processor: &BlockProcessor,
     needs_receipts: bool,
     network_id: &str,
     block_chunk_size: u64,
@@ -294,7 +294,7 @@ async fn monitor_cycle<F: FilteringEngine>(
             .collect();
 
         match block_processor.process_blocks_batch(block_data_vec).await {
-            Ok(all_matches) => {
+            Ok(decoded_blocks) => {
                 // Log results for each block
                 for (block_num, block_data) in &blocks_to_process {
                     let tx_count = block_data.block.transactions.len();
@@ -318,15 +318,15 @@ async fn monitor_cycle<F: FilteringEngine>(
                 tracing::info!(
                     network_id = %network_id,
                     blocks_processed = blocks_processed_this_cycle,
-                    total_matches = all_matches.len(),
+                    total_matches = decoded_blocks.len(),
                     "Batch processing completed successfully."
                 );
 
-                // TODO: Store matches in database or send to notification system
-                if !all_matches.is_empty() {
+                // TODO: send decoded_blocks to the filtering engine
+                if !decoded_blocks.is_empty() {
                     tracing::info!(
                         network_id = %network_id,
-                        matches_count = all_matches.len(),
+                        matches_count = decoded_blocks.len(),
                         "Found monitor matches in batch."
                     );
                 }
@@ -336,18 +336,6 @@ async fn monitor_cycle<F: FilteringEngine>(
                     network_id = %network_id,
                     error = %e,
                     "ABI service error during batch processing, continuing."
-                );
-                // Still update the processed blocks since data was fetched successfully
-                for (block_num, _) in &blocks_to_process {
-                    last_processed = Some(*block_num);
-                    blocks_processed_this_cycle += 1;
-                }
-            }
-            Err(BlockProcessorError::FilteringEngine(e)) => {
-                tracing::error!(
-                    network_id = %network_id,
-                    error = %e,
-                    "Filtering engine error during batch processing."
                 );
                 // Still update the processed blocks since data was fetched successfully
                 for (block_num, _) in &blocks_to_process {
