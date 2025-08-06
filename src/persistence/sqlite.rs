@@ -9,6 +9,32 @@ use sqlx::{
 use std::str::FromStr;
 use super::traits::StateRepository;
 
+/// SQL query constants for monitor operations
+mod monitor_sql {
+    /// Select all monitors for a specific network
+    pub const SELECT_MONITORS_BY_NETWORK: &str = 
+        "SELECT monitor_id, name, network, address, filter_script, created_at, updated_at FROM monitors WHERE network = ?";
+    
+    /// Insert a new monitor
+    pub const INSERT_MONITOR: &str = 
+        "INSERT INTO monitors (name, network, address, filter_script) VALUES (?, ?, ?, ?)";
+    
+    /// Delete all monitors for a specific network
+    pub const DELETE_MONITORS_BY_NETWORK: &str = 
+        "DELETE FROM monitors WHERE network = ?";
+}
+
+/// SQL query constants for processed blocks operations  
+mod block_sql {
+    /// Select last processed block for a network
+    pub const SELECT_LAST_PROCESSED_BLOCK: &str = 
+        "SELECT block_number FROM processed_blocks WHERE network_id = ?";
+    
+    /// Insert or replace last processed block
+    pub const UPSERT_LAST_PROCESSED_BLOCK: &str = 
+        "INSERT OR REPLACE INTO processed_blocks (network_id, block_number) VALUES (?, ?)";
+}
+
 /// A concrete implementation of the StateRepository using SQLite.
 pub struct SqliteStateRepository {
     /// The SQLite connection pool used for database operations.
@@ -119,7 +145,7 @@ impl StateRepository for SqliteStateRepository {
         let result: Option<SqliteRow> = self
             .execute_query_with_error_handling(
                 "query last processed block",
-                sqlx::query("SELECT block_number FROM processed_blocks WHERE network_id = ?")
+                sqlx::query(block_sql::SELECT_LAST_PROCESSED_BLOCK)
                     .bind(network_id)
                     .fetch_optional(&self.pool),
             )
@@ -176,9 +202,7 @@ impl StateRepository for SqliteStateRepository {
 
         self.execute_query_with_error_handling(
             "set last processed block",
-            sqlx::query(
-                "INSERT OR REPLACE INTO processed_blocks (network_id, block_number) VALUES (?, ?)",
-            )
+            sqlx::query(block_sql::UPSERT_LAST_PROCESSED_BLOCK)
             .bind(network_id)
             .bind(block_number_i64)
             .execute(&self.pool),
@@ -263,7 +287,7 @@ impl StateRepository for SqliteStateRepository {
         let monitors = self
             .execute_query_with_error_handling(
                 "query monitors",
-                sqlx::query_as::<_, Monitor>("SELECT monitor_id, name, network, address, filter_script, created_at, updated_at FROM monitors WHERE network = ?")
+                sqlx::query_as::<_, Monitor>(monitor_sql::SELECT_MONITORS_BY_NETWORK)
                     .bind(network_id)
                     .fetch_all(&self.pool),
             )
@@ -299,7 +323,7 @@ impl StateRepository for SqliteStateRepository {
 
         for monitor in monitors {
             sqlx::query(
-                "INSERT INTO monitors (name, network, address, filter_script) VALUES (?, ?, ?, ?)"
+                monitor_sql::INSERT_MONITOR
             )
             .bind(&monitor.name)
             .bind(&monitor.network)
@@ -323,7 +347,7 @@ impl StateRepository for SqliteStateRepository {
         let result = self
             .execute_query_with_error_handling(
                 "clear monitors",
-                sqlx::query("DELETE FROM monitors WHERE network = ?")
+                sqlx::query(monitor_sql::DELETE_MONITORS_BY_NETWORK)
                     .bind(network_id)
                     .execute(&self.pool),
             )
