@@ -9,7 +9,7 @@ use argus::{
         block_processor::{BlockProcessor, BlockProcessorError},
         filtering::{FilteringEngine, RhaiFilteringEngine},
     },
-    models::BlockData,
+    models::{BlockData, DecodedBlockData},
     persistence::{sqlite::SqliteStateRepository, traits::StateRepository},
     providers::{
         rpc::{EvmRpcSource, create_provider},
@@ -44,10 +44,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Load monitors from the configuration file if specified. This will overwrite
     // existing monitors for the same network in the database.
-    if let Some(monitor_config_path) = &config.monitor_config_path {
-        if let Err(e) = load_monitors_from_file(&repo, &config.network_id, monitor_config_path).await {
-            tracing::error!(error = %e, "Failed to load monitors from file, continuing with monitors already in database (if any).");
-        }
+    if let Some(monitor_config_path) = &config.monitor_config_path
+        && let Err(e) =
+            load_monitors_from_file(&repo, &config.network_id, monitor_config_path).await
+    {
+        tracing::error!(error = %e, "Failed to load monitors from file, continuing with monitors already in database (if any).");
     }
 
     // Always load the monitors for the filtering engine from the database,
@@ -80,6 +81,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("BlockProcessor initialized successfully.");
 
     tracing::info!(network_id = %config.network_id, "Starting EVM monitor.");
+
+    // Create a channel for decoded blocks
+    let (decoded_blocks_tx, decoded_blocks_rx) =
+        tokio::sync::mpsc::channel::<DecodedBlockData>(config.block_chunk_size as usize * 2);
+
+    // Spawn the filtering engine task
+    let filtering_engine_arc = Arc::new(filtering_engine);
+    let filtering_engine_task = tokio::spawn(async move {
+        filtering_engine_arc.run(decoded_blocks_rx).await;
+    });
+
+    let decoded_blocks_sender = decoded_blocks_tx.clone();
 
     // Create a watch channel for shutdown signals
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
@@ -124,6 +137,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             _ = shutdown_rx_loop.changed() => {
                 tracing::info!("Shutdown signal received, initiating graceful shutdown.");
 
+                // Drop decoded block sender to close channel
+                drop(decoded_blocks_sender);
+
+                // Wait for the filtering engine task to finish
+                if let Err(e) = tokio::time::timeout(shutdown_timeout, filtering_engine_task).await {
+                    tracing::warn!("Filtering engine task did not shutdown gracefully: {}", e);
+                } else {
+                    tracing::info!("Filtering engine task completed successfully.");
+                }
+
                 // Give ongoing operations time to complete gracefully
                 tracing::info!("Waiting up to {} seconds for ongoing operations to complete...", shutdown_timeout.as_secs());
 
@@ -159,6 +182,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 config.block_chunk_size,
                 config.confirmation_blocks,
                 shutdown_rx.clone(),
+                decoded_blocks_tx.clone(),
             ) => {
                 match result {
                     Ok(_) => {
@@ -189,6 +213,7 @@ async fn monitor_cycle(
     block_chunk_size: u64,
     confirmation_blocks: u64,
     shutdown_rx: tokio::sync::watch::Receiver<bool>,
+    decoded_blocks_tx: tokio::sync::mpsc::Sender<DecodedBlockData>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 1. Read the last processed block from the StateRepository
     tracing::debug!(network_id = %network_id, "Fetching last processed block from state repository.");
@@ -309,26 +334,26 @@ async fn monitor_cycle(
                         log_count = log_count,
                         "Processed block in batch."
                     );
-
-                    last_processed = Some(*block_num);
-                    blocks_processed_this_cycle += 1;
                 }
 
-                // Log overall batch results
-                tracing::info!(
-                    network_id = %network_id,
-                    blocks_processed = blocks_processed_this_cycle,
-                    total_matches = decoded_blocks.len(),
-                    "Batch processing completed successfully."
-                );
+                // Send decoded blocks to the filtering engine
+                for decoded_block in decoded_blocks {
+                    let block_num = decoded_block.block_number;
+                    if decoded_blocks_tx.send(decoded_block).await.is_err() {
+                        tracing::warn!(
+                            network_id = %network_id,
+                            "Decoded blocks channel closed, stopping further processing."
+                        );
+                        break;
+                    } else {
+                        tracing::info!(
+                            network_id = %network_id,
+                            "Sent decoded block for further processing."
+                        );
+                    }
 
-                // TODO: send decoded_blocks to the filtering engine
-                if !decoded_blocks.is_empty() {
-                    tracing::info!(
-                        network_id = %network_id,
-                        matches_count = decoded_blocks.len(),
-                        "Found monitor matches in batch."
-                    );
+                    last_processed = Some(block_num);
+                    blocks_processed_this_cycle += 1;
                 }
             }
             Err(BlockProcessorError::AbiService(e)) => {
@@ -337,11 +362,6 @@ async fn monitor_cycle(
                     error = %e,
                     "ABI service error during batch processing, continuing."
                 );
-                // Still update the processed blocks since data was fetched successfully
-                for (block_num, _) in &blocks_to_process {
-                    last_processed = Some(*block_num);
-                    blocks_processed_this_cycle += 1;
-                }
             }
         }
     }
@@ -484,7 +504,7 @@ async fn load_monitors_from_file(
     config_path: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     tracing::debug!(config_path = %config_path, "Loading monitors from configuration file...");
-    
+
     let monitor_loader = MonitorLoader::new(PathBuf::from(config_path));
     let monitors = monitor_loader.load()?;
     let count = monitors.len();
