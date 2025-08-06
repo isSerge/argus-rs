@@ -1,6 +1,7 @@
 //! This module provides a concrete implementation of the StateRepository using SQLite.
 
 use async_trait::async_trait;
+use crate::models::monitor::Monitor;
 use sqlx::{
     Row, SqlitePool,
     sqlite::{SqliteConnectOptions, SqliteRow},
@@ -249,6 +250,87 @@ impl StateRepository for SqliteStateRepository {
             "Emergency state saved and flushed successfully."
         );
 
+        Ok(())
+    }
+
+    // Monitor management operations
+
+    /// Retrieves all monitors for a specific network.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn get_monitors(&self, network_id: &str) -> Result<Vec<Monitor>, sqlx::Error> {
+        tracing::debug!(network_id, "Querying for monitors.");
+
+        let monitors = self
+            .execute_query_with_error_handling(
+                "query monitors",
+                sqlx::query_as::<_, Monitor>("SELECT monitor_id, name, network, address, filter_script FROM monitors WHERE network = ?")
+                    .bind(network_id)
+                    .fetch_all(&self.pool),
+            )
+            .await?;
+
+        tracing::debug!(network_id, monitor_count = monitors.len(), "Monitors retrieved successfully.");
+        Ok(monitors)
+    }
+
+    /// Adds multiple monitors for a specific network.
+    #[tracing::instrument(skip(self, monitors), level = "debug")]
+    async fn add_monitors(&self, network_id: &str, monitors: Vec<Monitor>) -> Result<(), sqlx::Error> {
+        tracing::debug!(network_id, monitor_count = monitors.len(), "Adding monitors.");
+
+        // Validate that all monitors belong to the correct network
+        for monitor in &monitors {
+            if monitor.network != network_id {
+                tracing::error!(
+                    expected_network = network_id,
+                    actual_network = monitor.network,
+                    monitor_name = monitor.name,
+                    "Monitor network mismatch."
+                );
+                return Err(sqlx::Error::Protocol(format!(
+                    "Monitor '{}' has network '{}' but expected '{}'",
+                    monitor.name, monitor.network, network_id
+                )));
+            }
+        }
+
+        // Insert monitors in a transaction for atomicity
+        let mut tx = self.pool.begin().await?;
+
+        for monitor in monitors {
+            sqlx::query(
+                "INSERT INTO monitors (name, network, address, filter_script) VALUES (?, ?, ?, ?)"
+            )
+            .bind(&monitor.name)
+            .bind(&monitor.network)
+            .bind(&monitor.address)
+            .bind(&monitor.filter_script)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+
+        tracing::info!(network_id, "Monitors added successfully.");
+        Ok(())
+    }
+
+    /// Clears all monitors for a specific network.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn clear_monitors(&self, network_id: &str) -> Result<(), sqlx::Error> {
+        tracing::debug!(network_id, "Clearing monitors.");
+
+        let result = self
+            .execute_query_with_error_handling(
+                "clear monitors",
+                sqlx::query("DELETE FROM monitors WHERE network = ?")
+                    .bind(network_id)
+                    .execute(&self.pool),
+            )
+            .await?;
+
+        let deleted_count = result.rows_affected();
+        tracing::info!(network_id, deleted_count, "Monitors cleared successfully.");
         Ok(())
     }
 }
