@@ -4,11 +4,13 @@
 //! including log decoding, data correlation, and applying filtering logic.
 //! It supports both single block processing and batch processing for improved throughput.
 
-use super::filtering::FilteringEngine;
 use crate::abi::{AbiService, DecodedLog};
+use crate::models::DecodedBlockData;
 use crate::models::transaction::Transaction;
-use crate::models::{BlockData, CorrelatedBlockItem, monitor_match::MonitorMatch};
+use crate::models::{BlockData, CorrelatedBlockItem};
 use alloy::rpc::types::BlockTransactions;
+use futures::future::join_all;
+use std::result;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -18,25 +20,18 @@ pub enum BlockProcessorError {
     /// Wrapper for errors from the `AbiService`.
     #[error("ABI service error: {0}")]
     AbiService(#[from] crate::abi::AbiError),
-    /// Wrapper for errors from the `FilteringEngine`.
-    #[error("Filtering engine error: {0}")]
-    FilteringEngine(Box<dyn std::error::Error + Send + Sync>),
 }
 
 /// The `BlockProcessor` is responsible for in-memory processing of `BlockData`.
-/// This includes decoding logs, correlating data, and applying matching logic.
-pub struct BlockProcessor<F: FilteringEngine> {
+/// This includes decoding logs and correlating data
+pub struct BlockProcessor {
     abi_service: Arc<AbiService>,
-    filtering_engine: F,
 }
 
-impl<F: FilteringEngine> BlockProcessor<F> {
-    /// Creates a new `BlockProcessor` with the provided `AbiService` and `FilteringEngine`.
-    pub fn new(abi_service: Arc<AbiService>, filtering_engine: F) -> Self {
-        Self {
-            abi_service,
-            filtering_engine,
-        }
+impl BlockProcessor {
+    /// Creates a new `BlockProcessor` with the provided `AbiService`.
+    pub fn new(abi_service: Arc<AbiService>) -> Self {
+        Self { abi_service }
     }
 
     /// Processes the given `BlockData`, decodes logs, correlates data,
@@ -44,13 +39,21 @@ impl<F: FilteringEngine> BlockProcessor<F> {
     pub async fn process_block(
         &self,
         block_data: BlockData,
-    ) -> Result<Vec<MonitorMatch>, BlockProcessorError> {
+    ) -> Result<DecodedBlockData, BlockProcessorError> {
         tracing::debug!(
             block_number = block_data.block.header.number,
             "Processing block data."
         );
 
-        let mut all_matches: Vec<MonitorMatch> = Vec::new();
+        let num_txs = match &block_data.block.transactions {
+            BlockTransactions::Full(txs) => txs.len(),
+            _ => 0,
+        };
+
+        let mut decoded_block = DecodedBlockData {
+            block_number: block_data.block.header.number,
+            items: Vec::with_capacity(num_txs),
+        };
 
         match block_data.block.transactions {
             BlockTransactions::Full(transactions) => {
@@ -59,11 +62,8 @@ impl<F: FilteringEngine> BlockProcessor<F> {
                     let tx_hash = tx.hash();
 
                     // Get the logs for this transaction, if any.
-                    let raw_logs_for_tx = block_data
-                        .logs
-                        .get(&tx_hash)
-                        .cloned()
-                        .unwrap_or_default();
+                    let raw_logs_for_tx =
+                        block_data.logs.get(&tx_hash).cloned().unwrap_or_default();
 
                     let mut decoded_logs: Vec<DecodedLog> = Vec::new();
                     for log in &raw_logs_for_tx {
@@ -86,27 +86,17 @@ impl<F: FilteringEngine> BlockProcessor<F> {
 
                     let correlated_item = CorrelatedBlockItem::new(tx, decoded_logs, receipt);
 
-                    // Apply matching logic using the FilteringEngine
-                    match self.filtering_engine.evaluate_item(&correlated_item).await {
-                        Ok(matches) => all_matches.extend(matches),
-                        Err(e) => {
-                            tracing::error!(
-                                tx_hash = %tx_hash,
-                                error = %e,
-                                "Error evaluating correlated block item."
-                            );
-                            return Err(BlockProcessorError::FilteringEngine(e));
-                        }
-                    }
+                    decoded_block.items.push(correlated_item);
                 }
+
+                Ok(decoded_block)
             }
             BlockTransactions::Hashes(_) | BlockTransactions::Uncle => {
                 tracing::warn!("Full transactions are required for processing.");
                 // For now, we'll just skip processing this block.
+                Ok(decoded_block)
             }
         }
-
-        Ok(all_matches)
     }
 
     /// Processes multiple blocks in a batch for better performance.
@@ -115,53 +105,33 @@ impl<F: FilteringEngine> BlockProcessor<F> {
     pub async fn process_blocks_batch(
         &self,
         blocks: Vec<BlockData>,
-    ) -> Result<Vec<MonitorMatch>, BlockProcessorError> {
+    ) -> Result<Vec<DecodedBlockData>, BlockProcessorError> {
         if blocks.is_empty() {
             return Ok(Vec::new());
         }
 
+        let count = blocks.len();
+
         tracing::debug!(
-            block_count = blocks.len(),
+            block_count = count,
             first_block = blocks.first().map(|b| b.block.header.number),
             last_block = blocks.last().map(|b| b.block.header.number),
             "Processing batch of blocks."
         );
 
-        let mut all_matches = Vec::new();
+        let processing_futures = blocks
+            .into_iter()
+            .map(|block_data| self.process_block(block_data));
 
-        // Process blocks sequentially but with async operations
-        for block_data in blocks {
-            let block_number = block_data.block.header.number;
+        let results = join_all(processing_futures).await;
 
-            tracing::trace!(block_number = block_number, "Processing block in batch.");
+        let decoded_blocks = results
+            .into_iter()
+            .collect::<result::Result<Vec<_>, BlockProcessorError>>();
 
-            match self.process_block(block_data).await {
-                Ok(matches) => {
-                    let matches_count = matches.len();
-                    all_matches.extend(matches);
-                    tracing::trace!(
-                        block_number = block_number,
-                        matches_count = matches_count,
-                        "Block processed successfully in batch."
-                    );
-                }
-                Err(e) => {
-                    tracing::error!(
-                        block_number = block_number,
-                        error = %e,
-                        "Error processing block in batch."
-                    );
-                    return Err(e);
-                }
-            }
-        }
+        tracing::info!(total_decoded_blocks = count, "Batch processing completed.");
 
-        tracing::info!(
-            total_matches = all_matches.len(),
-            "Batch processing completed."
-        );
-
-        Ok(all_matches)
+        decoded_blocks
     }
 }
 
@@ -170,16 +140,13 @@ mod tests {
     use super::*;
     use crate::{
         abi::AbiService,
-        engine::filtering::MockFilteringEngine,
-        models::{block_data::BlockData, monitor_match::MonitorMatch},
+        models::block_data::BlockData,
         test_helpers::{BlockBuilder, LogBuilder, TransactionBuilder},
     };
     use alloy::{
         json_abi::JsonAbi,
         primitives::{Address, B256, Bytes, U256, address, b256},
     };
-    use mockall::predicate::*;
-    use serde_json::Value;
     use std::{collections::HashMap, sync::Arc};
 
     fn simple_abi() -> JsonAbi {
@@ -239,80 +206,42 @@ mod tests {
 
         let block_data = BlockData::new(block, HashMap::new(), logs_by_tx);
 
-        // 3. Setup MockFilteringEngine
-        let mut filtering_engine = MockFilteringEngine::new();
-        filtering_engine
-            .expect_evaluate_item()
-            .times(1)
-            .returning(move |item| {
-                if item.decoded_logs.iter().any(|log| log.name == "Transfer") {
-                    let monitor_match = MonitorMatch {
-                        monitor_id: 1,
-                        transaction_hash: item.tx_hash(),
-                        block_number: item.transaction.block_number().unwrap_or(0),
-                        contract_address: item.transaction.to().unwrap_or_default(),
-                        trigger_name: "Transfer".to_string(),
-                        trigger_data: Value::Null,
-                        log_index: None,
-                    };
-                    return Ok(vec![monitor_match]);
-                }
-                Ok(vec![])
-            });
+        // 3. Setup BlockProcessor
+        let block_processor = BlockProcessor::new(abi_service);
 
-        // This is required for the mock to be valid
-        filtering_engine.expect_update_monitors().returning(|_| ());
-        filtering_engine
-            .expect_requires_receipt_data()
-            .returning(|| false); // Don't need receipts for this test
+        // 4. Process block
+        let decoded_block = block_processor.process_block(block_data).await.unwrap();
 
-        // 4. Setup BlockProcessor
-        let block_processor = BlockProcessor::new(abi_service, filtering_engine);
-
-        // 5. Process block
-        let matches = block_processor.process_block(block_data).await.unwrap();
-
-        // 6. Assertions
-        assert_eq!(matches.len(), 1);
-        let a_match = &matches[0];
-        assert_eq!(a_match.monitor_id, 1);
-        assert_eq!(a_match.transaction_hash, tx_hash);
+        // 5. Assertions
+        assert_eq!(decoded_block.items.len(), 1);
+        let correlated_item = &decoded_block.items[0];
+        assert_eq!(correlated_item.transaction.hash(), tx_hash);
+        assert_eq!(
+            correlated_item.transaction.block_number(),
+            Some(block_number)
+        );
+        assert_eq!(correlated_item.decoded_logs.len(), 1);
+        let decoded_log = &correlated_item.decoded_logs[0];
+        assert_eq!(decoded_log.name, "Transfer");
+        assert_eq!(decoded_log.params.len(), 3);
+        // TODO: consider more assertions
     }
     #[tokio::test]
     async fn test_process_block_no_full_transactions() {
         let abi_service = Arc::new(AbiService::new());
-        let mut filtering_engine = MockFilteringEngine::new();
-        // Expect evaluate_item to not be called
-        filtering_engine.expect_evaluate_item().times(0);
-        filtering_engine.expect_update_monitors().returning(|_| ());
-        filtering_engine
-            .expect_requires_receipt_data()
-            .returning(|| false);
-        let block_processor = BlockProcessor::new(abi_service, filtering_engine);
+        let block_processor = BlockProcessor::new(abi_service);
+
         // Create a block with no full transactions
         let block = BlockBuilder::new().build();
         let block_data = BlockData::new(block, HashMap::new(), HashMap::new());
-        let matches = block_processor.process_block(block_data).await.unwrap();
-        assert!(matches.is_empty());
+        let decoded_block = block_processor.process_block(block_data).await.unwrap();
+        assert!(decoded_block.items.is_empty());
     }
 
     #[tokio::test]
     async fn test_process_block_log_decoding_error() {
         let abi_service = Arc::new(AbiService::new()); // No ABIs added
-        let mut filtering_engine = MockFilteringEngine::new();
-        // We expect evaluation, but the decoded_logs will be empty
-        filtering_engine
-            .expect_evaluate_item()
-            .times(1)
-            .with(always())
-            .returning(|_| Ok(vec![]));
-
-        filtering_engine.expect_update_monitors().returning(|_| ());
-        filtering_engine
-            .expect_requires_receipt_data()
-            .returning(|| false);
-
-        let block_processor = BlockProcessor::new(abi_service, filtering_engine);
+        let block_processor = BlockProcessor::new(abi_service);
         let tx_hash = B256::default();
         let tx = TransactionBuilder::new().hash(tx_hash).build();
         let log = LogBuilder::new().transaction_hash(tx_hash).build();
@@ -322,40 +251,21 @@ mod tests {
         logs_by_tx.insert(tx_hash, vec![log.into()]);
 
         let block_data = BlockData::new(block, HashMap::new(), logs_by_tx);
+        let decoded_block = block_processor.process_block(block_data).await.unwrap();
 
-        // Should run without error, but no matches will be found as decoding fails silently.
-        let matches = block_processor.process_block(block_data).await.unwrap();
-        assert!(matches.is_empty());
+        for item in decoded_block.items {
+            assert!(
+                item.decoded_logs.is_empty(),
+                "Expected no decoded logs due to decoding error"
+            );
+        }
     }
     #[tokio::test]
     async fn test_process_blocks_batch_multiple_blocks() {
         let abi_service = Arc::new(AbiService::new());
         let contract_address = address!("0000000000000000000000000000000000000001");
         abi_service.add_abi(contract_address, &simple_abi());
-        let mut filtering_engine = MockFilteringEngine::new();
-
-        // Expect evaluate_item to be called for each transaction (3 times)
-        filtering_engine
-            .expect_evaluate_item()
-            .times(3)
-            .returning(|_| {
-                Ok(vec![MonitorMatch {
-                    monitor_id: 1,
-                    transaction_hash: B256::default(),
-                    block_number: 0,
-                    contract_address: Address::default(),
-                    trigger_name: "Transfer".to_string(),
-                    trigger_data: Value::Null,
-                    log_index: None,
-                }])
-            });
-
-        filtering_engine.expect_update_monitors().returning(|_| ());
-        filtering_engine
-            .expect_requires_receipt_data()
-            .returning(|| false);
-
-        let block_processor = BlockProcessor::new(abi_service, filtering_engine);
+        let block_processor = BlockProcessor::new(abi_service);
 
         // Create multiple blocks for batch processing
         let mut blocks = Vec::new();
@@ -393,27 +303,20 @@ mod tests {
         }
 
         // Process blocks in batch
-        let matches = block_processor.process_blocks_batch(blocks).await.unwrap();
+        let decoded_blocks = block_processor.process_blocks_batch(blocks).await.unwrap();
 
         // Should have one match per block (3 total)
-        assert_eq!(matches.len(), 3);
+        assert_eq!(decoded_blocks.len(), 3);
 
-        for a_match in &matches {
-            assert_eq!(a_match.monitor_id, 1);
+        for decoded_block in &decoded_blocks {
+            assert_eq!(decoded_block.items.len(), 1);
+            // TODO: consider more assertions
         }
     }
     #[tokio::test]
     async fn test_process_blocks_batch_empty() {
         let abi_service = Arc::new(AbiService::new());
-        let mut filtering_engine = MockFilteringEngine::new();
-
-        filtering_engine.expect_evaluate_item().times(0);
-        filtering_engine.expect_update_monitors().returning(|_| ());
-        filtering_engine
-            .expect_requires_receipt_data()
-            .returning(|| false);
-
-        let block_processor = BlockProcessor::new(abi_service, filtering_engine);
+        let block_processor = BlockProcessor::new(abi_service);
 
         let matches = block_processor
             .process_blocks_batch(Vec::new())
@@ -425,45 +328,29 @@ mod tests {
     #[tokio::test]
     async fn test_process_blocks_batch_no_full_transactions() {
         let abi_service = Arc::new(AbiService::new());
-        let mut filtering_engine = MockFilteringEngine::new();
-
-        // Expect evaluate_item to not be called since there are no full transactions
-        filtering_engine.expect_evaluate_item().times(0);
-        filtering_engine.expect_update_monitors().returning(|_| ());
-        filtering_engine
-            .expect_requires_receipt_data()
-            .returning(|| false);
-
-        let block_processor = BlockProcessor::new(abi_service, filtering_engine);
+        let block_processor = BlockProcessor::new(abi_service);
 
         // Create a block with no full transactions
         let block = BlockBuilder::new().build();
         let block_data = BlockData::new(block, HashMap::new(), HashMap::new());
 
-        let matches = block_processor
+        let decoded_blocks = block_processor
             .process_blocks_batch(vec![block_data])
             .await
             .unwrap();
-        assert!(matches.is_empty());
+
+        for decoded_block in decoded_blocks {
+            assert!(
+                decoded_block.items.is_empty(),
+                "Expected no items in decoded block"
+            );
+        }
     }
 
     #[tokio::test]
     async fn test_process_blocks_batch_log_decoding_error() {
         let abi_service = Arc::new(AbiService::new()); // No ABIs added
-        let mut filtering_engine = MockFilteringEngine::new();
-
-        // We expect evaluation once, but the decoded_logs will be empty due to decoding failure
-        filtering_engine
-            .expect_evaluate_item()
-            .times(1)
-            .with(always())
-            .returning(|_| Ok(vec![]));
-        filtering_engine.expect_update_monitors().returning(|_| ());
-        filtering_engine
-            .expect_requires_receipt_data()
-            .returning(|| false);
-
-        let block_processor = BlockProcessor::new(abi_service, filtering_engine);
+        let block_processor = BlockProcessor::new(abi_service);
 
         let tx_hash = B256::default();
         let tx = TransactionBuilder::new().hash(tx_hash).build();
@@ -475,10 +362,18 @@ mod tests {
         let block_data = BlockData::new(block, HashMap::new(), logs_by_tx);
 
         // Should run without error, but no matches will be found as decoding fails silently.
-        let matches = block_processor
+        let decoded_blocks = block_processor
             .process_blocks_batch(vec![block_data])
             .await
             .unwrap();
-        assert!(matches.is_empty());
+
+        for decoded_block in decoded_blocks {
+            for item in decoded_block.items {
+                assert!(
+                    item.decoded_logs.is_empty(),
+                    "Expected no decoded logs due to decoding error"
+                );
+            }
+        }
     }
 }
