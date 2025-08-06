@@ -286,13 +286,14 @@ mod tests {
     use serde_json::json;
 
     fn create_test_monitor(id: i64, address: &str, script: &str) -> Monitor {
-        Monitor {
-            id,
-            name: format!("Test Monitor {id}"),
-            network: "testnet".to_string(),
-            address: address.to_string(),
-            filter_script: script.to_string(),
-        }
+        let mut monitor = Monitor::from_config(
+            format!("Test Monitor {id}"),
+            "testnet".to_string(),
+            address.to_string(),
+            script.to_string(),
+        );
+        monitor.id = id; // Set the ID after creation for test purposes
+        monitor
     }
 
     fn create_test_log_and_tx<'a>(

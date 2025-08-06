@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use chrono::{DateTime, Utc};
 
 /// Represents a blockchain monitor that tracks specific addresses and networks.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -18,6 +19,17 @@ pub struct Monitor {
     pub address: String,
     /// The filter script used to determine relevant blockchain events
     pub filter_script: String,
+    /// Timestamp when the monitor was created
+    #[serde(default = "default_timestamp")]
+    pub created_at: DateTime<Utc>,
+    /// Timestamp when the monitor was last updated
+    #[serde(default = "default_timestamp")]
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Provides a default timestamp for serde deserialization
+fn default_timestamp() -> DateTime<Utc> {
+    Utc::now()
 }
 
 impl Monitor {
@@ -28,12 +40,15 @@ impl Monitor {
         address: String,
         filter_script: String,
     ) -> Self {
+        let now = Utc::now();
         Self {
             id: 0, // Will be assigned by database
             name,
             network,
             address,
             filter_script,
+            created_at: now,
+            updated_at: now,
         }
     }
 }

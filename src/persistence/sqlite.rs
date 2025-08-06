@@ -263,7 +263,7 @@ impl StateRepository for SqliteStateRepository {
         let monitors = self
             .execute_query_with_error_handling(
                 "query monitors",
-                sqlx::query_as::<_, Monitor>("SELECT monitor_id, name, network, address, filter_script FROM monitors WHERE network = ?")
+                sqlx::query_as::<_, Monitor>("SELECT monitor_id, name, network, address, filter_script, created_at, updated_at FROM monitors WHERE network = ?")
                     .bind(network_id)
                     .fetch_all(&self.pool),
             )
@@ -453,20 +453,18 @@ mod tests {
 
         // Create test monitors
         let test_monitors = vec![
-            Monitor {
-                id: 0, // Will be assigned by database
-                name: "USDC Transfer Monitor".to_string(),
-                network: network_id.to_string(),
-                address: "0xa0b86a33e6441b38d4b5e5bfa1bf7a5eb70c5b1e".to_string(),
-                filter_script: r#"log.name == "Transfer" && bigint(log.params.value) > bigint("1000000000")"#.to_string(),
-            },
-            Monitor {
-                id: 0,
-                name: "DEX Swap Monitor".to_string(),
-                network: network_id.to_string(),
-                address: "0x7a250d5630b4cf539739df2c5dacb4c659f2488d".to_string(),
-                filter_script: r#"log.name == "Swap""#.to_string(),
-            },
+            Monitor::from_config(
+                "USDC Transfer Monitor".to_string(),
+                network_id.to_string(),
+                "0xa0b86a33e6441b38d4b5e5bfa1bf7a5eb70c5b1e".to_string(),
+                r#"log.name == "Transfer" && bigint(log.params.value) > bigint("1000000000")"#.to_string(),
+            ),
+            Monitor::from_config(
+                "DEX Swap Monitor".to_string(),
+                network_id.to_string(),
+                "0x7a250d5630b4cf539739df2c5dacb4c659f2488d".to_string(),
+                r#"log.name == "Swap""#.to_string(),
+            ),
         ];
 
         // Add monitors
@@ -506,23 +504,21 @@ mod tests {
 
         // Create monitors for different networks
         let ethereum_monitors = vec![
-            Monitor {
-                id: 0,
-                name: "Ethereum Monitor".to_string(),
-                network: network1.to_string(),
-                address: "0x1111111111111111111111111111111111111111".to_string(),
-                filter_script: "true".to_string(),
-            },
+            Monitor::from_config(
+                "Ethereum Monitor".to_string(),
+                network1.to_string(),
+                "0x1111111111111111111111111111111111111111".to_string(),
+                "true".to_string(),
+            ),
         ];
 
         let polygon_monitors = vec![
-            Monitor {
-                id: 0,
-                name: "Polygon Monitor".to_string(),
-                network: network2.to_string(),
-                address: "0x2222222222222222222222222222222222222222".to_string(),
-                filter_script: "true".to_string(),
-            },
+            Monitor::from_config(
+                "Polygon Monitor".to_string(),
+                network2.to_string(),
+                "0x2222222222222222222222222222222222222222".to_string(),
+                "true".to_string(),
+            ),
         ];
 
         // Add monitors to different networks
@@ -555,13 +551,12 @@ mod tests {
 
         // Create monitor with wrong network
         let wrong_network_monitors = vec![
-            Monitor {
-                id: 0,
-                name: "Wrong Network Monitor".to_string(),
-                network: "polygon".to_string(), // Different from network_id
-                address: "0x1111111111111111111111111111111111111111".to_string(),
-                filter_script: "true".to_string(),
-            },
+            Monitor::from_config(
+                "Wrong Network Monitor".to_string(),
+                "polygon".to_string(), // Different from network_id
+                "0x1111111111111111111111111111111111111111".to_string(),
+                "true".to_string(),
+            ),
         ];
 
         // Should fail due to network mismatch
@@ -607,20 +602,18 @@ mod tests {
 
         // Create a mix of valid and invalid monitors (invalid due to network mismatch)
         let mixed_monitors = vec![
-            Monitor {
-                id: 0,
-                name: "Valid Monitor".to_string(),
-                network: network_id.to_string(),
-                address: "0x1111111111111111111111111111111111111111".to_string(),
-                filter_script: "true".to_string(),
-            },
-            Monitor {
-                id: 0,
-                name: "Invalid Monitor".to_string(),
-                network: "wrong_network".to_string(), // This will cause failure
-                address: "0x2222222222222222222222222222222222222222".to_string(),
-                filter_script: "true".to_string(),
-            },
+            Monitor::from_config(
+                "Valid Monitor".to_string(),
+                network_id.to_string(),
+                "0x1111111111111111111111111111111111111111".to_string(),
+                "true".to_string(),
+            ),
+            Monitor::from_config(
+                "Invalid Monitor".to_string(),
+                "wrong_network".to_string(), // This will cause failure
+                "0x2222222222222222222222222222222222222222".to_string(),
+                "true".to_string(),
+            ),
         ];
 
         // Should fail due to network validation
@@ -640,13 +633,12 @@ mod tests {
         // Create monitor with large filter script
         let large_script = "a".repeat(10000); // 10KB script
         let monitor_with_large_script = vec![
-            Monitor {
-                id: 0,
-                name: "Large Script Monitor".to_string(),
-                network: network_id.to_string(),
-                address: "0x1111111111111111111111111111111111111111".to_string(),
-                filter_script: large_script.clone(),
-            },
+            Monitor::from_config(
+                "Large Script Monitor".to_string(),
+                network_id.to_string(),
+                "0x1111111111111111111111111111111111111111".to_string(),
+                large_script.clone(),
+            ),
         ];
 
         // Should handle large scripts
