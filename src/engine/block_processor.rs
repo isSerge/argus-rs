@@ -62,11 +62,11 @@ impl<F: FilteringEngine> BlockProcessor<F> {
                     let raw_logs_for_tx = block_data
                         .logs
                         .get(&tx_hash)
-                        .map(|logs| logs.as_slice())
-                        .unwrap_or(&[]);
+                        .cloned()
+                        .unwrap_or_default();
 
                     let mut decoded_logs: Vec<DecodedLog> = Vec::new();
-                    for log in raw_logs_for_tx {
+                    for log in &raw_logs_for_tx {
                         match self.abi_service.decode_log(log) {
                             Ok(decoded) => decoded_logs.push(decoded),
                             Err(e) => {
@@ -82,9 +82,9 @@ impl<F: FilteringEngine> BlockProcessor<F> {
                     }
 
                     // Get the receipt for this transaction, if available
-                    let receipt = block_data.receipts.get(&tx_hash);
+                    let receipt = block_data.receipts.get(&tx_hash).cloned();
 
-                    let correlated_item = CorrelatedBlockItem::new(&tx, decoded_logs, receipt);
+                    let correlated_item = CorrelatedBlockItem::new(tx, decoded_logs, receipt);
 
                     // Apply matching logic using the FilteringEngine
                     match self.filtering_engine.evaluate_item(&correlated_item).await {

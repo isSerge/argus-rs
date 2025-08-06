@@ -82,24 +82,24 @@ pub enum AbiError {
 
 /// Represents a decoded event log.
 #[derive(Debug, Clone)]
-pub struct DecodedLog<'a> {
+pub struct DecodedLog {
     /// The name of the decoded event.
     pub name: String,
     /// The decoded parameters of the event.
     pub params: Vec<(String, DynSolValue)>,
-    /// A reference to the original log.
-    pub log: &'a Log,
+    /// The original log
+    pub log: Log,
 }
 
 /// Represents a decoded function call.
-#[derive(Debug)]
-pub struct DecodedCall<'a> {
+#[derive(Debug, Clone)]
+pub struct DecodedCall {
     /// The name of the decoded function.
     pub name: String,
     /// The decoded parameters of the function call.
     pub params: Vec<(String, DynSolValue)>,
-    /// A reference to the original transaction.
-    pub tx: &'a Transaction,
+    /// The original transaction
+    pub tx: Transaction,
 }
 
 /// A service for managing and using contract ABIs.
@@ -144,7 +144,7 @@ impl AbiService {
     }
 
     /// Decodes an event log using proper Alloy APIs.
-    pub fn decode_log<'a>(&self, log: &'a Log) -> Result<DecodedLog<'a>, AbiError> {
+    pub fn decode_log(&self, log: &Log) -> Result<DecodedLog, AbiError> {
         let contract = self
             .cache
             .get(&log.address())
@@ -175,7 +175,7 @@ impl AbiService {
         Ok(DecodedLog {
             name: event.name.clone(),
             params,
-            log,
+            log: log.clone(),
         })
     }
 
@@ -183,10 +183,7 @@ impl AbiService {
     ///
     /// This method extracts the function selector from the transaction input data,
     /// looks up the corresponding function definition, and decodes the parameters.
-    pub fn decode_function_input<'a>(
-        &self,
-        tx: &'a Transaction,
-    ) -> Result<DecodedCall<'a>, AbiError> {
+    pub fn decode_function_input(&self, tx: Transaction) -> Result<DecodedCall, AbiError> {
         // Get the target contract address from the transaction
 
         let to = tx.to().ok_or_else(|| {
@@ -333,6 +330,7 @@ mod tests {
             ))
             .build();
 
+        let log: Log = log.into();
         let decoded = service.decode_log(&log).unwrap();
         assert_eq!(decoded.name, "Transfer");
         assert_eq!(decoded.params.len(), 3);
@@ -366,7 +364,7 @@ mod tests {
             .input(Bytes::from(input_data))
             .build();
 
-        let decoded = service.decode_function_input(&tx).unwrap();
+        let decoded = service.decode_function_input(tx).unwrap();
         assert_eq!(decoded.name, "transfer");
         assert_eq!(decoded.params.len(), 2);
         assert_eq!(decoded.params[0].0, "to");
@@ -391,7 +389,7 @@ mod tests {
             .input(Bytes::from(vec![0u8; 32]))
             .to(Some(Address::default()))
             .build();
-        let err = service.decode_function_input(&tx).unwrap_err();
+        let err = service.decode_function_input(tx).unwrap_err();
         assert!(matches!(err, AbiError::AbiNotFound(_)));
     }
 
@@ -407,7 +405,7 @@ mod tests {
             .input(Bytes::from(vec![0x12, 0x34, 0x56, 0x78])) // Unknown selector
             .build();
 
-        let err = service.decode_function_input(&tx).unwrap_err();
+        let err = service.decode_function_input(tx).unwrap_err();
         assert!(matches!(err, AbiError::FunctionNotFound(_)));
     }
 
@@ -421,7 +419,7 @@ mod tests {
         // Default transaction has no input data
         let tx = TransactionBuilder::new().to(Some(contract_address)).build();
 
-        let err = service.decode_function_input(&tx).unwrap_err();
+        let err = service.decode_function_input(tx).unwrap_err();
         assert!(matches!(err, AbiError::InputTooShort));
     }
 
@@ -459,7 +457,7 @@ mod tests {
         // Contract creation transactions have `to` as None.
         let tx = TransactionBuilder::new().to(None).build();
 
-        let err = service.decode_function_input(&tx).unwrap_err();
+        let err = service.decode_function_input(tx).unwrap_err();
         assert!(matches!(err, AbiError::ContractCreation));
     }
 
@@ -478,7 +476,7 @@ mod tests {
             .input(Bytes::from(input_data))
             .build();
 
-        let err = service.decode_function_input(&tx).unwrap_err();
+        let err = service.decode_function_input(tx).unwrap_err();
         assert!(matches!(err, AbiError::DecodingError(_)));
     }
 

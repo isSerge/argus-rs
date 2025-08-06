@@ -785,7 +785,7 @@ mod tests {
         let decoded_log = DecodedLog {
             name: "Transfer".to_string(),
             params: vec![],
-            log: Box::leak(Box::new(log_raw)),
+            log: log_raw.into(),
         };
 
         let params_map = Map::new(); // Empty for this test, as we're testing log fields

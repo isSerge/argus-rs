@@ -47,9 +47,9 @@ pub enum RhaiError {
 pub trait FilteringEngine: Send + Sync {
     /// Evaluates the provided correlated block item against configured monitor rules.
     /// Returns a vector of `MonitorMatch` if any conditions are met.
-    async fn evaluate_item<'a>(
+    async fn evaluate_item(
         &self,
-        item: &CorrelatedBlockItem<'a>,
+        item: &CorrelatedBlockItem,
     ) -> Result<Vec<MonitorMatch>, Box<dyn std::error::Error + Send + Sync>>;
 
     /// Updates the set of monitors used by the engine.
@@ -167,9 +167,9 @@ impl RhaiFilteringEngine {
 impl FilteringEngine for RhaiFilteringEngine {
     // TODO: add script compilation caching
     #[tracing::instrument(skip(self, item))]
-    async fn evaluate_item<'a>(
+    async fn evaluate_item(
         &self,
-        item: &CorrelatedBlockItem<'a>,
+        item: &CorrelatedBlockItem,
     ) -> Result<Vec<MonitorMatch>, Box<dyn std::error::Error + Send + Sync>> {
         let mut matches = Vec::new();
 
@@ -180,7 +180,7 @@ impl FilteringEngine for RhaiFilteringEngine {
         }
 
         // Build a transaction map for the item with receipt data if available
-        let tx_map = build_transaction_map(item.transaction, item.receipt);
+        let tx_map = build_transaction_map(&item.transaction, item.receipt.as_ref());
 
         // Iterate over decoded logs in the item
         for log in &item.decoded_logs {
@@ -296,32 +296,32 @@ mod tests {
         monitor
     }
 
-    fn create_test_log_and_tx<'a>(
+    fn create_test_log_and_tx(
         log_address: Address,
-        log_name: &'a str,
+        log_name: &str,
         log_params: Vec<(String, DynSolValue)>,
-    ) -> (Transaction, DecodedLog<'a>) {
+    ) -> (Transaction, DecodedLog) {
         let tx = TransactionBuilder::new().build();
         let log_raw = LogBuilder::new().address(log_address).build();
         let log = DecodedLog {
             name: log_name.to_string(),
             params: log_params,
-            log: Box::leak(Box::new(log_raw)), // Leak to get 'a lifetime
+            log: log_raw.into(),
         };
         (tx.into(), log)
     }
 
-    fn create_test_log_and_tx_with_params<'a>(
+    fn create_test_log_and_tx_with_params(
         log_address: Address,
-        log_name: &'a str,
+        log_name: &str,
         log_params: Vec<(String, DynSolValue)>,
-    ) -> (Transaction, DecodedLog<'a>) {
+    ) -> (Transaction, DecodedLog) {
         let tx = TransactionBuilder::new().build();
         let log_raw = LogBuilder::new().address(log_address).build();
         let log = DecodedLog {
             name: log_name.to_string(),
             params: log_params,
-            log: Box::leak(Box::new(log_raw)), // Leak to get 'a lifetime
+            log: log_raw.into(),
         };
         (tx.into(), log)
     }
@@ -367,7 +367,7 @@ mod tests {
         let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
-        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+        let item = CorrelatedBlockItem::new(tx, vec![log], None);
 
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert_eq!(matches.len(), 1);
@@ -383,7 +383,7 @@ mod tests {
             "SomeEvent",
             vec![],
         );
-        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+        let item = CorrelatedBlockItem::new(tx, vec![log], None);
 
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert!(matches.is_empty());
@@ -397,7 +397,7 @@ mod tests {
         let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
-        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+        let item = CorrelatedBlockItem::new(tx, vec![log], None);
 
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert!(matches.is_empty());
@@ -413,7 +413,7 @@ mod tests {
 
         // Create a log for addr2
         let (tx, log) = create_test_log_and_tx(addr2, "Transfer", vec![]);
-        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+        let item = CorrelatedBlockItem::new(tx, vec![log], None);
 
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert!(matches.is_empty());
@@ -428,7 +428,7 @@ mod tests {
         let engine = RhaiFilteringEngine::new(vec![monitor1, monitor2], RhaiConfig::default());
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
-        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+        let item = CorrelatedBlockItem::new(tx, vec![log], None);
 
         // Both monitors should match
         let matches = engine.evaluate_item(&item).await.unwrap();
@@ -456,7 +456,7 @@ mod tests {
                 DynSolValue::Uint(U256::from(150).into(), 256),
             )],
         );
-        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+        let item = CorrelatedBlockItem::new(tx, vec![log], None);
 
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert_eq!(matches.len(), 1);
@@ -473,7 +473,7 @@ mod tests {
         let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
-        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+        let item = CorrelatedBlockItem::new(tx, vec![log], None);
 
         let result = engine.evaluate_item(&item).await;
         // Runtime errors are handled gracefully - the monitor is skipped but processing continues
@@ -488,7 +488,7 @@ mod tests {
         let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
 
         let tx = TransactionBuilder::new().build();
-        let item = CorrelatedBlockItem::new(&tx, vec![], None); // No decoded logs
+        let item = CorrelatedBlockItem::new(tx, vec![], None); // No decoded logs
 
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert!(matches.is_empty());
@@ -508,7 +508,7 @@ mod tests {
         let log2 = create_test_log_and_tx(addr2, "AnotherEvent", vec![]).1; // This won't match monitor2
         let log3 = create_test_log_and_tx(addr2, "Approval", vec![]).1;
 
-        let item = CorrelatedBlockItem::new(&tx, vec![log1, log2, log3], None);
+        let item = CorrelatedBlockItem::new(tx, vec![log1, log2, log3], None);
 
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert_eq!(matches.len(), 2); // Expecting matches for log1 (monitor1) and log3 (monitor2)
@@ -526,7 +526,7 @@ mod tests {
         let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
-        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+        let item = CorrelatedBlockItem::new(tx, vec![log], None);
 
         let result = engine.evaluate_item(&item).await;
         // Runtime errors are handled gracefully - the monitor is skipped but processing continues
@@ -624,7 +624,7 @@ mod tests {
         let engine = RhaiFilteringEngine::new(vec![monitor], custom_config);
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
-        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+        let item = CorrelatedBlockItem::new(tx, vec![log], None);
 
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert_eq!(matches.len(), 1);
@@ -665,7 +665,7 @@ mod tests {
                 ("from".to_string(), DynSolValue::String("0x456".to_string())),
             ],
         );
-        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+        let item = CorrelatedBlockItem::new(tx, vec![log], None);
 
         let result = engine.evaluate_item(&item).await;
         // With very restrictive limits, the script execution might fail,
@@ -691,7 +691,7 @@ mod tests {
         let engine = RhaiFilteringEngine::new(vec![monitor], zero_config);
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
-        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+        let item = CorrelatedBlockItem::new(tx, vec![log], None);
 
         let result = engine.evaluate_item(&item).await;
         // Zero limits may prevent script execution, but Rhai might handle this differently
@@ -723,7 +723,7 @@ mod tests {
         let engine = RhaiFilteringEngine::new(vec![monitor], normal_config);
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
-        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+        let item = CorrelatedBlockItem::new(tx, vec![log], None);
 
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert_eq!(matches.len(), 1);
@@ -755,7 +755,7 @@ mod tests {
         let engine = RhaiFilteringEngine::new(vec![monitor], restrictive_config);
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
-        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+        let item = CorrelatedBlockItem::new(tx, vec![log], None);
 
         let result = engine.evaluate_item(&item).await;
         // Should handle operation limit gracefully
@@ -960,7 +960,7 @@ mod tests {
         let engine = RhaiFilteringEngine::new(vec![monitor], config);
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
-        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+        let item = CorrelatedBlockItem::new(tx, vec![log], None);
 
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert_eq!(matches.len(), 1);
@@ -991,7 +991,7 @@ mod tests {
         let engine = RhaiFilteringEngine::new(vec![monitor], config);
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
-        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+        let item = CorrelatedBlockItem::new(tx, vec![log], None);
 
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert_eq!(matches.len(), 1);
@@ -1027,7 +1027,7 @@ mod tests {
         let engine = RhaiFilteringEngine::new(vec![monitor], config);
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
-        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+        let item = CorrelatedBlockItem::new(tx, vec![log], None);
 
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert_eq!(matches.len(), 1);
@@ -1365,7 +1365,7 @@ mod tests {
             DynSolValue::Uint(large_value.parse().unwrap(), 256),
         )];
         let (tx, log) = create_test_log_and_tx_with_params(addr, "Transfer", params);
-        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+        let item = CorrelatedBlockItem::new(tx, vec![log], None);
 
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert_eq!(matches.len(), 1);
@@ -1386,7 +1386,7 @@ mod tests {
         let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
-        let item = CorrelatedBlockItem::new(&tx, vec![log], None);
+        let item = CorrelatedBlockItem::new(tx, vec![log], None);
 
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert_eq!(matches.len(), 1);
