@@ -1,6 +1,7 @@
 //! This module contains the state management logic for the Argus application.
 
 use async_trait::async_trait;
+use crate::models::monitor::Monitor;
 
 /// Represents the state management interface for the Argus application.
 #[async_trait]
@@ -27,4 +28,14 @@ pub trait StateRepository {
         block_number: u64,
         note: &str,
     ) -> Result<(), sqlx::Error>;
+
+    // Monitor management operations:
+    /// Retrieves all monitors for a specific network.
+    async fn get_monitors(&self, network_id: &str) -> Result<Vec<Monitor>, sqlx::Error>;
+    
+    /// Adds multiple monitors for a specific network.
+    async fn add_monitors(&self, network_id: &str, monitors: Vec<Monitor>) -> Result<(), sqlx::Error>;
+    
+    /// Clears all monitors for a specific network.
+    async fn clear_monitors(&self, network_id: &str) -> Result<(), sqlx::Error>;
 }

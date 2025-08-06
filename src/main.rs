@@ -4,7 +4,7 @@ use alloy::{
 };
 use argus::{
     abi::AbiService,
-    config::AppConfig,
+    config::{AppConfig, MonitorLoader},
     engine::{
         block_processor::{BlockProcessor, BlockProcessorError},
         filtering::{FilteringEngine, RhaiFilteringEngine},
@@ -16,7 +16,7 @@ use argus::{
         traits::DataSource,
     },
 };
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use tokio::{
     signal,
     time::{self, Duration},
@@ -42,7 +42,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     repo.run_migrations().await?;
     tracing::info!("Database migrations completed.");
 
-    tracing::debug!(rpc_urls = ?config.rpc_urls, "Initializing resilient EVM data source...");
+    // Load monitors from the configuration file if specified. This will overwrite
+    // existing monitors for the same network in the database.
+    if let Some(monitor_config_path) = &config.monitor_config_path {
+        if let Err(e) = load_monitors_from_file(&repo, &config.network_id, monitor_config_path).await {
+            tracing::error!(error = %e, "Failed to load monitors from file, continuing with monitors already in database (if any).");
+        }
+    }
+
+    // Always load the monitors for the filtering engine from the database,
+    // as it's the single source of truth for the running application.
+    tracing::debug!(network_id = %config.network_id, "Loading monitors from database for filtering engine...");
+    let monitors_for_engine = repo.get_monitors(&config.network_id).await?;
+    tracing::info!(count = monitors_for_engine.len(), network_id = %config.network_id, "Loaded monitors from database for filtering engine.");
+
+    tracing::debug!(rpc_urls = ?config.rpc_urls, "Initializing EVM data source...");
     let provider = create_provider(config.rpc_urls, config.retry_config.clone())?;
     let evm_data_source = EvmRpcSource::new(provider);
     tracing::info!(retry_policy = ?config.retry_config, "EVM data source initialized with fallback and retry policy.");
@@ -50,7 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize BlockProcessor components
     tracing::debug!("Initializing ABI service and BlockProcessor...");
     let abi_service = Arc::new(AbiService::new());
-    let filtering_engine = RhaiFilteringEngine::new(vec![], config.rhai.clone());
+    let filtering_engine = RhaiFilteringEngine::new(monitors_for_engine, config.rhai);
 
     // Determine once if any monitor requires receipt data
     let needs_receipts = filtering_engine.requires_receipt_data();
@@ -471,6 +485,29 @@ async fn graceful_cleanup(
     tracing::debug!("Allowing time for background tasks to complete...");
     tokio::time::sleep(Duration::from_millis(100)).await;
 
+    Ok(())
+}
+
+/// Loads monitors from a specified configuration file, clears existing monitors
+/// for the network, and stores the new ones in the state repository.
+async fn load_monitors_from_file(
+    repo: &impl StateRepository,
+    network_id: &str,
+    config_path: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    tracing::debug!(config_path = %config_path, "Loading monitors from configuration file...");
+    
+    let monitor_loader = MonitorLoader::new(PathBuf::from(config_path));
+    let monitors = monitor_loader.load()?;
+    let count = monitors.len();
+
+    tracing::info!(count = count, "Loaded monitors from configuration file.");
+
+    // Atomically clear and add new monitors
+    repo.clear_monitors(network_id).await?;
+    repo.add_monitors(network_id, monitors).await?;
+
+    tracing::info!(count = count, network_id = %network_id, "Monitors from file stored in database.");
     Ok(())
 }
 

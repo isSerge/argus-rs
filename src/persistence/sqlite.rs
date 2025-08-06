@@ -1,12 +1,39 @@
 //! This module provides a concrete implementation of the StateRepository using SQLite.
 
 use async_trait::async_trait;
+use crate::models::monitor::Monitor;
 use sqlx::{
     Row, SqlitePool,
     sqlite::{SqliteConnectOptions, SqliteRow},
 };
 use std::str::FromStr;
 use super::traits::StateRepository;
+
+/// SQL query constants for monitor operations
+mod monitor_sql {
+    /// Select all monitors for a specific network
+    pub const SELECT_MONITORS_BY_NETWORK: &str = 
+        "SELECT monitor_id, name, network, address, filter_script, created_at, updated_at FROM monitors WHERE network = ?";
+    
+    /// Insert a new monitor
+    pub const INSERT_MONITOR: &str = 
+        "INSERT INTO monitors (name, network, address, filter_script) VALUES (?, ?, ?, ?)";
+    
+    /// Delete all monitors for a specific network
+    pub const DELETE_MONITORS_BY_NETWORK: &str = 
+        "DELETE FROM monitors WHERE network = ?";
+}
+
+/// SQL query constants for processed blocks operations  
+mod block_sql {
+    /// Select last processed block for a network
+    pub const SELECT_LAST_PROCESSED_BLOCK: &str = 
+        "SELECT block_number FROM processed_blocks WHERE network_id = ?";
+    
+    /// Insert or replace last processed block
+    pub const UPSERT_LAST_PROCESSED_BLOCK: &str = 
+        "INSERT OR REPLACE INTO processed_blocks (network_id, block_number) VALUES (?, ?)";
+}
 
 /// A concrete implementation of the StateRepository using SQLite.
 pub struct SqliteStateRepository {
@@ -118,7 +145,7 @@ impl StateRepository for SqliteStateRepository {
         let result: Option<SqliteRow> = self
             .execute_query_with_error_handling(
                 "query last processed block",
-                sqlx::query("SELECT block_number FROM processed_blocks WHERE network_id = ?")
+                sqlx::query(block_sql::SELECT_LAST_PROCESSED_BLOCK)
                     .bind(network_id)
                     .fetch_optional(&self.pool),
             )
@@ -175,9 +202,7 @@ impl StateRepository for SqliteStateRepository {
 
         self.execute_query_with_error_handling(
             "set last processed block",
-            sqlx::query(
-                "INSERT OR REPLACE INTO processed_blocks (network_id, block_number) VALUES (?, ?)",
-            )
+            sqlx::query(block_sql::UPSERT_LAST_PROCESSED_BLOCK)
             .bind(network_id)
             .bind(block_number_i64)
             .execute(&self.pool),
@@ -249,6 +274,87 @@ impl StateRepository for SqliteStateRepository {
             "Emergency state saved and flushed successfully."
         );
 
+        Ok(())
+    }
+
+    // Monitor management operations
+
+    /// Retrieves all monitors for a specific network.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn get_monitors(&self, network_id: &str) -> Result<Vec<Monitor>, sqlx::Error> {
+        tracing::debug!(network_id, "Querying for monitors.");
+
+        let monitors = self
+            .execute_query_with_error_handling(
+                "query monitors",
+                sqlx::query_as::<_, Monitor>(monitor_sql::SELECT_MONITORS_BY_NETWORK)
+                    .bind(network_id)
+                    .fetch_all(&self.pool),
+            )
+            .await?;
+
+        tracing::debug!(network_id, monitor_count = monitors.len(), "Monitors retrieved successfully.");
+        Ok(monitors)
+    }
+
+    /// Adds multiple monitors for a specific network.
+    #[tracing::instrument(skip(self, monitors), level = "debug")]
+    async fn add_monitors(&self, network_id: &str, monitors: Vec<Monitor>) -> Result<(), sqlx::Error> {
+        tracing::debug!(network_id, monitor_count = monitors.len(), "Adding monitors.");
+
+        // Validate that all monitors belong to the correct network
+        for monitor in &monitors {
+            if monitor.network != network_id {
+                tracing::error!(
+                    expected_network = network_id,
+                    actual_network = monitor.network,
+                    monitor_name = monitor.name,
+                    "Monitor network mismatch."
+                );
+                return Err(sqlx::Error::Protocol(format!(
+                    "Monitor '{}' has network '{}' but expected '{}'",
+                    monitor.name, monitor.network, network_id
+                )));
+            }
+        }
+
+        // Insert monitors in a transaction for atomicity
+        let mut tx = self.pool.begin().await?;
+
+        for monitor in monitors {
+            sqlx::query(
+                monitor_sql::INSERT_MONITOR
+            )
+            .bind(&monitor.name)
+            .bind(&monitor.network)
+            .bind(&monitor.address)
+            .bind(&monitor.filter_script)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+
+        tracing::info!(network_id, "Monitors added successfully.");
+        Ok(())
+    }
+
+    /// Clears all monitors for a specific network.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn clear_monitors(&self, network_id: &str) -> Result<(), sqlx::Error> {
+        tracing::debug!(network_id, "Clearing monitors.");
+
+        let result = self
+            .execute_query_with_error_handling(
+                "clear monitors",
+                sqlx::query(monitor_sql::DELETE_MONITORS_BY_NETWORK)
+                    .bind(network_id)
+                    .execute(&self.pool),
+            )
+            .await?;
+
+        let deleted_count = result.rows_affected();
+        tracing::info!(network_id, deleted_count, "Monitors cleared successfully.");
         Ok(())
     }
 }
@@ -358,5 +464,214 @@ mod tests {
         // Verify the emergency state was saved
         let saved_state = repo.get_last_processed_block(network).await.unwrap();
         assert_eq!(saved_state, Some(42));
+    }
+
+    #[tokio::test]
+    async fn test_monitor_management_operations() {
+        let repo = setup_test_db().await;
+        let network_id = "ethereum";
+
+        // Initially, should have no monitors
+        let monitors = repo.get_monitors(network_id).await.unwrap();
+        assert!(monitors.is_empty());
+
+        // Create test monitors
+        let test_monitors = vec![
+            Monitor::from_config(
+                "USDC Transfer Monitor".to_string(),
+                network_id.to_string(),
+                "0xa0b86a33e6441b38d4b5e5bfa1bf7a5eb70c5b1e".to_string(),
+                r#"log.name == "Transfer" && bigint(log.params.value) > bigint("1000000000")"#.to_string(),
+            ),
+            Monitor::from_config(
+                "DEX Swap Monitor".to_string(),
+                network_id.to_string(),
+                "0x7a250d5630b4cf539739df2c5dacb4c659f2488d".to_string(),
+                r#"log.name == "Swap""#.to_string(),
+            ),
+        ];
+
+        // Add monitors
+        repo.add_monitors(network_id, test_monitors.clone()).await.unwrap();
+
+        // Retrieve monitors and verify
+        let stored_monitors = repo.get_monitors(network_id).await.unwrap();
+        assert_eq!(stored_monitors.len(), 2);
+        
+        // Check first monitor (order may vary, so find by name)
+        let usdc_monitor = stored_monitors.iter().find(|m| m.name == "USDC Transfer Monitor").unwrap();
+        assert_eq!(usdc_monitor.network, network_id);
+        assert_eq!(usdc_monitor.address, "0xa0b86a33e6441b38d4b5e5bfa1bf7a5eb70c5b1e");
+        assert!(usdc_monitor.filter_script.contains("Transfer"));
+        assert!(usdc_monitor.id > 0); // Should have been assigned an ID
+
+        // Check second monitor
+        let dex_monitor = stored_monitors.iter().find(|m| m.name == "DEX Swap Monitor").unwrap();
+        assert_eq!(dex_monitor.network, network_id);
+        assert_eq!(dex_monitor.address, "0x7a250d5630b4cf539739df2c5dacb4c659f2488d");
+        assert_eq!(dex_monitor.filter_script, r#"log.name == "Swap""#);
+        assert!(dex_monitor.id > 0);
+
+        // Clear monitors
+        repo.clear_monitors(network_id).await.unwrap();
+
+        // Verify monitors are cleared
+        let monitors_after_clear = repo.get_monitors(network_id).await.unwrap();
+        assert!(monitors_after_clear.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_monitor_network_isolation() {
+        let repo = setup_test_db().await;
+        let network1 = "ethereum";
+        let network2 = "polygon";
+
+        // Create monitors for different networks
+        let ethereum_monitors = vec![
+            Monitor::from_config(
+                "Ethereum Monitor".to_string(),
+                network1.to_string(),
+                "0x1111111111111111111111111111111111111111".to_string(),
+                "true".to_string(),
+            ),
+        ];
+
+        let polygon_monitors = vec![
+            Monitor::from_config(
+                "Polygon Monitor".to_string(),
+                network2.to_string(),
+                "0x2222222222222222222222222222222222222222".to_string(),
+                "true".to_string(),
+            ),
+        ];
+
+        // Add monitors to different networks
+        repo.add_monitors(network1, ethereum_monitors).await.unwrap();
+        repo.add_monitors(network2, polygon_monitors).await.unwrap();
+
+        // Verify network isolation
+        let eth_monitors = repo.get_monitors(network1).await.unwrap();
+        let poly_monitors = repo.get_monitors(network2).await.unwrap();
+
+        assert_eq!(eth_monitors.len(), 1);
+        assert_eq!(poly_monitors.len(), 1);
+        assert_eq!(eth_monitors[0].name, "Ethereum Monitor");
+        assert_eq!(poly_monitors[0].name, "Polygon Monitor");
+
+        // Clear one network shouldn't affect the other
+        repo.clear_monitors(network1).await.unwrap();
+
+        let eth_monitors_after_clear = repo.get_monitors(network1).await.unwrap();
+        let poly_monitors_after_clear = repo.get_monitors(network2).await.unwrap();
+
+        assert!(eth_monitors_after_clear.is_empty());
+        assert_eq!(poly_monitors_after_clear.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_monitor_network_validation() {
+        let repo = setup_test_db().await;
+        let network_id = "ethereum";
+
+        // Create monitor with wrong network
+        let wrong_network_monitors = vec![
+            Monitor::from_config(
+                "Wrong Network Monitor".to_string(),
+                "polygon".to_string(), // Different from network_id
+                "0x1111111111111111111111111111111111111111".to_string(),
+                "true".to_string(),
+            ),
+        ];
+
+        // Should fail due to network mismatch
+        let result = repo.add_monitors(network_id, wrong_network_monitors).await;
+        assert!(result.is_err());
+
+        // Verify error message contains network information
+        let error = result.unwrap_err();
+        match error {
+            sqlx::Error::Protocol(msg) => {
+                assert!(msg.contains("Wrong Network Monitor"));
+                assert!(msg.contains("polygon"));
+                assert!(msg.contains("ethereum"));
+            }
+            _ => panic!("Expected Protocol error with network mismatch message"),
+        }
+
+        // Verify no monitors were added
+        let monitors = repo.get_monitors(network_id).await.unwrap();
+        assert!(monitors.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_monitor_empty_operations() {
+        let repo = setup_test_db().await;
+        let network_id = "testnet";
+
+        // Test adding empty vector
+        repo.add_monitors(network_id, vec![]).await.unwrap();
+        let monitors = repo.get_monitors(network_id).await.unwrap();
+        assert!(monitors.is_empty());
+
+        // Test clearing when no monitors exist
+        repo.clear_monitors(network_id).await.unwrap();
+        let monitors_after_clear = repo.get_monitors(network_id).await.unwrap();
+        assert!(monitors_after_clear.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_monitor_transaction_atomicity() {
+        let repo = setup_test_db().await;
+        let network_id = "ethereum";
+
+        // Create a mix of valid and invalid monitors (invalid due to network mismatch)
+        let mixed_monitors = vec![
+            Monitor::from_config(
+                "Valid Monitor".to_string(),
+                network_id.to_string(),
+                "0x1111111111111111111111111111111111111111".to_string(),
+                "true".to_string(),
+            ),
+            Monitor::from_config(
+                "Invalid Monitor".to_string(),
+                "wrong_network".to_string(), // This will cause failure
+                "0x2222222222222222222222222222222222222222".to_string(),
+                "true".to_string(),
+            ),
+        ];
+
+        // Should fail due to network validation
+        let result = repo.add_monitors(network_id, mixed_monitors).await;
+        assert!(result.is_err());
+
+        // Verify no monitors were added (transaction rolled back)
+        let monitors = repo.get_monitors(network_id).await.unwrap();
+        assert!(monitors.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_monitor_large_script_handling() {
+        let repo = setup_test_db().await;
+        let network_id = "ethereum";
+
+        // Create monitor with large filter script
+        let large_script = "a".repeat(10000); // 10KB script
+        let monitor_with_large_script = vec![
+            Monitor::from_config(
+                "Large Script Monitor".to_string(),
+                network_id.to_string(),
+                "0x1111111111111111111111111111111111111111".to_string(),
+                large_script.clone(),
+            ),
+        ];
+
+        // Should handle large scripts
+        repo.add_monitors(network_id, monitor_with_large_script).await.unwrap();
+
+        // Verify the script was stored correctly
+        let stored_monitors = repo.get_monitors(network_id).await.unwrap();
+        assert_eq!(stored_monitors.len(), 1);
+        assert_eq!(stored_monitors[0].filter_script, large_script);
+        assert_eq!(stored_monitors[0].filter_script.len(), 10000);
     }
 }
