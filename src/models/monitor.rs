@@ -1,8 +1,8 @@
 //! This module defines the `Monitor` structure, which represents a blockchain monitor that tracks specific addresses and networks.
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use chrono::{DateTime, Utc};
 
 /// Represents a blockchain monitor that tracks specific addresses and networks.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]

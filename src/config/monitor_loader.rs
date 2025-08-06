@@ -84,7 +84,9 @@ monitors:
     network: "ethereum"
     address: "0x7a250d5630b4cf539739df2c5dacb4c659f2488d"
     filter_script: "log.name == \"Swap\""
-"#.trim().to_string()
+"#
+        .trim()
+        .to_string()
     }
 
     fn create_test_dir_with_file(filename: &str, content: &str) -> (TempDir, PathBuf) {
@@ -98,25 +100,31 @@ monitors:
     fn test_load_valid_yaml_file() {
         let content = create_test_yaml_content();
         let (_temp_dir, file_path) = create_test_dir_with_file("monitors.yaml", &content);
-        
+
         let loader = MonitorLoader::new(file_path);
         let result = loader.load();
-        
+
         assert!(result.is_ok());
         let monitors = result.unwrap();
         assert_eq!(monitors.len(), 2);
-        
+
         // Check first monitor
         assert_eq!(monitors[0].name, "USDC Transfer Monitor");
         assert_eq!(monitors[0].network, "ethereum");
-        assert_eq!(monitors[0].address, "0xa0b86a33e6441b38d4b5e5bfa1bf7a5eb70c5b1e");
+        assert_eq!(
+            monitors[0].address,
+            "0xa0b86a33e6441b38d4b5e5bfa1bf7a5eb70c5b1e"
+        );
         assert!(monitors[0].filter_script.contains("Transfer"));
         assert_eq!(monitors[0].id, 0); // Default value from serde
-        
+
         // Check second monitor
         assert_eq!(monitors[1].name, "DEX Swap Monitor");
         assert_eq!(monitors[1].network, "ethereum");
-        assert_eq!(monitors[1].address, "0x7a250d5630b4cf539739df2c5dacb4c659f2488d");
+        assert_eq!(
+            monitors[1].address,
+            "0x7a250d5630b4cf539739df2c5dacb4c659f2488d"
+        );
         assert_eq!(monitors[1].filter_script, "log.name == \"Swap\"");
     }
 
@@ -124,10 +132,10 @@ monitors:
     fn test_load_valid_yml_extension() {
         let content = create_test_yaml_content();
         let (_temp_dir, file_path) = create_test_dir_with_file("monitors.yml", &content);
-        
+
         let loader = MonitorLoader::new(file_path);
         let result = loader.load();
-        
+
         assert!(result.is_ok());
         let monitors = result.unwrap();
         assert_eq!(monitors.len(), 2);
@@ -137,10 +145,10 @@ monitors:
     fn test_load_empty_yaml_file() {
         let content = "monitors: []"; // Empty monitors array
         let (_temp_dir, file_path) = create_test_dir_with_file("empty.yaml", content);
-        
+
         let loader = MonitorLoader::new(file_path);
         let result = loader.load();
-        
+
         assert!(result.is_ok());
         let monitors = result.unwrap();
         assert_eq!(monitors.len(), 0);
@@ -150,10 +158,10 @@ monitors:
     fn test_load_nonexistent_file() {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let file_path = temp_dir.path().join("nonexistent.yaml");
-        
+
         let loader = MonitorLoader::new(file_path);
         let result = loader.load();
-        
+
         assert!(result.is_err());
         matches!(result.unwrap_err(), MonitorLoaderError::IoError(_));
     }
@@ -162,10 +170,10 @@ monitors:
     fn test_load_unsupported_extension() {
         let content = create_test_yaml_content();
         let (_temp_dir, file_path) = create_test_dir_with_file("monitors.json", &content);
-        
+
         let loader = MonitorLoader::new(file_path);
         let result = loader.load();
-        
+
         assert!(result.is_err());
         matches!(result.unwrap_err(), MonitorLoaderError::UnsupportedFormat);
     }
@@ -174,10 +182,10 @@ monitors:
     fn test_load_no_extension() {
         let content = create_test_yaml_content();
         let (_temp_dir, file_path) = create_test_dir_with_file("monitors", &content);
-        
+
         let loader = MonitorLoader::new(file_path);
         let result = loader.load();
-        
+
         assert!(result.is_err());
         matches!(result.unwrap_err(), MonitorLoaderError::UnsupportedFormat);
     }
@@ -195,10 +203,10 @@ monitors:
 invalid_yaml: {key without value
 "#;
         let (_temp_dir, file_path) = create_test_dir_with_file("invalid.yaml", invalid_content);
-        
+
         let loader = MonitorLoader::new(file_path);
         let result = loader.load();
-        
+
         assert!(result.is_err());
         matches!(result.unwrap_err(), MonitorLoaderError::ParseError(_));
     }
@@ -212,10 +220,10 @@ monitors:
     # Missing address and filter_script
 "#;
         let (_temp_dir, file_path) = create_test_dir_with_file("incomplete.yaml", invalid_content);
-        
+
         let loader = MonitorLoader::new(file_path);
         let result = loader.load();
-        
+
         assert!(result.is_err());
         matches!(result.unwrap_err(), MonitorLoaderError::ParseError(_));
     }
@@ -224,16 +232,16 @@ monitors:
     fn test_is_yaml_file() {
         let loader_yaml = MonitorLoader::new(PathBuf::from("test.yaml"));
         assert!(loader_yaml.is_yaml_file());
-        
+
         let loader_yml = MonitorLoader::new(PathBuf::from("test.yml"));
         assert!(loader_yml.is_yaml_file());
-        
+
         let loader_json = MonitorLoader::new(PathBuf::from("test.json"));
         assert!(!loader_json.is_yaml_file());
-        
+
         let loader_txt = MonitorLoader::new(PathBuf::from("test.txt"));
         assert!(!loader_txt.is_yaml_file());
-        
+
         let loader_no_ext = MonitorLoader::new(PathBuf::from("test"));
         assert!(!loader_no_ext.is_yaml_file());
     }

@@ -151,10 +151,7 @@ pub fn build_transaction_map(
     match transaction.transaction_type() {
         TxType::Legacy => {
             if let Some(gas_price) = transaction.gas_price() {
-                map.insert(
-                    "gas_price".into(),
-                    u256_to_dynamic(U256::from(gas_price)),
-                );
+                map.insert("gas_price".into(), u256_to_dynamic(U256::from(gas_price)));
             } else {
                 map.insert("gas_price".into(), Dynamic::UNIT);
             }
@@ -225,10 +222,7 @@ pub fn build_log_map(log: &DecodedLog, params_map: Map) -> Map {
             .into(),
     );
     if let Some(log_index) = log.log.log_index() {
-        log_map.insert(
-            "log_index".into(),
-            u256_to_dynamic(U256::from(log_index)),
-        );
+        log_map.insert("log_index".into(), u256_to_dynamic(U256::from(log_index)));
     } else {
         log_map.insert("log_index".into(), Dynamic::UNIT);
     }
@@ -372,10 +366,7 @@ mod tests {
 
         // Beyond boundary
         let large = U256::from(i64::MAX as u64) + U256::from(1);
-        assert_eq!(
-            u256_to_dynamic(large).cast::<String>(),
-            large.to_string()
-        );
+        assert_eq!(u256_to_dynamic(large).cast::<String>(), large.to_string());
     }
 
     #[test]

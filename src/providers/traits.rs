@@ -1,5 +1,6 @@
 //! This module defines the interface for fetching data from an EVM-compatible blockchain.
 
+use super::block_fetcher::BlockFetcherError;
 use alloy::{
     primitives::TxHash,
     rpc::types::{Block, Log, TransactionReceipt},
@@ -7,7 +8,6 @@ use alloy::{
 use async_trait::async_trait;
 use std::collections::HashMap;
 use thiserror::Error;
-use super::block_fetcher::BlockFetcherError;
 
 /// Custom error type for data source operations.
 #[derive(Error, Debug)]

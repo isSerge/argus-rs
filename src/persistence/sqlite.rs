@@ -1,37 +1,35 @@
 //! This module provides a concrete implementation of the StateRepository using SQLite.
 
-use async_trait::async_trait;
+use super::traits::StateRepository;
 use crate::models::monitor::Monitor;
+use async_trait::async_trait;
 use sqlx::{
     Row, SqlitePool,
     sqlite::{SqliteConnectOptions, SqliteRow},
 };
 use std::str::FromStr;
-use super::traits::StateRepository;
 
 /// SQL query constants for monitor operations
 mod monitor_sql {
     /// Select all monitors for a specific network
-    pub const SELECT_MONITORS_BY_NETWORK: &str = 
-        "SELECT monitor_id, name, network, address, filter_script, created_at, updated_at FROM monitors WHERE network = ?";
-    
+    pub const SELECT_MONITORS_BY_NETWORK: &str = "SELECT monitor_id, name, network, address, filter_script, created_at, updated_at FROM monitors WHERE network = ?";
+
     /// Insert a new monitor
-    pub const INSERT_MONITOR: &str = 
+    pub const INSERT_MONITOR: &str =
         "INSERT INTO monitors (name, network, address, filter_script) VALUES (?, ?, ?, ?)";
-    
+
     /// Delete all monitors for a specific network
-    pub const DELETE_MONITORS_BY_NETWORK: &str = 
-        "DELETE FROM monitors WHERE network = ?";
+    pub const DELETE_MONITORS_BY_NETWORK: &str = "DELETE FROM monitors WHERE network = ?";
 }
 
 /// SQL query constants for processed blocks operations  
 mod block_sql {
     /// Select last processed block for a network
-    pub const SELECT_LAST_PROCESSED_BLOCK: &str = 
+    pub const SELECT_LAST_PROCESSED_BLOCK: &str =
         "SELECT block_number FROM processed_blocks WHERE network_id = ?";
-    
+
     /// Insert or replace last processed block
-    pub const UPSERT_LAST_PROCESSED_BLOCK: &str = 
+    pub const UPSERT_LAST_PROCESSED_BLOCK: &str =
         "INSERT OR REPLACE INTO processed_blocks (network_id, block_number) VALUES (?, ?)";
 }
 
@@ -203,9 +201,9 @@ impl StateRepository for SqliteStateRepository {
         self.execute_query_with_error_handling(
             "set last processed block",
             sqlx::query(block_sql::UPSERT_LAST_PROCESSED_BLOCK)
-            .bind(network_id)
-            .bind(block_number_i64)
-            .execute(&self.pool),
+                .bind(network_id)
+                .bind(block_number_i64)
+                .execute(&self.pool),
         )
         .await?;
 
@@ -293,14 +291,26 @@ impl StateRepository for SqliteStateRepository {
             )
             .await?;
 
-        tracing::debug!(network_id, monitor_count = monitors.len(), "Monitors retrieved successfully.");
+        tracing::debug!(
+            network_id,
+            monitor_count = monitors.len(),
+            "Monitors retrieved successfully."
+        );
         Ok(monitors)
     }
 
     /// Adds multiple monitors for a specific network.
     #[tracing::instrument(skip(self, monitors), level = "debug")]
-    async fn add_monitors(&self, network_id: &str, monitors: Vec<Monitor>) -> Result<(), sqlx::Error> {
-        tracing::debug!(network_id, monitor_count = monitors.len(), "Adding monitors.");
+    async fn add_monitors(
+        &self,
+        network_id: &str,
+        monitors: Vec<Monitor>,
+    ) -> Result<(), sqlx::Error> {
+        tracing::debug!(
+            network_id,
+            monitor_count = monitors.len(),
+            "Adding monitors."
+        );
 
         // Validate that all monitors belong to the correct network
         for monitor in &monitors {
@@ -322,15 +332,13 @@ impl StateRepository for SqliteStateRepository {
         let mut tx = self.pool.begin().await?;
 
         for monitor in monitors {
-            sqlx::query(
-                monitor_sql::INSERT_MONITOR
-            )
-            .bind(&monitor.name)
-            .bind(&monitor.network)
-            .bind(&monitor.address)
-            .bind(&monitor.filter_script)
-            .execute(&mut *tx)
-            .await?;
+            sqlx::query(monitor_sql::INSERT_MONITOR)
+                .bind(&monitor.name)
+                .bind(&monitor.network)
+                .bind(&monitor.address)
+                .bind(&monitor.filter_script)
+                .execute(&mut *tx)
+                .await?;
         }
 
         tx.commit().await?;
@@ -481,7 +489,8 @@ mod tests {
                 "USDC Transfer Monitor".to_string(),
                 network_id.to_string(),
                 "0xa0b86a33e6441b38d4b5e5bfa1bf7a5eb70c5b1e".to_string(),
-                r#"log.name == "Transfer" && bigint(log.params.value) > bigint("1000000000")"#.to_string(),
+                r#"log.name == "Transfer" && bigint(log.params.value) > bigint("1000000000")"#
+                    .to_string(),
             ),
             Monitor::from_config(
                 "DEX Swap Monitor".to_string(),
@@ -492,23 +501,37 @@ mod tests {
         ];
 
         // Add monitors
-        repo.add_monitors(network_id, test_monitors.clone()).await.unwrap();
+        repo.add_monitors(network_id, test_monitors.clone())
+            .await
+            .unwrap();
 
         // Retrieve monitors and verify
         let stored_monitors = repo.get_monitors(network_id).await.unwrap();
         assert_eq!(stored_monitors.len(), 2);
-        
+
         // Check first monitor (order may vary, so find by name)
-        let usdc_monitor = stored_monitors.iter().find(|m| m.name == "USDC Transfer Monitor").unwrap();
+        let usdc_monitor = stored_monitors
+            .iter()
+            .find(|m| m.name == "USDC Transfer Monitor")
+            .unwrap();
         assert_eq!(usdc_monitor.network, network_id);
-        assert_eq!(usdc_monitor.address, "0xa0b86a33e6441b38d4b5e5bfa1bf7a5eb70c5b1e");
+        assert_eq!(
+            usdc_monitor.address,
+            "0xa0b86a33e6441b38d4b5e5bfa1bf7a5eb70c5b1e"
+        );
         assert!(usdc_monitor.filter_script.contains("Transfer"));
         assert!(usdc_monitor.id > 0); // Should have been assigned an ID
 
         // Check second monitor
-        let dex_monitor = stored_monitors.iter().find(|m| m.name == "DEX Swap Monitor").unwrap();
+        let dex_monitor = stored_monitors
+            .iter()
+            .find(|m| m.name == "DEX Swap Monitor")
+            .unwrap();
         assert_eq!(dex_monitor.network, network_id);
-        assert_eq!(dex_monitor.address, "0x7a250d5630b4cf539739df2c5dacb4c659f2488d");
+        assert_eq!(
+            dex_monitor.address,
+            "0x7a250d5630b4cf539739df2c5dacb4c659f2488d"
+        );
         assert_eq!(dex_monitor.filter_script, r#"log.name == "Swap""#);
         assert!(dex_monitor.id > 0);
 
@@ -527,26 +550,24 @@ mod tests {
         let network2 = "polygon";
 
         // Create monitors for different networks
-        let ethereum_monitors = vec![
-            Monitor::from_config(
-                "Ethereum Monitor".to_string(),
-                network1.to_string(),
-                "0x1111111111111111111111111111111111111111".to_string(),
-                "true".to_string(),
-            ),
-        ];
+        let ethereum_monitors = vec![Monitor::from_config(
+            "Ethereum Monitor".to_string(),
+            network1.to_string(),
+            "0x1111111111111111111111111111111111111111".to_string(),
+            "true".to_string(),
+        )];
 
-        let polygon_monitors = vec![
-            Monitor::from_config(
-                "Polygon Monitor".to_string(),
-                network2.to_string(),
-                "0x2222222222222222222222222222222222222222".to_string(),
-                "true".to_string(),
-            ),
-        ];
+        let polygon_monitors = vec![Monitor::from_config(
+            "Polygon Monitor".to_string(),
+            network2.to_string(),
+            "0x2222222222222222222222222222222222222222".to_string(),
+            "true".to_string(),
+        )];
 
         // Add monitors to different networks
-        repo.add_monitors(network1, ethereum_monitors).await.unwrap();
+        repo.add_monitors(network1, ethereum_monitors)
+            .await
+            .unwrap();
         repo.add_monitors(network2, polygon_monitors).await.unwrap();
 
         // Verify network isolation
@@ -574,14 +595,12 @@ mod tests {
         let network_id = "ethereum";
 
         // Create monitor with wrong network
-        let wrong_network_monitors = vec![
-            Monitor::from_config(
-                "Wrong Network Monitor".to_string(),
-                "polygon".to_string(), // Different from network_id
-                "0x1111111111111111111111111111111111111111".to_string(),
-                "true".to_string(),
-            ),
-        ];
+        let wrong_network_monitors = vec![Monitor::from_config(
+            "Wrong Network Monitor".to_string(),
+            "polygon".to_string(), // Different from network_id
+            "0x1111111111111111111111111111111111111111".to_string(),
+            "true".to_string(),
+        )];
 
         // Should fail due to network mismatch
         let result = repo.add_monitors(network_id, wrong_network_monitors).await;
@@ -656,17 +675,17 @@ mod tests {
 
         // Create monitor with large filter script
         let large_script = "a".repeat(10000); // 10KB script
-        let monitor_with_large_script = vec![
-            Monitor::from_config(
-                "Large Script Monitor".to_string(),
-                network_id.to_string(),
-                "0x1111111111111111111111111111111111111111".to_string(),
-                large_script.clone(),
-            ),
-        ];
+        let monitor_with_large_script = vec![Monitor::from_config(
+            "Large Script Monitor".to_string(),
+            network_id.to_string(),
+            "0x1111111111111111111111111111111111111111".to_string(),
+            large_script.clone(),
+        )];
 
         // Should handle large scripts
-        repo.add_monitors(network_id, monitor_with_large_script).await.unwrap();
+        repo.add_monitors(network_id, monitor_with_large_script)
+            .await
+            .unwrap();
 
         // Verify the script was stored correctly
         let stored_monitors = repo.get_monitors(network_id).await.unwrap();
