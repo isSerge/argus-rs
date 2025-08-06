@@ -7,6 +7,7 @@ mod monitor_loader;
 use config::{Config, ConfigError, File};
 pub use retry::RetryConfig;
 pub use rhai::RhaiConfig;
+pub use monitor_loader::{MonitorLoader, MonitorLoaderError};
 use serde::{Deserialize, Deserializer};
 use url::Url;
 
@@ -27,6 +28,10 @@ pub struct AppConfig {
 
     /// Network ID for the Ethereum network.
     pub network_id: String,
+
+    /// Optional path to monitor configuration file.
+    #[serde(default)]
+    pub monitor_config_path: Option<String>,
 
     /// Optional retry configuration.
     #[serde(default)]
