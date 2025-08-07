@@ -1,18 +1,20 @@
 //! The Supervisor module manages the lifecycle of the Argus application, coordinating between the engine, data sources, and state repository.
 
+mod builder;
+
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use crate::{
-    abi::AbiService,
     config::AppConfig,
     engine::{
         block_processor::{BlockProcessor, BlockProcessorError},
-        filtering::{FilteringEngine, RhaiFilteringEngine},
+        filtering::FilteringEngine,
     },
     models::{BlockData, DecodedBlockData},
     persistence::traits::StateRepository,
     providers::traits::{DataSource, DataSourceError},
 };
+use builder::SupervisorBuilder;
 use thiserror::Error;
 use tokio::{signal, sync::mpsc};
 
@@ -47,14 +49,6 @@ pub enum SupervisorError {
     /// Error indicating that the Supervisor encountered an issue with the channel.
     #[error("Channel closed")]
     ChannelClosed,
-}
-
-/// The SupervisorBuilder is used to construct a Supervisor instance with all necessary components.
-pub struct SupervisorBuilder {
-    config: Option<AppConfig>,
-    state: Option<Arc<dyn StateRepository>>,
-    abi_service: Option<Arc<AbiService>>,
-    data_source: Option<Box<dyn DataSource>>,
 }
 
 /// The Supervisor is responsible for managing the application state, processing blocks, and applying filters.
@@ -255,7 +249,11 @@ impl Supervisor {
             let needs_receipts = self.filtering.requires_receipt_data();
             let receipts = if needs_receipts {
                 let tx_hashes: Vec<_> = block.transactions.hashes().collect();
-                self.data_source.fetch_receipts(&tx_hashes).await?
+                if tx_hashes.is_empty() {
+                    HashMap::new()
+                } else {
+                    self.data_source.fetch_receipts(&tx_hashes).await?
+                }
             } else {
                 HashMap::new()
             };
@@ -286,7 +284,7 @@ impl Supervisor {
             && Some(valid_last_processed) > last_processed_block
         {
             self.state
-                .set_last_processed_block(&network_id, valid_last_processed)
+                .set_last_processed_block(network_id, valid_last_processed)
                 .await?;
             tracing::info!(
                 last_processed_block = valid_last_processed,
@@ -303,60 +301,295 @@ impl Supervisor {
     }
 }
 
-impl SupervisorBuilder {
-    /// Creates a new SupervisorBuilder instance.
-    pub fn new() -> Self {
-        Self {
-            config: None,
-            state: None,
-            abi_service: None,
-            data_source: None,
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        abi::AbiService,
+        engine::filtering::MockFilteringEngine,
+        persistence::traits::MockStateRepository,
+        providers::traits::MockDataSource,
+        test_helpers::{BlockBuilder, ReceiptBuilder, TransactionBuilder},
+    };
+    use alloy::primitives::B256;
+    use mockall::predicate::eq;
+    use std::{collections::HashMap, sync::Arc};
+
+    /// A test harness to simplify supervisor testing by holding common mocks.
+    struct SupervisorTestHarness {
+        config: AppConfig,
+        mock_state_repo: MockStateRepository,
+        mock_data_source: MockDataSource,
+        mock_filtering_engine: MockFilteringEngine,
+        block_processor: BlockProcessor,
+    }
+
+    impl SupervisorTestHarness {
+        fn new() -> Self {
+            let mut config = AppConfig::default();
+            config.confirmation_blocks = 1;
+
+            let abi_service = Arc::new(AbiService::new());
+            let block_processor = BlockProcessor::new(abi_service);
+
+            Self {
+                config,
+                mock_state_repo: MockStateRepository::new(),
+                mock_data_source: MockDataSource::new(),
+                mock_filtering_engine: MockFilteringEngine::new(),
+                block_processor,
+            }
+        }
+
+        fn build(self) -> Supervisor {
+            Supervisor::new(
+                self.config,
+                Arc::new(self.mock_state_repo),
+                Box::new(self.mock_data_source),
+                self.block_processor,
+                Arc::new(self.mock_filtering_engine),
+            )
         }
     }
 
-    /// Sets the configuration for the Supervisor.
-    pub fn config(mut self, config: AppConfig) -> Self {
-        self.config = Some(config);
-        self
+    #[tokio::test]
+    async fn test_monitor_cycle_succeeds_without_fetching_receipts_when_not_required() {
+        // Arrange
+        let mut harness = SupervisorTestHarness::new();
+
+        harness
+            .mock_filtering_engine
+            .expect_requires_receipt_data()
+            .returning(|| false);
+        harness
+            .mock_state_repo
+            .expect_get_last_processed_block()
+            .returning(|_| Ok(Some(121)));
+        harness
+            .mock_data_source
+            .expect_get_current_block_number()
+            .returning(|| Ok(123));
+        harness
+            .mock_data_source
+            .expect_fetch_block_core_data()
+            .with(eq(122))
+            .returning(|block_num| Ok((BlockBuilder::new().number(block_num).build(), vec![])));
+        harness.mock_data_source.expect_fetch_receipts().times(0);
+        harness
+            .mock_state_repo
+            .expect_set_last_processed_block()
+            .returning(|_, _| Ok(()));
+
+        let supervisor = harness.build();
+        let (tx, mut rx) = mpsc::channel(10);
+        let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+
+        // Act
+        let result = supervisor.monitor_cycle(tx).await;
+
+        // Assert
+        assert!(result.is_ok());
+        drain.abort();
     }
 
-    /// Sets the state repository for the Supervisor.
-    pub fn state(mut self, state: Arc<dyn StateRepository>) -> Self {
-        self.state = Some(state);
-        self
+    #[tokio::test]
+    async fn test_monitor_cycle_skips_receipt_fetch_for_empty_block() {
+        // Arrange
+        let mut harness = SupervisorTestHarness::new();
+
+        harness
+            .mock_filtering_engine
+            .expect_requires_receipt_data()
+            .returning(|| true);
+        harness
+            .mock_state_repo
+            .expect_get_last_processed_block()
+            .returning(|_| Ok(Some(121)));
+        harness
+            .mock_data_source
+            .expect_get_current_block_number()
+            .returning(|| Ok(123));
+        harness
+            .mock_data_source
+            .expect_fetch_block_core_data()
+            .with(eq(122))
+            .returning(|block_num| Ok((BlockBuilder::new().number(block_num).build(), vec![])));
+        harness.mock_data_source.expect_fetch_receipts().times(0);
+        harness
+            .mock_state_repo
+            .expect_set_last_processed_block()
+            .returning(|_, _| Ok(()));
+
+        let supervisor = harness.build();
+        let (tx, mut rx) = mpsc::channel(10);
+        let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+
+        // Act
+        let result = supervisor.monitor_cycle(tx).await;
+
+        // Assert
+        assert!(result.is_ok());
+        drain.abort();
     }
 
-    /// Sets the ABI service for the Supervisor.
-    pub fn abi_service(mut self, abi_service: Arc<AbiService>) -> Self {
-        self.abi_service = Some(abi_service);
-        self
+    #[tokio::test]
+    async fn test_monitor_cycle_fetches_receipts_successfully_when_required() {
+        // Arrange
+        let mut harness = SupervisorTestHarness::new();
+        let tx_hash = B256::from([1u8; 32]);
+        let block =
+            BlockBuilder::new().transaction(TransactionBuilder::new().hash(tx_hash).build());
+        let receipt = ReceiptBuilder::new().transaction_hash(tx_hash).build();
+        let mut expected_receipts = HashMap::new();
+        expected_receipts.insert(tx_hash, receipt);
+
+        harness
+            .mock_filtering_engine
+            .expect_requires_receipt_data()
+            .returning(|| true);
+        harness
+            .mock_state_repo
+            .expect_get_last_processed_block()
+            .returning(|_| Ok(Some(121)));
+        harness
+            .mock_data_source
+            .expect_get_current_block_number()
+            .returning(|| Ok(123));
+        harness
+            .mock_data_source
+            .expect_fetch_block_core_data()
+            .with(eq(122))
+            .returning(move |block_num| Ok((block.clone().number(block_num).build(), vec![])));
+        harness
+            .mock_data_source
+            .expect_fetch_receipts()
+            .with(eq(vec![tx_hash]))
+            .returning(move |_| Ok(expected_receipts.clone()));
+        harness
+            .mock_state_repo
+            .expect_set_last_processed_block()
+            .returning(|_, _| Ok(()));
+
+        let supervisor = harness.build();
+        let (tx, mut rx) = mpsc::channel(10);
+        let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+
+        // Act
+        let result = supervisor.monitor_cycle(tx).await;
+
+        // Assert
+        assert!(result.is_ok());
+        drain.abort();
     }
 
-    /// Sets the data source for the Supervisor.
-    pub fn data_source(mut self, data_source: Box<dyn DataSource>) -> Self {
-        self.data_source = Some(data_source);
-        self
+    #[tokio::test]
+    async fn test_monitor_cycle_fails_when_receipt_fetch_fails() {
+        // Arrange
+        let mut harness = SupervisorTestHarness::new();
+        let tx_hash = B256::from([1u8; 32]);
+        let block =
+            BlockBuilder::new().transaction(TransactionBuilder::new().hash(tx_hash).build());
+
+        harness
+            .mock_filtering_engine
+            .expect_requires_receipt_data()
+            .returning(|| true);
+        harness
+            .mock_state_repo
+            .expect_get_last_processed_block()
+            .returning(|_| Ok(Some(121)));
+        harness
+            .mock_data_source
+            .expect_get_current_block_number()
+            .returning(|| Ok(123));
+        harness
+            .mock_data_source
+            .expect_fetch_block_core_data()
+            .with(eq(122))
+            .returning(move |block_num| Ok((block.clone().number(block_num).build(), vec![])));
+        harness
+            .mock_data_source
+            .expect_fetch_receipts()
+            .with(eq(vec![tx_hash]))
+            .returning(|_| {
+                Err(DataSourceError::Provider(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "RPC error",
+                ))))
+            });
+        harness
+            .mock_state_repo
+            .expect_set_last_processed_block()
+            .times(0);
+
+        let supervisor = harness.build();
+        let (tx, mut rx) = mpsc::channel(10);
+        let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+
+        // Act
+        let result = supervisor.monitor_cycle(tx).await;
+
+        // Assert
+        assert!(result.is_err());
+        drain.abort();
     }
 
-    /// Builds the Supervisor instance, validating all required components are set.
-    pub async fn build(self) -> Result<Supervisor, SupervisorError> {
-        let config = self.config.ok_or(SupervisorError::MissingConfig)?;
-        let state = self.state.ok_or(SupervisorError::MissingStateRepository)?;
-        let abi_service = self.abi_service.ok_or(SupervisorError::MissingAbiService)?;
-        let data_source = self.data_source.ok_or(SupervisorError::MissingDataSource)?;
+    #[tokio::test]
+    async fn test_monitor_cycle_handles_multiple_transactions_successfully() {
+        // Arrange
+        let mut harness = SupervisorTestHarness::new();
+        let tx_hash1 = B256::from([1u8; 32]);
+        let tx_hash2 = B256::from([2u8; 32]);
+        let block = BlockBuilder::new()
+            .transaction(TransactionBuilder::new().hash(tx_hash1).build())
+            .transaction(TransactionBuilder::new().hash(tx_hash2).build());
 
-        // Always load the monitors for the filtering engine from the database,
-        // as it's the single source of truth for the running application.
-        tracing::debug!(network_id = %config.network_id, "Loading monitors from database for filtering engine...");
-        let monitors = state.get_monitors(&config.network_id).await?;
-        tracing::info!(count = monitors.len(), network_id = %config.network_id, "Loaded monitors from database for filtering engine.");
+        let mut expected_receipts = HashMap::new();
+        expected_receipts.insert(
+            tx_hash1,
+            ReceiptBuilder::new().transaction_hash(tx_hash1).build(),
+        );
+        expected_receipts.insert(
+            tx_hash2,
+            ReceiptBuilder::new().transaction_hash(tx_hash2).build(),
+        );
 
-        Ok(Supervisor::new(
-            config.clone(), // TODO: remove later
-            state,
-            data_source,
-            BlockProcessor::new(abi_service),
-            Arc::new(RhaiFilteringEngine::new(monitors, config.rhai)),
-        ))
+        harness
+            .mock_filtering_engine
+            .expect_requires_receipt_data()
+            .returning(|| true);
+        harness
+            .mock_state_repo
+            .expect_get_last_processed_block()
+            .returning(|_| Ok(Some(121)));
+        harness
+            .mock_data_source
+            .expect_get_current_block_number()
+            .returning(|| Ok(123));
+        harness
+            .mock_data_source
+            .expect_fetch_block_core_data()
+            .with(eq(122))
+            .returning(move |block_num| Ok((block.clone().number(block_num).build(), vec![])));
+        harness
+            .mock_data_source
+            .expect_fetch_receipts()
+            .with(eq(vec![tx_hash1, tx_hash2]))
+            .returning(move |_| Ok(expected_receipts.clone()));
+        harness
+            .mock_state_repo
+            .expect_set_last_processed_block()
+            .returning(|_, _| Ok(()));
+
+        let supervisor = harness.build();
+        let (tx, mut rx) = mpsc::channel(10);
+        let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+
+        // Act
+        let result = supervisor.monitor_cycle(tx).await;
+
+        // Assert
+        assert!(result.is_ok());
+        drain.abort();
     }
 }
