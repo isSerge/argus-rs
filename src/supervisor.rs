@@ -94,7 +94,9 @@ impl Supervisor {
             tokio::signal::ctrl_c()
                 .await
                 .expect("Failed to listen for Ctrl+C");
-            cancellation_token.cancelled().await;
+
+            // Cancel the cancellation token to signal shutdown
+            cancellation_token.cancel();
         });
 
         // Create a channel for decoded block data
@@ -103,7 +105,7 @@ impl Supervisor {
 
         // Spawn the filtering engine task
         let filtering_engine_clone = Arc::clone(&self.filtering);
-        let filtering_engine_task = tokio::spawn(async move {
+        self.join_set.spawn(async move {
             filtering_engine_clone.run(decoded_blocks_rx).await;
         });
 
@@ -132,7 +134,7 @@ impl Supervisor {
 
               // Monitor cycle branch
               result = polling_delay => {
-                if let Err(e) = self.monitor_cycle(&decoded_blocks_tx).await {
+                if let Err(e) = self.monitor_cycle(tx_clone).await {
                     tracing::error!(error = %e, "Error in monitoring cycle. Retrying after delay...");
                 }
               }
@@ -148,7 +150,7 @@ impl Supervisor {
 
     async fn monitor_cycle(
         &self,
-        decoded_blocks_tx: &mpsc::Sender<DecodedBlockData>,
+        decoded_blocks_tx: mpsc::Sender<DecodedBlockData>,
     ) -> Result<(), SupervisorError> {
         unimplemented!()
     }
