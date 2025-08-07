@@ -2,10 +2,13 @@
 
 use crate::models::monitor::Monitor;
 use async_trait::async_trait;
+#[cfg(test)]
+use mockall::automock;
 
 /// Represents the state management interface for the Argus application.
+#[cfg_attr(test, automock)]
 #[async_trait]
-pub trait StateRepository {
+pub trait StateRepository: Send + Sync {
     /// Retrieves the last processed block number for a given network.
     async fn get_last_processed_block(&self, network_id: &str) -> Result<Option<u64>, sqlx::Error>;
     /// Sets the last processed block number for a given network.
