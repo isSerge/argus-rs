@@ -1,4 +1,20 @@
-//! The Supervisor module manages the lifecycle of the Argus application, coordinating between the engine, data sources, and state repository.
+//! The Supervisor module manages the lifecycle of the Argus application.
+//!
+//! This module implements the **Supervisor Pattern**, a design pattern used to manage
+//! the lifecycle of multiple, concurrent, long-running services. It acts as the top-level
+//! owner of all major components of the application, such as the data source, block processor,
+//! and filtering engine.
+//!
+//! ## Responsibilities
+//!
+//! - **Initialization**: The `SupervisorBuilder` constructs and "wires" all services together,
+//!   injecting necessary dependencies like configuration and database connections.
+//! - **Lifecycle Management**: The `Supervisor` starts all services and manages their lifetimes.
+//! - **Graceful Shutdown**: It listens for shutdown signals (like Ctrl+C or SIGTERM) and
+//!   orchestrates a clean shutdown of all managed services.
+//! - **Task Supervision**: It monitors the health of each service. If a critical service
+//!   fails (panics or returns an error), the supervisor will shut down all other services
+//!   to ensure the application exits cleanly rather than continuing in a partially-functional state.
 
 mod builder;
 
@@ -18,59 +34,65 @@ use builder::SupervisorBuilder;
 use thiserror::Error;
 use tokio::{signal, sync::mpsc};
 
-/// SupervisorError represents errors that can occur within the Supervisor.
+/// Represents the set of errors that can occur during the supervisor's operation.
 #[derive(Debug, Error)]
 pub enum SupervisorError {
-    /// Error indicating that the Supervisor is missing a configuration.
+    /// A required configuration was not provided to the `SupervisorBuilder`.
     #[error("Missing configuration for Supervisor")]
     MissingConfig,
 
-    /// Error indicating that the Supervisor is missing a state repository.
+    /// A state repository was not provided to the `SupervisorBuilder`.
     #[error("Missing state repository for Supervisor")]
     MissingStateRepository,
 
-    /// Error indicating that the Supervisor is missing an ABI service.
+    /// An ABI service was not provided to the `SupervisorBuilder`.
     #[error("Missing ABI service for Supervisor")]
     MissingAbiService,
 
-    /// Error indicating that the Supervisor is missing a data source.
+    /// A data source was not provided to the `SupervisorBuilder`.
     #[error("Missing data source for Supervisor")]
     MissingDataSource,
 
-    // TODO: convert sqlx error to RepositoryError
-    /// Error indicating that the Supervisor encountered an issue while loading monitors from state repository.
+    /// An error occurred while trying to load monitors from the state repository.
     #[error("Failed to load monitors from state repository: {0}")]
     MonitorLoadError(#[from] sqlx::Error),
 
-    /// Error indicating that the Supervisor encountered an issue with the data source.
+    /// A critical error occurred in the data source during block fetching.
     #[error("Data source error: {0}")]
     DataSourceError(#[from] DataSourceError),
 
-    /// Error indicating that the Supervisor encountered an issue with the channel.
+    /// The channel for communicating with a downstream service was closed unexpectedly.
     #[error("Channel closed")]
     ChannelClosed,
 }
 
-/// The Supervisor is responsible for managing the application state, processing blocks, and applying filters.
+/// The primary runtime manager for the application.
+///
+/// The Supervisor owns all the major components (services) and is responsible for
+/// their startup, shutdown, and health monitoring. Once `run` is called, it becomes
+//  the main process loop for the entire application.
 pub struct Supervisor {
-    /// The configuration for the Supervisor
+    /// Shared application configuration.
     config: AppConfig,
-    /// The state repository for managing application state.
+    /// The persistent state repository for managing application state.
     state: Arc<dyn StateRepository>,
-    /// The data source for fetching blockchain data.
+    /// The data source for fetching new blockchain data (e.g., from an RPC endpoint).
     data_source: Box<dyn DataSource>,
-    /// The block processor for processing blockchain data.
+    /// The service responsible for decoding raw block data.
     processor: BlockProcessor,
-    /// The filtering engine for applying filters to the processed data.
+    /// The service responsible for matching decoded data against user-defined monitors.
     filtering: Arc<dyn FilteringEngine>,
-    /// A cancellation token for gracefully shutting down the Supervisor.
+    /// A token used to signal a graceful shutdown to all supervised tasks.
     cancellation_token: tokio_util::sync::CancellationToken,
-    /// A set of tasks that the Supervisor is managing.
+    /// A set of all spawned tasks that the supervisor is actively managing.
     join_set: tokio::task::JoinSet<()>,
 }
 
 impl Supervisor {
-    /// Creates a new Supervisor instance with the provided configuration and components.
+    /// Creates a new Supervisor instance with all its required components.
+    ///
+    /// This is typically called by the `SupervisorBuilder` after it has assembled
+    /// all the necessary dependencies.
     pub fn new(
         config: AppConfig,
         state: Arc<dyn StateRepository>,
@@ -89,12 +111,23 @@ impl Supervisor {
         }
     }
 
-    /// Starts the Supervisor, initializing all components and beginning the processing loop.
+    /// Starts the supervisor and all its managed services.
+    ///
+    /// This method is the main entry point for the application's runtime. It performs
+    /// the following steps:
+    /// 1. Spawns a signal handler to listen for `SIGINT` (Ctrl+C) and `SIGTERM`.
+    /// 2. Spawns the `FilteringEngine` as a long-running background task.
+    /// 3. Enters the main `select!` loop, which concurrently:
+    ///    - Listens for the shutdown signal.
+    ///    - Monitors the health of all spawned tasks via the `JoinSet`.
+    ///    - Periodically calls `monitor_cycle` to perform the main block-fetching logic.
+    /// 4. Upon shutdown, it waits for all tasks to complete and performs graceful cleanup
+    ///    of resources like the database connection.
     pub async fn run(mut self) -> Result<(), SupervisorError> {
-        // Initialize the cancellation token
+        // Clone the token for the signal handler task.
         let cancellation_token = self.cancellation_token.clone();
 
-        // Spawn a task to listen for cancellation signals (e.g., Ctrl+C)
+        // Spawn a task to listen for shutdown signals.
         self.join_set.spawn(async move {
             let ctrl_c = signal::ctrl_c();
             #[cfg(unix)]
@@ -112,15 +145,15 @@ impl Supervisor {
                 _ = terminate => tracing::info!("SIGTERM received, initiating graceful shutdown."),
             }
 
-            // Cancel the cancellation token to signal shutdown
+            // Notify all other tasks to begin shutting down.
             cancellation_token.cancel();
         });
 
-        // Create a channel for decoded block data
+        // Create the channel that connects the main logic (monitor_cycle) to the filtering engine.
         let (decoded_blocks_tx, decoded_blocks_rx) =
             mpsc::channel::<DecodedBlockData>(self.config.block_chunk_size as usize * 2);
 
-        // Spawn the filtering engine task
+        // Spawn the filtering engine as a managed task.
         let filtering_engine_clone = Arc::clone(&self.filtering);
         self.join_set.spawn(async move {
             filtering_engine_clone.run(decoded_blocks_rx).await;
@@ -128,31 +161,32 @@ impl Supervisor {
 
         // TODO: spawn other tasks similar to the filtering engine
 
+        // This is the main application loop.
         loop {
             let tx_clone = decoded_blocks_tx.clone();
             let polling_delay =
                 tokio::time::sleep(Duration::from_millis(self.config.polling_interval_ms));
 
             tokio::select! {
+              // Use `biased` to ensure the shutdown signal is always checked first.
               biased;
 
-              // Cancellation token branch
+              // Branch 1: A shutdown has been requested.
               _ = self.cancellation_token.cancelled() => {
                 tracing::info!("Supervisor cancellation signal received, shutting down...");
-                break;
+                break; // Exit the main loop.
               }
 
-              // Check if any spawned tasks failed
+              // Branch 2: A supervised task has terminated.
               Some(result) = self.join_set.join_next() => {
                 if let Err(e) = result {
-                  tracing::error!("Task failed: {:?}", e);
+                  tracing::error!("A critical task failed: {:?}. Initiating shutdown.", e);
                   self.cancellation_token.cancel();
                 }
-
-                continue;
+                continue; // Check for shutdown or continue polling.
               }
 
-              // Monitor cycle branch
+              // Branch 3: The polling interval has elapsed, time for a new cycle.
               _ = polling_delay => {
                 if let Err(e) = self.monitor_cycle(tx_clone).await {
                     tracing::error!(error = %e, "Error in monitoring cycle. Retrying after delay...");
@@ -161,13 +195,14 @@ impl Supervisor {
             }
         }
 
-        // Graceful shutdown of spawned tasks
+        // --- Graceful Shutdown ---
+
+        // Wait for all spawned tasks to complete.
         self.join_set.shutdown().await;
-        tracing::info!("All tasks completed, shutting down Supervisor...");
+        tracing::info!("All supervised tasks have completed.");
 
-        // Perform cleanup operations
-        tracing::info!("Starting graceful cleanup...");
-
+        // Perform final cleanup of resources, with a timeout.
+        tracing::info!("Starting graceful resource cleanup...");
         let shutdown_timeout = Duration::from_secs(self.config.shutdown_timeout_secs);
 
         let cleanup_logic = async {
@@ -193,18 +228,27 @@ impl Supervisor {
             }
         };
 
-        match tokio::time::timeout(shutdown_timeout, cleanup_logic).await {
-            Ok(_) => tracing::info!("Cleanup completed successfully."),
-            Err(_) => tracing::warn!(
+        if tokio::time::timeout(shutdown_timeout, cleanup_logic)
+            .await
+            .is_err()
+        {
+            tracing::warn!(
                 "Cleanup did not complete within the timeout of {:?}. Continuing shutdown.",
                 shutdown_timeout
-            ),
+            );
+        } else {
+            tracing::info!("Cleanup completed successfully.");
         }
 
         tracing::info!("Supervisor shutdown complete.");
         Ok(())
     }
 
+    /// Performs one cycle of fetching, processing, and dispatching block data.
+    ///
+    /// This method encapsulates the core logic that was previously in `main.rs`. It determines
+    /// the range of blocks to process based on the last known state, fetches the required data,
+    /// processes it, and sends it to the filtering engine via the provided channel.
     async fn monitor_cycle(
         &self,
         decoded_blocks_tx: mpsc::Sender<DecodedBlockData>,
@@ -214,7 +258,7 @@ impl Supervisor {
         let current_block = self.data_source.get_current_block_number().await?;
 
         if current_block < self.config.confirmation_blocks {
-            tracing::info!(
+            tracing::debug!(
                 "Chain is shorter than the confirmation buffer. Waiting for more blocks."
             );
             return Ok(());
@@ -225,7 +269,7 @@ impl Supervisor {
         let safe_to_block = current_block.saturating_sub(self.config.confirmation_blocks);
 
         if from_block > safe_to_block {
-            tracing::info!("Caught up to confirmation buffer. Waiting for more blocks.");
+            tracing::debug!("Caught up to confirmation buffer. Waiting for more blocks.");
             return Ok(());
         }
 
@@ -239,7 +283,6 @@ impl Supervisor {
         let mut last_processed = last_processed_block;
         let mut blocks_to_process = Vec::new();
         for block_num in from_block..=to_block {
-            // Check if cancellation is requested
             if self.cancellation_token.is_cancelled() {
                 tracing::info!("Cancellation requested, stopping block processing.");
                 break;
@@ -295,12 +338,15 @@ impl Supervisor {
         Ok(())
     }
 
-    /// Creates a new SupervisorBuilder to configure and build a Supervisor instance.
+    /// Returns a new `SupervisorBuilder` instance.
+    ///
+    /// This is the public entry point for creating a supervisor.
     pub fn builder() -> SupervisorBuilder {
         SupervisorBuilder::new()
     }
 }
 
+/// This module contains the integration tests for the Supervisor.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -357,24 +403,30 @@ mod tests {
         // Arrange
         let mut harness = SupervisorTestHarness::new();
 
+        // This test verifies the scenario where no monitor requires transaction receipts.
         harness
             .mock_filtering_engine
             .expect_requires_receipt_data()
             .returning(|| false);
+        // Simulate that the last block we successfully processed was 121.
         harness
             .mock_state_repo
             .expect_get_last_processed_block()
             .returning(|_| Ok(Some(121)));
+        // Simulate the current chain head is at block 123.
         harness
             .mock_data_source
             .expect_get_current_block_number()
             .returning(|| Ok(123));
+        // We expect the cycle to process the next safe block, which is 122.
         harness
             .mock_data_source
             .expect_fetch_block_core_data()
             .with(eq(122))
             .returning(|block_num| Ok((BlockBuilder::new().number(block_num).build(), vec![])));
+        // The core assertion of this test: fetch_receipts should never be called.
         harness.mock_data_source.expect_fetch_receipts().times(0);
+        // Expect the cycle to successfully update the last processed block to 122.
         harness
             .mock_state_repo
             .expect_set_last_processed_block()
@@ -397,10 +449,12 @@ mod tests {
         // Arrange
         let mut harness = SupervisorTestHarness::new();
 
+        // Even if monitors require receipts, the fetch should be skipped for blocks with no transactions.
         harness
             .mock_filtering_engine
             .expect_requires_receipt_data()
             .returning(|| true);
+        // Standard setup for processing block 122.
         harness
             .mock_state_repo
             .expect_get_last_processed_block()
@@ -409,12 +463,15 @@ mod tests {
             .mock_data_source
             .expect_get_current_block_number()
             .returning(|| Ok(123));
+        // Return a block that has no transactions.
         harness
             .mock_data_source
             .expect_fetch_block_core_data()
             .with(eq(122))
             .returning(|block_num| Ok((BlockBuilder::new().number(block_num).build(), vec![])));
+        // The core assertion: fetch_receipts is not called because there are no transaction hashes.
         harness.mock_data_source.expect_fetch_receipts().times(0);
+        // Expect the cycle to complete successfully.
         harness
             .mock_state_repo
             .expect_set_last_processed_block()
@@ -443,10 +500,12 @@ mod tests {
         let mut expected_receipts = HashMap::new();
         expected_receipts.insert(tx_hash, receipt);
 
+        // Simulate that monitors require receipts.
         harness
             .mock_filtering_engine
             .expect_requires_receipt_data()
             .returning(|| true);
+        // Standard setup for processing block 122.
         harness
             .mock_state_repo
             .expect_get_last_processed_block()
@@ -455,16 +514,19 @@ mod tests {
             .mock_data_source
             .expect_get_current_block_number()
             .returning(|| Ok(123));
+        // Return a block with one transaction.
         harness
             .mock_data_source
             .expect_fetch_block_core_data()
             .with(eq(122))
             .returning(move |block_num| Ok((block.clone().number(block_num).build(), vec![])));
+        // The core assertion: fetch_receipts is called once with the correct transaction hash.
         harness
             .mock_data_source
             .expect_fetch_receipts()
             .with(eq(vec![tx_hash]))
             .returning(move |_| Ok(expected_receipts.clone()));
+        // Expect the cycle to complete successfully.
         harness
             .mock_state_repo
             .expect_set_last_processed_block()
@@ -490,10 +552,12 @@ mod tests {
         let block =
             BlockBuilder::new().transaction(TransactionBuilder::new().hash(tx_hash).build());
 
+        // Simulate that monitors require receipts.
         harness
             .mock_filtering_engine
             .expect_requires_receipt_data()
             .returning(|| true);
+        // Standard setup for processing block 122.
         harness
             .mock_state_repo
             .expect_get_last_processed_block()
@@ -507,6 +571,7 @@ mod tests {
             .expect_fetch_block_core_data()
             .with(eq(122))
             .returning(move |block_num| Ok((block.clone().number(block_num).build(), vec![])));
+        // The core assertion: fetch_receipts is called, but it returns an error.
         harness
             .mock_data_source
             .expect_fetch_receipts()
@@ -517,6 +582,7 @@ mod tests {
                     "RPC error",
                 ))))
             });
+        // Because the cycle fails, we expect that the last processed block is NOT updated.
         harness
             .mock_state_repo
             .expect_set_last_processed_block()
@@ -554,10 +620,12 @@ mod tests {
             ReceiptBuilder::new().transaction_hash(tx_hash2).build(),
         );
 
+        // Simulate that monitors require receipts.
         harness
             .mock_filtering_engine
             .expect_requires_receipt_data()
             .returning(|| true);
+        // Standard setup for processing block 122.
         harness
             .mock_state_repo
             .expect_get_last_processed_block()
@@ -566,16 +634,19 @@ mod tests {
             .mock_data_source
             .expect_get_current_block_number()
             .returning(|| Ok(123));
+        // Return a block with two transactions.
         harness
             .mock_data_source
             .expect_fetch_block_core_data()
             .with(eq(122))
             .returning(move |block_num| Ok((block.clone().number(block_num).build(), vec![])));
+        // The core assertion: fetch_receipts is called with both transaction hashes.
         harness
             .mock_data_source
             .expect_fetch_receipts()
             .with(eq(vec![tx_hash1, tx_hash2]))
             .returning(move |_| Ok(expected_receipts.clone()));
+        // Expect the cycle to complete successfully.
         harness
             .mock_state_repo
             .expect_set_last_processed_block()
