@@ -7,5 +7,5 @@ pub mod engine;
 pub mod models;
 pub mod persistence;
 pub mod providers;
-pub mod test_helpers;
 pub mod supervisor;
+pub mod test_helpers;

@@ -17,7 +17,7 @@ fn default_shutdown_timeout() -> u64 {
 }
 
 /// Application configuration for Argus.
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
 pub struct AppConfig {
     /// Database URL for the SQLite database.
     pub database_url: String,
