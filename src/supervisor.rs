@@ -14,7 +14,7 @@ use crate::{
     providers::traits::DataSource,
 };
 use thiserror::Error;
-use tokio::sync::mpsc;
+use tokio::{signal, sync::mpsc};
 
 /// SupervisorError represents errors that can occur within the Supervisor.
 #[derive(Debug, Error)]
@@ -91,9 +91,21 @@ impl Supervisor {
 
         // Spawn a task to listen for cancellation signals (e.g., Ctrl+C)
         self.join_set.spawn(async move {
-            tokio::signal::ctrl_c()
-                .await
-                .expect("Failed to listen for Ctrl+C");
+            let ctrl_c = signal::ctrl_c();
+            #[cfg(unix)]
+            let terminate = async {
+                signal::unix::signal(signal::unix::SignalKind::terminate())
+                    .expect("Failed to register SIGTERM handler")
+                    .recv()
+                    .await;
+            };
+            #[cfg(not(unix))]
+            let terminate = std::future::pending::<()>();
+
+            tokio::select! {
+                _ = ctrl_c => tracing::info!("SIGINT (Ctrl+C) received, initiating graceful shutdown."),
+                _ = terminate => tracing::info!("SIGTERM received, initiating graceful shutdown."),
+            }
 
             // Cancel the cancellation token to signal shutdown
             cancellation_token.cancel();
