@@ -1,17 +1,17 @@
 //! The Supervisor module manages the lifecycle of the Argus application, coordinating between the engine, data sources, and state repository.
 
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use crate::{
     abi::AbiService,
     config::AppConfig,
     engine::{
-        block_processor::BlockProcessor,
+        block_processor::{BlockProcessor, BlockProcessorError},
         filtering::{FilteringEngine, RhaiFilteringEngine},
     },
     models::{BlockData, DecodedBlockData},
     persistence::traits::StateRepository,
-    providers::traits::DataSource,
+    providers::traits::{DataSource, DataSourceError},
 };
 use thiserror::Error;
 use tokio::{signal, sync::mpsc};
@@ -22,12 +22,15 @@ pub enum SupervisorError {
     /// Error indicating that the Supervisor is missing a configuration.
     #[error("Missing configuration for Supervisor")]
     MissingConfig,
+
     /// Error indicating that the Supervisor is missing a state repository.
     #[error("Missing state repository for Supervisor")]
     MissingStateRepository,
+
     /// Error indicating that the Supervisor is missing an ABI service.
     #[error("Missing ABI service for Supervisor")]
     MissingAbiService,
+
     /// Error indicating that the Supervisor is missing a data source.
     #[error("Missing data source for Supervisor")]
     MissingDataSource,
@@ -36,6 +39,14 @@ pub enum SupervisorError {
     /// Error indicating that the Supervisor encountered an issue while loading monitors from state repository.
     #[error("Failed to load monitors from state repository: {0}")]
     MonitorLoadError(#[from] sqlx::Error),
+
+    /// Error indicating that the Supervisor encountered an issue with the data source.
+    #[error("Data source error: {0}")]
+    DataSourceError(#[from] DataSourceError),
+
+    /// Error indicating that the Supervisor encountered an issue with the channel.
+    #[error("Channel closed")]
+    ChannelClosed,
 }
 
 /// The SupervisorBuilder is used to construct a Supervisor instance with all necessary components.
@@ -136,7 +147,7 @@ impl Supervisor {
                 tracing::info!("Supervisor cancellation signal received, shutting down...");
                 break;
               }
-              
+
               // Check if any spawned tasks failed
               Some(result) = self.join_set.join_next() => {
                 if let Err(e) = result {
@@ -204,7 +215,86 @@ impl Supervisor {
         &self,
         decoded_blocks_tx: mpsc::Sender<DecodedBlockData>,
     ) -> Result<(), SupervisorError> {
-        unimplemented!()
+        let network_id = &self.config.network_id;
+        let last_processed_block = self.state.get_last_processed_block(network_id).await?;
+        let current_block = self.data_source.get_current_block_number().await?;
+
+        if current_block < self.config.confirmation_blocks {
+            tracing::info!(
+                "Chain is shorter than the confirmation buffer. Waiting for more blocks."
+            );
+            return Ok(());
+        }
+
+        let from_block = last_processed_block
+            .map_or_else(|| current_block.saturating_sub(100), |block| block + 1);
+        let safe_to_block = current_block.saturating_sub(self.config.confirmation_blocks);
+
+        if from_block > safe_to_block {
+            tracing::info!("Caught up to confirmation buffer. Waiting for more blocks.");
+            return Ok(());
+        }
+
+        let to_block = std::cmp::min(from_block + self.config.block_chunk_size, safe_to_block);
+        tracing::info!(
+            from_block = from_block,
+            to_block = to_block,
+            "Processing block range."
+        );
+
+        let mut last_processed = last_processed_block;
+        let mut blocks_to_process = Vec::new();
+        for block_num in from_block..=to_block {
+            // Check if cancellation is requested
+            if self.cancellation_token.is_cancelled() {
+                tracing::info!("Cancellation requested, stopping block processing.");
+                break;
+            }
+
+            let (block, logs) = self.data_source.fetch_block_core_data(block_num).await?;
+            let needs_receipts = self.filtering.requires_receipt_data();
+            let receipts = if needs_receipts {
+                let tx_hashes: Vec<_> = block.transactions.hashes().collect();
+                self.data_source.fetch_receipts(&tx_hashes).await?
+            } else {
+                HashMap::new()
+            };
+            blocks_to_process.push(BlockData::from_raw_data(block, receipts, logs));
+        }
+
+        if !blocks_to_process.is_empty() {
+            match self.processor.process_blocks_batch(blocks_to_process).await {
+                Ok(decoded_blocks) => {
+                    for decoded_block in decoded_blocks {
+                        let block_num = decoded_block.block_number;
+                        if decoded_blocks_tx.send(decoded_block).await.is_err() {
+                            tracing::warn!(
+                                "Decoded blocks channel closed, stopping further processing."
+                            );
+                            return Err(SupervisorError::ChannelClosed);
+                        }
+                        last_processed = Some(block_num);
+                    }
+                }
+                Err(BlockProcessorError::AbiService(e)) => {
+                    tracing::warn!(error = %e, "ABI service error during batch processing, will retry.");
+                }
+            }
+        }
+
+        if let Some(valid_last_processed) = last_processed
+            && Some(valid_last_processed) > last_processed_block
+        {
+            self.state
+                .set_last_processed_block(&network_id, valid_last_processed)
+                .await?;
+            tracing::info!(
+                last_processed_block = valid_last_processed,
+                "Last processed block updated successfully."
+            );
+        }
+
+        Ok(())
     }
 
     /// Creates a new SupervisorBuilder to configure and build a Supervisor instance.
