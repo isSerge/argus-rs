@@ -1,5 +1,7 @@
 # Argus EVM Monitor
 
+> **Note:** This project is under active development and is not yet ready for production use. The API and architecture are subject to change.
+
 Argus is a next-generation, open-source, self-hosted monitoring tool for EVM chains
 
 ## Project Setup
