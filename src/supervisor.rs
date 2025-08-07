@@ -9,9 +9,34 @@ use crate::{
         block_processor::BlockProcessor,
         filtering::{FilteringEngine, RhaiFilteringEngine},
     },
+    models::{BlockData, DecodedBlockData},
     persistence::traits::StateRepository,
     providers::traits::DataSource,
 };
+use thiserror::Error;
+use tokio::sync::mpsc;
+
+/// SupervisorError represents errors that can occur within the Supervisor.
+#[derive(Debug, Error)]
+pub enum SupervisorError {
+    /// Error indicating that the Supervisor is missing a configuration.
+    #[error("Missing configuration for Supervisor")]
+    MissingConfig,
+    /// Error indicating that the Supervisor is missing a state repository.
+    #[error("Missing state repository for Supervisor")]
+    MissingStateRepository,
+    /// Error indicating that the Supervisor is missing an ABI service.
+    #[error("Missing ABI service for Supervisor")]
+    MissingAbiService,
+    /// Error indicating that the Supervisor is missing a data source.
+    #[error("Missing data source for Supervisor")]
+    MissingDataSource,
+
+    // TODO: convert sqlx error to RepositoryError
+    /// Error indicating that the Supervisor encountered an issue while loading monitors from state repository.
+    #[error("Failed to load monitors from state repository: {0}")]
+    MonitorLoadError(#[from] sqlx::Error),
+}
 
 /// The SupervisorBuilder is used to construct a Supervisor instance with all necessary components.
 pub struct SupervisorBuilder {
@@ -23,6 +48,8 @@ pub struct SupervisorBuilder {
 
 /// The Supervisor is responsible for managing the application state, processing blocks, and applying filters.
 pub struct Supervisor {
+    /// The configuration for the Supervisor
+    config: AppConfig,
     /// The state repository for managing application state.
     state: Arc<dyn StateRepository>,
     /// The data source for fetching blockchain data.
@@ -30,7 +57,7 @@ pub struct Supervisor {
     /// The block processor for processing blockchain data.
     processor: BlockProcessor,
     /// The filtering engine for applying filters to the processed data.
-    filtering: Box<dyn FilteringEngine>,
+    filtering: Arc<dyn FilteringEngine>,
     /// A cancellation token for gracefully shutting down the Supervisor.
     cancellation_token: tokio_util::sync::CancellationToken,
     /// A set of tasks that the Supervisor is managing.
@@ -40,12 +67,14 @@ pub struct Supervisor {
 impl Supervisor {
     /// Creates a new Supervisor instance with the provided configuration and components.
     pub fn new(
+        config: AppConfig,
         state: Arc<dyn StateRepository>,
-        processor: BlockProcessor,
-        filtering: Box<dyn FilteringEngine>,
         data_source: Box<dyn DataSource>,
+        processor: BlockProcessor,
+        filtering: Arc<dyn FilteringEngine>,
     ) -> Self {
         Self {
+            config,
             state,
             data_source,
             processor,
@@ -102,25 +131,24 @@ impl SupervisorBuilder {
     }
 
     /// Builds the Supervisor instance, validating all required components are set.
-    pub async fn build(self) -> Result<Supervisor, String> {
-        let config = self.config.ok_or("Configuration is required")?;
-        let state = self.state.ok_or("State repository is required")?;
-        let abi_service = self.abi_service.ok_or("ABI service is required")?;
-        let data_source = self.data_source.ok_or("Data source is required")?;
+    pub async fn build(self) -> Result<Supervisor, SupervisorError> {
+        let config = self.config.ok_or(SupervisorError::MissingConfig)?;
+        let state = self.state.ok_or(SupervisorError::MissingStateRepository)?;
+        let abi_service = self.abi_service.ok_or(SupervisorError::MissingAbiService)?;
+        let data_source = self.data_source.ok_or(SupervisorError::MissingDataSource)?;
 
-        let monitors = state
-            .as_ref()
-            .get_monitors(&config.network_id)
-            .await
-            .map_err(|e| e.to_string())?;
-
-        // TODO: create channels
+        // Always load the monitors for the filtering engine from the database,
+        // as it's the single source of truth for the running application.
+        tracing::debug!(network_id = %config.network_id, "Loading monitors from database for filtering engine...");
+        let monitors = state.get_monitors(&config.network_id).await?;
+        tracing::info!(count = monitors.len(), network_id = %config.network_id, "Loaded monitors from database for filtering engine.");
 
         Ok(Supervisor::new(
+            config.clone(), // TODO: remove later
             state,
-            BlockProcessor::new(abi_service),
-            Box::new(RhaiFilteringEngine::new(monitors, config.rhai)),
             data_source,
+            BlockProcessor::new(abi_service),
+            Arc::new(RhaiFilteringEngine::new(monitors, config.rhai)),
         ))
     }
 }
