@@ -1,6 +1,6 @@
 //! The Supervisor module manages the lifecycle of the Argus application, coordinating between the engine, data sources, and state repository.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use crate::{
     abi::AbiService,
@@ -85,7 +85,71 @@ impl Supervisor {
     }
 
     /// Starts the Supervisor, initializing all components and beginning the processing loop.
-    pub fn run(&mut self) {
+    pub async fn run(mut self) -> Result<(), SupervisorError> {
+        // Initialize the cancellation token
+        let cancellation_token = self.cancellation_token.clone();
+
+        // Spawn a task to listen for cancellation signals (e.g., Ctrl+C)
+        self.join_set.spawn(async move {
+            tokio::signal::ctrl_c()
+                .await
+                .expect("Failed to listen for Ctrl+C");
+            cancellation_token.cancelled().await;
+        });
+
+        // Create a channel for decoded block data
+        let (decoded_blocks_tx, decoded_blocks_rx) =
+            mpsc::channel::<DecodedBlockData>(self.config.block_chunk_size as usize * 2);
+
+        // Spawn the filtering engine task
+        let filtering_engine_clone = Arc::clone(&self.filtering);
+        let filtering_engine_task = tokio::spawn(async move {
+            filtering_engine_clone.run(decoded_blocks_rx).await;
+        });
+
+        loop {
+            let tx_clone = decoded_blocks_tx.clone();
+            let polling_delay = tokio::time::sleep(Duration::from_millis(self.config.polling_interval_ms));
+
+            tokio::select! {
+              biased;
+
+              // Cancellation token branch
+              _ = self.cancellation_token.cancelled() => {
+                tracing::info!("Supervisor cancellation signal received, shutting down...");
+                break;
+              }
+              
+              // Check if any spawned tasks failed
+              Some(result) = self.join_set.join_next() => {
+                if let Err(e) = result {
+                  tracing::error!("Task failed: {:?}", e);
+                  self.cancellation_token.cancel();
+                }
+
+                continue;
+              }
+
+              // Monitor cycle branch
+              result = polling_delay => {
+                if let Err(e) = self.monitor_cycle(&decoded_blocks_tx).await {
+                    tracing::error!(error = %e, "Error in monitoring cycle. Retrying after delay...");
+                }
+              }
+            }
+        }
+
+        // Graceful shutdown
+        self.join_set.shutdown().await;
+        tracing::info!("All tasks completed, shutting down Supervisor...");
+
+        Ok(())
+    }
+
+    async fn monitor_cycle(
+        &self,
+        decoded_blocks_tx: &mpsc::Sender<DecodedBlockData>,
+    ) -> Result<(), SupervisorError> {
         unimplemented!()
     }
 
