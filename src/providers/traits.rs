@@ -31,7 +31,7 @@ pub enum DataSourceError {
 
 /// A trait for a data source that can fetch blockchain data.
 #[async_trait]
-pub trait DataSource {
+pub trait DataSource: Send + Sync {
     /// Fetches the core data for a single block (block with transactions and logs).
     async fn fetch_block_core_data(
         &self,
