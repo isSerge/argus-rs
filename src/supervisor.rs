@@ -121,9 +121,12 @@ impl Supervisor {
             filtering_engine_clone.run(decoded_blocks_rx).await;
         });
 
+        // TODO: spawn other tasks similar to the filtering engine
+
         loop {
             let tx_clone = decoded_blocks_tx.clone();
-            let polling_delay = tokio::time::sleep(Duration::from_millis(self.config.polling_interval_ms));
+            let polling_delay =
+                tokio::time::sleep(Duration::from_millis(self.config.polling_interval_ms));
 
             tokio::select! {
               biased;
@@ -145,7 +148,7 @@ impl Supervisor {
               }
 
               // Monitor cycle branch
-              result = polling_delay => {
+              _ = polling_delay => {
                 if let Err(e) = self.monitor_cycle(tx_clone).await {
                     tracing::error!(error = %e, "Error in monitoring cycle. Retrying after delay...");
                 }
@@ -153,10 +156,47 @@ impl Supervisor {
             }
         }
 
-        // Graceful shutdown
+        // Graceful shutdown of spawned tasks
         self.join_set.shutdown().await;
         tracing::info!("All tasks completed, shutting down Supervisor...");
 
+        // Perform cleanup operations
+        tracing::info!("Starting graceful cleanup...");
+
+        let shutdown_timeout = Duration::from_secs(self.config.shutdown_timeout_secs);
+
+        let cleanup_logic = async {
+            if let Err(e) = self.state.flush().await {
+                tracing::error!(error = %e, "Failed to flush pending writes, but continuing cleanup.");
+            }
+            if let Err(e) = self.state.cleanup().await {
+                tracing::error!(error = %e, "Failed to perform state repository cleanup, but continuing.");
+            }
+            match self
+                .state
+                .get_last_processed_block(&self.config.network_id)
+                .await
+            {
+                Ok(Some(last_block)) => tracing::info!(
+                    last_processed_block = last_block,
+                    "Final state: last processed block recorded."
+                ),
+                Ok(None) => tracing::info!("Final state: no blocks have been processed yet."),
+                Err(e) => {
+                    tracing::warn!(error = %e, "Could not retrieve final state during cleanup.")
+                }
+            }
+        };
+
+        match tokio::time::timeout(shutdown_timeout, cleanup_logic).await {
+            Ok(_) => tracing::info!("Cleanup completed successfully."),
+            Err(_) => tracing::warn!(
+                "Cleanup did not complete within the timeout of {:?}. Continuing shutdown.",
+                shutdown_timeout
+            ),
+        }
+
+        tracing::info!("Supervisor shutdown complete.");
         Ok(())
     }
 
