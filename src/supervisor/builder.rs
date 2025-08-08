@@ -70,7 +70,7 @@ impl SupervisorBuilder {
         tracing::debug!(network_id = %config.network_id, "Loading monitors from database for filtering engine...");
         let monitors = state.get_monitors(&config.network_id).await?;
         tracing::info!(count = monitors.len(), network_id = %config.network_id, "Loaded monitors from database for filtering engine.");
-        let filtering_engine = RhaiFilteringEngine::new(monitors, config.rhai.clone());
+        let filtering_engine = RhaiFilteringEngine::new(monitors, config.rhai.clone())?;
 
         // Finally, construct the Supervisor with all its components.
         Ok(Supervisor::new(
