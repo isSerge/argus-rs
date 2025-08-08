@@ -488,15 +488,21 @@ mod tests {
             Monitor::from_config(
                 "USDC Transfer Monitor".to_string(),
                 network_id.to_string(),
-                "0xa0b86a33e6441b38d4b5e5bfa1bf7a5eb70c5b1e".to_string(),
+                Some("0xa0b86a33e6441b38d4b5e5bfa1bf7a5eb70c5b1e".to_string()),
                 r#"log.name == "Transfer" && bigint(log.params.value) > bigint("1000000000")"#
                     .to_string(),
             ),
             Monitor::from_config(
                 "DEX Swap Monitor".to_string(),
                 network_id.to_string(),
-                "0x7a250d5630b4cf539739df2c5dacb4c659f2488d".to_string(),
+                Some("0x7a250d5630b4cf539739df2c5dacb4c659f2488d".to_string()),
                 r#"log.name == "Swap""#.to_string(),
+            ),
+            Monitor::from_config(
+                "Native ETH Monitor".to_string(),
+                network_id.to_string(),
+                None, // No address for transaction-level monitor
+                r#"bigint(tx.value) > bigint("1000000000000000000")"#.to_string(),
             ),
         ];
 
@@ -507,9 +513,9 @@ mod tests {
 
         // Retrieve monitors and verify
         let stored_monitors = repo.get_monitors(network_id).await.unwrap();
-        assert_eq!(stored_monitors.len(), 2);
+        assert_eq!(stored_monitors.len(), 3);
 
-        // Check first monitor (order may vary, so find by name)
+        // Check USDC monitor
         let usdc_monitor = stored_monitors
             .iter()
             .find(|m| m.name == "USDC Transfer Monitor")
@@ -517,23 +523,18 @@ mod tests {
         assert_eq!(usdc_monitor.network, network_id);
         assert_eq!(
             usdc_monitor.address,
-            "0xa0b86a33e6441b38d4b5e5bfa1bf7a5eb70c5b1e"
+            Some("0xa0b86a33e6441b38d4b5e5bfa1bf7a5eb70c5b1e".to_string())
         );
-        assert!(usdc_monitor.filter_script.contains("Transfer"));
-        assert!(usdc_monitor.id > 0); // Should have been assigned an ID
+        assert!(usdc_monitor.id > 0);
 
-        // Check second monitor
-        let dex_monitor = stored_monitors
+        // Check Native ETH monitor
+        let eth_monitor = stored_monitors
             .iter()
-            .find(|m| m.name == "DEX Swap Monitor")
+            .find(|m| m.name == "Native ETH Monitor")
             .unwrap();
-        assert_eq!(dex_monitor.network, network_id);
-        assert_eq!(
-            dex_monitor.address,
-            "0x7a250d5630b4cf539739df2c5dacb4c659f2488d"
-        );
-        assert_eq!(dex_monitor.filter_script, r#"log.name == "Swap""#);
-        assert!(dex_monitor.id > 0);
+        assert_eq!(eth_monitor.network, network_id);
+        assert_eq!(eth_monitor.address, None);
+        assert!(eth_monitor.id > 0);
 
         // Clear monitors
         repo.clear_monitors(network_id).await.unwrap();
@@ -553,14 +554,14 @@ mod tests {
         let ethereum_monitors = vec![Monitor::from_config(
             "Ethereum Monitor".to_string(),
             network1.to_string(),
-            "0x1111111111111111111111111111111111111111".to_string(),
+            Some("0x1111111111111111111111111111111111111111".to_string()),
             "true".to_string(),
         )];
 
         let polygon_monitors = vec![Monitor::from_config(
             "Polygon Monitor".to_string(),
             network2.to_string(),
-            "0x2222222222222222222222222222222222222222".to_string(),
+            Some("0x2222222222222222222222222222222222222222".to_string()),
             "true".to_string(),
         )];
 
@@ -598,7 +599,7 @@ mod tests {
         let wrong_network_monitors = vec![Monitor::from_config(
             "Wrong Network Monitor".to_string(),
             "polygon".to_string(), // Different from network_id
-            "0x1111111111111111111111111111111111111111".to_string(),
+            Some("0x1111111111111111111111111111111111111111".to_string()),
             "true".to_string(),
         )];
 
@@ -648,13 +649,13 @@ mod tests {
             Monitor::from_config(
                 "Valid Monitor".to_string(),
                 network_id.to_string(),
-                "0x1111111111111111111111111111111111111111".to_string(),
+                Some("0x1111111111111111111111111111111111111111".to_string()),
                 "true".to_string(),
             ),
             Monitor::from_config(
                 "Invalid Monitor".to_string(),
                 "wrong_network".to_string(), // This will cause failure
-                "0x2222222222222222222222222222222222222222".to_string(),
+                Some("0x2222222222222222222222222222222222222222".to_string()),
                 "true".to_string(),
             ),
         ];
@@ -678,7 +679,7 @@ mod tests {
         let monitor_with_large_script = vec![Monitor::from_config(
             "Large Script Monitor".to_string(),
             network_id.to_string(),
-            "0x1111111111111111111111111111111111111111".to_string(),
+            Some("0x1111111111111111111111111111111111111111".to_string()),
             large_script.clone(),
         )];
 

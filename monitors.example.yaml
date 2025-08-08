@@ -1,0 +1,75 @@
+# This is an example configuration file for defining monitors.
+# You can copy this file to `monitors.yaml` and update `config.yaml` to point to it.
+
+monitors:
+  # ------------------------------------------------------------------------------------
+  # EXAMPLE 1: Monitoring a Proxy Contract (USDC Transfers)
+  #
+  # This monitor tracks large transfers of the USDC stablecoin on the Ethereum network.
+  # USDC is a proxy contract, which is a very common pattern. This means:
+  #   1. The `address` you monitor is the PROXY address. This is the public address
+  #      that users interact with and where the event logs are emitted.
+  #   2. The ABI required to decode the events is from the IMPLEMENTATION contract.
+  #
+  # When the `issue_abi_loading.md` feature is implemented, you would provide the ABI
+  # for the implementation contract, even while monitoring the proxy address.
+  # ------------------------------------------------------------------------------------
+  - name: "Large USDC Transfers (Ethereum)"
+    # The network ID must match the `network_id` specified in your main `config.yaml`.
+    network: "ethereum"
+    # This is the PROXY contract address for USDC on Ethereum mainnet.
+    address: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+    # The Rhai script to filter events.
+    # This script will be executed for every log emitted by the specified contract address.
+    #
+    # Available variables:
+    # - `log`: An object containing the decoded log data.
+    #   - `log.name`: The name of the event (e.g., "Transfer").
+    #   - `log.params`: A map of the event's parameters (e.g., `log.params.from`, `log.params.value`).
+    # - `tx`: An object containing the transaction data.
+    #   - `tx.hash`, `tx.from`, `tx.to`, `tx.value`, etc.
+    #
+    # This script checks for the "Transfer" event and ensures the transfer value is
+    # greater than 1,000,000 USDC.
+    # Note: We use `bigint` because token amounts are very large numbers.
+    # The value "1000000000000" represents 1,000,000 USDC, as USDC has 6 decimal places.
+    filter_script: |
+      log.name == "Transfer" && bigint(log.params.value) > bigint("1000000000000")
+
+  # ------------------------------------------------------------------------------------
+  # EXAMPLE 2: Monitoring a Standard Contract (WETH Deposits)
+  #
+  # This is a more straightforward example for a standard, non-proxy contract.
+  # ------------------------------------------------------------------------------------
+  - name: "WETH Deposits (Ethereum)"
+    network: "ethereum"
+    # This is the canonical address for Wrapped Ether (WETH) on Ethereum.
+    address: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"
+    # This script triggers for any "Deposit" event on the WETH contract.
+    filter_script: 'log.name == "Deposit"'
+
+  # ------------------------------------------------------------------------------------
+  # EXAMPLE 3: Monitoring Native Token Transfers (ETH)
+  #
+  # This monitor tracks large transfers of the native blockchain token (ETH).
+  # Unlike contract-based tokens (like ERC20s), native token transfers do not
+  # emit events. Instead, we can monitor them by inspecting the transaction fields
+  # directly.
+  #
+  # To monitor all transactions on a network, you can omit the `address` field.
+  # The filter script will then be executed for every transaction.
+  #
+  # In this case, the `log` variable will not be available. You must use the `tx`
+  # object to define your filtering logic.
+  # ------------------------------------------------------------------------------------
+  - name: "Large ETH Transfers (Ethereum)"
+    network: "ethereum"
+    # By omitting the `address`, this monitor will inspect every transaction on the network.
+    # This is ideal for monitoring native currency transfers.
+    # The filter script will check the transaction's `value` field.
+    #
+    # This script checks for transactions where the value is greater than 10 ETH.
+    # Note: We use `bigint` because `tx.value` is a very large number.
+    # The value "10000000000000000000" is 10 ETH in Wei (10 * 10^18).
+    filter_script: |
+      bigint(tx.value) > bigint("10000000000000000000")

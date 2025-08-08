@@ -29,9 +29,8 @@ pub struct AppConfig {
     /// Network ID for the Ethereum network.
     pub network_id: String,
 
-    /// Optional path to monitor configuration file.
-    #[serde(default)]
-    pub monitor_config_path: Option<String>,
+    /// Path to monitor configuration file.
+    pub monitor_config_path: String,
 
     /// Optional retry configuration.
     #[serde(default)]
@@ -90,6 +89,7 @@ mod tests {
             block_chunk_size: 10
             polling_interval_ms: 1000
             confirmation_blocks: 12
+            monitor_config_path: 'monitors.yaml'
             retry_config:
               max_retry: 5
               backoff_ms: 500
@@ -104,6 +104,7 @@ mod tests {
         assert_eq!(app_config.retry_config.backoff_ms, 500);
         assert_eq!(app_config.retry_config.compute_units_per_second, 50);
         assert_eq!(app_config.rpc_urls[0].to_string(), "http://localhost:8545/");
+        assert_eq!(app_config.monitor_config_path, "monitors.yaml");
     }
 
     #[test]
@@ -115,6 +116,7 @@ mod tests {
             block_chunk_size: 10
             polling_interval_ms: 1000
             confirmation_blocks: 12
+            monitor_config_path: 'monitors.yaml'
         ";
 
         let builder =
@@ -135,6 +137,7 @@ mod tests {
             default_retry_config.compute_units_per_second
         );
         assert_eq!(app_config.shutdown_timeout_secs, 30);
+        assert_eq!(app_config.monitor_config_path, "monitors.yaml");
     }
 
     #[test]
@@ -146,6 +149,7 @@ mod tests {
             block_chunk_size: 11
             polling_interval_ms: 1000
             confirmation_blocks: 12
+            monitor_config_path: 'monitors.yaml'
         ";
 
         let builder =
@@ -164,6 +168,7 @@ mod tests {
             polling_interval_ms: 5000
             block_chunk_size: 10
             confirmation_blocks: 12
+            monitor_config_path: 'monitors.yaml'
         ";
         let builder =
             Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
@@ -182,6 +187,7 @@ mod tests {
             polling_interval_ms: 1000
             confirmation_blocks: 12
             shutdown_timeout_secs: 60
+            monitor_config_path: 'monitors.yaml'
         ";
         let builder =
             Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
@@ -199,6 +205,7 @@ mod tests {
             block_chunk_size: 10
             polling_interval_ms: 1000
             confirmation_blocks: 12
+            monitor_config_path: 'monitors.yaml'
             rhai:
               max_operations: 250000
               max_call_levels: 15
@@ -230,6 +237,7 @@ mod tests {
             block_chunk_size: 10
             polling_interval_ms: 1000
             confirmation_blocks: 12
+            monitor_config_path: 'monitors.yaml'
         ";
 
         let builder =
@@ -268,6 +276,7 @@ mod tests {
             block_chunk_size: 10
             polling_interval_ms: 1000
             confirmation_blocks: 12
+            monitor_config_path: 'monitors.yaml'
             rhai:
               max_operations: 500000
               execution_timeout: 10000
@@ -309,6 +318,7 @@ mod tests {
             block_chunk_size: 10
             polling_interval_ms: 1000
             confirmation_blocks: 12
+            monitor_config_path: 'monitors.yaml'
             rhai:
               max_operations: 'invalid_number'
               execution_timeout: 5000

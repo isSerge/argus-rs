@@ -28,9 +28,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Load monitors from the configuration file if specified. This will overwrite
     // existing monitors for the same network in the database.
-    if let Some(monitor_config_path) = &config.monitor_config_path
-        && let Err(e) =
-            load_monitors_from_file(repo.as_ref(), &config.network_id, monitor_config_path).await
+    if let Err(e) =
+        load_monitors_from_file(repo.as_ref(), &config.network_id, &config.monitor_config_path).await
     {
         tracing::error!(error = %e, "Failed to load monitors from file, continuing with monitors already in database (if any).");
     }

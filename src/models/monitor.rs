@@ -11,17 +11,25 @@ pub struct Monitor {
     #[sqlx(rename = "monitor_id")]
     #[serde(default)]
     pub id: i64,
+
     /// Name of the monitor
     pub name: String,
+
     /// The blockchain network this monitor is associated with (e.g., Ethereum)
     pub network: String,
-    /// The specific address this monitor is tracking
-    pub address: String,
+
+    /// The specific address this monitor is tracking.
+    /// If `None`, the monitor will be applied to all transactions (e.g., for native token transfers).
+    #[serde(default)]
+    pub address: Option<String>,
+
     /// The filter script used to determine relevant blockchain events
     pub filter_script: String,
+
     /// Timestamp when the monitor was created
     #[serde(default = "default_timestamp")]
     pub created_at: DateTime<Utc>,
+
     /// Timestamp when the monitor was last updated
     #[serde(default = "default_timestamp")]
     pub updated_at: DateTime<Utc>,
@@ -37,7 +45,7 @@ impl Monitor {
     pub fn from_config(
         name: String,
         network: String,
-        address: String,
+        address: Option<String>,
         filter_script: String,
     ) -> Self {
         let now = Utc::now();
@@ -58,18 +66,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_monitor_from_config_constructor() {
+    fn test_monitor_from_config_with_address() {
         let monitor = Monitor::from_config(
             "Test Monitor".to_string(),
             "ethereum".to_string(),
-            "0x123".to_string(),
+            Some("0x123".to_string()),
             "log.name == \"Test\"".to_string(),
         );
 
         assert_eq!(monitor.id, 0);
         assert_eq!(monitor.name, "Test Monitor");
         assert_eq!(monitor.network, "ethereum");
-        assert_eq!(monitor.address, "0x123");
+        assert_eq!(monitor.address, Some("0x123".to_string()));
         assert_eq!(monitor.filter_script, "log.name == \"Test\"");
+    }
+
+    #[test]
+    fn test_monitor_from_config_without_address() {
+        let monitor = Monitor::from_config(
+            "Native Transfer Monitor".to_string(),
+            "ethereum".to_string(),
+            None,
+            "bigint(tx.value) > bigint(1000)".to_string(),
+        );
+
+        assert_eq!(monitor.id, 0);
+        assert_eq!(monitor.name, "Native Transfer Monitor");
+        assert_eq!(monitor.network, "ethereum");
+        assert_eq!(monitor.address, None);
+        assert_eq!(
+            monitor.filter_script,
+            "bigint(tx.value) > bigint(1000)"
+        );
     }
 }

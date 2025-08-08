@@ -3,10 +3,11 @@ rpc_urls:
   - "https://eth.llamarpc.com"
   - "https://1rpc.io/eth"
   - "https://rpc.mevblocker.io"
-network_id: "mainnet"
+network_id: "ethereum"
 block_chunk_size: 5
 polling_interval_ms: 10000
 confirmation_blocks: 12
+monitor_config_path: "monitors.yaml"
 
 # Optional: Configuration for the RPC retry policy.
 # If this section is omitted, default values will be used.
