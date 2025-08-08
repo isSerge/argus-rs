@@ -70,7 +70,7 @@ impl BlockProcessor {
                         match self.abi_service.decode_log(log) {
                             Ok(decoded) => decoded_logs.push(decoded),
                             Err(e) => {
-                                tracing::trace!(
+                                tracing::warn!(
                                     log_address = %log.address(),
                                     log_topics = ?log.topics(),
                                     error = %e,

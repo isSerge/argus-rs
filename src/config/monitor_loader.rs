@@ -84,6 +84,10 @@ monitors:
     network: "ethereum"
     address: "0x7a250d5630b4cf539739df2c5dacb4c659f2488d"
     filter_script: "log.name == \"Swap\""
+
+  - name: "Native ETH Transfer Monitor"
+    network: "ethereum"
+    filter_script: "bigint(tx.value) > bigint(\"1000000000000000000\")"
 "#
         .trim()
         .to_string()
@@ -106,26 +110,35 @@ monitors:
 
         assert!(result.is_ok());
         let monitors = result.unwrap();
-        assert_eq!(monitors.len(), 2);
+        assert_eq!(monitors.len(), 3);
 
-        // Check first monitor
+        // Check first monitor (with address)
         assert_eq!(monitors[0].name, "USDC Transfer Monitor");
         assert_eq!(monitors[0].network, "ethereum");
         assert_eq!(
             monitors[0].address,
-            "0xa0b86a33e6441b38d4b5e5bfa1bf7a5eb70c5b1e"
+            Some("0xa0b86a33e6441b38d4b5e5bfa1bf7a5eb70c5b1e".to_string())
         );
         assert!(monitors[0].filter_script.contains("Transfer"));
         assert_eq!(monitors[0].id, 0); // Default value from serde
 
-        // Check second monitor
+        // Check second monitor (with address)
         assert_eq!(monitors[1].name, "DEX Swap Monitor");
         assert_eq!(monitors[1].network, "ethereum");
         assert_eq!(
             monitors[1].address,
-            "0x7a250d5630b4cf539739df2c5dacb4c659f2488d"
+            Some("0x7a250d5630b4cf539739df2c5dacb4c659f2488d".to_string())
         );
         assert_eq!(monitors[1].filter_script, "log.name == \"Swap\"");
+
+        // Check third monitor (without address)
+        assert_eq!(monitors[2].name, "Native ETH Transfer Monitor");
+        assert_eq!(monitors[2].network, "ethereum");
+        assert_eq!(monitors[2].address, None);
+        assert_eq!(
+            monitors[2].filter_script,
+            "bigint(tx.value) > bigint(\"1000000000000000000\")"
+        );
     }
 
     #[test]
@@ -138,7 +151,7 @@ monitors:
 
         assert!(result.is_ok());
         let monitors = result.unwrap();
-        assert_eq!(monitors.len(), 2);
+        assert_eq!(monitors.len(), 3);
     }
 
     #[test]

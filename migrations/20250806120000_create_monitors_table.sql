@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS monitors (
     monitor_id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     network TEXT NOT NULL,
-    address TEXT NOT NULL,
+    address TEXT, -- Nullable to support transaction-level monitors
     filter_script TEXT NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP

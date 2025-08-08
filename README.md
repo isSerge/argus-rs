@@ -39,6 +39,7 @@ network_id: "mainnet"
 block_chunk_size: 5
 polling_interval_ms: 10000
 confirmation_blocks: 12
+monitor_config_path: "monitors.yaml"
 
 # Optional: Configuration for the RPC retry policy.
 # If this section is omitted, default values will be used.
@@ -80,6 +81,7 @@ rhai:
 - `confirmation_blocks`: Number of confirmation blocks to wait for before processing to prevent against small reorgs
 - `shutdown_timeout_secs`: Graceful shutdown timeout
 - `rhai`: Security configuration for Rhai script execution
+- `monitor_config_path`: Path to monitor configuration file
 
 ## Logging
 

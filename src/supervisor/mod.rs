@@ -24,7 +24,7 @@ use crate::{
     config::AppConfig,
     engine::{
         block_processor::{BlockProcessor, BlockProcessorError},
-        filtering::FilteringEngine,
+        filtering::{FilteringEngine, MonitorValidationError},
     },
     models::{BlockData, DecodedBlockData},
     persistence::traits::StateRepository,
@@ -64,6 +64,10 @@ pub enum SupervisorError {
     /// The channel for communicating with a downstream service was closed unexpectedly.
     #[error("Channel closed")]
     ChannelClosed,
+
+    /// An error occurred during monitor validation.
+    #[error("Monitor validation error: {0}")]
+    MonitorValidationError(#[from] MonitorValidationError),
 }
 
 /// The primary runtime manager for the application.
