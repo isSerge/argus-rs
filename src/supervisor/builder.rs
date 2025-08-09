@@ -62,14 +62,41 @@ impl SupervisorBuilder {
         let abi_service = self.abi_service.ok_or(SupervisorError::MissingAbiService)?;
         let data_source = self.data_source.ok_or(SupervisorError::MissingDataSource)?;
 
-        // Construct the internal services.
-        let block_processor = BlockProcessor::new(abi_service);
-
         // The FilteringEngine is created here, loading its initial set of monitors
         // from the database. This makes the database the single source of truth.
         tracing::debug!(network_id = %config.network_id, "Loading monitors from database for filtering engine...");
         let monitors = state.get_monitors(&config.network_id).await?;
         tracing::info!(count = monitors.len(), network_id = %config.network_id, "Loaded monitors from database for filtering engine.");
+
+        // Load ABIs into the AbiService from the monitor's ABI content
+        for monitor in &monitors {
+            if let (Some(address), Some(abi_content)) = (&monitor.address, &monitor.abi) {
+                match serde_json::from_str::<alloy::json_abi::JsonAbi>(abi_content) {
+                    Ok(abi) => {
+                        if let Ok(addr) = address.parse() {
+                            abi_service.add_abi(addr, &abi);
+                        } else {
+                            tracing::warn!(
+                                monitor_name = %monitor.name,
+                                address = %address,
+                                "Failed to parse address for ABI loading."
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            monitor_name = %monitor.name,
+                            error = %e,
+                            "Failed to parse ABI JSON, skipping."
+                        );
+                    }
+                }
+            }
+        }
+
+        // Construct the internal services.
+        let block_processor = BlockProcessor::new(Arc::clone(&abi_service));
+
         let filtering_engine = RhaiFilteringEngine::new(monitors, config.rhai.clone())?;
 
         // Finally, construct the Supervisor with all its components.
