@@ -11,6 +11,7 @@ use crate::models::correlated_data::CorrelatedBlockItem;
 use crate::models::decoded_block::DecodedBlockData;
 use crate::models::monitor::Monitor;
 use crate::models::monitor_match::MonitorMatch;
+use alloy::primitives::Address;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use futures::future;
@@ -21,8 +22,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use thiserror::Error;
-use tokio::sync::RwLock;
 use tokio::sync::mpsc;
+use tokio::sync::RwLock;
 use tokio::time::timeout;
 
 /// Rhai script execution errors that can occur during compilation or runtime
@@ -57,10 +58,21 @@ pub enum MonitorValidationError {
     },
 
     /// A monitor that accesses log data does not have an ABI defined.
-    #[error("Monitor '{monitor_name}' accesses log data but does not have an ABI defined. Please provide an 'abi' file path.")]
+    #[error(
+        "Monitor '{monitor_name}' accesses log data but does not have an ABI defined. Please provide an 'abi' file path."
+    )]
     MonitorRequiresAbi {
         /// The name of the monitor that failed validation.
         monitor_name: String,
+    },
+
+    /// The address provided for a monitor is invalid.
+    #[error("Invalid address for monitor '{monitor_name}': {address}")]
+    InvalidAddress {
+        /// The name of the monitor.
+        monitor_name: String,
+        /// The invalid address.
+        address: String,
     },
 }
 
@@ -118,8 +130,7 @@ impl RhaiFilteringEngine {
         // Register BigInt wrapper for transparent big number handling
         register_bigint_with_rhai(&mut engine);
 
-        let (monitors_by_address, transaction_monitors, needs_receipts) =
-            Self::organize_monitors(monitors)?;
+        let (monitors_by_address, transaction_monitors, needs_receipts) = Self::organize_monitors(monitors)?;
 
         Ok(Self {
             monitors_by_address: Arc::new(RwLock::new(monitors_by_address)),
@@ -143,9 +154,18 @@ impl RhaiFilteringEngine {
             // Validate and categorize the monitor
             Self::validate_monitor(&monitor)?;
 
-            if let Some(address) = &monitor.address {
+            if let Some(address_str) = &monitor.address {
+                let address: Address = address_str.parse().map_err(|_| {
+                    MonitorValidationError::InvalidAddress {
+                        monitor_name: monitor.name.clone(),
+                        address: address_str.clone(),
+                    }
+                })?;
+
+                let checksummed_address = address.to_checksum(None);
+
                 monitors_by_address
-                    .entry(address.clone())
+                    .entry(checksummed_address)
                     .or_default()
                     .push(monitor.clone());
             } else {
@@ -270,12 +290,9 @@ impl FilteringEngine for RhaiFilteringEngine {
         &self,
         item: &CorrelatedBlockItem,
     ) -> Result<Vec<MonitorMatch>, Box<dyn std::error::Error + Send + Sync>> {
-        tracing::debug!(item = ?item, "Evaluating correlated block item.");
-
         let mut matches = Vec::new();
 
         let tx_map = build_transaction_map(&item.transaction, item.receipt.as_ref());
-        tracing::debug!(tx_map = ?tx_map, "Transaction map built for evaluation.");
 
         // --- Handle transaction-level monitors ---
         let transaction_monitors_guard = self.transaction_monitors.read().await;
@@ -376,6 +393,11 @@ impl FilteringEngine for RhaiFilteringEngine {
                             }
                         }
                     }
+                } else {
+                    tracing::debug!(
+                        "No monitors found for log address: {}",
+                        log_address_str
+                    );
                 }
             }
         }
@@ -415,7 +437,7 @@ mod tests {
     use crate::models::transaction::Transaction;
     use crate::test_helpers::{LogBuilder, TransactionBuilder};
     use alloy::dyn_abi::DynSolValue;
-    use alloy::primitives::{Address, U256, address};
+    use alloy::primitives::{address, Address, U256};
     use serde_json::json;
 
     fn create_test_monitor(
@@ -452,12 +474,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_new_and_update_monitors_organization() {
-        let addr1 = "0x0000000000000000000000000000000000000001";
-        let addr2 = "0x0000000000000000000000000000000000000002";
+        let addr1_lower = "0x0000000000000000000000000000000000000001";
+        let addr1_checksum = "0x0000000000000000000000000000000000000001";
+        let addr2_lower = "0x0000000000000000000000000000000000000002";
+        let addr2_checksum = "0x0000000000000000000000000000000000000002";
 
-        let monitor1 = create_test_monitor(1, Some(addr1), Some("abi.json"), "true");
-        let monitor2 = create_test_monitor(2, Some(addr2), Some("abi.json"), "true");
-        let monitor3 = create_test_monitor(3, Some(addr1), Some("abi.json"), "true");
+        let monitor1 = create_test_monitor(1, Some(addr1_lower), Some("abi.json"), "true");
+        let monitor2 = create_test_monitor(2, Some(addr2_lower), Some("abi.json"), "true");
+        let monitor3 = create_test_monitor(3, Some(addr1_lower), Some("abi.json"), "true");
         let monitor4 = create_test_monitor(4, None, None, "tx.value > 0"); // Tx monitor
 
         // Test `new()`
@@ -474,8 +498,14 @@ mod tests {
 
         let monitors_by_address_read = engine.monitors_by_address.read().await;
         assert_eq!(monitors_by_address_read.len(), 2);
-        assert_eq!(monitors_by_address_read.get(addr1).unwrap().len(), 2);
-        assert_eq!(monitors_by_address_read.get(addr2).unwrap().len(), 1);
+        assert_eq!(
+            monitors_by_address_read.get(addr1_checksum).unwrap().len(),
+            2
+        );
+        assert_eq!(
+            monitors_by_address_read.get(addr2_checksum).unwrap().len(),
+            1
+        );
         drop(monitors_by_address_read);
 
         let transaction_monitors_read = engine.transaction_monitors.read().await;
@@ -484,7 +514,7 @@ mod tests {
         drop(transaction_monitors_read);
 
         // Test `update_monitors()`
-        let monitor5 = create_test_monitor(5, Some(addr2), Some("abi.json"), "true");
+        let monitor5 = create_test_monitor(5, Some(addr2_lower), Some("abi.json"), "true");
         let monitor6 = create_test_monitor(6, None, None, "true");
         engine
             .update_monitors(vec![monitor1.clone(), monitor5.clone(), monitor6.clone()])
@@ -493,9 +523,18 @@ mod tests {
 
         let monitors_by_address_read = engine.monitors_by_address.read().await;
         assert_eq!(monitors_by_address_read.len(), 2);
-        assert_eq!(monitors_by_address_read.get(addr1).unwrap().len(), 1);
-        assert_eq!(monitors_by_address_read.get(addr2).unwrap().len(), 1);
-        assert_eq!(monitors_by_address_read.get(addr2).unwrap()[0].id, 5);
+        assert_eq!(
+            monitors_by_address_read.get(addr1_checksum).unwrap().len(),
+            1
+        );
+        assert_eq!(
+            monitors_by_address_read.get(addr2_checksum).unwrap().len(),
+            1
+        );
+        assert_eq!(
+            monitors_by_address_read.get(addr2_checksum).unwrap()[0].id,
+            5
+        );
         drop(monitors_by_address_read);
 
         let transaction_monitors_read = engine.transaction_monitors.read().await;
@@ -587,11 +626,13 @@ mod tests {
     #[tokio::test]
     async fn test_monitor_validation_success() {
         // Valid: log monitor accesses log and has address + ABI
-        let monitor1 = create_test_monitor(1, Some("0x123"), Some("abi.json"), "log.name == 'A'");
+        let monitor1 =
+            create_test_monitor(1, Some("0x0000000000000000000000000000000000000123"), Some("abi.json"), "log.name == 'A'");
         // Valid: tx monitor accesses tx
         let monitor2 = create_test_monitor(2, None, None, "tx.value > 0");
         // Valid: log monitor accesses tx only
-        let monitor3 = create_test_monitor(3, Some("0x123"), None, "tx.from == '0x456'");
+        let monitor3 =
+            create_test_monitor(3, Some("0x0000000000000000000000000000000000000123"), None, "tx.from == '0x456'");
 
         assert!(
             RhaiFilteringEngine::new(vec![monitor1, monitor2, monitor3], RhaiConfig::default())
@@ -617,7 +658,8 @@ mod tests {
     #[tokio::test]
     async fn test_monitor_validation_failure_requires_abi() {
         // Invalid: accesses log data but has no ABI
-        let invalid_monitor = create_test_monitor(1, Some("0x123"), None, "log.name == 'A'");
+        let invalid_monitor =
+            create_test_monitor(1, Some("0x0000000000000000000000000000000000000123"), None, "log.name == 'A'");
         let result = RhaiFilteringEngine::new(vec![invalid_monitor.clone()], RhaiConfig::default());
 
         assert!(result.is_err());
@@ -625,6 +667,23 @@ mod tests {
             result.unwrap_err(),
             MonitorValidationError::MonitorRequiresAbi {
                 monitor_name: invalid_monitor.name
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn test_monitor_validation_failure_invalid_address() {
+        // Invalid: address is not a valid hex string
+        let invalid_addr = "not-a-valid-address";
+        let invalid_monitor = create_test_monitor(1, Some(invalid_addr), Some("abi.json"), "true");
+        let result = RhaiFilteringEngine::new(vec![invalid_monitor.clone()], RhaiConfig::default());
+
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            MonitorValidationError::InvalidAddress {
+                monitor_name: invalid_monitor.name,
+                address: invalid_addr.to_string()
             }
         );
     }
