@@ -410,6 +410,7 @@ mod tests {
             format!("Test Monitor {id}"),
             "testnet".to_string(),
             address.map(String::from),
+            Some("abis/test.json".to_string()),
             script.to_string(),
         );
         monitor.id = id;
