@@ -1,6 +1,6 @@
 //! This module provides the `SupervisorBuilder` for constructing a `Supervisor`.
 
-use std::sync::Arc;
+use std::{fs, sync::Arc};
 
 use crate::{
     abi::AbiService,
@@ -70,8 +70,21 @@ impl SupervisorBuilder {
 
         // Load ABIs into the AbiService from the monitor's ABI content
         for monitor in &monitors {
-            if let (Some(address), Some(abi_content)) = (&monitor.address, &monitor.abi) {
-                match serde_json::from_str::<alloy::json_abi::JsonAbi>(abi_content) {
+            if let (Some(address), Some(abi_path)) = (&monitor.address, &monitor.abi) {
+                let abi_content = match fs::read_to_string(abi_path) {
+                    Ok(content) => content,
+                    Err(e) => {
+                        tracing::error!(
+                            monitor_name = %monitor.name,
+                            path = %abi_path,
+                            error = %e,
+                            "Failed to read ABI file, skipping."
+                        );
+                        continue;
+                    }
+                };
+
+                match serde_json::from_str::<alloy::json_abi::JsonAbi>(&abi_content) {
                     Ok(abi) => {
                         if let Ok(addr) = address.parse() {
                             abi_service.add_abi(addr, &abi);

@@ -30,6 +30,10 @@ pub enum MonitorLoaderError {
     /// Error when the monitor configuration format is unsupported.
     #[error("Unsupported monitor configuration format")]
     UnsupportedFormat,
+
+    /// Error when resolving the ABI path.
+    #[error("Failed to resolve ABI path: {0}")]
+    AbiPathError(String),
 }
 
 impl MonitorLoader {
@@ -53,18 +57,22 @@ impl MonitorLoader {
             .try_deserialize()
             .map_err(|e| MonitorLoaderError::ParseError(e.to_string()))?;
 
-        // Load ABIs from file paths if specified
+        // Resolve ABI paths to be absolute
         let mut monitors = config.monitors;
         let base_dir = self.path.parent().unwrap_or_else(|| std::path::Path::new(""));
 
         for monitor in &mut monitors {
             if let Some(abi_path_str) = &monitor.abi {
                 let abi_path = base_dir.join(abi_path_str);
-                let abi_content = fs::read_to_string(&abi_path).map_err(|e| {
-                    tracing::error!(path = ?abi_path, error = %e, "Failed to read ABI file.");
-                    MonitorLoaderError::IoError(e)
-                })?;
-                monitor.abi = Some(abi_content);
+                let absolute_abi_path =
+                    fs::canonicalize(&abi_path).map_err(|e| {
+                        MonitorLoaderError::AbiPathError(format!(
+                            "Failed to find ABI file at {}: {}",
+                            abi_path.display(),
+                            e
+                        ))
+                    })?;
+                monitor.abi = Some(absolute_abi_path.to_string_lossy().to_string());
             }
         }
 
@@ -129,7 +137,7 @@ monitors:
         .to_string()
     }
 
-    fn create_test_yaml_with_abi_path() -> (String, String) {
+    fn create_test_yaml_with_abi_path(abi_path_str: &str) -> (String, String) {
         let abi_content = r#"
 [
     {
@@ -152,21 +160,22 @@ monitors:
   - name: "USDC Transfer Monitor"
     network: "ethereum"
     address: "0xa0b86a33e6441b38d4b5e5bfa1bf7a5eb70c5b1e"
-    abi: "./usdc.json"
+    abi: "{}"
     filter_script: "log.name == 'Transfer'"
   - name: "Native ETH Transfer Monitor"
     network: "ethereum"
     filter_script: "tx.value > 1000"
-"#
+"#,
+            abi_path_str
         );
 
         (yaml_content, abi_content)
     }
 
     #[test]
-    fn test_load_with_abi_file() {
-        let (yaml_content, abi_content) = create_test_yaml_with_abi_path();
-        let (_temp_dir, yaml_path) = create_test_dir_with_files(
+    fn test_load_with_abi_file_resolves_to_absolute_path() {
+        let (yaml_content, abi_content) = create_test_yaml_with_abi_path("./usdc.json");
+        let (temp_dir, yaml_path) = create_test_dir_with_files(
             "monitors.yaml",
             &yaml_content,
             Some("usdc.json"),
@@ -184,12 +193,32 @@ monitors:
         let usdc_monitor = &monitors[0];
         assert_eq!(usdc_monitor.name, "USDC Transfer Monitor");
         assert!(usdc_monitor.abi.is_some());
-        assert_eq!(usdc_monitor.abi.as_ref().unwrap(), &abi_content);
+
+        let expected_abi_path = temp_dir.path().join("usdc.json");
+        let expected_abs_path = fs::canonicalize(expected_abi_path).unwrap();
+
+        assert_eq!(
+            usdc_monitor.abi.as_ref().unwrap(),
+            &expected_abs_path.to_string_lossy().to_string()
+        );
 
         // Check the monitor without the ABI
         let eth_monitor = &monitors[1];
         assert_eq!(eth_monitor.name, "Native ETH Transfer Monitor");
         assert!(eth_monitor.abi.is_none());
+    }
+
+    #[test]
+    fn test_load_with_nonexistent_abi_file() {
+        let (yaml_content, _) = create_test_yaml_with_abi_path("./nonexistent.json");
+        let (_temp_dir, yaml_path) =
+            create_test_dir_with_files("monitors.yaml", &yaml_content, None, None);
+
+        let loader = MonitorLoader::new(yaml_path);
+        let result = loader.load();
+
+        assert!(result.is_err());
+        matches!(result.unwrap_err(), MonitorLoaderError::AbiPathError(_));
     }
 
     #[test]
