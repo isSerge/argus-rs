@@ -133,8 +133,8 @@ impl AbiService {
         self.cache.remove(address).is_some()
     }
 
-    /// Checks if the cache contains an ABI for the given address.
-    pub fn has_abi(&self, address: &Address) -> bool {
+    /// Checks if the service is configured to monitor a given address.
+    pub fn is_monitored(&self, address: &Address) -> bool {
         self.cache.contains_key(address)
     }
 
@@ -295,15 +295,15 @@ mod tests {
         let abi = simple_abi();
         let address = Address::default();
 
-        assert!(!service.has_abi(&address));
+        assert!(!service.is_monitored(&address));
         assert_eq!(service.cache_size(), 0);
 
         service.add_abi(address, &abi);
-        assert!(service.has_abi(&address));
+        assert!(service.is_monitored(&address));
         assert_eq!(service.cache_size(), 1);
 
         assert!(service.remove_abi(&address));
-        assert!(!service.has_abi(&address));
+        assert!(!service.is_monitored(&address));
         assert_eq!(service.cache_size(), 0);
     }
 
