@@ -68,42 +68,38 @@ impl SupervisorBuilder {
         let monitors = state.get_monitors(&config.network_id).await?;
         tracing::info!(count = monitors.len(), network_id = %config.network_id, "Loaded monitors from database for filtering engine.");
 
-        // Load ABIs into the AbiService from the monitor's ABI content
+        // Load ABIs into the AbiService from the monitor's ABI file path.
+        // This loop also serves as a validation step. If any ABI is invalid or
+        // cannot be loaded, the supervisor will fail to build.
         for monitor in &monitors {
-            if let (Some(address), Some(abi_path)) = (&monitor.address, &monitor.abi) {
-                let abi_content = match fs::read_to_string(abi_path) {
-                    Ok(content) => content,
-                    Err(e) => {
-                        tracing::error!(
-                            monitor_name = %monitor.name,
-                            path = %abi_path,
-                            error = %e,
-                            "Failed to read ABI file, skipping."
-                        );
-                        continue;
-                    }
-                };
+            if let (Some(address_str), Some(abi_path)) = (&monitor.address, &monitor.abi) {
+                // 1. Parse the address
+                let address = address_str.parse().map_err(|_| {
+                    SupervisorError::InvalidConfiguration(format!(
+                        "Invalid address '{}' for monitor '{}'",
+                        address_str, monitor.name
+                    ))
+                })?;
 
-                match serde_json::from_str::<alloy::json_abi::JsonAbi>(&abi_content) {
-                    Ok(abi) => {
-                        if let Ok(addr) = address.parse() {
-                            abi_service.add_abi(addr, &abi);
-                        } else {
-                            tracing::warn!(
-                                monitor_name = %monitor.name,
-                                address = %address,
-                                "Failed to parse address for ABI loading."
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            monitor_name = %monitor.name,
-                            error = %e,
-                            "Failed to parse ABI JSON, skipping."
-                        );
-                    }
-                }
+                // 2. Read the ABI file content
+                let abi_content = fs::read_to_string(abi_path).map_err(|e| {
+                    SupervisorError::InvalidConfiguration(format!(
+                        "Failed to read ABI file '{}' for monitor '{}': {}",
+                        abi_path, monitor.name, e
+                    ))
+                })?;
+
+                // 3. Parse the ABI JSON
+                let abi =
+                    serde_json::from_str::<alloy::json_abi::JsonAbi>(&abi_content).map_err(|e| {
+                        SupervisorError::InvalidConfiguration(format!(
+                            "Failed to parse ABI JSON from '{}' for monitor '{}': {}",
+                            abi_path, monitor.name, e
+                        ))
+                    })?;
+
+                // 4. Add the parsed ABI to the service
+                abi_service.add_abi(address, &abi);
             }
         }
 
