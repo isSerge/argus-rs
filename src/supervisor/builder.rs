@@ -1,6 +1,6 @@
 //! This module provides the `SupervisorBuilder` for constructing a `Supervisor`.
 
-use std::sync::Arc;
+use std::{fs, sync::Arc};
 
 use crate::{
     abi::AbiService,
@@ -62,14 +62,45 @@ impl SupervisorBuilder {
         let abi_service = self.abi_service.ok_or(SupervisorError::MissingAbiService)?;
         let data_source = self.data_source.ok_or(SupervisorError::MissingDataSource)?;
 
-        // Construct the internal services.
-        let block_processor = BlockProcessor::new(abi_service);
-
         // The FilteringEngine is created here, loading its initial set of monitors
         // from the database. This makes the database the single source of truth.
         tracing::debug!(network_id = %config.network_id, "Loading monitors from database for filtering engine...");
         let monitors = state.get_monitors(&config.network_id).await?;
         tracing::info!(count = monitors.len(), network_id = %config.network_id, "Loaded monitors from database for filtering engine.");
+
+        // Load ABIs into the AbiService from the monitor's ABI file path.
+        // This loop also serves as a validation step. If any ABI is invalid or
+        // cannot be loaded, the supervisor will fail to build.
+        for monitor in &monitors {
+            if let (Some(address_str), Some(abi_path)) = (&monitor.address, &monitor.abi) {
+                let address = address_str.parse().map_err(|_| {
+                    SupervisorError::InvalidConfiguration(format!(
+                        "Invalid address '{}' for monitor '{}'",
+                        address_str, monitor.name
+                    ))
+                })?;
+
+                let abi_content = fs::read_to_string(abi_path).map_err(|e| {
+                    SupervisorError::InvalidConfiguration(format!(
+                        "Failed to read ABI file '{}' for monitor '{}': {}",
+                        abi_path, monitor.name, e
+                    ))
+                })?;
+
+                abi_service
+                    .add_abi_from_json_string(address, &abi_content)
+                    .map_err(|e| {
+                        SupervisorError::InvalidConfiguration(format!(
+                            "Failed to parse ABI for monitor '{}': {}",
+                            monitor.name, e
+                        ))
+                    })?;
+            }
+        }
+
+        // Construct the internal services.
+        let block_processor = BlockProcessor::new(Arc::clone(&abi_service));
+
         let filtering_engine = RhaiFilteringEngine::new(monitors, config.rhai.clone())?;
 
         // Finally, construct the Supervisor with all its components.
@@ -80,5 +111,135 @@ impl SupervisorBuilder {
             block_processor,
             Arc::new(filtering_engine),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        engine::filtering::MonitorValidationError, models::monitor::Monitor,
+        persistence::traits::MockStateRepository, providers::traits::MockDataSource,
+    };
+    use std::{fs::File, io::Write};
+    use tempfile::tempdir;
+
+    fn create_test_monitor(name: &str, address: Option<&str>, abi_path: Option<&str>) -> Monitor {
+        Monitor::from_config(
+            name.to_string(),
+            "testnet".to_string(),
+            address.map(String::from),
+            abi_path.map(String::from),
+            "true".to_string(),
+        )
+    }
+
+    #[tokio::test]
+    async fn build_succeeds_with_valid_monitors() {
+        let dir = tempdir().unwrap();
+        let abi_path = dir.path().join("abi.json");
+        let mut file = File::create(&abi_path).unwrap();
+        file.write_all(b"[]").unwrap();
+
+        let monitor = create_test_monitor(
+            "Valid Monitor",
+            Some("0x0000000000000000000000000000000000000001"),
+            Some(abi_path.to_str().unwrap()),
+        );
+
+        let mut mock_state_repo = MockStateRepository::new();
+        mock_state_repo
+            .expect_get_monitors()
+            .returning(move |_| Ok(vec![monitor.clone()]));
+
+        let builder = SupervisorBuilder::new()
+            .config(AppConfig::default())
+            .state(Arc::new(mock_state_repo))
+            .abi_service(Arc::new(AbiService::new()))
+            .data_source(Box::new(MockDataSource::new()));
+
+        let result = builder.build().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn build_fails_with_invalid_address() {
+        let monitor = create_test_monitor("Invalid Address Monitor", Some("not-an-address"), None);
+
+        let mut mock_state_repo = MockStateRepository::new();
+        mock_state_repo
+            .expect_get_monitors()
+            .returning(move |_| Ok(vec![monitor.clone()]));
+
+        let builder = SupervisorBuilder::new()
+            .config(AppConfig::default())
+            .state(Arc::new(mock_state_repo))
+            .abi_service(Arc::new(AbiService::new()))
+            .data_source(Box::new(MockDataSource::new()));
+
+        let result = builder.build().await;
+        assert!(matches!(
+            result,
+            Err(SupervisorError::MonitorValidationError(
+                MonitorValidationError::InvalidAddress { .. }
+            ))
+        ));
+    }
+
+    #[tokio::test]
+    async fn build_fails_with_nonexistent_abi_file() {
+        let monitor = create_test_monitor(
+            "Nonexistent ABI Monitor",
+            Some("0x0000000000000000000000000000000000000001"),
+            Some("/path/to/nonexistent.json"),
+        );
+
+        let mut mock_state_repo = MockStateRepository::new();
+        mock_state_repo
+            .expect_get_monitors()
+            .returning(move |_| Ok(vec![monitor.clone()]));
+
+        let builder = SupervisorBuilder::new()
+            .config(AppConfig::default())
+            .state(Arc::new(mock_state_repo))
+            .abi_service(Arc::new(AbiService::new()))
+            .data_source(Box::new(MockDataSource::new()));
+
+        let result = builder.build().await;
+        assert!(matches!(
+            result,
+            Err(SupervisorError::InvalidConfiguration(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn build_fails_with_invalid_abi_json() {
+        let dir = tempdir().unwrap();
+        let abi_path = dir.path().join("invalid_abi.json");
+        let mut file = File::create(&abi_path).unwrap();
+        file.write_all(b"not valid json").unwrap();
+
+        let monitor = create_test_monitor(
+            "Invalid ABI Monitor",
+            Some("0x0000000000000000000000000000000000000001"),
+            Some(abi_path.to_str().unwrap()),
+        );
+
+        let mut mock_state_repo = MockStateRepository::new();
+        mock_state_repo
+            .expect_get_monitors()
+            .returning(move |_| Ok(vec![monitor.clone()]));
+
+        let builder = SupervisorBuilder::new()
+            .config(AppConfig::default())
+            .state(Arc::new(mock_state_repo))
+            .abi_service(Arc::new(AbiService::new()))
+            .data_source(Box::new(MockDataSource::new()));
+
+        let result = builder.build().await;
+        assert!(matches!(
+            result,
+            Err(SupervisorError::InvalidConfiguration(_))
+        ));
     }
 }

@@ -12,11 +12,11 @@ use std::str::FromStr;
 /// SQL query constants for monitor operations
 mod monitor_sql {
     /// Select all monitors for a specific network
-    pub const SELECT_MONITORS_BY_NETWORK: &str = "SELECT monitor_id, name, network, address, filter_script, created_at, updated_at FROM monitors WHERE network = ?";
+    pub const SELECT_MONITORS_BY_NETWORK: &str = "SELECT monitor_id, name, network, address, abi, filter_script, created_at, updated_at FROM monitors WHERE network = ?";
 
     /// Insert a new monitor
     pub const INSERT_MONITOR: &str =
-        "INSERT INTO monitors (name, network, address, filter_script) VALUES (?, ?, ?, ?)";
+        "INSERT INTO monitors (name, network, address, abi, filter_script) VALUES (?, ?, ?, ?, ?)";
 
     /// Delete all monitors for a specific network
     pub const DELETE_MONITORS_BY_NETWORK: &str = "DELETE FROM monitors WHERE network = ?";
@@ -336,6 +336,7 @@ impl StateRepository for SqliteStateRepository {
                 .bind(&monitor.name)
                 .bind(&monitor.network)
                 .bind(&monitor.address)
+                .bind(&monitor.abi)
                 .bind(&monitor.filter_script)
                 .execute(&mut *tx)
                 .await?;
@@ -489,19 +490,22 @@ mod tests {
                 "USDC Transfer Monitor".to_string(),
                 network_id.to_string(),
                 Some("0xa0b86a33e6441b38d4b5e5bfa1bf7a5eb70c5b1e".to_string()),
+                Some("abis/usdc.json".to_string()),
                 r#"log.name == "Transfer" && bigint(log.params.value) > bigint("1000000000")"#
                     .to_string(),
             ),
             Monitor::from_config(
-                "DEX Swap Monitor".to_string(),
+                "Simple Transfer Monitor".to_string(),
                 network_id.to_string(),
                 Some("0x7a250d5630b4cf539739df2c5dacb4c659f2488d".to_string()),
-                r#"log.name == "Swap""#.to_string(),
+                Some("abis/test.json".to_string()),
+                r#"log.name == "Transfer""#.to_string(),
             ),
             Monitor::from_config(
                 "Native ETH Monitor".to_string(),
                 network_id.to_string(),
                 None, // No address for transaction-level monitor
+                None,
                 r#"bigint(tx.value) > bigint("1000000000000000000")"#.to_string(),
             ),
         ];
@@ -555,6 +559,7 @@ mod tests {
             "Ethereum Monitor".to_string(),
             network1.to_string(),
             Some("0x1111111111111111111111111111111111111111".to_string()),
+            Some("abis/test.json".to_string()),
             "true".to_string(),
         )];
 
@@ -562,6 +567,7 @@ mod tests {
             "Polygon Monitor".to_string(),
             network2.to_string(),
             Some("0x2222222222222222222222222222222222222222".to_string()),
+            Some("abis/test.json".to_string()),
             "true".to_string(),
         )];
 
@@ -600,6 +606,7 @@ mod tests {
             "Wrong Network Monitor".to_string(),
             "polygon".to_string(), // Different from network_id
             Some("0x1111111111111111111111111111111111111111".to_string()),
+            Some("abis/test.json".to_string()),
             "true".to_string(),
         )];
 
@@ -650,12 +657,14 @@ mod tests {
                 "Valid Monitor".to_string(),
                 network_id.to_string(),
                 Some("0x1111111111111111111111111111111111111111".to_string()),
+                Some("abis/test.json".to_string()),
                 "true".to_string(),
             ),
             Monitor::from_config(
                 "Invalid Monitor".to_string(),
                 "wrong_network".to_string(), // This will cause failure
                 Some("0x2222222222222222222222222222222222222222".to_string()),
+                Some("abis/test.json".to_string()),
                 "true".to_string(),
             ),
         ];
@@ -680,6 +689,7 @@ mod tests {
             "Large Script Monitor".to_string(),
             network_id.to_string(),
             Some("0x1111111111111111111111111111111111111111".to_string()),
+            Some("abis/test.json".to_string()),
             large_script.clone(),
         )];
 

@@ -30,6 +30,10 @@ pub enum MonitorLoaderError {
     /// Error when the monitor configuration format is unsupported.
     #[error("Unsupported monitor configuration format")]
     UnsupportedFormat,
+
+    /// Error when resolving the ABI path.
+    #[error("Failed to resolve ABI path: {0}")]
+    AbiPathError(String),
 }
 
 impl MonitorLoader {
@@ -52,7 +56,27 @@ impl MonitorLoader {
             .map_err(|e| MonitorLoaderError::ParseError(e.to_string()))?
             .try_deserialize()
             .map_err(|e| MonitorLoaderError::ParseError(e.to_string()))?;
-        Ok(config.monitors)
+
+        // Resolve ABI paths to be absolute
+        let mut monitors = config.monitors;
+        let base_dir = self.path.parent().unwrap_or_else(|| std::path::Path::new(""));
+
+        for monitor in &mut monitors {
+            if let Some(abi_path_str) = &monitor.abi {
+                let abi_path = base_dir.join(abi_path_str);
+                let absolute_abi_path =
+                    fs::canonicalize(&abi_path).map_err(|e| {
+                        MonitorLoaderError::AbiPathError(format!(
+                            "Failed to find ABI file at {}: {}",
+                            abi_path.display(),
+                            e
+                        ))
+                    })?;
+                monitor.abi = Some(absolute_abi_path.to_string_lossy().to_string());
+            }
+        }
+
+        Ok(monitors)
     }
 
     /// Checks if the file has a YAML extension.
@@ -69,6 +93,26 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::TempDir;
+
+    /// Helper for creating test directories with configuration files.
+    /// Optionally creates an ABI file if `abi_filename` and `abi_content` are Some.
+    fn create_test_dir_with_files(
+        yaml_filename: &str,
+        yaml_content: &str,
+        abi_filename: Option<&str>,
+        abi_content: Option<&str>,
+    ) -> (TempDir, PathBuf) {
+        let temp_dir = TempDir::new().expect("Failed to create temp directory");
+        let yaml_path = temp_dir.path().join(yaml_filename);
+        fs::write(&yaml_path, yaml_content).expect("Failed to write YAML file");
+
+        if let (Some(name), Some(content)) = (abi_filename, abi_content) {
+            let abi_path = temp_dir.path().join(name);
+            fs::write(&abi_path, content).expect("Failed to write ABI file");
+        }
+
+        (temp_dir, yaml_path)
+    }
 
     fn create_test_yaml_content() -> String {
         r#"
@@ -93,17 +137,95 @@ monitors:
         .to_string()
     }
 
-    fn create_test_dir_with_file(filename: &str, content: &str) -> (TempDir, PathBuf) {
-        let temp_dir = TempDir::new().expect("Failed to create temp directory");
-        let file_path = temp_dir.path().join(filename);
-        fs::write(&file_path, content).expect("Failed to write test file");
-        (temp_dir, file_path)
+    fn create_test_yaml_with_abi_path(abi_path_str: &str) -> (String, String) {
+        let abi_content = r#"
+[
+    {
+        "type": "event",
+        "name": "Transfer",
+        "inputs": [
+            {"name": "from", "type": "address", "indexed": true},
+            {"name": "to", "type": "address", "indexed": true},
+            {"name": "value", "type": "uint256", "indexed": false}
+        ]
+    }
+]
+"#
+        .trim()
+        .to_string();
+
+        let yaml_content = format!(
+            r#"
+monitors:
+  - name: "USDC Transfer Monitor"
+    network: "ethereum"
+    address: "0xa0b86a33e6441b38d4b5e5bfa1bf7a5eb70c5b1e"
+    abi: "{}"
+    filter_script: "log.name == 'Transfer'"
+  - name: "Native ETH Transfer Monitor"
+    network: "ethereum"
+    filter_script: "tx.value > 1000"
+"#,
+            abi_path_str
+        );
+
+        (yaml_content, abi_content)
+    }
+
+    #[test]
+    fn test_load_with_abi_file_resolves_to_absolute_path() {
+        let (yaml_content, abi_content) = create_test_yaml_with_abi_path("./usdc.json");
+        let (temp_dir, yaml_path) = create_test_dir_with_files(
+            "monitors.yaml",
+            &yaml_content,
+            Some("usdc.json"),
+            Some(&abi_content),
+        );
+
+        let loader = MonitorLoader::new(yaml_path);
+        let result = loader.load();
+
+        assert!(result.is_ok());
+        let monitors = result.unwrap();
+        assert_eq!(monitors.len(), 2);
+
+        // Check the monitor with the ABI
+        let usdc_monitor = &monitors[0];
+        assert_eq!(usdc_monitor.name, "USDC Transfer Monitor");
+        assert!(usdc_monitor.abi.is_some());
+
+        let expected_abi_path = temp_dir.path().join("usdc.json");
+        let expected_abs_path = fs::canonicalize(expected_abi_path).unwrap();
+
+        assert_eq!(
+            usdc_monitor.abi.as_ref().unwrap(),
+            &expected_abs_path.to_string_lossy().to_string()
+        );
+
+        // Check the monitor without the ABI
+        let eth_monitor = &monitors[1];
+        assert_eq!(eth_monitor.name, "Native ETH Transfer Monitor");
+        assert!(eth_monitor.abi.is_none());
+    }
+
+    #[test]
+    fn test_load_with_nonexistent_abi_file() {
+        let (yaml_content, _) = create_test_yaml_with_abi_path("./nonexistent.json");
+        let (_temp_dir, yaml_path) =
+            create_test_dir_with_files("monitors.yaml", &yaml_content, None, None);
+
+        let loader = MonitorLoader::new(yaml_path);
+        let result = loader.load();
+
+        assert!(result.is_err());
+        matches!(result.unwrap_err(), MonitorLoaderError::AbiPathError(_));
     }
 
     #[test]
     fn test_load_valid_yaml_file() {
         let content = create_test_yaml_content();
-        let (_temp_dir, file_path) = create_test_dir_with_file("monitors.yaml", &content);
+        let (_temp_dir, file_path) =
+            create_test_dir_with_files("monitors.yaml", &content, None, None);
 
         let loader = MonitorLoader::new(file_path);
         let result = loader.load();
@@ -144,7 +266,7 @@ monitors:
     #[test]
     fn test_load_valid_yml_extension() {
         let content = create_test_yaml_content();
-        let (_temp_dir, file_path) = create_test_dir_with_file("monitors.yml", &content);
+        let (_temp_dir, file_path) = create_test_dir_with_files("monitors.yml", &content, None, None);
 
         let loader = MonitorLoader::new(file_path);
         let result = loader.load();
@@ -157,7 +279,7 @@ monitors:
     #[test]
     fn test_load_empty_yaml_file() {
         let content = "monitors: []"; // Empty monitors array
-        let (_temp_dir, file_path) = create_test_dir_with_file("empty.yaml", content);
+        let (_temp_dir, file_path) = create_test_dir_with_files("empty.yaml", content, None, None);
 
         let loader = MonitorLoader::new(file_path);
         let result = loader.load();
@@ -182,7 +304,8 @@ monitors:
     #[test]
     fn test_load_unsupported_extension() {
         let content = create_test_yaml_content();
-        let (_temp_dir, file_path) = create_test_dir_with_file("monitors.json", &content);
+        let (_temp_dir, file_path) =
+            create_test_dir_with_files("monitors.json", &content, None, None);
 
         let loader = MonitorLoader::new(file_path);
         let result = loader.load();
@@ -194,7 +317,7 @@ monitors:
     #[test]
     fn test_load_no_extension() {
         let content = create_test_yaml_content();
-        let (_temp_dir, file_path) = create_test_dir_with_file("monitors", &content);
+        let (_temp_dir, file_path) = create_test_dir_with_files("monitors", &content, None, None);
 
         let loader = MonitorLoader::new(file_path);
         let result = loader.load();
@@ -215,7 +338,8 @@ monitors:
     unclosed_bracket: [
 invalid_yaml: {key without value
 "#;
-        let (_temp_dir, file_path) = create_test_dir_with_file("invalid.yaml", invalid_content);
+        let (_temp_dir, file_path) =
+            create_test_dir_with_files("invalid.yaml", invalid_content, None, None);
 
         let loader = MonitorLoader::new(file_path);
         let result = loader.load();
@@ -232,7 +356,8 @@ monitors:
     network: "ethereum"
     # Missing address and filter_script
 "#;
-        let (_temp_dir, file_path) = create_test_dir_with_file("incomplete.yaml", invalid_content);
+        let (_temp_dir, file_path) =
+            create_test_dir_with_files("incomplete.yaml", invalid_content, None, None);
 
         let loader = MonitorLoader::new(file_path);
         let result = loader.load();
@@ -259,3 +384,5 @@ monitors:
         assert!(!loader_no_ext.is_yaml_file());
     }
 }
+
+

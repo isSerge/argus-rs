@@ -78,6 +78,10 @@ pub enum AbiError {
     /// Wrapper for decoding errors from the underlying ABI decoding library
     #[error("Failed to decode data: {0}")]
     DecodingError(#[from] dyn_abi::Error),
+
+    /// Wrapper for JSON parsing errors
+    #[error("Failed to parse ABI JSON: {0}")]
+    JsonParseError(#[from] serde_json::Error),
 }
 
 /// Represents a decoded event log.
@@ -126,6 +130,17 @@ impl AbiService {
         self.cache.insert(address, cached_contract);
     }
 
+    /// Parses a JSON string into a `JsonAbi` and adds it to the cache.
+    pub fn add_abi_from_json_string(
+        &self,
+        address: Address,
+        json_string: &str,
+    ) -> Result<(), AbiError> {
+        let abi: JsonAbi = serde_json::from_str(json_string)?;
+        self.add_abi(address, &abi);
+        Ok(())
+    }
+
     /// Removes a contract's ABI from the service cache.
     ///
     /// Returns true if the ABI was present and removed, false if it wasn't in the cache.
@@ -133,8 +148,8 @@ impl AbiService {
         self.cache.remove(address).is_some()
     }
 
-    /// Checks if the cache contains an ABI for the given address.
-    pub fn has_abi(&self, address: &Address) -> bool {
+    /// Checks if the service is configured to monitor a given address.
+    pub fn is_monitored(&self, address: &Address) -> bool {
         self.cache.contains_key(address)
     }
 
@@ -262,31 +277,32 @@ mod tests {
         rpc::types::Log as AlloyLog,
     };
 
+    fn simple_abi_json() -> &'static str {
+        r#"[
+            {
+                "type": "function",
+                "name": "transfer",
+                "inputs": [
+                    {"name": "to", "type": "address"},
+                    {"name": "amount", "type": "uint256"}
+                ],
+                "outputs": [{"name": "success", "type": "bool"}]
+            },
+            {
+                "type": "event",
+                "name": "Transfer",
+                "inputs": [
+                    {"name": "from", "type": "address", "indexed": true},
+                    {"name": "to", "type": "address", "indexed": true},
+                    {"name": "amount", "type": "uint256", "indexed": false}
+                ],
+                "anonymous": false
+            }
+        ]"#
+    }
+
     fn simple_abi() -> JsonAbi {
-        serde_json::from_str(
-            r#"[
-                {
-                    "type": "function",
-                    "name": "transfer",
-                    "inputs": [
-                        {"name": "to", "type": "address"},
-                        {"name": "amount", "type": "uint256"}
-                    ],
-                    "outputs": [{"name": "success", "type": "bool"}]
-                },
-                {
-                    "type": "event",
-                    "name": "Transfer",
-                    "inputs": [
-                        {"name": "from", "type": "address", "indexed": true},
-                        {"name": "to", "type": "address", "indexed": true},
-                        {"name": "amount", "type": "uint256", "indexed": false}
-                    ],
-                    "anonymous": false
-                }
-            ]"#,
-        )
-        .unwrap()
+        serde_json::from_str(simple_abi_json()).unwrap()
     }
 
     #[test]
@@ -295,15 +311,38 @@ mod tests {
         let abi = simple_abi();
         let address = Address::default();
 
-        assert!(!service.has_abi(&address));
+        assert!(!service.is_monitored(&address));
         assert_eq!(service.cache_size(), 0);
 
         service.add_abi(address, &abi);
-        assert!(service.has_abi(&address));
+        assert!(service.is_monitored(&address));
         assert_eq!(service.cache_size(), 1);
 
         assert!(service.remove_abi(&address));
-        assert!(!service.has_abi(&address));
+        assert!(!service.is_monitored(&address));
+        assert_eq!(service.cache_size(), 0);
+    }
+
+    #[test]
+    fn test_add_abi_from_json_string_success() {
+        let service = AbiService::new();
+        let address = Address::default();
+        let result = service.add_abi_from_json_string(address, simple_abi_json());
+
+        assert!(result.is_ok());
+        assert!(service.is_monitored(&address));
+        assert_eq!(service.cache_size(), 1);
+    }
+
+    #[test]
+    fn test_add_abi_from_json_string_failure() {
+        let service = AbiService::new();
+        let address = Address::default();
+        let result = service.add_abi_from_json_string(address, "not a valid json");
+
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), AbiError::JsonParseError(_)));
+        assert!(!service.is_monitored(&address));
         assert_eq!(service.cache_size(), 0);
     }
 

@@ -23,6 +23,12 @@ pub struct Monitor {
     #[serde(default)]
     pub address: Option<String>,
 
+    /// The ABI (Application Binary Interface) for the contract being monitored.
+    /// This is used to decode event logs and call contract methods.
+    /// If `None`, the monitor will not decode logs.
+    #[serde(default)]
+    pub abi: Option<String>,
+
     /// The filter script used to determine relevant blockchain events
     pub filter_script: String,
 
@@ -46,6 +52,7 @@ impl Monitor {
         name: String,
         network: String,
         address: Option<String>,
+        abi: Option<String>,
         filter_script: String,
     ) -> Self {
         let now = Utc::now();
@@ -54,6 +61,7 @@ impl Monitor {
             name,
             network,
             address,
+            abi,
             filter_script,
             created_at: now,
             updated_at: now,
@@ -71,6 +79,7 @@ mod tests {
             "Test Monitor".to_string(),
             "ethereum".to_string(),
             Some("0x123".to_string()),
+            Some("abis/test.json".to_string()),
             "log.name == \"Test\"".to_string(),
         );
 
@@ -86,6 +95,7 @@ mod tests {
         let monitor = Monitor::from_config(
             "Native Transfer Monitor".to_string(),
             "ethereum".to_string(),
+            None,
             None,
             "bigint(tx.value) > bigint(1000)".to_string(),
         );

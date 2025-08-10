@@ -68,6 +68,10 @@ pub enum SupervisorError {
     /// An error occurred during monitor validation.
     #[error("Monitor validation error: {0}")]
     MonitorValidationError(#[from] MonitorValidationError),
+
+    /// An error occurred due to an invalid configuration.
+    #[error("Invalid configuration: {0}")]
+    InvalidConfiguration(String),
 }
 
 /// The primary runtime manager for the application.

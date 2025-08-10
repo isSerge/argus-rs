@@ -67,16 +67,18 @@ impl BlockProcessor {
 
                     let mut decoded_logs: Vec<DecodedLog> = Vec::new();
                     for log in &raw_logs_for_tx {
-                        match self.abi_service.decode_log(log) {
-                            Ok(decoded) => decoded_logs.push(decoded),
-                            Err(e) => {
-                                tracing::warn!(
-                                    log_address = %log.address(),
-                                    log_topics = ?log.topics(),
-                                    error = %e,
-                                    "Could not decode log."
-                                );
-                                // Continue even if a log cannot be decoded
+                        // First, check if we are monitoring this address at all.
+                        if self.abi_service.is_monitored(&log.address()) {
+                            match self.abi_service.decode_log(log) {
+                                Ok(decoded) => decoded_logs.push(decoded),
+                                Err(e) => {
+                                    // If we are monitoring the address, a decoding failure is a significant warning.
+                                    tracing::warn!(
+                                        log_address = %log.address(),
+                                        error = %e,
+                                        "Could not decode log for a monitored address. Check if the ABI is correct."
+                                    );
+                                }
                             }
                         }
                     }
