@@ -41,40 +41,17 @@ impl HttpClientPool {
         }
     }
 
-    /// A private, generic method to handle the core logic of getting or creating a client.
-    async fn get_or_create_client<F>(
-        &self,
-        key: &str,
-        create_fn: F,
-    ) -> Result<Arc<ClientWithMiddleware>, HttpClientPoolError>
-    where
-        F: FnOnce() -> Result<Arc<ClientWithMiddleware>, HttpClientPoolError>,
-    {
-        // 1. Fast path (read lock)
-        if let Some(client) = self.clients.read().await.get(key) {
-            return Ok(client.clone());
-        }
-
-        // 2. Slow path (write lock)
-        let mut clients = self.clients.write().await;
-        // 3. Double-check
-        if let Some(client) = clients.get(key) {
-            return Ok(client.clone());
-        }
-
-        // 4. Create and insert
-        let new_client = create_fn()?;
-        clients.insert(key.to_string(), new_client.clone());
-
-        Ok(new_client)
-    }
-
     /// Gets an existing HTTP client from the pool or creates a new one if none exists
     /// for the given retry policy.
+    ///
+    /// This method ensures that only one client per `HttpRetryConfig` is created and
+    /// reused, which is essential for connection pooling and performance. It uses a
+    /// double-checked locking pattern to minimize contention.
     ///
     /// # Arguments
     /// * `retry_policy` - Configuration for the HTTP retry policy. This is used as the
     ///   unique key for the client in the pool.
+    ///
     /// # Returns
     /// * `Result<Arc<ClientWithMiddleware>, HttpClientPoolError>` - The HTTP client
     ///   wrapped in an `Arc` for shared ownership, or an error if client creation fails.
@@ -83,17 +60,32 @@ impl HttpClientPool {
         retry_policy: &HttpRetryConfig,
     ) -> Result<Arc<ClientWithMiddleware>, HttpClientPoolError> {
         let key = format!("{:?}", retry_policy);
-        self.get_or_create_client(&key, || {
-            let base_client = ReqwestClient::builder()
-                .pool_max_idle_per_host(10)
-                .pool_idle_timeout(Some(Duration::from_secs(90)))
-                .connect_timeout(Duration::from_secs(10))
-                .build()
-                .map_err(|e| HttpClientPoolError::HttpClientBuildError(e.to_string()))?;
 
-            Ok(create_retryable_http_client(retry_policy, base_client).into())
-        })
-        .await
+        // Fast path: Check if the client already exists with a read lock.
+        if let Some(client) = self.clients.read().await.get(&key) {
+            return Ok(client.clone());
+        }
+
+        // Slow path: If not found, acquire a write lock to create it.
+        let mut clients = self.clients.write().await;
+        // Double-check: Another thread might have created the client while we were
+        // waiting for the write lock.
+        if let Some(client) = clients.get(&key) {
+            return Ok(client.clone());
+        }
+
+        // Create and insert the new client if it still doesn't exist.
+        let base_client = ReqwestClient::builder()
+            .pool_max_idle_per_host(10)
+            .pool_idle_timeout(Some(Duration::from_secs(90)))
+            .connect_timeout(Duration::from_secs(10))
+            .build()
+            .map_err(|e| HttpClientPoolError::HttpClientBuildError(e.to_string()))?;
+
+        let new_client = Arc::new(create_retryable_http_client(retry_policy, base_client));
+        clients.insert(key, new_client.clone());
+
+        Ok(new_client)
     }
 
     /// Returns the number of active HTTP clients in the pool.
