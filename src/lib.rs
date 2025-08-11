@@ -4,6 +4,7 @@
 pub mod abi;
 pub mod config;
 pub mod engine;
+pub mod http_client;
 pub mod models;
 pub mod persistence;
 pub mod providers;

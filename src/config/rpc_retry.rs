@@ -1,8 +1,8 @@
 use serde::Deserialize;
 
-/// Configuration for the retry backoff policy.
+/// Configuration for the RPC retry backoff policy.
 #[derive(Debug, Deserialize, Clone)]
-pub struct RetryConfig {
+pub struct RpcRetryConfig {
     /// The maximum number of retries for a request.
     pub max_retry: u32,
     /// The initial backoff delay in milliseconds.
@@ -11,7 +11,7 @@ pub struct RetryConfig {
     pub compute_units_per_second: u64,
 }
 
-impl Default for RetryConfig {
+impl Default for RpcRetryConfig {
     fn default() -> Self {
         Self {
             max_retry: 10,

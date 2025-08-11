@@ -3,7 +3,7 @@
 
 use super::block_fetcher::{BlockFetcher, BlockFetcherError};
 use super::traits::{DataSource, DataSourceError};
-use crate::config::RetryConfig;
+use crate::config::RpcRetryConfig;
 use alloy::primitives::TxHash;
 use alloy::rpc::types::{Block, Log, TransactionReceipt};
 use alloy::{
@@ -109,7 +109,7 @@ pub enum ProviderError {
 /// Creates a new provider with the given RPC URLs.
 pub fn create_provider(
     urls: Vec<Url>,
-    retry_config: RetryConfig,
+    retry_config: RpcRetryConfig,
 ) -> Result<impl Provider, ProviderError> {
     if urls.is_empty() {
         return Err(ProviderError::CreationError(
