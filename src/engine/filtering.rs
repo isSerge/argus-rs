@@ -22,8 +22,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use thiserror::Error;
-use tokio::sync::mpsc;
 use tokio::sync::RwLock;
+use tokio::sync::mpsc;
 use tokio::time::timeout;
 
 /// Rhai script execution errors that can occur during compilation or runtime
@@ -130,7 +130,8 @@ impl RhaiFilteringEngine {
         // Register BigInt wrapper for transparent big number handling
         register_bigint_with_rhai(&mut engine);
 
-        let (monitors_by_address, transaction_monitors, needs_receipts) = Self::organize_monitors(monitors)?;
+        let (monitors_by_address, transaction_monitors, needs_receipts) =
+            Self::organize_monitors(monitors)?;
 
         Ok(Self {
             monitors_by_address: Arc::new(RwLock::new(monitors_by_address)),
@@ -155,12 +156,13 @@ impl RhaiFilteringEngine {
             Self::validate_monitor(&monitor)?;
 
             if let Some(address_str) = &monitor.address {
-                let address: Address = address_str.parse().map_err(|_| {
-                    MonitorValidationError::InvalidAddress {
-                        monitor_name: monitor.name.clone(),
-                        address: address_str.clone(),
-                    }
-                })?;
+                let address: Address =
+                    address_str
+                        .parse()
+                        .map_err(|_| MonitorValidationError::InvalidAddress {
+                            monitor_name: monitor.name.clone(),
+                            address: address_str.clone(),
+                        })?;
 
                 let checksummed_address = address.to_checksum(None);
 
@@ -394,10 +396,7 @@ impl FilteringEngine for RhaiFilteringEngine {
                         }
                     }
                 } else {
-                    tracing::debug!(
-                        "No monitors found for log address: {}",
-                        log_address_str
-                    );
+                    tracing::debug!("No monitors found for log address: {}", log_address_str);
                 }
             }
         }
@@ -437,7 +436,7 @@ mod tests {
     use crate::models::transaction::Transaction;
     use crate::test_helpers::{LogBuilder, TransactionBuilder};
     use alloy::dyn_abi::DynSolValue;
-    use alloy::primitives::{address, Address, U256};
+    use alloy::primitives::{Address, U256, address};
     use serde_json::json;
 
     fn create_test_monitor(
@@ -626,13 +625,21 @@ mod tests {
     #[tokio::test]
     async fn test_monitor_validation_success() {
         // Valid: log monitor accesses log and has address + ABI
-        let monitor1 =
-            create_test_monitor(1, Some("0x0000000000000000000000000000000000000123"), Some("abi.json"), "log.name == 'A'");
+        let monitor1 = create_test_monitor(
+            1,
+            Some("0x0000000000000000000000000000000000000123"),
+            Some("abi.json"),
+            "log.name == 'A'",
+        );
         // Valid: tx monitor accesses tx
         let monitor2 = create_test_monitor(2, None, None, "tx.value > 0");
         // Valid: log monitor accesses tx only
-        let monitor3 =
-            create_test_monitor(3, Some("0x0000000000000000000000000000000000000123"), None, "tx.from == '0x456'");
+        let monitor3 = create_test_monitor(
+            3,
+            Some("0x0000000000000000000000000000000000000123"),
+            None,
+            "tx.from == '0x456'",
+        );
 
         assert!(
             RhaiFilteringEngine::new(vec![monitor1, monitor2, monitor3], RhaiConfig::default())
@@ -658,8 +665,12 @@ mod tests {
     #[tokio::test]
     async fn test_monitor_validation_failure_requires_abi() {
         // Invalid: accesses log data but has no ABI
-        let invalid_monitor =
-            create_test_monitor(1, Some("0x0000000000000000000000000000000000000123"), None, "log.name == 'A'");
+        let invalid_monitor = create_test_monitor(
+            1,
+            Some("0x0000000000000000000000000000000000000123"),
+            None,
+            "log.name == 'A'",
+        );
         let result = RhaiFilteringEngine::new(vec![invalid_monitor.clone()], RhaiConfig::default());
 
         assert!(result.is_err());

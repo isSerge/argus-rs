@@ -59,19 +59,21 @@ impl MonitorLoader {
 
         // Resolve ABI paths to be absolute
         let mut monitors = config.monitors;
-        let base_dir = self.path.parent().unwrap_or_else(|| std::path::Path::new(""));
+        let base_dir = self
+            .path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new(""));
 
         for monitor in &mut monitors {
             if let Some(abi_path_str) = &monitor.abi {
                 let abi_path = base_dir.join(abi_path_str);
-                let absolute_abi_path =
-                    fs::canonicalize(&abi_path).map_err(|e| {
-                        MonitorLoaderError::AbiPathError(format!(
-                            "Failed to find ABI file at {}: {}",
-                            abi_path.display(),
-                            e
-                        ))
-                    })?;
+                let absolute_abi_path = fs::canonicalize(&abi_path).map_err(|e| {
+                    MonitorLoaderError::AbiPathError(format!(
+                        "Failed to find ABI file at {}: {}",
+                        abi_path.display(),
+                        e
+                    ))
+                })?;
                 monitor.abi = Some(absolute_abi_path.to_string_lossy().to_string());
             }
         }
@@ -266,7 +268,8 @@ monitors:
     #[test]
     fn test_load_valid_yml_extension() {
         let content = create_test_yaml_content();
-        let (_temp_dir, file_path) = create_test_dir_with_files("monitors.yml", &content, None, None);
+        let (_temp_dir, file_path) =
+            create_test_dir_with_files("monitors.yml", &content, None, None);
 
         let loader = MonitorLoader::new(file_path);
         let result = loader.load();
@@ -384,5 +387,3 @@ monitors:
         assert!(!loader_no_ext.is_yaml_file());
     }
 }
-
-

@@ -104,9 +104,6 @@ mod tests {
         assert_eq!(monitor.name, "Native Transfer Monitor");
         assert_eq!(monitor.network, "ethereum");
         assert_eq!(monitor.address, None);
-        assert_eq!(
-            monitor.filter_script,
-            "bigint(tx.value) > bigint(1000)"
-        );
+        assert_eq!(monitor.filter_script, "bigint(tx.value) > bigint(1000)");
     }
 }

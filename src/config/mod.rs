@@ -1,13 +1,15 @@
 //! Configuration module for Argus.
 
+mod http_retry;
 mod monitor_loader;
-mod retry;
 mod rhai;
+mod rpc_retry;
 
 use config::{Config, ConfigError, File};
+pub use http_retry::{HttpRetryConfig, JitterSetting};
 pub use monitor_loader::{MonitorLoader, MonitorLoaderError};
-pub use retry::RetryConfig;
 pub use rhai::RhaiConfig;
+pub use rpc_retry::RpcRetryConfig;
 use serde::{Deserialize, Deserializer};
 use url::Url;
 
@@ -34,7 +36,11 @@ pub struct AppConfig {
 
     /// Optional retry configuration.
     #[serde(default)]
-    pub retry_config: RetryConfig,
+    pub rpc_retry_config: RpcRetryConfig,
+
+    /// Configuration for HTTP client retry policies.
+    #[serde(default)]
+    pub http_retry_config: HttpRetryConfig,
 
     /// The size of the block chunk to process at once.
     pub block_chunk_size: u64,
@@ -79,9 +85,10 @@ impl AppConfig {
 mod tests {
     use super::*;
     use config::Config;
+    use std::time::Duration;
 
     #[test]
-    fn test_config_with_retry() {
+    fn test_config_with_rpc_retry() {
         let yaml = "
             database_url: 'sqlite:test.db'
             rpc_urls: ['http://localhost:8545']
@@ -90,7 +97,7 @@ mod tests {
             polling_interval_ms: 1000
             confirmation_blocks: 12
             monitor_config_path: 'monitors.yaml'
-            retry_config:
+            rpc_retry_config:
               max_retry: 5
               backoff_ms: 500
               compute_units_per_second: 50
@@ -100,15 +107,15 @@ mod tests {
             Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
         let app_config: AppConfig = builder.build().unwrap().try_deserialize().unwrap();
 
-        assert_eq!(app_config.retry_config.max_retry, 5);
-        assert_eq!(app_config.retry_config.backoff_ms, 500);
-        assert_eq!(app_config.retry_config.compute_units_per_second, 50);
+        assert_eq!(app_config.rpc_retry_config.max_retry, 5);
+        assert_eq!(app_config.rpc_retry_config.backoff_ms, 500);
+        assert_eq!(app_config.rpc_retry_config.compute_units_per_second, 50);
         assert_eq!(app_config.rpc_urls[0].to_string(), "http://localhost:8545/");
         assert_eq!(app_config.monitor_config_path, "monitors.yaml");
     }
 
     #[test]
-    fn test_config_without_retry_uses_default() {
+    fn test_config_without_rpc_retry_uses_default() {
         let yaml = "
             database_url: 'sqlite:test.db'
             rpc_urls: ['http://localhost:8545']
@@ -123,21 +130,95 @@ mod tests {
             Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
         let app_config: AppConfig = builder.build().unwrap().try_deserialize().unwrap();
 
-        let default_retry_config = RetryConfig::default();
+        let default_rpc_retry_config = RpcRetryConfig::default();
         assert_eq!(
-            app_config.retry_config.max_retry,
-            default_retry_config.max_retry
+            app_config.rpc_retry_config.max_retry,
+            default_rpc_retry_config.max_retry
         );
         assert_eq!(
-            app_config.retry_config.backoff_ms,
-            default_retry_config.backoff_ms
+            app_config.rpc_retry_config.backoff_ms,
+            default_rpc_retry_config.backoff_ms
         );
         assert_eq!(
-            app_config.retry_config.compute_units_per_second,
-            default_retry_config.compute_units_per_second
+            app_config.rpc_retry_config.compute_units_per_second,
+            default_rpc_retry_config.compute_units_per_second
         );
         assert_eq!(app_config.shutdown_timeout_secs, 30);
         assert_eq!(app_config.monitor_config_path, "monitors.yaml");
+    }
+
+    #[test]
+    fn test_config_with_http_retry() {
+        let yaml = "
+            database_url: 'sqlite:test.db'
+            rpc_urls: ['http://localhost:8545']
+            network_id: 'testnet'
+            block_chunk_size: 10
+            polling_interval_ms: 1000
+            confirmation_blocks: 12
+            monitor_config_path: 'monitors.yaml'
+            http_retry_config:
+                max_retries: 5
+                base_for_backoff: 100
+                initial_backoff_ms: 200
+                max_backoff_secs: 10
+                jitter: full
+        ";
+
+        let builder =
+            Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
+        let app_config: AppConfig = builder.build().unwrap().try_deserialize().unwrap();
+
+        assert_eq!(app_config.http_retry_config.max_retries, 5);
+        assert_eq!(app_config.http_retry_config.base_for_backoff, 100);
+        assert_eq!(
+            app_config.http_retry_config.initial_backoff_ms,
+            Duration::from_millis(200)
+        );
+        assert_eq!(
+            app_config.http_retry_config.max_backoff_secs,
+            Duration::from_secs(10)
+        );
+        assert_eq!(app_config.http_retry_config.jitter, JitterSetting::Full);
+    }
+
+    #[test]
+    fn test_config_without_http_retry_uses_default() {
+        let yaml = "
+            database_url: 'sqlite:test.db'
+            rpc_urls: ['http://localhost:8545']
+            network_id: 'testnet'
+            block_chunk_size: 10
+            polling_interval_ms: 1000
+            confirmation_blocks: 12
+            monitor_config_path: 'monitors.yaml'
+        ";
+
+        let builder =
+            Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
+        let app_config: AppConfig = builder.build().unwrap().try_deserialize().unwrap();
+
+        let default_http_retry_config = HttpRetryConfig::default();
+        assert_eq!(
+            app_config.http_retry_config.max_retries,
+            default_http_retry_config.max_retries
+        );
+        assert_eq!(
+            app_config.http_retry_config.base_for_backoff,
+            default_http_retry_config.base_for_backoff
+        );
+        assert_eq!(
+            app_config.http_retry_config.initial_backoff_ms,
+            default_http_retry_config.initial_backoff_ms
+        );
+        assert_eq!(
+            app_config.http_retry_config.max_backoff_secs,
+            default_http_retry_config.max_backoff_secs
+        );
+        assert_eq!(
+            app_config.http_retry_config.jitter,
+            default_http_retry_config.jitter
+        );
     }
 
     #[test]

@@ -28,16 +28,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Load monitors from the configuration file if specified. This will overwrite
     // existing monitors for the same network in the database.
-    if let Err(e) =
-        load_monitors_from_file(repo.as_ref(), &config.network_id, &config.monitor_config_path).await
+    if let Err(e) = load_monitors_from_file(
+        repo.as_ref(),
+        &config.network_id,
+        &config.monitor_config_path,
+    )
+    .await
     {
         tracing::error!(error = %e, "Failed to load monitors from file, continuing with monitors already in database (if any).");
     }
 
     tracing::debug!(rpc_urls = ?config.rpc_urls, "Initializing EVM data source...");
-    let provider = create_provider(config.rpc_urls.clone(), config.retry_config.clone())?;
+    let provider = create_provider(config.rpc_urls.clone(), config.rpc_retry_config.clone())?;
     let evm_data_source = EvmRpcSource::new(provider);
-    tracing::info!(retry_policy = ?config.retry_config, "EVM data source initialized with fallback and retry policy.");
+    tracing::info!(retry_policy = ?config.rpc_retry_config, "EVM data source initialized with fallback and retry policy.");
 
     // Initialize BlockProcessor components
     tracing::debug!("Initializing ABI service");
