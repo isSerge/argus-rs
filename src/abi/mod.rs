@@ -2,6 +2,7 @@
 //!
 //! It is designed to work with ABIs that are loaded at runtime, and therefore
 //! does not use the `sol!` macro, which requires compile-time knowledge of the ABI.
+mod loader;
 
 use crate::models::{Log, transaction::Transaction};
 use alloy::{
