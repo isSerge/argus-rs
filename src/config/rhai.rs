@@ -124,4 +124,17 @@ mod tests {
         assert_eq!(config.max_array_size, default_max_array_size()); // Should use default
         assert_eq!(config.execution_timeout, Duration::from_millis(7_500));
     }
+
+    #[test]
+    fn test_deserialize_duration_from_millis() {
+        let yaml = "execution_timeout: 1234";
+        #[derive(Deserialize)]
+        struct TestConfig {
+            #[serde(deserialize_with = "super::deserialize_duration_from_millis")]
+            execution_timeout: Duration,
+        }
+        let builder = Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
+        let config: TestConfig = builder.build().unwrap().try_deserialize().unwrap();
+        assert_eq!(config.execution_timeout, Duration::from_millis(1234));
+    }
 }
