@@ -33,12 +33,15 @@
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    config::{
-        DiscordConfig, HttpRetryConfig, SlackConfig, TelegramConfig, TriggerConfig,
-        TriggerTypeConfig, WebhookConfig,
-    },
+    config::HttpRetryConfig,
     http_client::HttpClientPool,
-    models::monitor_match::MonitorMatch,
+    models::{
+        monitor_match::MonitorMatch,
+        trigger::{
+            DiscordConfig, SlackConfig, TelegramConfig, TriggerConfig, TriggerTypeConfig,
+            WebhookConfig,
+        },
+    },
 };
 
 pub mod error;
@@ -268,10 +271,7 @@ impl NotificationService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        config::{HttpRetryConfig, SlackConfig, TriggerTypeConfig},
-        models::notification::NotificationMessage,
-    };
+    use crate::{config::HttpRetryConfig, models::notification::NotificationMessage};
     use serde_json::json;
 
     fn create_mock_monitor_match() -> MonitorMatch {
