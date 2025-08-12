@@ -267,7 +267,10 @@ monitors:
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(matches!(err, MonitorLoaderError::Loader(LoaderError::IoError(_))));
+        assert!(matches!(
+            err,
+            MonitorLoaderError::Loader(LoaderError::IoError(_))
+        ));
     }
 
     #[test]
@@ -281,7 +284,10 @@ monitors:
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(matches!(err, MonitorLoaderError::Loader(LoaderError::UnsupportedFormat)));
+        assert!(matches!(
+            err,
+            MonitorLoaderError::Loader(LoaderError::UnsupportedFormat)
+        ));
     }
 
     #[test]
@@ -294,7 +300,10 @@ monitors:
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(matches!(err, MonitorLoaderError::Loader(LoaderError::UnsupportedFormat)));
+        assert!(matches!(
+            err,
+            MonitorLoaderError::Loader(LoaderError::UnsupportedFormat)
+        ));
     }
 
     #[test]
@@ -317,7 +326,10 @@ invalid_yaml: {key without value
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(matches!(err, MonitorLoaderError::Loader(LoaderError::ParseError(_))));
+        assert!(matches!(
+            err,
+            MonitorLoaderError::Loader(LoaderError::ParseError(_))
+        ));
     }
 
     #[test]
@@ -336,6 +348,9 @@ monitors:
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(matches!(err, MonitorLoaderError::Loader(LoaderError::ParseError(_))));
+        assert!(matches!(
+            err,
+            MonitorLoaderError::Loader(LoaderError::ParseError(_))
+        ));
     }
 }

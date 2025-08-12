@@ -4,8 +4,8 @@ use super::traits::StateRepository;
 use crate::models::{monitor::Monitor, trigger::TriggerConfig};
 use async_trait::async_trait;
 use sqlx::{
-    sqlite::{SqliteConnectOptions, SqliteRow},
     Row, SqlitePool,
+    sqlite::{SqliteConnectOptions, SqliteRow},
 };
 use std::str::FromStr;
 
@@ -436,9 +436,8 @@ impl StateRepository for SqliteStateRepository {
         let mut tx = self.pool.begin().await?;
 
         for trigger in triggers {
-            let config_str = serde_json::to_string(&trigger.config).map_err(|e| {
-                sqlx::Error::Encode(Box::new(e))
-            })?;
+            let config_str = serde_json::to_string(&trigger.config)
+                .map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
 
             sqlx::query(trigger_sql::INSERT_TRIGGER)
                 .bind(&trigger.name)
@@ -879,7 +878,9 @@ mod tests {
         }];
 
         // Add triggers to different networks
-        repo.add_triggers(network1, ethereum_triggers).await.unwrap();
+        repo.add_triggers(network1, ethereum_triggers)
+            .await
+            .unwrap();
         repo.add_triggers(network2, polygon_triggers).await.unwrap();
 
         // Verify network isolation
