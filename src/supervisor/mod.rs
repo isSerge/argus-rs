@@ -26,7 +26,7 @@ use crate::{
         block_processor::{BlockProcessor, BlockProcessorError},
         filtering::{FilteringEngine, MonitorValidationError},
     },
-    models::{BlockData, DecodedBlockData},
+    models::{monitor_match::MonitorMatch, BlockData, DecodedBlockData},
     persistence::traits::StateRepository,
     providers::traits::{DataSource, DataSourceError},
 };
@@ -161,10 +161,14 @@ impl Supervisor {
         let (decoded_blocks_tx, decoded_blocks_rx) =
             mpsc::channel::<DecodedBlockData>(self.config.block_chunk_size as usize * 2);
 
+        // Create the channel that connects the filtering engine to the notification service.
+        let (notifications_tx, notifications_rx) =
+            mpsc::channel::<MonitorMatch>(self.config.block_chunk_size as usize * 2); // TODO: double-check on channel capacity
+
         // Spawn the filtering engine as a managed task.
         let filtering_engine_clone = Arc::clone(&self.filtering);
         self.join_set.spawn(async move {
-            filtering_engine_clone.run(decoded_blocks_rx).await;
+            filtering_engine_clone.run(decoded_blocks_rx, notifications_tx).await;
         });
 
         // TODO: spawn other tasks similar to the filtering engine
