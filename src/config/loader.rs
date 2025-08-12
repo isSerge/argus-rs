@@ -103,8 +103,20 @@ items:
         assert!(result.is_ok());
         let items = result.unwrap();
         assert_eq!(items.len(), 2);
-        assert_eq!(items[0], TestItem { name: "A".into(), value: 1 });
-        assert_eq!(items[1], TestItem { name: "B".into(), value: 2 });
+        assert_eq!(
+            items[0],
+            TestItem {
+                name: "A".into(),
+                value: 1
+            }
+        );
+        assert_eq!(
+            items[1],
+            TestItem {
+                name: "B".into(),
+                value: 2
+            }
+        );
     }
 
     #[test]
@@ -138,7 +150,10 @@ items:
         let result: Result<Vec<TestItem>, _> = loader.load("items");
 
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), LoaderError::UnsupportedFormat));
+        assert!(matches!(
+            result.unwrap_err(),
+            LoaderError::UnsupportedFormat
+        ));
     }
 
     #[test]

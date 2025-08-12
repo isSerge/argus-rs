@@ -1,6 +1,6 @@
 //! This module provides the `SupervisorBuilder` for constructing a `Supervisor`.
 
-use std::{fs, sync::Arc};
+use std::sync::Arc;
 
 use crate::{
     abi::AbiService,
@@ -68,36 +68,6 @@ impl SupervisorBuilder {
         tracing::debug!(network_id = %config.network_id, "Loading monitors from database for filtering engine...");
         let monitors = state.get_monitors(&config.network_id).await?;
         tracing::info!(count = monitors.len(), network_id = %config.network_id, "Loaded monitors from database for filtering engine.");
-
-        // Load ABIs into the AbiService from the monitor's ABI file path.
-        // This loop also serves as a validation step. If any ABI is invalid or
-        // cannot be loaded, the supervisor will fail to build.
-        for monitor in &monitors {
-            if let (Some(address_str), Some(abi_path)) = (&monitor.address, &monitor.abi) {
-                let address = address_str.parse().map_err(|_| {
-                    SupervisorError::InvalidConfiguration(format!(
-                        "Invalid address '{}' for monitor '{}'",
-                        address_str, monitor.name
-                    ))
-                })?;
-
-                let abi_content = fs::read_to_string(abi_path).map_err(|e| {
-                    SupervisorError::InvalidConfiguration(format!(
-                        "Failed to read ABI file '{}' for monitor '{}': {}",
-                        abi_path, monitor.name, e
-                    ))
-                })?;
-
-                abi_service
-                    .add_abi_from_json_string(address, &abi_content)
-                    .map_err(|e| {
-                        SupervisorError::InvalidConfiguration(format!(
-                            "Failed to parse ABI for monitor '{}': {}",
-                            monitor.name, e
-                        ))
-                    })?;
-            }
-        }
 
         // Load triggers from the database for the NotificationService.
         tracing::debug!(network_id = %config.network_id, "Loading triggers from database for notification service...");
@@ -196,69 +166,6 @@ mod tests {
             Err(SupervisorError::MonitorValidationError(
                 MonitorValidationError::InvalidAddress { .. }
             ))
-        ));
-    }
-
-    #[tokio::test]
-    async fn build_fails_with_nonexistent_abi_file() {
-        let monitor = create_test_monitor(
-            "Nonexistent ABI Monitor",
-            Some("0x0000000000000000000000000000000000000001"),
-            Some("/path/to/nonexistent.json"),
-        );
-
-        let mut mock_state_repo = MockStateRepository::new();
-        mock_state_repo
-            .expect_get_monitors()
-            .returning(move |_| Ok(vec![monitor.clone()]));
-        mock_state_repo
-            .expect_get_triggers()
-            .returning(|_| Ok(vec![]));
-
-        let builder = SupervisorBuilder::new()
-            .config(AppConfig::default())
-            .state(Arc::new(mock_state_repo))
-            .abi_service(Arc::new(AbiService::new()))
-            .data_source(Box::new(MockDataSource::new()));
-
-        let result = builder.build().await;
-        assert!(matches!(
-            result,
-            Err(SupervisorError::InvalidConfiguration(_))
-        ));
-    }
-
-    #[tokio::test]
-    async fn build_fails_with_invalid_abi_json() {
-        let dir = tempdir().unwrap();
-        let abi_path = dir.path().join("invalid_abi.json");
-        let mut file = File::create(&abi_path).unwrap();
-        file.write_all(b"not valid json").unwrap();
-
-        let monitor = create_test_monitor(
-            "Invalid ABI Monitor",
-            Some("0x0000000000000000000000000000000000000001"),
-            Some(abi_path.to_str().unwrap()),
-        );
-
-        let mut mock_state_repo = MockStateRepository::new();
-        mock_state_repo
-            .expect_get_monitors()
-            .returning(move |_| Ok(vec![monitor.clone()]));
-        mock_state_repo
-            .expect_get_triggers()
-            .returning(|_| Ok(vec![]));
-
-        let builder = SupervisorBuilder::new()
-            .config(AppConfig::default())
-            .state(Arc::new(mock_state_repo))
-            .abi_service(Arc::new(AbiService::new()))
-            .data_source(Box::new(MockDataSource::new()));
-
-        let result = builder.build().await;
-        assert!(matches!(
-            result,
-            Err(SupervisorError::InvalidConfiguration(_))
         ));
     }
 }
