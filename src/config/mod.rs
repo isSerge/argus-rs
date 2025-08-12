@@ -21,6 +21,11 @@ fn default_shutdown_timeout() -> u64 {
     30 // Default to 30 seconds
 }
 
+/// Provides the default value for notification_channel_capacity.
+fn default_notification_channel_capacity() -> u32 {
+    1024
+}
+
 /// Application configuration for Argus.
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct AppConfig {
@@ -64,6 +69,10 @@ pub struct AppConfig {
     /// Rhai script execution configuration.
     #[serde(default)]
     pub rhai: RhaiConfig,
+
+    /// The capacity of the channel used for sending notifications.
+    #[serde(default = "default_notification_channel_capacity")]
+    pub notification_channel_capacity: u32,
 }
 
 /// Custom deserializer for a vector of URLs.

@@ -39,6 +39,7 @@ network_id: "mainnet"
 block_chunk_size: 5
 polling_interval_ms: 10000
 confirmation_blocks: 12
+notification_channel_capacity: 1024
 monitor_config_path: "monitors.yaml"
 
 # Optional: Configuration for the RPC retry policy.
@@ -82,6 +83,7 @@ rhai:
 - `shutdown_timeout_secs`: Graceful shutdown timeout
 - `rhai`: Security configuration for Rhai script execution
 - `monitor_config_path`: Path to monitor configuration file
+- `notification_channel_capacity`: The capacity of the channel used for sending notifications (default: 1024)
 
 ## Logging
 
