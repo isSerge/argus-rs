@@ -4,14 +4,15 @@
 
 use crate::abi::DecodedLog;
 use crate::models::transaction::Transaction;
-use alloy::primitives::U256;
+use alloy::primitives::{I256, U256};
 use alloy::{consensus::TxType, dyn_abi::DynSolValue};
+use num_bigint::{BigInt, Sign};
 use rhai::{Dynamic, Map};
 use serde_json::Value;
 
 /// Converts a `DynSolValue` directly to a Rhai `Dynamic` value.
 ///
-/// Large numbers (>i64/u64 range) are converted to strings to preserve precision.
+/// Large numbers (>i64/u64 range) are converted to `BigInt` to preserve precision.
 pub fn dyn_sol_value_to_rhai(value: &DynSolValue) -> Dynamic {
     match value {
         DynSolValue::Address(a) => a.to_checksum(None).into(),
@@ -21,12 +22,12 @@ pub fn dyn_sol_value_to_rhai(value: &DynSolValue) -> Dynamic {
 
         // Handle large signed integers
         DynSolValue::Int(i, _) => {
-            // Try to convert to i64 first, fallback to string for large numbers
+            // Try to convert to i64 first, fallback to BigInt for large numbers
             if let Ok(small_int) = i64::try_from(*i) {
                 small_int.into()
             } else {
-                // Too large for i64, use string representation
-                i.to_string().into()
+                // Too large for i64, use BigInt representation
+                i256_to_dynamic(*i)
             }
         }
 
@@ -244,9 +245,30 @@ fn u256_to_dynamic(value: U256) -> Dynamic {
     if value <= U256::from(i64::MAX as u64) {
         (value.to::<u64>() as i64).into()
     } else {
-        // Too large for i64, use string representation
-        // Users can wrap with bigint() in their scripts for arithmetic
-        value.to_string().into()
+        // Too large for i64, use BigInt representation
+        let (sign, bytes) = if value.is_zero() {
+            (Sign::NoSign, vec![])
+        } else {
+            (Sign::Plus, value.to_be_bytes_vec())
+        };
+        Dynamic::from(BigInt::from_bytes_be(sign, &bytes))
+    }
+}
+
+/// Converts an I256 value to the most appropriate Rhai type.
+fn i256_to_dynamic(value: I256) -> Dynamic {
+    // Try to fit in i64
+    if let Ok(small_int) = i64::try_from(value) {
+        small_int.into()
+    } else {
+        // Too large for i64, use BigInt representation
+        let sign = if value.is_negative() {
+            Sign::Minus
+        } else {
+            Sign::Plus
+        };
+        let bytes = value.abs().to_be_bytes::<32>();
+        Dynamic::from(BigInt::from_bytes_be(sign, &bytes))
     }
 }
 
@@ -268,8 +290,9 @@ mod tests {
     use super::*;
     use alloy::{
         dyn_abi::Word,
-        primitives::{Address, Function, address, b256},
+        primitives::{Address, Function, I256, address, b256},
     };
+    use num_bigint::BigInt;
     use serde_json::json;
 
     #[test]
@@ -297,20 +320,22 @@ mod tests {
 
     #[test]
     fn test_dyn_sol_value_to_rhai_large_numbers() {
-        // Large Uint (should become string)
+        // Large Uint (should become BigInt)
         let large_uint = U256::MAX;
         let result = dyn_sol_value_to_rhai(&DynSolValue::Uint(large_uint.into(), 256));
-        assert_eq!(result.cast::<String>(), large_uint.to_string());
+        let bigint_val = result.cast::<BigInt>();
+        assert_eq!(bigint_val.to_string(), large_uint.to_string());
 
         // Uint at i64::MAX boundary (should stay as i64)
         let max_i64_as_u256 = U256::from(i64::MAX as u64);
         let result = dyn_sol_value_to_rhai(&DynSolValue::Uint(max_i64_as_u256.into(), 256));
         assert_eq!(result.cast::<i64>(), i64::MAX);
 
-        // Uint just beyond i64::MAX (should become string)
+        // Uint just beyond i64::MAX (should become BigInt)
         let beyond_i64_max = U256::from(i64::MAX as u64) + U256::from(1);
         let result = dyn_sol_value_to_rhai(&DynSolValue::Uint(beyond_i64_max.into(), 256));
-        assert_eq!(result.cast::<String>(), beyond_i64_max.to_string());
+        let bigint_val = result.cast::<BigInt>();
+        assert_eq!(bigint_val.to_string(), beyond_i64_max.to_string());
     }
 
     #[test]
@@ -366,7 +391,8 @@ mod tests {
 
         // Beyond boundary
         let large = U256::from(i64::MAX as u64) + U256::from(1);
-        assert_eq!(u256_to_dynamic(large).cast::<String>(), large.to_string());
+        let bigint_val = u256_to_dynamic(large).cast::<BigInt>();
+        assert_eq!(bigint_val.to_string(), large.to_string());
     }
 
     #[test]
@@ -483,15 +509,17 @@ mod tests {
         let result = dyn_sol_value_to_rhai(&DynSolValue::Int(min_i64_as_i256, 256));
         assert_eq!(result.cast::<i64>(), i64::MIN);
 
-        // Int just beyond i64::MAX (should become string)
-        let beyond_i64_max = alloy::primitives::I256::try_from(i64::MAX as i128 + 1).unwrap();
+        // Int just beyond i64::MAX (should become BigInt)
+        let beyond_i64_max = I256::try_from(i64::MAX as i128 + 1).unwrap();
         let result = dyn_sol_value_to_rhai(&DynSolValue::Int(beyond_i64_max, 256));
-        assert_eq!(result.cast::<String>(), beyond_i64_max.to_string());
+        let bigint_val = result.cast::<BigInt>();
+        assert_eq!(bigint_val.to_string(), beyond_i64_max.to_string());
 
-        // Int just beyond i64::MIN (should become string)
-        let beyond_i64_min = alloy::primitives::I256::try_from(i64::MIN as i128 - 1).unwrap();
+        // Int just beyond i64::MIN (should become BigInt)
+        let beyond_i64_min = I256::try_from(i64::MIN as i128 - 1).unwrap();
         let result = dyn_sol_value_to_rhai(&DynSolValue::Int(beyond_i64_min, 256));
-        assert_eq!(result.cast::<String>(), beyond_i64_min.to_string());
+        let bigint_val = result.cast::<BigInt>();
+        assert_eq!(bigint_val.to_string(), beyond_i64_min.to_string());
     }
 
     #[test]
