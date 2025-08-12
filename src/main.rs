@@ -1,11 +1,12 @@
 use argus::{
     abi::AbiService,
-    config::{AppConfig, MonitorLoader, TriggerLoader},
+    config::AppConfig,
+    initialization::InitializationService,
     persistence::{sqlite::SqliteStateRepository, traits::StateRepository},
     providers::rpc::{EvmRpcSource, create_provider},
     supervisor::Supervisor,
 };
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 #[tokio::main]
@@ -26,36 +27,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     repo.run_migrations().await?;
     tracing::info!("Database migrations completed.");
 
-    // Load monitors from the configuration file if specified.
-    if let Err(e) = load_monitors_from_file(
-        repo.as_ref(),
-        &config.network_id,
-        &config.monitor_config_path,
-    )
-    .await
-    {
-        tracing::error!(error = %e, "Failed to load monitors from file, continuing with monitors already in database (if any).");
-    }
+    // Initialize ABI service
+    tracing::debug!("Initializing ABI service");
+    let abi_service = Arc::new(AbiService::new());
 
-    // Load triggers from the configuration file if specified.
-    if let Err(e) = load_triggers_from_file(
-        repo.as_ref(),
-        &config.network_id,
-        &config.trigger_config_path,
-    )
-    .await
-    {
-        tracing::error!(error = %e, "Failed to load triggers from file, continuing with triggers already in database (if any).");
-    }
+    // Initialize application state (monitors, triggers, ABIs) from files into DB/ABI service
+    tracing::debug!("Initializing application state...");
+    let initialization_service = InitializationService::new(
+        config.clone(),
+        Arc::clone(&repo) as Arc<dyn StateRepository>,
+        Arc::clone(&abi_service),
+    );
+    initialization_service.run().await?;
+    tracing::info!("Application state initialized.");
 
     tracing::debug!(rpc_urls = ?config.rpc_urls, "Initializing EVM data source...");
     let provider = create_provider(config.rpc_urls.clone(), config.rpc_retry_config.clone())?;
     let evm_data_source = EvmRpcSource::new(provider);
     tracing::info!(retry_policy = ?config.rpc_retry_config, "EVM data source initialized with fallback and retry policy.");
-
-    // Initialize BlockProcessor components
-    tracing::debug!("Initializing ABI service");
-    let abi_service = Arc::new(AbiService::new());
 
     let supervisor = Supervisor::builder()
         .config(config)
@@ -69,61 +58,5 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     supervisor.run().await?;
 
-    Ok(())
-}
-
-async fn load_monitors_from_file(
-    repo: &impl StateRepository,
-    network_id: &str,
-    config_path: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    tracing::debug!(network_id = %network_id, "Checking for existing monitors in database...");
-    let existing_monitors = repo.get_monitors(network_id).await?;
-
-    if !existing_monitors.is_empty() {
-        tracing::info!(
-            network_id = %network_id,
-            count = existing_monitors.len(),
-            "Monitors already exist in the database. Skipping loading from file."
-        );
-        return Ok(());
-    }
-
-    tracing::info!(config_path = %config_path, "No monitors found in database. Loading from configuration file...");
-    let monitor_loader = MonitorLoader::new(PathBuf::from(config_path));
-    let monitors = monitor_loader.load()?;
-    let count = monitors.len();
-    tracing::info!(count = count, "Loaded monitors from configuration file.");
-    repo.clear_monitors(network_id).await?;
-    repo.add_monitors(network_id, monitors).await?;
-    tracing::info!(count = count, network_id = %network_id, "Monitors from file stored in database.");
-    Ok(())
-}
-
-async fn load_triggers_from_file(
-    repo: &impl StateRepository,
-    network_id: &str,
-    config_path: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    tracing::debug!(network_id = %network_id, "Checking for existing triggers in database...");
-    let existing_triggers = repo.get_triggers(network_id).await?;
-
-    if !existing_triggers.is_empty() {
-        tracing::info!(
-            network_id = %network_id,
-            count = existing_triggers.len(),
-            "Triggers already exist in the database. Skipping loading from file."
-        );
-        return Ok(());
-    }
-
-    tracing::info!(config_path = %config_path, "No triggers found in database. Loading from configuration file...");
-    let trigger_loader = TriggerLoader::new(PathBuf::from(config_path));
-    let triggers = trigger_loader.load()?;
-    let count = triggers.len();
-    tracing::info!(count = count, "Loaded triggers from configuration file.");
-    repo.clear_triggers(network_id).await?;
-    repo.add_triggers(network_id, triggers).await?;
-    tracing::info!(count = count, network_id = %network_id, "Triggers from file stored in database.");
     Ok(())
 }
