@@ -137,7 +137,8 @@ mod tests {
             #[serde(deserialize_with = "super::deserialize_duration_from_ms")]
             initial_backoff_ms: Duration,
         }
-        let builder = Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
+        let builder =
+            Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
         let config: TestConfig = builder.build().unwrap().try_deserialize().unwrap();
         assert_eq!(config.initial_backoff_ms, Duration::from_millis(1234));
     }
@@ -150,7 +151,8 @@ mod tests {
             #[serde(deserialize_with = "super::deserialize_duration_from_seconds")]
             max_backoff_secs: Duration,
         }
-        let builder = Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
+        let builder =
+            Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
         let config: TestConfig = builder.build().unwrap().try_deserialize().unwrap();
         assert_eq!(config.max_backoff_secs, Duration::from_secs(5));
     }

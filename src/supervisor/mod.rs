@@ -195,8 +195,6 @@ impl Supervisor {
             notification_service_clone.run(notifications_rx).await;
         });
 
-        // TODO: spawn other tasks similar to the filtering engine
-
         // This is the main application loop.
         loop {
             let tx_clone = decoded_blocks_tx.clone();

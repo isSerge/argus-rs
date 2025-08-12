@@ -225,10 +225,7 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
-    fn create_test_dir_with_file(
-        yaml_filename: &str,
-        yaml_content: &str,
-    ) -> (TempDir, PathBuf) {
+    fn create_test_dir_with_file(yaml_filename: &str, yaml_content: &str) -> (TempDir, PathBuf) {
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let yaml_path = temp_dir.path().join(yaml_filename);
         fs::write(&yaml_path, yaml_content).expect("Failed to write YAML file");
@@ -423,7 +420,10 @@ triggers:
             method: None,
             secret: None,
             headers: None,
-            message: NotificationMessage { title: "".to_string(), ..Default::default() },
+            message: NotificationMessage {
+                title: "".to_string(),
+                ..Default::default()
+            },
             retry_policy: HttpRetryConfig::default(),
         };
         let trigger_type = TriggerTypeConfig::Webhook(webhook_config);

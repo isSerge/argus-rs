@@ -1,12 +1,12 @@
 //! # Webhook Payload Builder
-//! 
+//!
 //! This module provides traits and implementations for constructing channel-specific
 //! JSON payloads for various notification services. Each service (e.g., Slack, Discord)
 //! has a unique JSON structure, and the builders in this module are responsible for
 //! creating them.
-//! 
+//!
 //! ## Core Components
-//! 
+//!
 //! - **`WebhookPayloadBuilder` Trait**: A common interface for all payload builders.
 //!   It defines a single method, `build_payload`, which takes a title, a body template,
 //!   and a set of variables, and returns a `serde_json::Value`.
