@@ -4,4 +4,4 @@ mod client;
 mod pool;
 
 pub use client::create_retryable_http_client;
-pub use pool::HttpClientPool;
+pub use pool::{HttpClientPool, HttpClientPoolError};

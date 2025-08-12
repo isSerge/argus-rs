@@ -13,8 +13,10 @@ use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::RwLock;
 
+/// Errors that can occur within the `HttpClientPool`.
 #[derive(Debug, Error)]
 pub enum HttpClientPoolError {
+    /// An error occurred while building the underlying `reqwest::Client`.
     #[error("Failed to create HTTP client: {0}")]
     HttpClientBuildError(String),
 }
