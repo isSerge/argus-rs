@@ -51,6 +51,7 @@ use payload_builder::{
     DiscordPayloadBuilder, GenericWebhookPayloadBuilder, SlackPayloadBuilder,
     TelegramPayloadBuilder, WebhookPayloadBuilder,
 };
+use tokio::sync::mpsc;
 
 /// A private container struct holding the generic components required to send any
 /// webhook-based notification.
@@ -245,6 +246,22 @@ impl NotificationService {
         notifier.notify_json(&payload).await?;
 
         Ok(())
+    }
+
+    pub async fn run(&self, mut notifications_rx: mpsc::Receiver<MonitorMatch>) {
+        while let Some(monitor_match) = notifications_rx.recv().await {
+            let variables = HashMap::new(); // TODO: Populate with actual variables
+            if let Err(e) = self
+                .execute(&monitor_match.trigger_name, &variables, &monitor_match)
+                .await
+            {
+                tracing::error!(
+                    "Failed to execute notification for trigger '{}': {}",
+                    monitor_match.trigger_name,
+                    e
+                );
+            }
+        }
     }
 }
 
