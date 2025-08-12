@@ -5,6 +5,7 @@ pub mod abi;
 pub mod config;
 pub mod engine;
 pub mod http_client;
+pub mod initialization;
 pub mod models;
 pub mod notification;
 pub mod persistence;
