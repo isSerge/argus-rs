@@ -1,7 +1,6 @@
 use argus::{
     abi::AbiService,
     config::{AppConfig, MonitorLoader, TriggerLoader},
-    models::trigger::TriggerConfig,
     persistence::{sqlite::SqliteStateRepository, traits::StateRepository},
     providers::rpc::{create_provider, EvmRpcSource},
     supervisor::Supervisor,

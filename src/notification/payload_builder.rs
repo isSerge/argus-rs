@@ -119,7 +119,9 @@ impl WebhookPayloadBuilder for DiscordPayloadBuilder {
 /// Telegram requires a `chat_id` and the message content in a `text` field.
 /// It also supports a `parse_mode` to render markdown.
 pub struct TelegramPayloadBuilder {
+    /// The chat ID to send the message to.
     pub chat_id: String,
+    /// Whether to disable web page previews in the message.
     pub disable_web_preview: bool,
 }
 

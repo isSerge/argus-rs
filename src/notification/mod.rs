@@ -251,6 +251,8 @@ impl NotificationService {
         Ok(())
     }
 
+    /// Runs the notification service, listening for incoming monitor matches and executing
+    /// notifications based on the configured triggers.
     pub async fn run(&self, mut notifications_rx: mpsc::Receiver<MonitorMatch>) {
         while let Some(monitor_match) = notifications_rx.recv().await {
             let variables = HashMap::new(); // TODO: Populate with actual variables
