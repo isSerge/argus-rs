@@ -2,7 +2,7 @@ use argus::{
     abi::AbiService,
     config::{AppConfig, MonitorLoader, TriggerLoader},
     persistence::{sqlite::SqliteStateRepository, traits::StateRepository},
-    providers::rpc::{create_provider, EvmRpcSource},
+    providers::rpc::{EvmRpcSource, create_provider},
     supervisor::Supervisor,
 };
 use std::{path::PathBuf, sync::Arc};
@@ -77,7 +77,19 @@ async fn load_monitors_from_file(
     network_id: &str,
     config_path: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    tracing::debug!(config_path = %config_path, "Loading monitors from configuration file...");
+    tracing::debug!(network_id = %network_id, "Checking for existing monitors in database...");
+    let existing_monitors = repo.get_monitors(network_id).await?;
+
+    if !existing_monitors.is_empty() {
+        tracing::info!(
+            network_id = %network_id,
+            count = existing_monitors.len(),
+            "Monitors already exist in the database. Skipping loading from file."
+        );
+        return Ok(());
+    }
+
+    tracing::info!(config_path = %config_path, "No monitors found in database. Loading from configuration file...");
     let monitor_loader = MonitorLoader::new(PathBuf::from(config_path));
     let monitors = monitor_loader.load()?;
     let count = monitors.len();
@@ -93,7 +105,19 @@ async fn load_triggers_from_file(
     network_id: &str,
     config_path: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    tracing::debug!(config_path = %config_path, "Loading triggers from configuration file...");
+    tracing::debug!(network_id = %network_id, "Checking for existing triggers in database...");
+    let existing_triggers = repo.get_triggers(network_id).await?;
+
+    if !existing_triggers.is_empty() {
+        tracing::info!(
+            network_id = %network_id,
+            count = existing_triggers.len(),
+            "Triggers already exist in the database. Skipping loading from file."
+        );
+        return Ok(());
+    }
+
+    tracing::info!(config_path = %config_path, "No triggers found in database. Loading from configuration file...");
     let trigger_loader = TriggerLoader::new(PathBuf::from(config_path));
     let triggers = trigger_loader.load()?;
     let count = triggers.len();
