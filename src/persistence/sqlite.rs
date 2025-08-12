@@ -1,11 +1,11 @@
 //! This module provides a concrete implementation of the StateRepository using SQLite.
 
 use super::traits::StateRepository;
-use crate::models::monitor::Monitor;
+use crate::models::{monitor::Monitor, trigger::TriggerConfig};
 use async_trait::async_trait;
 use sqlx::{
-    Row, SqlitePool,
     sqlite::{SqliteConnectOptions, SqliteRow},
+    Row, SqlitePool,
 };
 use std::str::FromStr;
 
@@ -22,7 +22,21 @@ mod monitor_sql {
     pub const DELETE_MONITORS_BY_NETWORK: &str = "DELETE FROM monitors WHERE network = ?";
 }
 
-/// SQL query constants for processed blocks operations  
+/// SQL query constants for trigger operations
+mod trigger_sql {
+    /// Select all triggers for a specific network
+    pub const SELECT_TRIGGERS_BY_NETWORK: &str =
+        "SELECT name, config FROM triggers WHERE network_id = ?";
+
+    /// Insert a new trigger
+    pub const INSERT_TRIGGER: &str =
+        "INSERT INTO triggers (name, network_id, config) VALUES (?, ?, ?)";
+
+    /// Delete all triggers for a specific network
+    pub const DELETE_TRIGGERS_BY_NETWORK: &str = "DELETE FROM triggers WHERE network_id = ?";
+}
+
+/// SQL query constants for processed blocks operations
 mod block_sql {
     /// Select last processed block for a network
     pub const SELECT_LAST_PROCESSED_BLOCK: &str =
@@ -366,11 +380,102 @@ impl StateRepository for SqliteStateRepository {
         tracing::info!(network_id, deleted_count, "Monitors cleared successfully.");
         Ok(())
     }
+
+    // Trigger management operations
+
+    /// Retrieves all triggers for a specific network.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn get_triggers(&self, network_id: &str) -> Result<Vec<TriggerConfig>, sqlx::Error> {
+        tracing::debug!(network_id, "Querying for triggers.");
+
+        let rows = self
+            .execute_query_with_error_handling(
+                "query triggers",
+                sqlx::query(trigger_sql::SELECT_TRIGGERS_BY_NETWORK)
+                    .bind(network_id)
+                    .fetch_all(&self.pool),
+            )
+            .await?;
+
+        let triggers = rows
+            .into_iter()
+            .map(|row| {
+                let name: String = row.get("name");
+                let config_str: String = row.get("config");
+                let config = serde_json::from_str(&config_str).map_err(|e| {
+                    sqlx::Error::Decode(Box::new(e))
+                })?;
+                Ok(TriggerConfig { name, config })
+            })
+            .collect::<Result<Vec<_>, sqlx::Error>>()?;
+
+        tracing::debug!(
+            network_id,
+            trigger_count = triggers.len(),
+            "Triggers retrieved successfully."
+        );
+        Ok(triggers)
+    }
+
+    /// Adds multiple triggers for a specific network.
+    #[tracing::instrument(skip(self, triggers), level = "debug")]
+    async fn add_triggers(
+        &self,
+        network_id: &str,
+        triggers: Vec<TriggerConfig>,
+    ) -> Result<(), sqlx::Error> {
+        tracing::debug!(
+            network_id,
+            trigger_count = triggers.len(),
+            "Adding triggers."
+        );
+
+        let mut tx = self.pool.begin().await?;
+
+        for trigger in triggers {
+            let config_str = serde_json::to_string(&trigger.config).map_err(|e| {
+                sqlx::Error::Encode(Box::new(e))
+            })?;
+
+            sqlx::query(trigger_sql::INSERT_TRIGGER)
+                .bind(&trigger.name)
+                .bind(network_id)
+                .bind(&config_str)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        tx.commit().await?;
+
+        tracing::info!(network_id, "Triggers added successfully.");
+        Ok(())
+    }
+
+    /// Clears all triggers for a specific network.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn clear_triggers(&self, network_id: &str) -> Result<(), sqlx::Error> {
+        tracing::debug!(network_id, "Clearing triggers.");
+
+        let result = self
+            .execute_query_with_error_handling(
+                "clear triggers",
+                sqlx::query(trigger_sql::DELETE_TRIGGERS_BY_NETWORK)
+                    .bind(network_id)
+                    .execute(&self.pool),
+            )
+            .await?;
+
+        let deleted_count = result.rows_affected();
+        tracing::info!(network_id, deleted_count, "Triggers cleared successfully.");
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::trigger::{SlackConfig, TriggerTypeConfig};
+    use crate::models::notification::NotificationMessage;
 
     async fn setup_test_db() -> SqliteStateRepository {
         let repo = SqliteStateRepository::new("sqlite::memory:")
@@ -703,5 +808,46 @@ mod tests {
         assert_eq!(stored_monitors.len(), 1);
         assert_eq!(stored_monitors[0].filter_script, large_script);
         assert_eq!(stored_monitors[0].filter_script.len(), 10000);
+    }
+
+    #[tokio::test]
+    async fn test_trigger_management_operations() {
+        let repo = setup_test_db().await;
+        let network_id = "ethereum";
+
+        // Initially, should have no triggers
+        let triggers = repo.get_triggers(network_id).await.unwrap();
+        assert!(triggers.is_empty());
+
+        // Create test triggers
+        let test_triggers = vec![TriggerConfig {
+            name: "Test Slack".to_string(),
+            config: TriggerTypeConfig::Slack(SlackConfig {
+                slack_url: "https://hooks.slack.com/services/123".to_string(),
+                message: NotificationMessage {
+                    title: "Test".to_string(),
+                    body: "Body".to_string(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+        }];
+
+        // Add triggers
+        repo.add_triggers(network_id, test_triggers.clone())
+            .await
+            .unwrap();
+
+        // Retrieve triggers and verify
+        let stored_triggers = repo.get_triggers(network_id).await.unwrap();
+        assert_eq!(stored_triggers.len(), 1);
+        assert_eq!(stored_triggers[0].name, "Test Slack");
+
+        // Clear triggers
+        repo.clear_triggers(network_id).await.unwrap();
+
+        // Verify triggers are cleared
+        let triggers_after_clear = repo.get_triggers(network_id).await.unwrap();
+        assert!(triggers_after_clear.is_empty());
     }
 }

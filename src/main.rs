@@ -1,8 +1,9 @@
 use argus::{
     abi::AbiService,
-    config::{AppConfig, MonitorLoader},
+    config::{AppConfig, MonitorLoader, TriggerLoader},
+    models::trigger::TriggerConfig,
     persistence::{sqlite::SqliteStateRepository, traits::StateRepository},
-    providers::rpc::{EvmRpcSource, create_provider},
+    providers::rpc::{create_provider, EvmRpcSource},
     supervisor::Supervisor,
 };
 use std::{path::PathBuf, sync::Arc};
@@ -26,8 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     repo.run_migrations().await?;
     tracing::info!("Database migrations completed.");
 
-    // Load monitors from the configuration file if specified. This will overwrite
-    // existing monitors for the same network in the database.
+    // Load monitors from the configuration file if specified.
     if let Err(e) = load_monitors_from_file(
         repo.as_ref(),
         &config.network_id,
@@ -36,6 +36,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     {
         tracing::error!(error = %e, "Failed to load monitors from file, continuing with monitors already in database (if any).");
+    }
+
+    // Load triggers from the configuration file if specified.
+    if let Err(e) = load_triggers_from_file(
+        repo.as_ref(),
+        &config.network_id,
+        &config.trigger_config_path,
+    )
+    .await
+    {
+        tracing::error!(error = %e, "Failed to load triggers from file, continuing with triggers already in database (if any).");
     }
 
     tracing::debug!(rpc_urls = ?config.rpc_urls, "Initializing EVM data source...");
@@ -75,5 +86,21 @@ async fn load_monitors_from_file(
     repo.clear_monitors(network_id).await?;
     repo.add_monitors(network_id, monitors).await?;
     tracing::info!(count = count, network_id = %network_id, "Monitors from file stored in database.");
+    Ok(())
+}
+
+async fn load_triggers_from_file(
+    repo: &impl StateRepository,
+    network_id: &str,
+    config_path: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    tracing::debug!(config_path = %config_path, "Loading triggers from configuration file...");
+    let trigger_loader = TriggerLoader::new(PathBuf::from(config_path));
+    let triggers = trigger_loader.load()?;
+    let count = triggers.len();
+    tracing::info!(count = count, "Loaded triggers from configuration file.");
+    repo.clear_triggers(network_id).await?;
+    repo.add_triggers(network_id, triggers).await?;
+    tracing::info!(count = count, network_id = %network_id, "Triggers from file stored in database.");
     Ok(())
 }
