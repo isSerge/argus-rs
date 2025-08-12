@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use url::Url;
 
 /// Configuration for a generic webhook.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Default)]
 pub struct WebhookConfig {
     /// The URL of the webhook endpoint.
     pub url: String,
@@ -26,7 +26,7 @@ pub struct WebhookConfig {
 }
 
 /// Configuration for a Slack notification.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Default)]
 pub struct SlackConfig {
     /// The Slack webhook URL.
     pub slack_url: String,
@@ -38,7 +38,7 @@ pub struct SlackConfig {
 }
 
 /// Configuration for a Discord notification.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Default)]
 pub struct DiscordConfig {
     /// The Discord webhook URL.
     pub discord_url: String,
@@ -50,7 +50,7 @@ pub struct DiscordConfig {
 }
 
 /// Configuration for a Telegram notification.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Default)]
 pub struct TelegramConfig {
     /// The Telegram bot token.
     pub token: String,

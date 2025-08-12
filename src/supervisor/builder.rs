@@ -158,6 +158,9 @@ mod tests {
         mock_state_repo
             .expect_get_monitors()
             .returning(move |_| Ok(vec![monitor.clone()]));
+        mock_state_repo
+            .expect_get_triggers()
+            .returning(|_| Ok(vec![]));
 
         let builder = SupervisorBuilder::new()
             .config(AppConfig::default())
@@ -177,6 +180,9 @@ mod tests {
         mock_state_repo
             .expect_get_monitors()
             .returning(move |_| Ok(vec![monitor.clone()]));
+        mock_state_repo
+            .expect_get_triggers()
+            .returning(|_| Ok(vec![]));
 
         let builder = SupervisorBuilder::new()
             .config(AppConfig::default())
@@ -205,6 +211,9 @@ mod tests {
         mock_state_repo
             .expect_get_monitors()
             .returning(move |_| Ok(vec![monitor.clone()]));
+        mock_state_repo
+            .expect_get_triggers()
+            .returning(|_| Ok(vec![]));
 
         let builder = SupervisorBuilder::new()
             .config(AppConfig::default())
@@ -236,6 +245,9 @@ mod tests {
         mock_state_repo
             .expect_get_monitors()
             .returning(move |_| Ok(vec![monitor.clone()]));
+        mock_state_repo
+            .expect_get_triggers()
+            .returning(|_| Ok(vec![]));
 
         let builder = SupervisorBuilder::new()
             .config(AppConfig::default())

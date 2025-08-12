@@ -402,9 +402,8 @@ impl StateRepository for SqliteStateRepository {
             .map(|row| {
                 let name: String = row.get("name");
                 let config_str: String = row.get("config");
-                let config = serde_json::from_str(&config_str).map_err(|e| {
-                    sqlx::Error::Decode(Box::new(e))
-                })?;
+                let config = serde_json::from_str(&config_str)
+                    .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
                 Ok(TriggerConfig { name, config })
             })
             .collect::<Result<Vec<_>, sqlx::Error>>()?;
@@ -429,6 +428,10 @@ impl StateRepository for SqliteStateRepository {
             trigger_count = triggers.len(),
             "Adding triggers."
         );
+
+        // Note: We are not validating network_id here because triggers are network-agnostic.
+        // A single trigger (e.g., a webhook) can be used by monitors on any network.
+        // The `network_id` in the database table is for organizational purposes.
 
         let mut tx = self.pool.begin().await?;
 
@@ -474,8 +477,8 @@ impl StateRepository for SqliteStateRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::trigger::{SlackConfig, TriggerTypeConfig};
     use crate::models::notification::NotificationMessage;
+    use crate::models::trigger::{SlackConfig, TriggerTypeConfig};
 
     async fn setup_test_db() -> SqliteStateRepository {
         let repo = SqliteStateRepository::new("sqlite::memory:")
@@ -849,5 +852,93 @@ mod tests {
         // Verify triggers are cleared
         let triggers_after_clear = repo.get_triggers(network_id).await.unwrap();
         assert!(triggers_after_clear.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_trigger_network_isolation() {
+        let repo = setup_test_db().await;
+        let network1 = "ethereum";
+        let network2 = "polygon";
+
+        // Create triggers for different networks
+        let ethereum_triggers = vec![TriggerConfig {
+            name: "Ethereum Slack".to_string(),
+            config: TriggerTypeConfig::Slack(SlackConfig {
+                slack_url: "https://hooks.slack.com/services/eth".to_string(),
+                message: Default::default(),
+                retry_policy: Default::default(),
+            }),
+        }];
+        let polygon_triggers = vec![TriggerConfig {
+            name: "Polygon Discord".to_string(),
+            config: TriggerTypeConfig::Discord(crate::models::trigger::DiscordConfig {
+                discord_url: "https://discord.com/api/webhooks/poly".to_string(),
+                message: Default::default(),
+                retry_policy: Default::default(),
+            }),
+        }];
+
+        // Add triggers to different networks
+        repo.add_triggers(network1, ethereum_triggers).await.unwrap();
+        repo.add_triggers(network2, polygon_triggers).await.unwrap();
+
+        // Verify network isolation
+        let eth_triggers = repo.get_triggers(network1).await.unwrap();
+        let poly_triggers = repo.get_triggers(network2).await.unwrap();
+
+        assert_eq!(eth_triggers.len(), 1);
+        assert_eq!(poly_triggers.len(), 1);
+        assert_eq!(eth_triggers[0].name, "Ethereum Slack");
+        assert_eq!(poly_triggers[0].name, "Polygon Discord");
+
+        // Clear one network, should not affect the other
+        repo.clear_triggers(network1).await.unwrap();
+        let eth_triggers_after_clear = repo.get_triggers(network1).await.unwrap();
+        let poly_triggers_after_clear = repo.get_triggers(network2).await.unwrap();
+
+        assert!(eth_triggers_after_clear.is_empty());
+        assert_eq!(poly_triggers_after_clear.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_trigger_transaction_atomicity() {
+        let repo = setup_test_db().await;
+        let network_id = "ethereum";
+
+        // Create a batch of triggers where one has a name that is too long, causing a DB constraint error.
+        // This test is a bit contrived as we can't easily create an invalid JSON,
+        // but we can simulate a constraint violation. Here, we'll rely on the UNIQUE constraint.
+        let triggers1 = vec![
+            TriggerConfig {
+                name: "Unique Trigger".to_string(),
+                config: TriggerTypeConfig::Slack(SlackConfig::default()),
+            },
+            TriggerConfig {
+                name: "Another Unique Trigger".to_string(),
+                config: TriggerTypeConfig::Slack(SlackConfig::default()),
+            },
+        ];
+        let triggers2 = vec![
+            TriggerConfig {
+                name: "Third Trigger".to_string(),
+                config: TriggerTypeConfig::Slack(SlackConfig::default()),
+            },
+            TriggerConfig {
+                name: "Unique Trigger".to_string(), // Duplicate name, will cause failure
+                config: TriggerTypeConfig::Slack(SlackConfig::default()),
+            },
+        ];
+
+        // This should succeed
+        repo.add_triggers(network_id, triggers1).await.unwrap();
+        assert_eq!(repo.get_triggers(network_id).await.unwrap().len(), 2);
+
+        // This should fail due to the duplicate name violating the UNIQUE constraint
+        let result = repo.add_triggers(network_id, triggers2).await;
+        assert!(result.is_err());
+
+        // Verify no new triggers were added (transaction rolled back)
+        // The count should still be 2 from the first successful insert.
+        assert_eq!(repo.get_triggers(network_id).await.unwrap().len(), 2);
     }
 }
