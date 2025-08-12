@@ -3,12 +3,12 @@
 use crate::config::HttpRetryConfig;
 use crate::models::notification::NotificationMessage;
 use crate::notification::error::NotificationError;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use url::Url;
 
 /// Configuration for a generic webhook.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct WebhookConfig {
     /// The URL of the webhook endpoint.
     pub url: String,
@@ -26,7 +26,7 @@ pub struct WebhookConfig {
 }
 
 /// Configuration for a Slack notification.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct SlackConfig {
     /// The Slack webhook URL.
     pub slack_url: String,
@@ -38,7 +38,7 @@ pub struct SlackConfig {
 }
 
 /// Configuration for a Discord notification.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct DiscordConfig {
     /// The Discord webhook URL.
     pub discord_url: String,
@@ -50,7 +50,7 @@ pub struct DiscordConfig {
 }
 
 /// Configuration for a Telegram notification.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct TelegramConfig {
     /// The Telegram bot token.
     pub token: String,
@@ -66,7 +66,7 @@ pub struct TelegramConfig {
 }
 
 /// An enum representing the different types of trigger configurations.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum TriggerTypeConfig {
     /// A generic webhook trigger.
@@ -138,7 +138,7 @@ impl TriggerTypeConfig {
 }
 
 /// Represents a single trigger configuration from the YAML file.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TriggerConfig {
     /// The unique name of the trigger.
     pub name: String,

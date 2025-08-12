@@ -829,7 +829,7 @@ mod tests {
                     body: "Body".to_string(),
                     ..Default::default()
                 },
-                ..Default::default()
+                retry_policy: Default::default(),
             }),
         }];
 
