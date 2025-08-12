@@ -26,7 +26,8 @@ use crate::{
         block_processor::{BlockProcessor, BlockProcessorError},
         filtering::{FilteringEngine, MonitorValidationError},
     },
-    models::{BlockData, DecodedBlockData},
+    models::{BlockData, DecodedBlockData, monitor_match::MonitorMatch},
+    notification::NotificationService,
     persistence::traits::StateRepository,
     providers::traits::{DataSource, DataSourceError},
 };
@@ -48,6 +49,10 @@ pub enum SupervisorError {
     /// An ABI service was not provided to the `SupervisorBuilder`.
     #[error("Missing ABI service for Supervisor")]
     MissingAbiService,
+
+    /// A notification service was not provided to the `SupervisorBuilder`.
+    #[error("Missing notification service for Supervisor")]
+    MissingNotificationService,
 
     /// A data source was not provided to the `SupervisorBuilder`.
     #[error("Missing data source for Supervisor")]
@@ -82,16 +87,25 @@ pub enum SupervisorError {
 pub struct Supervisor {
     /// Shared application configuration.
     config: AppConfig,
+
     /// The persistent state repository for managing application state.
     state: Arc<dyn StateRepository>,
+
     /// The data source for fetching new blockchain data (e.g., from an RPC endpoint).
     data_source: Box<dyn DataSource>,
+
     /// The service responsible for decoding raw block data.
     processor: BlockProcessor,
+
     /// The service responsible for matching decoded data against user-defined monitors.
     filtering: Arc<dyn FilteringEngine>,
+
+    /// The notification service that handles sending notifications based on matched monitors.
+    notification_service: Arc<NotificationService>,
+
     /// A token used to signal a graceful shutdown to all supervised tasks.
     cancellation_token: tokio_util::sync::CancellationToken,
+
     /// A set of all spawned tasks that the supervisor is actively managing.
     join_set: tokio::task::JoinSet<()>,
 }
@@ -107,6 +121,7 @@ impl Supervisor {
         data_source: Box<dyn DataSource>,
         processor: BlockProcessor,
         filtering: Arc<dyn FilteringEngine>,
+        notification_service: Arc<NotificationService>,
     ) -> Self {
         Self {
             config,
@@ -114,6 +129,7 @@ impl Supervisor {
             data_source,
             processor,
             filtering,
+            notification_service,
             cancellation_token: tokio_util::sync::CancellationToken::new(),
             join_set: tokio::task::JoinSet::new(),
         }
@@ -161,13 +177,23 @@ impl Supervisor {
         let (decoded_blocks_tx, decoded_blocks_rx) =
             mpsc::channel::<DecodedBlockData>(self.config.block_chunk_size as usize * 2);
 
+        // Create the channel that connects the filtering engine to the notification service.
+        let (notifications_tx, notifications_rx) =
+            mpsc::channel::<MonitorMatch>(self.config.notification_channel_capacity as usize);
+
         // Spawn the filtering engine as a managed task.
         let filtering_engine_clone = Arc::clone(&self.filtering);
         self.join_set.spawn(async move {
-            filtering_engine_clone.run(decoded_blocks_rx).await;
+            filtering_engine_clone
+                .run(decoded_blocks_rx, notifications_tx)
+                .await;
         });
 
-        // TODO: spawn other tasks similar to the filtering engine
+        // Spawn the notification service as a managed task.
+        let notification_service_clone = Arc::clone(&self.notification_service);
+        self.join_set.spawn(async move {
+            notification_service_clone.run(notifications_rx).await;
+        });
 
         // This is the main application loop.
         loop {
@@ -376,6 +402,7 @@ mod tests {
         mock_data_source: MockDataSource,
         mock_filtering_engine: MockFilteringEngine,
         block_processor: BlockProcessor,
+        notification_service: Arc<NotificationService>,
     }
 
     impl SupervisorTestHarness {
@@ -385,6 +412,7 @@ mod tests {
 
             let abi_service = Arc::new(AbiService::new());
             let block_processor = BlockProcessor::new(abi_service);
+            let notification_service = Arc::new(NotificationService::new(vec![]));
 
             Self {
                 config,
@@ -392,6 +420,7 @@ mod tests {
                 mock_data_source: MockDataSource::new(),
                 mock_filtering_engine: MockFilteringEngine::new(),
                 block_processor,
+                notification_service,
             }
         }
 
@@ -402,6 +431,7 @@ mod tests {
                 Box::new(self.mock_data_source),
                 self.block_processor,
                 Arc::new(self.mock_filtering_engine),
+                self.notification_service,
             )
         }
     }

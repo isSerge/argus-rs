@@ -6,6 +6,7 @@ use crate::{
     abi::AbiService,
     config::AppConfig,
     engine::{block_processor::BlockProcessor, filtering::RhaiFilteringEngine},
+    notification::NotificationService,
     persistence::traits::StateRepository,
     providers::traits::DataSource,
 };
@@ -98,10 +99,15 @@ impl SupervisorBuilder {
             }
         }
 
+        // Load triggers from the database for the NotificationService.
+        tracing::debug!(network_id = %config.network_id, "Loading triggers from database for notification service...");
+        let triggers = state.get_triggers(&config.network_id).await?;
+        tracing::info!(count = triggers.len(), network_id = %config.network_id, "Loaded triggers from database for notification service.");
+
         // Construct the internal services.
         let block_processor = BlockProcessor::new(Arc::clone(&abi_service));
-
         let filtering_engine = RhaiFilteringEngine::new(monitors, config.rhai.clone())?;
+        let notification_service = NotificationService::new(triggers);
 
         // Finally, construct the Supervisor with all its components.
         Ok(Supervisor::new(
@@ -110,6 +116,7 @@ impl SupervisorBuilder {
             data_source,
             block_processor,
             Arc::new(filtering_engine),
+            Arc::new(notification_service),
         ))
     }
 }
@@ -151,6 +158,9 @@ mod tests {
         mock_state_repo
             .expect_get_monitors()
             .returning(move |_| Ok(vec![monitor.clone()]));
+        mock_state_repo
+            .expect_get_triggers()
+            .returning(|_| Ok(vec![]));
 
         let builder = SupervisorBuilder::new()
             .config(AppConfig::default())
@@ -170,6 +180,9 @@ mod tests {
         mock_state_repo
             .expect_get_monitors()
             .returning(move |_| Ok(vec![monitor.clone()]));
+        mock_state_repo
+            .expect_get_triggers()
+            .returning(|_| Ok(vec![]));
 
         let builder = SupervisorBuilder::new()
             .config(AppConfig::default())
@@ -198,6 +211,9 @@ mod tests {
         mock_state_repo
             .expect_get_monitors()
             .returning(move |_| Ok(vec![monitor.clone()]));
+        mock_state_repo
+            .expect_get_triggers()
+            .returning(|_| Ok(vec![]));
 
         let builder = SupervisorBuilder::new()
             .config(AppConfig::default())
@@ -229,6 +245,9 @@ mod tests {
         mock_state_repo
             .expect_get_monitors()
             .returning(move |_| Ok(vec![monitor.clone()]));
+        mock_state_repo
+            .expect_get_triggers()
+            .returning(|_| Ok(vec![]));
 
         let builder = SupervisorBuilder::new()
             .config(AppConfig::default())

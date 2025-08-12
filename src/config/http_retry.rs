@@ -1,4 +1,4 @@
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::time::Duration;
 
 // --- Custom deserializer for Duration from milliseconds ---
@@ -17,6 +17,22 @@ where
 {
     let secs = u64::deserialize(deserializer)?;
     Ok(Duration::from_secs(secs))
+}
+
+// --- Custom serializer for Duration to milliseconds ---
+fn serialize_duration_to_ms<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_u64(duration.as_millis() as u64)
+}
+
+// --- Custom serializer for Duration to seconds ---
+fn serialize_duration_to_seconds<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_u64(duration.as_secs())
 }
 
 /// --- Default values for retry configuration settings ---
@@ -59,13 +75,15 @@ pub struct HttpRetryConfig {
     /// Initial backoff duration before the first retry
     #[serde(
         default = "default_initial_backoff_ms",
-        deserialize_with = "deserialize_duration_from_ms"
+        deserialize_with = "deserialize_duration_from_ms",
+        serialize_with = "serialize_duration_to_ms"
     )]
     pub initial_backoff_ms: Duration,
     /// Maximum backoff duration for retries
     #[serde(
         default = "default_max_backoff_ms",
-        deserialize_with = "deserialize_duration_from_seconds"
+        deserialize_with = "deserialize_duration_from_seconds",
+        serialize_with = "serialize_duration_to_seconds"
     )]
     pub max_backoff_secs: Duration,
     /// Jitter to apply to the backoff duration
@@ -137,7 +155,8 @@ mod tests {
             #[serde(deserialize_with = "super::deserialize_duration_from_ms")]
             initial_backoff_ms: Duration,
         }
-        let builder = Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
+        let builder =
+            Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
         let config: TestConfig = builder.build().unwrap().try_deserialize().unwrap();
         assert_eq!(config.initial_backoff_ms, Duration::from_millis(1234));
     }
@@ -150,7 +169,8 @@ mod tests {
             #[serde(deserialize_with = "super::deserialize_duration_from_seconds")]
             max_backoff_secs: Duration,
         }
-        let builder = Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
+        let builder =
+            Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
         let config: TestConfig = builder.build().unwrap().try_deserialize().unwrap();
         assert_eq!(config.max_backoff_secs, Duration::from_secs(5));
     }

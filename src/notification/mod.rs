@@ -33,12 +33,15 @@
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    config::{
-        DiscordConfig, HttpRetryConfig, SlackConfig, TelegramConfig, TriggerConfig,
-        TriggerTypeConfig, WebhookConfig,
-    },
+    config::HttpRetryConfig,
     http_client::HttpClientPool,
-    models::monitor_match::MonitorMatch,
+    models::{
+        monitor_match::MonitorMatch,
+        trigger::{
+            DiscordConfig, SlackConfig, TelegramConfig, TriggerConfig, TriggerTypeConfig,
+            WebhookConfig,
+        },
+    },
 };
 
 pub mod error;
@@ -51,6 +54,7 @@ use payload_builder::{
     DiscordPayloadBuilder, GenericWebhookPayloadBuilder, SlackPayloadBuilder,
     TelegramPayloadBuilder, WebhookPayloadBuilder,
 };
+use tokio::sync::mpsc;
 
 /// A private container struct holding the generic components required to send any
 /// webhook-based notification.
@@ -246,15 +250,30 @@ impl NotificationService {
 
         Ok(())
     }
+
+    /// Runs the notification service, listening for incoming monitor matches and executing
+    /// notifications based on the configured triggers.
+    pub async fn run(&self, mut notifications_rx: mpsc::Receiver<MonitorMatch>) {
+        while let Some(monitor_match) = notifications_rx.recv().await {
+            let variables = HashMap::new(); // TODO: Populate with actual variables
+            if let Err(e) = self
+                .execute(&monitor_match.trigger_name, &variables, &monitor_match)
+                .await
+            {
+                tracing::error!(
+                    "Failed to execute notification for trigger '{}': {}",
+                    monitor_match.trigger_name,
+                    e
+                );
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        config::{HttpRetryConfig, SlackConfig, TriggerTypeConfig},
-        models::notification::NotificationMessage,
-    };
+    use crate::{config::HttpRetryConfig, models::notification::NotificationMessage};
     use serde_json::json;
 
     fn create_mock_monitor_match() -> MonitorMatch {

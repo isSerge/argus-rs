@@ -1,6 +1,7 @@
 //! Configuration module for Argus.
 
 mod http_retry;
+mod loader;
 mod monitor_loader;
 mod rhai;
 mod rpc_retry;
@@ -12,15 +13,17 @@ pub use monitor_loader::{MonitorLoader, MonitorLoaderError};
 pub use rhai::RhaiConfig;
 pub use rpc_retry::RpcRetryConfig;
 use serde::{Deserialize, Deserializer};
-pub use trigger_loader::{
-    DiscordConfig, SlackConfig, TelegramConfig, TriggerConfig, TriggerLoader, TriggerLoaderError,
-    TriggerTypeConfig, WebhookConfig,
-};
+pub use trigger_loader::{TriggerLoader, TriggerLoaderError};
 use url::Url;
 
 /// Provides the default value for shutdown_timeout_secs.
 fn default_shutdown_timeout() -> u64 {
     30 // Default to 30 seconds
+}
+
+/// Provides the default value for notification_channel_capacity.
+fn default_notification_channel_capacity() -> u32 {
+    1024
 }
 
 /// Application configuration for Argus.
@@ -66,6 +69,10 @@ pub struct AppConfig {
     /// Rhai script execution configuration.
     #[serde(default)]
     pub rhai: RhaiConfig,
+
+    /// The capacity of the channel used for sending notifications.
+    #[serde(default = "default_notification_channel_capacity")]
+    pub notification_channel_capacity: u32,
 }
 
 /// Custom deserializer for a vector of URLs.
@@ -88,5 +95,3 @@ impl AppConfig {
         s.try_deserialize()
     }
 }
-
-

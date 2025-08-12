@@ -1,6 +1,6 @@
 //! This module contains the state management logic for the Argus application.
 
-use crate::models::monitor::Monitor;
+use crate::models::{monitor::Monitor, trigger::TriggerConfig};
 use async_trait::async_trait;
 #[cfg(test)]
 use mockall::automock;
@@ -45,4 +45,18 @@ pub trait StateRepository: Send + Sync {
 
     /// Clears all monitors for a specific network.
     async fn clear_monitors(&self, network_id: &str) -> Result<(), sqlx::Error>;
+
+    // Trigger management operations:
+    /// Retrieves all triggers for a specific network.
+    async fn get_triggers(&self, network_id: &str) -> Result<Vec<TriggerConfig>, sqlx::Error>;
+
+    /// Adds multiple triggers for a specific network.
+    async fn add_triggers(
+        &self,
+        network_id: &str,
+        triggers: Vec<TriggerConfig>,
+    ) -> Result<(), sqlx::Error>;
+
+    /// Clears all triggers for a specific network.
+    async fn clear_triggers(&self, network_id: &str) -> Result<(), sqlx::Error>;
 }

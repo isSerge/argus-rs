@@ -94,8 +94,12 @@ pub trait FilteringEngine: Send + Sync {
     /// This allows optimizing data fetching by only including receipts when needed.
     fn requires_receipt_data(&self) -> bool;
 
-    /// Runs the filtering engine with a stream of correlated block items.
-    async fn run(&self, mut receiver: mpsc::Receiver<DecodedBlockData>);
+    /// Runs the filtering engine with a stream of correlated block items and sends matches to the notification queue.
+    async fn run(
+        &self,
+        mut receiver: mpsc::Receiver<DecodedBlockData>,
+        notifications_tx: mpsc::Sender<MonitorMatch>,
+    );
 }
 
 /// A Rhai-based implementation of the `FilteringEngine` with integrated security controls.
@@ -248,7 +252,11 @@ impl RhaiFilteringEngine {
 
 #[async_trait]
 impl FilteringEngine for RhaiFilteringEngine {
-    async fn run(&self, mut receiver: mpsc::Receiver<DecodedBlockData>) {
+    async fn run(
+        &self,
+        mut receiver: mpsc::Receiver<DecodedBlockData>,
+        notifications_tx: mpsc::Sender<MonitorMatch>,
+    ) {
         while let Some(decoded_block) = receiver.recv().await {
             let futures = decoded_block
                 .items
@@ -281,7 +289,12 @@ impl FilteringEngine for RhaiFilteringEngine {
                     "Found matches for block."
                 );
 
-                // TODO: send matches to notification queue
+                // Send all matches to the notification channel
+                for monitor_match in all_matches {
+                    if let Err(e) = notifications_tx.send(monitor_match).await {
+                        tracing::error!("Failed to send notification match: {}", e);
+                    }
+                }
             }
         }
     }
