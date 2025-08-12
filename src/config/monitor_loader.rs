@@ -1,15 +1,7 @@
-use config::{Config, File};
-use serde::{Deserialize, Serialize};
+use super::loader::{ConfigLoader, LoaderError};
+use crate::models::monitor::Monitor;
 use std::{fs, path::PathBuf};
 use thiserror::Error;
-
-use crate::models::monitor::Monitor;
-
-/// Container for monitor configurations loaded from file.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MonitorConfigFile {
-    pub monitors: Vec<Monitor>,
-}
 
 /// Loads monitor configurations from a file.
 pub struct MonitorLoader {
@@ -19,17 +11,9 @@ pub struct MonitorLoader {
 /// Errors that can occur while loading monitor configurations.
 #[derive(Debug, Error)]
 pub enum MonitorLoaderError {
-    /// Error when reading the monitor configuration file.
+    /// An error occurred during the loading process.
     #[error("Failed to load monitor configuration: {0}")]
-    IoError(std::io::Error),
-
-    /// Error when parsing the monitor configuration file.
-    #[error("Failed to parse monitor configuration: {0}")]
-    ParseError(String),
-
-    /// Error when the monitor configuration format is unsupported.
-    #[error("Unsupported monitor configuration format")]
-    UnsupportedFormat,
+    Loader(#[from] LoaderError),
 
     /// Error when resolving the ABI path.
     #[error("Failed to resolve ABI path: {0}")]
@@ -44,21 +28,10 @@ impl MonitorLoader {
 
     /// Loads the monitor configuration from the specified file.
     pub fn load(&self) -> Result<Vec<Monitor>, MonitorLoaderError> {
-        // Validate YAML extension
-        if !self.is_yaml_file() {
-            return Err(MonitorLoaderError::UnsupportedFormat);
-        }
-
-        let config_str = fs::read_to_string(&self.path).map_err(MonitorLoaderError::IoError)?;
-        let config: MonitorConfigFile = Config::builder()
-            .add_source(File::from_str(&config_str, config::FileFormat::Yaml))
-            .build()
-            .map_err(|e| MonitorLoaderError::ParseError(e.to_string()))?
-            .try_deserialize()
-            .map_err(|e| MonitorLoaderError::ParseError(e.to_string()))?;
+        let loader = ConfigLoader::new(self.path.clone());
+        let mut monitors: Vec<Monitor> = loader.load("monitors")?;
 
         // Resolve ABI paths to be absolute
-        let mut monitors = config.monitors;
         let base_dir = self
             .path
             .parent()
@@ -79,14 +52,6 @@ impl MonitorLoader {
         }
 
         Ok(monitors)
-    }
-
-    /// Checks if the file has a YAML extension.
-    fn is_yaml_file(&self) -> bool {
-        matches!(
-            self.path.extension().and_then(|ext| ext.to_str()),
-            Some("yaml") | Some("yml")
-        )
     }
 }
 
@@ -301,7 +266,8 @@ monitors:
         let result = loader.load();
 
         assert!(result.is_err());
-        matches!(result.unwrap_err(), MonitorLoaderError::IoError(_));
+        let err = result.unwrap_err();
+        assert!(matches!(err, MonitorLoaderError::Loader(LoaderError::IoError(_))));
     }
 
     #[test]
@@ -314,7 +280,8 @@ monitors:
         let result = loader.load();
 
         assert!(result.is_err());
-        matches!(result.unwrap_err(), MonitorLoaderError::UnsupportedFormat);
+        let err = result.unwrap_err();
+        assert!(matches!(err, MonitorLoaderError::Loader(LoaderError::UnsupportedFormat)));
     }
 
     #[test]
@@ -326,7 +293,8 @@ monitors:
         let result = loader.load();
 
         assert!(result.is_err());
-        matches!(result.unwrap_err(), MonitorLoaderError::UnsupportedFormat);
+        let err = result.unwrap_err();
+        assert!(matches!(err, MonitorLoaderError::Loader(LoaderError::UnsupportedFormat)));
     }
 
     #[test]
@@ -348,7 +316,8 @@ invalid_yaml: {key without value
         let result = loader.load();
 
         assert!(result.is_err());
-        matches!(result.unwrap_err(), MonitorLoaderError::ParseError(_));
+        let err = result.unwrap_err();
+        assert!(matches!(err, MonitorLoaderError::Loader(LoaderError::ParseError(_))));
     }
 
     #[test]
@@ -366,24 +335,7 @@ monitors:
         let result = loader.load();
 
         assert!(result.is_err());
-        matches!(result.unwrap_err(), MonitorLoaderError::ParseError(_));
-    }
-
-    #[test]
-    fn test_is_yaml_file() {
-        let loader_yaml = MonitorLoader::new(PathBuf::from("test.yaml"));
-        assert!(loader_yaml.is_yaml_file());
-
-        let loader_yml = MonitorLoader::new(PathBuf::from("test.yml"));
-        assert!(loader_yml.is_yaml_file());
-
-        let loader_json = MonitorLoader::new(PathBuf::from("test.json"));
-        assert!(!loader_json.is_yaml_file());
-
-        let loader_txt = MonitorLoader::new(PathBuf::from("test.txt"));
-        assert!(!loader_txt.is_yaml_file());
-
-        let loader_no_ext = MonitorLoader::new(PathBuf::from("test"));
-        assert!(!loader_no_ext.is_yaml_file());
+        let err = result.unwrap_err();
+        assert!(matches!(err, MonitorLoaderError::Loader(LoaderError::ParseError(_))));
     }
 }

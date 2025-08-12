@@ -1,6 +1,7 @@
 //! Configuration module for Argus.
 
 mod http_retry;
+mod loader;
 mod monitor_loader;
 mod rhai;
 mod rpc_retry;
@@ -12,10 +13,7 @@ pub use monitor_loader::{MonitorLoader, MonitorLoaderError};
 pub use rhai::RhaiConfig;
 pub use rpc_retry::RpcRetryConfig;
 use serde::{Deserialize, Deserializer};
-pub use trigger_loader::{
-    DiscordConfig, SlackConfig, TelegramConfig, TriggerConfig, TriggerLoader, TriggerLoaderError,
-    TriggerTypeConfig, WebhookConfig,
-};
+pub use trigger_loader::{TriggerLoader, TriggerLoaderError};
 use url::Url;
 
 /// Provides the default value for shutdown_timeout_secs.
