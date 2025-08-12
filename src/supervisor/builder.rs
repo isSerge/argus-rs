@@ -6,6 +6,7 @@ use crate::{
     abi::AbiService,
     config::AppConfig,
     engine::{block_processor::BlockProcessor, filtering::RhaiFilteringEngine},
+    notification::NotificationService,
     persistence::traits::StateRepository,
     providers::traits::DataSource,
 };
@@ -103,6 +104,9 @@ impl SupervisorBuilder {
 
         let filtering_engine = RhaiFilteringEngine::new(monitors, config.rhai.clone())?;
 
+        // TODO: get triggers from config
+        let notification_service = NotificationService::new(vec![]);
+
         // Finally, construct the Supervisor with all its components.
         Ok(Supervisor::new(
             config,
@@ -110,6 +114,7 @@ impl SupervisorBuilder {
             data_source,
             block_processor,
             Arc::new(filtering_engine),
+            Arc::new(notification_service),
         ))
     }
 }
