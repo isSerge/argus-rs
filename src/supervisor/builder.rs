@@ -99,13 +99,15 @@ impl SupervisorBuilder {
             }
         }
 
+        // Load triggers from the database for the NotificationService.
+        tracing::debug!(network_id = %config.network_id, "Loading triggers from database for notification service...");
+        let triggers = state.get_triggers(&config.network_id).await?;
+        tracing::info!(count = triggers.len(), network_id = %config.network_id, "Loaded triggers from database for notification service.");
+
         // Construct the internal services.
         let block_processor = BlockProcessor::new(Arc::clone(&abi_service));
-
         let filtering_engine = RhaiFilteringEngine::new(monitors, config.rhai.clone())?;
-
-        // TODO: get triggers from config
-        let notification_service = NotificationService::new(vec![]);
+        let notification_service = NotificationService::new(triggers);
 
         // Finally, construct the Supervisor with all its components.
         Ok(Supervisor::new(
