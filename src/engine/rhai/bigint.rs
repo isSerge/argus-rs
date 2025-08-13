@@ -1,5 +1,5 @@
 //! BigInt wrapper type for Rhai scripting with transparent big number handling
-//! 
+//!
 //! This module provides a BigInt wrapper that allows users to work with arbitrarily large
 //! numbers in Rhai scripts while maintaining performance for standard integer operations.
 //! Users wrap large numbers with `bigint()` and can then use standard operators seamlessly.

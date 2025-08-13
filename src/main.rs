@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
     tracing::debug!("Loading application configuration...");
-    let config = AppConfig::new()?;
+    let config = AppConfig::new(None)?; // TODO: get config path from env
     tracing::debug!(database_url = %config.database_url, rpc_urls = ?config.rpc_urls, network_id = %config.network_id, "Configuration loaded.");
 
     tracing::debug!("Initializing state repository...");

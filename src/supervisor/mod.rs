@@ -18,7 +18,7 @@
 
 mod builder;
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc};
 
 use crate::{
     config::AppConfig,
@@ -198,8 +198,7 @@ impl Supervisor {
         // This is the main application loop.
         loop {
             let tx_clone = decoded_blocks_tx.clone();
-            let polling_delay =
-                tokio::time::sleep(Duration::from_millis(self.config.polling_interval_ms));
+            let polling_delay = tokio::time::sleep(self.config.polling_interval);
 
             tokio::select! {
               // Use `biased` to ensure the shutdown signal is always checked first.
@@ -237,7 +236,7 @@ impl Supervisor {
 
         // Perform final cleanup of resources, with a timeout.
         tracing::info!("Starting graceful resource cleanup...");
-        let shutdown_timeout = Duration::from_secs(self.config.shutdown_timeout_secs);
+        let shutdown_timeout = self.config.shutdown_timeout;
 
         let cleanup_logic = async {
             if let Err(e) = self.state.flush().await {
@@ -407,8 +406,7 @@ mod tests {
 
     impl SupervisorTestHarness {
         fn new() -> Self {
-            let mut config = AppConfig::default();
-            config.confirmation_blocks = 1;
+            let config = AppConfig::builder().confirmation_blocks(1).build();
 
             let abi_service = Arc::new(AbiService::new());
             let block_processor = BlockProcessor::new(abi_service);

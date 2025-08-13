@@ -1,4 +1,5 @@
-use serde::{Deserialize, Deserializer};
+use super::deserialize_duration_from_ms;
+use serde::Deserialize;
 use std::time::Duration;
 
 /// Configuration for Rhai script execution including security limits and other settings
@@ -23,7 +24,7 @@ pub struct RhaiConfig {
     /// Maximum execution time per script
     #[serde(
         default = "default_execution_timeout",
-        deserialize_with = "deserialize_duration_from_millis"
+        deserialize_with = "deserialize_duration_from_ms"
     )]
     pub execution_timeout: Duration,
 }
@@ -60,15 +61,6 @@ fn default_max_array_size() -> usize {
 /// Default value for execution timeout
 fn default_execution_timeout() -> Duration {
     Duration::from_millis(5_000)
-}
-
-/// Custom deserializer for Duration from milliseconds
-fn deserialize_duration_from_millis<'de, D>(deserializer: D) -> Result<Duration, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let millis = u64::deserialize(deserializer)?;
-    Ok(Duration::from_millis(millis))
 }
 
 #[cfg(test)]
@@ -130,7 +122,7 @@ mod tests {
         let yaml = "execution_timeout: 1234";
         #[derive(Deserialize)]
         struct TestConfig {
-            #[serde(deserialize_with = "super::deserialize_duration_from_millis")]
+            #[serde(deserialize_with = "deserialize_duration_from_ms")]
             execution_timeout: Duration,
         }
         let builder =

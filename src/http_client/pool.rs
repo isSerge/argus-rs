@@ -77,6 +77,7 @@ impl HttpClientPool {
         }
 
         // Create and insert the new client if it still doesn't exist.
+        // TODO: make configurable
         let base_client = ReqwestClient::builder()
             .pool_max_idle_per_host(10)
             .pool_idle_timeout(Some(Duration::from_secs(90)))

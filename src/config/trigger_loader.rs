@@ -1,7 +1,7 @@
 //! Loads and validates trigger configurations from a YAML file.
 
 use super::loader::{ConfigLoader, LoaderError};
-use crate::{models::trigger::TriggerConfig, notification::error::NotificationError};
+use crate::models::trigger::{TriggerConfig, TriggerTypeConfigError};
 use std::path::PathBuf;
 use thiserror::Error;
 
@@ -19,7 +19,7 @@ pub enum TriggerLoaderError {
 
     /// The trigger configuration is invalid.
     #[error("Invalid trigger configuration: {0}")]
-    ValidationError(#[from] NotificationError),
+    ValidationError(#[from] TriggerTypeConfigError),
 }
 
 impl TriggerLoader {

@@ -7,7 +7,7 @@ pub struct RpcRetryConfig {
     /// The maximum number of retries for a request.
     pub max_retry: u32,
     /// The initial backoff delay in milliseconds.
-    pub backoff_ms: u64,
+    pub backoff_ms: u64, // Keep as u64 because alloy::transports::layers::RetryBackoffLayer expects it.
     /// The number of compute units per second to allow.
     pub compute_units_per_second: u64,
 }

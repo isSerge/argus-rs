@@ -2,9 +2,9 @@
 
 use crate::config::HttpRetryConfig;
 use crate::models::notification::NotificationMessage;
-use crate::notification::error::NotificationError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use thiserror::Error;
 use url::Url;
 
 /// Configuration for a generic webhook.
@@ -79,57 +79,62 @@ pub enum TriggerTypeConfig {
     Telegram(TelegramConfig),
 }
 
+/// Error types for trigger configuration validation.
+#[derive(Debug, Clone, Error)]
+pub enum TriggerTypeConfigError {
+    /// Error for invalid URL formats.
+    #[error("Invalid URL: {0}")]
+    InvalidUrl(String),
+
+    /// Error for empty title in webhook message.
+    #[error("Webhook title cannot be empty.")]
+    EmptyTitle,
+
+    /// Error for empty Telegram token.
+    #[error("Telegram token cannot be empty.")]
+    EmptyTelegramToken,
+
+    /// Error for empty Telegram chat ID.
+    #[error("Telegram chat ID cannot be empty.")]
+    EmptyTelegramChatId,
+}
+
 impl TriggerTypeConfig {
     /// Validates the trigger configuration.
-    pub fn validate(&self) -> Result<(), NotificationError> {
+    pub fn validate(&self) -> Result<(), TriggerTypeConfigError> {
         match self {
             TriggerTypeConfig::Webhook(config) => {
                 if Url::parse(&config.url).is_err() {
-                    return Err(NotificationError::ConfigError(format!(
-                        "Invalid webhook URL: {}",
-                        config.url
-                    )));
+                    return Err(TriggerTypeConfigError::InvalidUrl(config.url.clone()));
                 }
                 if config.message.title.is_empty() {
-                    return Err(NotificationError::ConfigError(
-                        "Webhook title cannot be empty.".to_string(),
-                    ));
+                    return Err(TriggerTypeConfigError::EmptyTitle);
                 }
                 Ok(())
             }
             TriggerTypeConfig::Slack(config) => {
                 if Url::parse(&config.slack_url).is_err() {
-                    return Err(NotificationError::ConfigError(format!(
-                        "Invalid Slack URL: {}",
-                        config.slack_url
-                    )));
+                    return Err(TriggerTypeConfigError::InvalidUrl(config.slack_url.clone()));
                 }
                 if !config.slack_url.starts_with("https://hooks.slack.com/") {
-                    return Err(NotificationError::ConfigError(
-                        "Slack URL appears to be invalid.".to_string(),
-                    ));
+                    return Err(TriggerTypeConfigError::InvalidUrl(config.slack_url.clone()));
                 }
                 Ok(())
             }
             TriggerTypeConfig::Discord(config) => {
                 if Url::parse(&config.discord_url).is_err() {
-                    return Err(NotificationError::ConfigError(format!(
-                        "Invalid Discord URL: {}",
-                        config.discord_url
-                    )));
+                    return Err(TriggerTypeConfigError::InvalidUrl(
+                        config.discord_url.clone(),
+                    ));
                 }
                 Ok(())
             }
             TriggerTypeConfig::Telegram(config) => {
                 if config.token.is_empty() {
-                    return Err(NotificationError::ConfigError(
-                        "Telegram token cannot be empty.".to_string(),
-                    ));
+                    return Err(TriggerTypeConfigError::EmptyTelegramToken);
                 }
                 if config.chat_id.is_empty() {
-                    return Err(NotificationError::ConfigError(
-                        "Telegram chat_id cannot be empty.".to_string(),
-                    ));
+                    return Err(TriggerTypeConfigError::EmptyTelegramChatId);
                 }
                 Ok(())
             }
