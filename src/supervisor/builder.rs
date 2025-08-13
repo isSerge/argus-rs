@@ -95,8 +95,8 @@ impl SupervisorBuilder {
 mod tests {
     use super::*;
     use crate::{
-        models::monitor::Monitor, monitor::MonitorValidationError,
-        persistence::traits::MockStateRepository, providers::traits::MockDataSource,
+        models::monitor::Monitor, persistence::traits::MockStateRepository,
+        providers::traits::MockDataSource,
     };
     use std::{fs::File, io::Write};
     use tempfile::tempdir;
@@ -143,16 +143,62 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn build_fails_with_invalid_address() {
-        let monitor = create_test_monitor("Invalid Address Monitor", Some("not-an-address"), None);
+    async fn build_fails_if_config_is_missing() {
+        let builder = SupervisorBuilder::new()
+            .state(Arc::new(MockStateRepository::new()))
+            .abi_service(Arc::new(AbiService::new()))
+            .data_source(Box::new(MockDataSource::new()));
 
+        let result = builder.build().await;
+        assert!(matches!(result, Err(SupervisorError::MissingConfig)));
+    }
+
+    #[tokio::test]
+    async fn build_fails_if_state_repository_is_missing() {
+        let builder = SupervisorBuilder::new()
+            .config(AppConfig::default())
+            .abi_service(Arc::new(AbiService::new()))
+            .data_source(Box::new(MockDataSource::new()));
+
+        let result = builder.build().await;
+        assert!(matches!(
+            result,
+            Err(SupervisorError::MissingStateRepository)
+        ));
+    }
+
+    #[tokio::test]
+    async fn build_fails_if_abi_service_is_missing() {
+        let builder = SupervisorBuilder::new()
+            .config(AppConfig::default())
+            .state(Arc::new(MockStateRepository::new()))
+            .data_source(Box::new(MockDataSource::new()));
+
+        let result = builder.build().await;
+        assert!(matches!(result, Err(SupervisorError::MissingAbiService)));
+    }
+
+    #[tokio::test]
+    async fn build_fails_if_data_source_is_missing() {
+        let builder = SupervisorBuilder::new()
+            .config(AppConfig::default())
+            .state(Arc::new(MockStateRepository::new()))
+            .abi_service(Arc::new(AbiService::new()));
+
+        let result = builder.build().await;
+        assert!(matches!(result, Err(SupervisorError::MissingDataSource)));
+    }
+
+    #[tokio::test]
+    async fn build_fails_on_database_error_fetching_monitors() {
         let mut mock_state_repo = MockStateRepository::new();
-        mock_state_repo
-            .expect_get_monitors()
-            .returning(move |_| Ok(vec![monitor.clone()]));
-        mock_state_repo
-            .expect_get_triggers()
-            .returning(|_| Ok(vec![]));
+        mock_state_repo.expect_get_monitors().returning(|_| {
+            Err(sqlx::Error::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Database error",
+            )))
+        });
+        // Do NOT expect get_triggers, as the function should exit early.
 
         let builder = SupervisorBuilder::new()
             .config(AppConfig::default())
@@ -161,11 +207,8 @@ mod tests {
             .data_source(Box::new(MockDataSource::new()));
 
         let result = builder.build().await;
-        assert!(matches!(
-            result,
-            Err(SupervisorError::MonitorValidationError(
-                MonitorValidationError::InvalidAddress { .. }
-            ))
-        ));
+        assert!(result.is_err());
+        // Ensure it's a MonitorLoadError error, not a missing component error
+        assert!(matches!(result, Err(SupervisorError::MonitorLoadError(_))));
     }
 }
