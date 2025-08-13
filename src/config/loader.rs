@@ -5,13 +5,6 @@ use serde::de::DeserializeOwned;
 use std::{fs, path::PathBuf};
 use thiserror::Error;
 
-/// A generic container for items loaded from a YAML file.
-/// The top-level key in the YAML file should match the `key` field.
-pub struct ConfigFile<T> {
-    pub key: String,
-    pub items: Vec<T>,
-}
-
 /// A generic loader for YAML files.
 pub struct ConfigLoader {
     path: PathBuf,

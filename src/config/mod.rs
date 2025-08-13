@@ -1,5 +1,6 @@
 //! Configuration module for Argus.
 
+mod helpers;
 mod http_retry;
 mod loader;
 mod monitor_loader;
@@ -8,11 +9,15 @@ mod rpc_retry;
 mod trigger_loader;
 
 use config::{Config, ConfigError, File};
+pub use helpers::{
+    deserialize_duration_from_ms, deserialize_duration_from_seconds, deserialize_urls,
+    serialize_duration_to_ms, serialize_duration_to_seconds,
+};
 pub use http_retry::{HttpRetryConfig, JitterSetting};
 pub use monitor_loader::{MonitorLoader, MonitorLoaderError};
 pub use rhai::RhaiConfig;
 pub use rpc_retry::RpcRetryConfig;
-use serde::{Deserialize, Deserializer};
+use serde::Deserialize;
 pub use trigger_loader::{TriggerLoader, TriggerLoaderError};
 use url::Url;
 
@@ -73,17 +78,6 @@ pub struct AppConfig {
     /// The capacity of the channel used for sending notifications.
     #[serde(default = "default_notification_channel_capacity")]
     pub notification_channel_capacity: u32,
-}
-
-/// Custom deserializer for a vector of URLs.
-fn deserialize_urls<'de, D>(deserializer: D) -> Result<Vec<Url>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s = Vec::<String>::deserialize(deserializer)?;
-    s.into_iter()
-        .map(|url_str| Url::parse(&url_str).map_err(serde::de::Error::custom))
-        .collect()
 }
 
 impl AppConfig {

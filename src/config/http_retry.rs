@@ -1,39 +1,9 @@
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use super::{
+    deserialize_duration_from_ms, deserialize_duration_from_seconds, serialize_duration_to_ms,
+    serialize_duration_to_seconds,
+};
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
-
-// --- Custom deserializer for Duration from milliseconds ---
-fn deserialize_duration_from_ms<'de, D>(deserializer: D) -> Result<Duration, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let ms = u64::deserialize(deserializer)?;
-    Ok(Duration::from_millis(ms))
-}
-
-// --- Custom deserializer for Duration from seconds ---
-fn deserialize_duration_from_seconds<'de, D>(deserializer: D) -> Result<Duration, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let secs = u64::deserialize(deserializer)?;
-    Ok(Duration::from_secs(secs))
-}
-
-// --- Custom serializer for Duration to milliseconds ---
-fn serialize_duration_to_ms<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    serializer.serialize_u64(duration.as_millis() as u64)
-}
-
-// --- Custom serializer for Duration to seconds ---
-fn serialize_duration_to_seconds<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    serializer.serialize_u64(duration.as_secs())
-}
 
 /// --- Default values for retry configuration settings ---
 fn default_max_attempts() -> u32 {
@@ -152,7 +122,7 @@ mod tests {
         let yaml = "initial_backoff_ms: 1234";
         #[derive(Deserialize)]
         struct TestConfig {
-            #[serde(deserialize_with = "super::deserialize_duration_from_ms")]
+            #[serde(deserialize_with = "deserialize_duration_from_ms")]
             initial_backoff_ms: Duration,
         }
         let builder =
@@ -166,7 +136,7 @@ mod tests {
         let yaml = "max_backoff_secs: 5";
         #[derive(Deserialize)]
         struct TestConfig {
-            #[serde(deserialize_with = "super::deserialize_duration_from_seconds")]
+            #[serde(deserialize_with = "deserialize_duration_from_seconds")]
             max_backoff_secs: Duration,
         }
         let builder =
