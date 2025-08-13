@@ -7,7 +7,7 @@ use std::{path::PathBuf, sync::Arc};
 use crate::{
     abi::{AbiService, loader::AbiLoader},
     config::{AppConfig, TriggerLoader},
-    monitor::MonitorLoader,
+    monitor::{MonitorLoader, MonitorValidator},
     persistence::traits::StateRepository,
 };
 
@@ -65,6 +65,13 @@ impl InitializationService {
         tracing::info!(config_path = %config_path, "No monitors found in database. Loading from configuration file...");
         let monitor_loader = MonitorLoader::new(PathBuf::from(config_path));
         let monitors = monitor_loader.load()?;
+
+        // Validate monitors
+        let validator = MonitorValidator {};
+        for monitor in &monitors {
+            validator.validate(monitor)?;
+        }
+
         let count = monitors.len();
         tracing::info!(count = count, "Loaded monitors from configuration file.");
         self.repo.clear_monitors(network_id).await?;
@@ -198,6 +205,48 @@ monitors:
 
         let result = initialization_service.load_monitors_from_file().await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_load_monitors_from_file_when_db_empty_invalid_monitor() {
+        let temp_dir = tempdir().unwrap();
+        let config_path = create_dummy_config_file(
+            &temp_dir,
+            "monitors.yaml",
+            r#"
+monitors:
+  - name: "Invalid Monitor"
+    network: "testnet"
+    address: "0x0000000000000000000000000000000000000001"
+    filter_script: "log.name == 'A'"
+"#, // Invalid: no ABI provided
+        );
+        let network_id = "testnet";
+
+        let mut mock_repo = MockStateRepository::new();
+        // Expect get_monitors to be called and return empty
+        mock_repo
+            .expect_get_monitors()
+            .with(eq(network_id))
+            .once()
+            .returning(|_| Ok(vec![]));
+
+        // Dummy config for AppConfig
+        let config = AppConfig::builder()
+            .network_id(network_id)
+            .monitor_config_path(config_path.to_str().unwrap())
+            .build();
+
+        let abi_service = Arc::new(AbiService::new());
+        let initialization_service =
+            InitializationService::new(config, Arc::new(mock_repo), abi_service);
+
+        let result = initialization_service.load_monitors_from_file().await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let err_str = format!("{}", err);
+        assert!(err_str.contains("accesses log data but does not have an ABI defined"));
     }
 
     #[tokio::test]
