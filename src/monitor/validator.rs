@@ -3,7 +3,7 @@
 use alloy::primitives::Address;
 use thiserror::Error;
 
-use crate::{models::monitor::Monitor};
+use crate::models::monitor::Monitor;
 
 /// A validator for monitor configurations.
 pub struct MonitorValidator<'a> {

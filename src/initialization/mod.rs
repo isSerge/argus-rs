@@ -4,12 +4,30 @@
 
 use std::{path::PathBuf, sync::Arc};
 
+use thiserror::Error;
+
 use crate::{
     abi::{AbiService, loader::AbiLoader},
     config::{AppConfig, TriggerLoader},
     monitor::{MonitorLoader, MonitorValidator},
     persistence::traits::StateRepository,
 };
+
+/// Errors that can occur during initialization.
+#[derive(Debug, Error)]
+pub enum InitializationError {
+    /// An error occurred while loading monitors from the configuration file.
+    #[error("Failed to load monitors from file: {0}")]
+    MonitorLoadError(String),
+
+    /// An error occurred while loading triggers from the configuration file.
+    #[error("Failed to load triggers from file: {0}")]
+    TriggerLoadError(String),
+
+    /// An error occurred while loading ABIs from monitors.
+    #[error("Failed to load ABIs from monitors: {0}")]
+    AbiLoadError(String),
+}
 
 /// A service responsible for initializing application state at startup.
 pub struct InitializationService {
@@ -33,7 +51,7 @@ impl InitializationService {
     }
 
     /// Runs the initialization process, loading monitors, triggers, and ABIs.
-    pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn run(&self) -> Result<(), InitializationError> {
         // Load monitors from the configuration file if specified and DB is empty.
         self.load_monitors_from_file().await?;
 
@@ -46,12 +64,17 @@ impl InitializationService {
         Ok(())
     }
 
-    pub(crate) async fn load_monitors_from_file(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub(crate) async fn load_monitors_from_file(&self) -> Result<(), InitializationError> {
         let network_id = &self.config.network_id;
         let config_path = &self.config.monitor_config_path;
 
         tracing::debug!(network_id = %network_id, "Checking for existing monitors in database...");
-        let existing_monitors = self.repo.get_monitors(network_id).await?;
+        let existing_monitors = self.repo.get_monitors(network_id).await.map_err(|e| {
+            InitializationError::MonitorLoadError(format!(
+                "Failed to fetch existing monitors from DB: {}",
+                e
+            ))
+        })?;
 
         if !existing_monitors.is_empty() {
             tracing::info!(
@@ -64,28 +87,56 @@ impl InitializationService {
 
         tracing::info!(config_path = %config_path, "No monitors found in database. Loading from configuration file...");
         let monitor_loader = MonitorLoader::new(PathBuf::from(config_path));
-        let monitors = monitor_loader.load()?;
+        let monitors = monitor_loader.load().map_err(|e| {
+            InitializationError::MonitorLoadError(format!(
+                "Failed to load monitors from file: {}",
+                e
+            ))
+        })?;
 
         // Validate monitors
         let validator = MonitorValidator::new(network_id);
         for monitor in &monitors {
-            validator.validate(monitor)?;
+            validator.validate(monitor).map_err(|e| {
+                InitializationError::MonitorLoadError(format!(
+                    "Monitor validation failed for '{}': {}",
+                    monitor.name, e
+                ))
+            })?;
         }
 
         let count = monitors.len();
         tracing::info!(count = count, "Loaded monitors from configuration file.");
-        self.repo.clear_monitors(network_id).await?;
-        self.repo.add_monitors(network_id, monitors).await?;
+        self.repo.clear_monitors(network_id).await.map_err(|e| {
+            InitializationError::MonitorLoadError(format!(
+                "Failed to clear existing monitors in DB: {}",
+                e
+            ))
+        })?;
+        self.repo
+            .add_monitors(network_id, monitors)
+            .await
+            .map_err(|e| {
+                InitializationError::MonitorLoadError(format!(
+                    "Failed to add monitors to DB: {}",
+                    e
+                ))
+            })?;
         tracing::info!(count = count, network_id = %network_id, "Monitors from file stored in database.");
         Ok(())
     }
 
-    pub(crate) async fn load_triggers_from_file(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub(crate) async fn load_triggers_from_file(&self) -> Result<(), InitializationError> {
         let network_id = &self.config.network_id;
         let config_path = &self.config.trigger_config_path;
 
         tracing::debug!(network_id = %network_id, "Checking for existing triggers in database...");
-        let existing_triggers = self.repo.get_triggers(network_id).await?;
+        let existing_triggers = self.repo.get_triggers(network_id).await.map_err(|e| {
+            InitializationError::TriggerLoadError(format!(
+                "Failed to fetch existing triggers from DB: {}",
+                e
+            ))
+        })?;
 
         if !existing_triggers.is_empty() {
             tracing::info!(
@@ -98,32 +149,58 @@ impl InitializationService {
 
         tracing::info!(config_path = %config_path, "No triggers found in database. Loading from configuration file...");
         let trigger_loader = TriggerLoader::new(PathBuf::from(config_path));
-        let triggers = trigger_loader.load()?;
+        let triggers = trigger_loader.load().map_err(|e| {
+            InitializationError::TriggerLoadError(format!(
+                "Failed to load triggers from file: {}",
+                e
+            ))
+        })?;
         let count = triggers.len();
         tracing::info!(count = count, "Loaded triggers from configuration file.");
-        self.repo.clear_triggers(network_id).await?;
-        self.repo.add_triggers(network_id, triggers).await?;
+        self.repo.clear_triggers(network_id).await.map_err(|e| {
+            InitializationError::TriggerLoadError(format!(
+                "Failed to clear existing triggers in DB: {}",
+                e
+            ))
+        })?;
+        self.repo
+            .add_triggers(network_id, triggers)
+            .await
+            .map_err(|e| {
+                InitializationError::TriggerLoadError(format!(
+                    "Failed to add triggers to DB: {}",
+                    e
+                ))
+            })?;
         tracing::info!(count = count, network_id = %network_id, "Triggers from file stored in database.");
         Ok(())
     }
 
-    pub(crate) async fn load_abis_from_monitors(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub(crate) async fn load_abis_from_monitors(&self) -> Result<(), InitializationError> {
         let network_id = &self.config.network_id;
         tracing::debug!(network_id = %network_id, "Loading ABIs from monitors in database...");
-        let monitors = self.repo.get_monitors(network_id).await?;
+        let monitors = self.repo.get_monitors(network_id).await.map_err(|e| {
+            InitializationError::AbiLoadError(format!(
+                "Failed to fetch monitors for ABI loading: {}",
+                e
+            ))
+        })?;
 
         for monitor in &monitors {
             if let (Some(address_str), Some(abi_path_str)) = (&monitor.address, &monitor.abi) {
-                let address = address_str.parse().map_err(|_| {
-                    format!(
-                        "Invalid address '{}' for monitor '{}'",
-                        address_str, monitor.name
-                    )
+                let address = address_str.parse().map_err(|e| {
+                    InitializationError::AbiLoadError(format!(
+                        "Failed to parse address for monitor '{}': {}",
+                        monitor.name, e
+                    ))
                 })?;
 
                 let abi_loader = AbiLoader::new(PathBuf::from(abi_path_str));
                 let abi = abi_loader.load().map_err(|e| {
-                    format!("Failed to load ABI for monitor '{}': {}", monitor.name, e)
+                    InitializationError::AbiLoadError(format!(
+                        "Failed to load ABI for monitor '{}': {}",
+                        monitor.name, e
+                    ))
                 })?;
 
                 self.abi_service.add_abi(address, &abi);
@@ -244,9 +321,10 @@ monitors:
         let result = initialization_service.load_monitors_from_file().await;
 
         assert!(result.is_err());
-        let err = result.unwrap_err();
-        let err_str = format!("{}", err);
-        assert!(err_str.contains("accesses log data but does not have an ABI defined"));
+        assert!(matches!(
+            result.unwrap_err(),
+            InitializationError::MonitorLoadError(msg) if msg.contains("Monitor validation failed")
+        ));
     }
 
     #[tokio::test]
