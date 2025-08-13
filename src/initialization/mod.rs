@@ -129,7 +129,7 @@ impl InitializationService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::HttpRetryConfig;
+    use crate::config::{AppConfig, HttpRetryConfig};
     use crate::models::notification::NotificationMessage;
     use crate::models::{
         monitor::Monitor,
@@ -186,9 +186,10 @@ monitors:
             .returning(|_, _| Ok(()));
 
         // Dummy config for AppConfig
-        let mut config = AppConfig::default();
-        config.network_id = network_id.to_string();
-        config.monitor_config_path = config_path.to_str().unwrap().to_string();
+        let config = AppConfig::builder()
+            .network_id(network_id)
+            .monitor_config_path(config_path.to_str().unwrap())
+            .build();
 
         let abi_service = Arc::new(AbiService::new());
         let initialization_service =
@@ -234,9 +235,10 @@ monitors:
         mock_repo.expect_add_monitors().times(0);
 
         // Dummy config for AppConfig
-        let mut config = AppConfig::default();
-        config.network_id = network_id.to_string();
-        config.monitor_config_path = config_path.to_str().unwrap().to_string();
+        let config = AppConfig::builder()
+            .network_id(network_id)
+            .monitor_config_path(config_path.to_str().unwrap())
+            .build();
 
         let abi_service = Arc::new(AbiService::new());
         let initialization_service =
@@ -287,9 +289,10 @@ triggers:
             .returning(|_, _| Ok(()));
 
         // Dummy config for AppConfig
-        let mut config = AppConfig::default();
-        config.network_id = network_id.to_string();
-        config.trigger_config_path = config_path.to_str().unwrap().to_string();
+        let config = AppConfig::builder()
+            .network_id(network_id)
+            .trigger_config_path(config_path.to_str().unwrap())
+            .build();
 
         let abi_service = Arc::new(AbiService::new());
         let initialization_service =
@@ -338,9 +341,10 @@ triggers:
         mock_repo.expect_add_triggers().times(0);
 
         // Dummy config for AppConfig
-        let mut config = AppConfig::default();
-        config.network_id = network_id.to_string();
-        config.trigger_config_path = config_path.to_str().unwrap().to_string();
+        let config = AppConfig::builder()
+            .network_id(network_id)
+            .trigger_config_path(config_path.to_str().unwrap())
+            .build();
 
         let abi_service = Arc::new(AbiService::new());
         let initialization_service =
@@ -380,8 +384,7 @@ triggers:
         let initial_abi_cache_size = abi_service.cache_size();
 
         // Dummy config for AppConfig
-        let mut config = AppConfig::default();
-        config.network_id = network_id.to_string();
+        let config = AppConfig::builder().network_id(network_id).build();
 
         let initialization_service =
             InitializationService::new(config, Arc::new(mock_repo), Arc::clone(&abi_service));

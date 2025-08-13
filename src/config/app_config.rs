@@ -104,6 +104,11 @@ impl AppConfigBuilder {
         self
     }
 
+    pub fn network_id(mut self, network_id: &str) -> Self {
+        self.config.network_id = network_id.to_string();
+        self
+    }
+
     pub fn monitor_config_path(mut self, path: &str) -> Self {
         self.config.monitor_config_path = path.to_string();
         self
@@ -116,6 +121,11 @@ impl AppConfigBuilder {
 
     pub fn database_url(mut self, url: &str) -> Self {
         self.config.database_url = url.to_string();
+        self
+    }
+
+    pub fn confirmation_blocks(mut self, blocks: u64) -> Self {
+        self.config.confirmation_blocks = blocks;
         self
     }
 

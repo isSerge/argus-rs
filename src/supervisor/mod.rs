@@ -406,8 +406,7 @@ mod tests {
 
     impl SupervisorTestHarness {
         fn new() -> Self {
-            let mut config = AppConfig::default();
-            config.confirmation_blocks = 1;
+            let config = AppConfig::builder().confirmation_blocks(1).build();
 
             let abi_service = Arc::new(AbiService::new());
             let block_processor = BlockProcessor::new(abi_service);
