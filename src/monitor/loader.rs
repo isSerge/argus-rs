@@ -1,7 +1,7 @@
+use crate::config::{ConfigLoader, LoaderError};
 use crate::models::monitor::Monitor;
 use std::{fs, path::PathBuf};
 use thiserror::Error;
-use crate::config::{ConfigLoader, LoaderError};
 
 /// Loads monitor configurations from a file.
 pub struct MonitorLoader {

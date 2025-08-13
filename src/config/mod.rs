@@ -14,7 +14,7 @@ pub use helpers::{
     serialize_duration_to_ms, serialize_duration_to_seconds,
 };
 pub use http_retry::{HttpRetryConfig, JitterSetting};
+pub use loader::{ConfigLoader, LoaderError};
 pub use rhai::RhaiConfig;
 pub use rpc_retry::RpcRetryConfig;
 pub use trigger_loader::{TriggerLoader, TriggerLoaderError};
-pub use loader::{ConfigLoader, LoaderError};

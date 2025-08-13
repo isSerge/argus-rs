@@ -24,9 +24,10 @@ use crate::{
     config::AppConfig,
     engine::{
         block_processor::{BlockProcessor, BlockProcessorError},
-        filtering::{FilteringEngine, MonitorValidationError},
+        filtering::FilteringEngine,
     },
     models::{BlockData, DecodedBlockData, monitor_match::MonitorMatch},
+    monitor::MonitorValidationError,
     notification::NotificationService,
     persistence::traits::StateRepository,
     providers::traits::{DataSource, DataSourceError},

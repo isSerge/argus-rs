@@ -95,7 +95,8 @@ impl SupervisorBuilder {
 mod tests {
     use super::*;
     use crate::{
-        models::monitor::Monitor, monitor::MonitorValidationError, persistence::traits::MockStateRepository, providers::traits::MockDataSource
+        models::monitor::Monitor, monitor::MonitorValidationError,
+        persistence::traits::MockStateRepository, providers::traits::MockDataSource,
     };
     use std::{fs::File, io::Write};
     use tempfile::tempdir;
