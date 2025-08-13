@@ -223,6 +223,7 @@ mod tests {
     use crate::persistence::traits::MockStateRepository;
     use mockall::predicate::*;
     use std::fs;
+    use std::io::Write;
     use tempfile::tempdir;
 
     // Helper to create a dummy config file
@@ -232,20 +233,255 @@ mod tests {
         file_path
     }
 
-    #[tokio::test]
-    async fn test_load_monitors_from_file_when_db_empty() {
-        let temp_dir = tempdir().unwrap();
-        let config_path = create_dummy_config_file(
-            &temp_dir,
-            "monitors.yaml",
-            r#"
+    fn create_test_abi_file(dir: &tempfile::TempDir, filename: &str, content: &str) -> PathBuf {
+        let file_path = dir.path().join(filename);
+        let mut file = fs::File::create(&file_path).unwrap();
+        file.write_all(content.as_bytes()).unwrap();
+        file_path
+    }
+
+    fn create_test_trigger_config_str() -> &'static str {
+        r#"
+triggers:
+  - name: "Test Trigger"
+    webhook:
+      url: "http://example.com"
+      message:
+        title: "Test Title"
+        body: "Test Body"
+"#
+    }
+
+    fn create_test_monitor_config_str() -> &'static str {
+        r#"
 monitors:
   - name: "Test Monitor"
     network: "testnet"
-    address: "0x0000000000000000000000000000000000000001"
-    filter_script: "true"
-"#,
+    address: "0x0000000000000000000000000000000000000123"
+    abi: "abi.json"
+    filter_script: "log.name == 'A'"
+"#
+    }
+
+    fn create_test_abi_content() -> &'static str {
+        r#"
+[
+    {
+        "type": "function",
+        "name": "balanceOf",
+        "inputs": [
+            {"name": "account", "type": "address"}
+        ],
+        "outputs": [
+            {"name": "", "type": "uint256"}
+        ]
+    }
+]
+"#
+    }
+
+    #[tokio::test]
+    async fn test_run_happy_path_db_empty() {
+        let temp_dir = tempdir().unwrap();
+        let _ = create_test_abi_file(&temp_dir, "abi.json", create_test_abi_content());
+        let monitor_config_path =
+            create_dummy_config_file(&temp_dir, "monitors.yaml", create_test_monitor_config_str());
+        let trigger_config_path =
+            create_dummy_config_file(&temp_dir, "triggers.yaml", create_test_trigger_config_str());
+        let network_id = "testnet";
+
+        let mut mock_repo = MockStateRepository::new();
+        // Monitors
+        mock_repo
+            .expect_get_monitors()
+            .with(eq(network_id))
+            .times(2) // Called once for monitor loading, once for ABI loading
+            .returning(|_| Ok(vec![]));
+        mock_repo
+            .expect_clear_monitors()
+            .with(eq(network_id))
+            .once()
+            .returning(|_| Ok(()));
+        mock_repo
+            .expect_add_monitors()
+            .with(eq(network_id), always())
+            .once()
+            .returning(|_, _| Ok(()));
+        // Triggers
+        mock_repo
+            .expect_get_triggers()
+            .with(eq(network_id))
+            .once()
+            .returning(|_| Ok(vec![]));
+        mock_repo
+            .expect_clear_triggers()
+            .with(eq(network_id))
+            .once()
+            .returning(|_| Ok(()));
+        mock_repo
+            .expect_add_triggers()
+            .with(eq(network_id), always())
+            .once()
+            .returning(|_, _| Ok(()));
+
+        let config = AppConfig::builder()
+            .network_id(network_id)
+            .monitor_config_path(monitor_config_path.to_str().unwrap())
+            .trigger_config_path(trigger_config_path.to_str().unwrap())
+            .build();
+
+        let abi_service = Arc::new(AbiService::new());
+        let initialization_service =
+            InitializationService::new(config, Arc::new(mock_repo), abi_service);
+
+        let result = initialization_service.run().await;
+
+        println!("Initialization result: {:?}", result);
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_run_skips_loading_if_db_not_empty() {
+        let network_id = "testnet";
+        let monitor = Monitor::from_config(
+            "Existing Monitor".to_string(),
+            network_id.to_string(),
+            None,
+            None,
+            "true".to_string(),
         );
+        let trigger = TriggerConfig {
+            name: "Existing Trigger".to_string(),
+            config: TriggerTypeConfig::Webhook(Default::default()),
+        };
+
+        let mut mock_repo = MockStateRepository::new();
+        // Return existing monitors
+        mock_repo
+            .expect_get_monitors()
+            .with(eq(network_id))
+            .times(2) // Called once for monitor loading, once for ABI loading
+            .returning(move |_| Ok(vec![monitor.clone()]));
+        // Return existing triggers
+        mock_repo
+            .expect_get_triggers()
+            .with(eq(network_id))
+            .once()
+            .returning(move |_| Ok(vec![trigger.clone()]));
+
+        // Ensure file loading is NOT called
+        mock_repo.expect_add_monitors().times(0);
+        mock_repo.expect_add_triggers().times(0);
+
+        let config = AppConfig::builder().network_id(network_id).build();
+        let abi_service = Arc::new(AbiService::new());
+        let initialization_service =
+            InitializationService::new(config, Arc::new(mock_repo), abi_service);
+
+        let result = initialization_service.run().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_load_monitors_from_file_repo_error() {
+        let temp_dir = tempdir().unwrap();
+        let config_path = create_dummy_config_file(&temp_dir, "monitors.yaml", "monitors: []");
+        let network_id = "testnet";
+
+        let mut mock_repo = MockStateRepository::new();
+        mock_repo
+            .expect_get_monitors()
+            .with(eq(network_id))
+            .once()
+            .returning(|_| Err(sqlx::Error::RowNotFound)); // Simulate a DB error
+
+        let config = AppConfig::builder()
+            .network_id(network_id)
+            .monitor_config_path(config_path.to_str().unwrap())
+            .build();
+
+        let abi_service = Arc::new(AbiService::new());
+        let initialization_service =
+            InitializationService::new(config, Arc::new(mock_repo), abi_service);
+
+        let result = initialization_service.load_monitors_from_file().await;
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            InitializationError::MonitorLoadError(msg) if msg.contains("Failed to fetch existing monitors")
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_load_abis_from_monitors_invalid_address() {
+        let network_id = "testnet";
+        let monitor = Monitor::from_config(
+            "ABI Monitor".to_string(),
+            network_id.to_string(),
+            Some("not-a-valid-address".to_string()),
+            Some("abi.json".to_string()),
+            "true".to_string(),
+        );
+
+        let mut mock_repo = MockStateRepository::new();
+        mock_repo
+            .expect_get_monitors()
+            .with(eq(network_id))
+            .once()
+            .returning(move |_| Ok(vec![monitor.clone()]));
+
+        let config = AppConfig::builder().network_id(network_id).build();
+        let abi_service = Arc::new(AbiService::new());
+        let initialization_service =
+            InitializationService::new(config, Arc::new(mock_repo), abi_service);
+
+        let result = initialization_service.load_abis_from_monitors().await;
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            InitializationError::AbiLoadError(msg) if msg.contains("Failed to parse address")
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_load_abis_from_monitors_abi_load_error() {
+        let temp_dir = tempdir().unwrap();
+        let non_existent_abi_path = temp_dir.path().join("non_existent_abi.json");
+        let network_id = "testnet";
+        let monitor = Monitor::from_config(
+            "ABI Monitor".to_string(),
+            network_id.to_string(),
+            Some("0x0000000000000000000000000000000000000001".to_string()),
+            Some(non_existent_abi_path.to_str().unwrap().to_string()),
+            "true".to_string(),
+        );
+
+        let mut mock_repo = MockStateRepository::new();
+        mock_repo
+            .expect_get_monitors()
+            .with(eq(network_id))
+            .once()
+            .returning(move |_| Ok(vec![monitor.clone()]));
+
+        let config = AppConfig::builder().network_id(network_id).build();
+        let abi_service = Arc::new(AbiService::new());
+        let initialization_service =
+            InitializationService::new(config, Arc::new(mock_repo), abi_service);
+
+        let result = initialization_service.load_abis_from_monitors().await;
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            InitializationError::AbiLoadError(msg) if msg.contains("Failed to load ABI")
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_load_monitors_from_file_when_db_empty() {
+        let temp_dir = tempdir().unwrap();
+        let _ = create_test_abi_file(&temp_dir, "abi.json", create_test_abi_content());
+        let config_path =
+            create_dummy_config_file(&temp_dir, "monitors.yaml", create_test_monitor_config_str());
         let network_id = "testnet";
 
         let mut mock_repo = MockStateRepository::new();
@@ -330,17 +566,8 @@ monitors:
     #[tokio::test]
     async fn test_load_monitors_from_file_when_db_not_empty() {
         let temp_dir = tempdir().unwrap();
-        let config_path = create_dummy_config_file(
-            &temp_dir,
-            "monitors.yaml",
-            r#"
-monitors:
-  - name: "Test Monitor"
-    network: "testnet"
-    address: "0x0000000000000000000000000000000000000001"
-    filter_script: "true"
-"#,
-        );
+        let config_path =
+            create_dummy_config_file(&temp_dir, "monitors.yaml", create_test_monitor_config_str());
         let monitor = Monitor::from_config(
             "Dummy Monitor".to_string(),
             "testnet".to_string(),
@@ -378,19 +605,8 @@ monitors:
     #[tokio::test]
     async fn test_load_triggers_from_file_when_db_empty() {
         let temp_dir = tempdir().unwrap();
-        let config_path = create_dummy_config_file(
-            &temp_dir,
-            "triggers.yaml",
-            r#"
-triggers:
-  - name: "Test Trigger"
-    webhook:
-      url: "http://example.com/webhook"
-      message:
-        title: "Test Title"
-        body: "Test Body"
-"#,
-        );
+        let config_path =
+            create_dummy_config_file(&temp_dir, "triggers.yaml", create_test_trigger_config_str());
         let network_id = "testnet";
 
         let mut mock_repo = MockStateRepository::new();
@@ -432,19 +648,8 @@ triggers:
     #[tokio::test]
     async fn test_load_triggers_from_file_when_db_not_empty() {
         let temp_dir = tempdir().unwrap();
-        let config_path = create_dummy_config_file(
-            &temp_dir,
-            "triggers.yaml",
-            r#"
-triggers:
-  - name: "Test Trigger"
-    webhook:
-      url: "http://example.com/webhook"
-      message:
-        title: "Test Title"
-        body: "Test Body"
-"#,
-        );
+        let config_path =
+            create_dummy_config_file(&temp_dir, "triggers.yaml", create_test_trigger_config_str());
         let network_id = "testnet";
 
         let mut mock_repo = MockStateRepository::new();
