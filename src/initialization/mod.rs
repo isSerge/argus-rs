@@ -7,8 +7,8 @@ use std::{path::PathBuf, sync::Arc};
 use crate::{
     abi::{AbiService, loader::AbiLoader},
     config::{AppConfig, TriggerLoader},
-    persistence::traits::StateRepository,
     monitor::MonitorLoader,
+    persistence::traits::StateRepository,
 };
 
 /// A service responsible for initializing application state at startup.
@@ -214,6 +214,13 @@ monitors:
     filter_script: "true"
 "#,
         );
+        let monitor = Monitor::from_config(
+            "Dummy Monitor".to_string(),
+            "testnet".to_string(),
+            None,
+            None,
+            "true".to_string(),
+        );
         let network_id = "testnet";
 
         let mut mock_repo = MockStateRepository::new();
@@ -222,15 +229,7 @@ monitors:
             .expect_get_monitors()
             .with(eq(network_id))
             .once()
-            .returning(|_| {
-                Ok(vec![Monitor::from_config(
-                    "Dummy Monitor".to_string(),
-                    "testnet".to_string(),
-                    None,
-                    None,
-                    "true".to_string(),
-                )])
-            }); // Return a dummy monitor
+            .returning(move |_| Ok(vec![monitor.clone()])); // Return a dummy monitor
         // Expect clear_monitors and add_monitors to NOT be called
         mock_repo.expect_clear_monitors().times(0);
         mock_repo.expect_add_monitors().times(0);
@@ -364,6 +363,13 @@ triggers:
             r#"[{"type":"function","name":"testFunc","inputs":[],"outputs":[]}]"#,
         );
         let network_id = "testnet";
+        let monitor = Monitor::from_config(
+            "ABI Monitor".to_string(),
+            network_id.to_string(),
+            Some("0x0000000000000000000000000000000000000001".to_string()),
+            Some(abi_path.to_str().unwrap().to_string()),
+            "true".to_string(),
+        );
 
         let mut mock_repo = MockStateRepository::new();
         // Expect get_monitors to return a monitor with an ABI path
@@ -371,15 +377,7 @@ triggers:
             .expect_get_monitors()
             .with(eq(network_id))
             .once()
-            .returning(move |_| {
-                Ok(vec![Monitor::from_config(
-                    "ABI Monitor".to_string(),
-                    network_id.to_string(),
-                    Some("0x0000000000000000000000000000000000000001".to_string()),
-                    Some(abi_path.to_str().unwrap().to_string()),
-                    "true".to_string(),
-                )])
-            });
+            .returning(move |_| Ok(vec![monitor.clone()]));
 
         let abi_service = Arc::new(AbiService::new());
         let initial_abi_cache_size = abi_service.cache_size();
