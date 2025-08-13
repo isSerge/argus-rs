@@ -92,9 +92,9 @@ pub struct AppConfig {
 
 impl AppConfig {
     /// Creates a new `AppConfig` by reading from the configuration file.
-    pub fn new() -> Result<Self, ConfigError> {
+    pub fn new(config_path: Option<&str>) -> Result<Self, ConfigError> {
         let s = Config::builder()
-            .add_source(File::with_name("config.yaml"))
+            .add_source(File::with_name(config_path.unwrap_or("config.yaml")))
             .build()?;
         s.try_deserialize()
     }
