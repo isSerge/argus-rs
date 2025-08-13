@@ -45,37 +45,6 @@ pub enum RhaiError {
     },
 }
 
-/// An error that occurs during monitor validation.
-#[derive(Debug, Error, PartialEq, Eq)]
-pub enum MonitorValidationError {
-    /// A monitor that accesses log data does not have a contract address specified.
-    #[error(
-        "Monitor '{monitor_name}' accesses log data ('log.*') but is not tied to a specific contract address. Please provide an 'address' for this monitor."
-    )]
-    MonitorRequiresAddress {
-        /// The name of the monitor that failed validation.
-        monitor_name: String,
-    },
-
-    /// A monitor that accesses log data does not have an ABI defined.
-    #[error(
-        "Monitor '{monitor_name}' accesses log data but does not have an ABI defined. Please provide an 'abi' file path."
-    )]
-    MonitorRequiresAbi {
-        /// The name of the monitor that failed validation.
-        monitor_name: String,
-    },
-
-    /// The address provided for a monitor is invalid.
-    #[error("Invalid address for monitor '{monitor_name}': {address}")]
-    InvalidAddress {
-        /// The name of the monitor.
-        monitor_name: String,
-        /// The invalid address.
-        address: String,
-    },
-}
-
 /// A trait for an engine that applies filtering logic to block data.
 #[cfg_attr(test, automock)]
 #[async_trait]
@@ -88,7 +57,7 @@ pub trait FilteringEngine: Send + Sync {
     ) -> Result<Vec<MonitorMatch>, Box<dyn std::error::Error + Send + Sync>>;
 
     /// Updates the set of monitors used by the engine.
-    async fn update_monitors(&self, monitors: Vec<Monitor>) -> Result<(), MonitorValidationError>;
+    async fn update_monitors(&self, monitors: Vec<Monitor>);
 
     /// Returns true if any monitor requires transaction receipt data for evaluation.
     /// This allows optimizing data fetching by only including receipts when needed.
@@ -116,10 +85,7 @@ pub struct RhaiFilteringEngine {
 
 impl RhaiFilteringEngine {
     /// Creates a new `RhaiFilteringEngine` with the given monitors and Rhai configuration.
-    pub fn new(
-        monitors: Vec<Monitor>,
-        rhai_config: RhaiConfig,
-    ) -> Result<Self, MonitorValidationError> {
+    pub fn new(monitors: Vec<Monitor>, rhai_config: RhaiConfig) -> Self {
         let mut engine = Engine::new();
 
         // Apply security limits
@@ -135,38 +101,31 @@ impl RhaiFilteringEngine {
         register_bigint_with_rhai(&mut engine);
 
         let (monitors_by_address, transaction_monitors, needs_receipts) =
-            Self::organize_monitors(monitors)?;
+            Self::organize_monitors(monitors);
 
-        Ok(Self {
+        Self {
             monitors_by_address: Arc::new(RwLock::new(monitors_by_address)),
             transaction_monitors: Arc::new(RwLock::new(transaction_monitors)),
             engine,
             rhai_config,
             requires_receipts: AtomicBool::new(needs_receipts),
-        })
+        }
     }
 
     /// Organizes monitors into address-specific and transaction-level collections,
     /// and validates them.
     fn organize_monitors(
         monitors: Vec<Monitor>,
-    ) -> Result<(DashMap<String, Vec<Monitor>>, Vec<Monitor>, bool), MonitorValidationError> {
+    ) -> (DashMap<String, Vec<Monitor>>, Vec<Monitor>, bool) {
         let monitors_by_address: DashMap<String, Vec<Monitor>> = DashMap::new();
         let mut transaction_monitors = Vec::new();
         let mut needs_receipts = false;
 
         for monitor in monitors {
-            // Validate and categorize the monitor
-            Self::validate_monitor(&monitor)?;
-
             if let Some(address_str) = &monitor.address {
-                let address: Address =
-                    address_str
-                        .parse()
-                        .map_err(|_| MonitorValidationError::InvalidAddress {
-                            monitor_name: monitor.name.clone(),
-                            address: address_str.clone(),
-                        })?;
+                let address: Address = address_str
+                    .parse()
+                    .expect("Address should be valid at this stage");
 
                 let checksummed_address = address.to_checksum(None);
 
@@ -184,24 +143,7 @@ impl RhaiFilteringEngine {
             }
         }
 
-        Ok((monitors_by_address, transaction_monitors, needs_receipts))
-    }
-
-    /// Validates a single monitor configuration.
-    fn validate_monitor(monitor: &Monitor) -> Result<(), MonitorValidationError> {
-        if monitor.filter_script.contains("log.") {
-            if monitor.address.is_none() {
-                return Err(MonitorValidationError::MonitorRequiresAddress {
-                    monitor_name: monitor.name.clone(),
-                });
-            }
-            if monitor.abi.is_none() {
-                return Err(MonitorValidationError::MonitorRequiresAbi {
-                    monitor_name: monitor.name.clone(),
-                });
-            }
-        }
-        Ok(())
+        (monitors_by_address, transaction_monitors, needs_receipts)
     }
 
     /// Disable dangerous language features and standard library functions
@@ -418,9 +360,9 @@ impl FilteringEngine for RhaiFilteringEngine {
     }
 
     /// Updates the set of monitors used by the engine.
-    async fn update_monitors(&self, monitors: Vec<Monitor>) -> Result<(), MonitorValidationError> {
+    async fn update_monitors(&self, monitors: Vec<Monitor>) {
         let (new_monitors_by_address, new_transaction_monitors, needs_receipts) =
-            Self::organize_monitors(monitors)?;
+            Self::organize_monitors(monitors);
 
         let mut monitors_by_address_guard = self.monitors_by_address.write().await;
         *monitors_by_address_guard = new_monitors_by_address;
@@ -432,8 +374,6 @@ impl FilteringEngine for RhaiFilteringEngine {
 
         self.requires_receipts
             .store(needs_receipts, Ordering::Relaxed);
-
-        Ok(())
     }
 
     fn requires_receipt_data(&self) -> bool {
@@ -505,8 +445,7 @@ mod tests {
                 monitor4.clone(),
             ],
             RhaiConfig::default(),
-        )
-        .unwrap();
+        );
 
         let monitors_by_address_read = engine.monitors_by_address.read().await;
         assert_eq!(monitors_by_address_read.len(), 2);
@@ -530,8 +469,7 @@ mod tests {
         let monitor6 = create_test_monitor(6, None, None, "true");
         engine
             .update_monitors(vec![monitor1.clone(), monitor5.clone(), monitor6.clone()])
-            .await
-            .unwrap();
+            .await;
 
         let monitors_by_address_read = engine.monitors_by_address.read().await;
         assert_eq!(monitors_by_address_read.len(), 2);
@@ -563,7 +501,7 @@ mod tests {
             Some("abi.json"),
             "log.name == \"Transfer\"",
         );
-        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default()).unwrap();
+        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
         let item = CorrelatedBlockItem::new(tx, vec![log], None);
@@ -577,7 +515,7 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_item_transaction_based_match() {
         let monitor = create_test_monitor(1, None, None, "bigint(tx.value) > bigint(100)");
-        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default()).unwrap();
+        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
 
         let tx = TransactionBuilder::new().value(U256::from(150)).build();
         // This item has no logs, but should still be evaluated by the tx monitor
@@ -592,7 +530,7 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_item_no_match_for_tx_monitor() {
         let monitor = create_test_monitor(1, None, None, "bigint(tx.value) > bigint(200)");
-        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default()).unwrap();
+        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
 
         let tx = TransactionBuilder::new().value(U256::from(150)).build();
         let item = CorrelatedBlockItem::new(tx, vec![], None);
@@ -611,8 +549,7 @@ mod tests {
             "log.name == \"Transfer\"",
         );
         let tx_monitor = create_test_monitor(2, None, None, "bigint(tx.value) > bigint(100)");
-        let engine =
-            RhaiFilteringEngine::new(vec![log_monitor, tx_monitor], RhaiConfig::default()).unwrap();
+        let engine = RhaiFilteringEngine::new(vec![log_monitor, tx_monitor], RhaiConfig::default());
 
         // Create a transaction that will match the transaction-level monitor
         let tx = TransactionBuilder::new().value(U256::from(150)).build();
@@ -636,100 +573,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_monitor_validation_success() {
-        // Valid: log monitor accesses log and has address + ABI
-        let monitor1 = create_test_monitor(
-            1,
-            Some("0x0000000000000000000000000000000000000123"),
-            Some("abi.json"),
-            "log.name == 'A'",
-        );
-        // Valid: tx monitor accesses tx
-        let monitor2 = create_test_monitor(2, None, None, "tx.value > 0");
-        // Valid: log monitor accesses tx only
-        let monitor3 = create_test_monitor(
-            3,
-            Some("0x0000000000000000000000000000000000000123"),
-            None,
-            "tx.from == '0x456'",
-        );
-
-        assert!(
-            RhaiFilteringEngine::new(vec![monitor1, monitor2, monitor3], RhaiConfig::default())
-                .is_ok()
-        );
-    }
-
-    #[tokio::test]
-    async fn test_monitor_validation_failure_requires_address() {
-        // Invalid: accesses log data but has no address
-        let invalid_monitor = create_test_monitor(1, None, None, "log.name == 'A'");
-        let result = RhaiFilteringEngine::new(vec![invalid_monitor.clone()], RhaiConfig::default());
-
-        assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err(),
-            MonitorValidationError::MonitorRequiresAddress {
-                monitor_name: invalid_monitor.name
-            }
-        );
-    }
-
-    #[tokio::test]
-    async fn test_monitor_validation_failure_requires_abi() {
-        // Invalid: accesses log data but has no ABI
-        let invalid_monitor = create_test_monitor(
-            1,
-            Some("0x0000000000000000000000000000000000000123"),
-            None,
-            "log.name == 'A'",
-        );
-        let result = RhaiFilteringEngine::new(vec![invalid_monitor.clone()], RhaiConfig::default());
-
-        assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err(),
-            MonitorValidationError::MonitorRequiresAbi {
-                monitor_name: invalid_monitor.name
-            }
-        );
-    }
-
-    #[tokio::test]
-    async fn test_monitor_validation_failure_invalid_address() {
-        // Invalid: address is not a valid hex string
-        let invalid_addr = "not-a-valid-address";
-        let invalid_monitor = create_test_monitor(1, Some(invalid_addr), Some("abi.json"), "true");
-        let result = RhaiFilteringEngine::new(vec![invalid_monitor.clone()], RhaiConfig::default());
-
-        assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err(),
-            MonitorValidationError::InvalidAddress {
-                monitor_name: invalid_monitor.name,
-                address: invalid_addr.to_string()
-            }
-        );
-    }
-
-    #[tokio::test]
-    async fn test_update_monitors_validation_failure() {
-        let engine = RhaiFilteringEngine::new(vec![], RhaiConfig::default()).unwrap();
-        // Invalid: accesses log data but has no address
-        let invalid_monitor = create_test_monitor(1, None, None, "log.name == 'A'");
-
-        let result = engine.update_monitors(vec![invalid_monitor.clone()]).await;
-
-        assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err(),
-            MonitorValidationError::MonitorRequiresAddress {
-                monitor_name: invalid_monitor.name
-            }
-        );
-    }
-
-    #[tokio::test]
     async fn test_evaluate_item_filter_by_log_param() {
         let addr = address!("0000000000000000000000000000000000000001");
         let monitor = create_test_monitor(
@@ -738,7 +581,7 @@ mod tests {
             Some("abi.json"),
             "log.name == \"ValueTransfered\" && bigint(log.params.value) > bigint(100)",
         );
-        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default()).unwrap();
+        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
 
         let (tx, log) = create_test_log_and_tx(
             addr,
@@ -757,7 +600,7 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_item_no_decoded_logs_still_triggers_tx_monitor() {
         let monitor = create_test_monitor(1, None, None, "true"); // Always matches
-        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default()).unwrap();
+        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
 
         let tx = TransactionBuilder::new().build();
         let item = CorrelatedBlockItem::new(tx, vec![], None);

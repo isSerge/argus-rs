@@ -4,3 +4,4 @@ mod loader;
 mod validator;
 
 pub use loader::MonitorLoader;
+pub use validator::{MonitorValidator, MonitorValidationError};

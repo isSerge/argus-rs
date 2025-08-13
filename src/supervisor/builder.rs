@@ -76,7 +76,7 @@ impl SupervisorBuilder {
 
         // Construct the internal services.
         let block_processor = BlockProcessor::new(Arc::clone(&abi_service));
-        let filtering_engine = RhaiFilteringEngine::new(monitors, config.rhai.clone())?;
+        let filtering_engine = RhaiFilteringEngine::new(monitors, config.rhai.clone());
         let notification_service = NotificationService::new(triggers);
 
         // Finally, construct the Supervisor with all its components.
@@ -95,8 +95,7 @@ impl SupervisorBuilder {
 mod tests {
     use super::*;
     use crate::{
-        engine::filtering::MonitorValidationError, models::monitor::Monitor,
-        persistence::traits::MockStateRepository, providers::traits::MockDataSource,
+        models::monitor::Monitor, monitor::MonitorValidationError, persistence::traits::MockStateRepository, providers::traits::MockDataSource
     };
     use std::{fs::File, io::Write};
     use tempfile::tempdir;
