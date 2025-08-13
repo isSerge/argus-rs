@@ -198,7 +198,7 @@ impl Supervisor {
         // This is the main application loop.
         loop {
             let tx_clone = decoded_blocks_tx.clone();
-            let polling_delay = tokio::time::sleep(self.config.polling_interval_ms);
+            let polling_delay = tokio::time::sleep(self.config.polling_interval);
 
             tokio::select! {
               // Use `biased` to ensure the shutdown signal is always checked first.
@@ -236,7 +236,7 @@ impl Supervisor {
 
         // Perform final cleanup of resources, with a timeout.
         tracing::info!("Starting graceful resource cleanup...");
-        let shutdown_timeout = self.config.shutdown_timeout_secs;
+        let shutdown_timeout = self.config.shutdown_timeout;
 
         let cleanup_logic = async {
             if let Err(e) = self.state.flush().await {

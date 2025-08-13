@@ -52,7 +52,7 @@ pub struct AppConfig {
         deserialize_with = "deserialize_duration_from_ms",
         serialize_with = "serialize_duration_to_ms"
     )]
-    pub polling_interval_ms: Duration,
+    pub polling_interval: Duration,
 
     /// Number of confirmation blocks to wait for before processing.
     pub confirmation_blocks: u64,
@@ -63,7 +63,7 @@ pub struct AppConfig {
         serialize_with = "serialize_duration_to_seconds",
         default = "default_shutdown_timeout"
     )]
-    pub shutdown_timeout_secs: Duration,
+    pub shutdown_timeout: Duration,
 
     /// Rhai script execution configuration.
     #[serde(default)]
@@ -81,5 +81,45 @@ impl AppConfig {
             .add_source(File::with_name(config_path.unwrap_or("config.yaml")))
             .build()?;
         s.try_deserialize()
+    }
+
+    /// Creates a new `AppConfigBuilder` for testing purposes.
+    #[cfg(test)]
+    pub fn builder() -> AppConfigBuilder {
+        AppConfigBuilder::default()
+    }
+}
+
+/// A builder for creating `AppConfig` instances for testing.
+#[cfg(test)]
+#[derive(Default)]
+pub struct AppConfigBuilder {
+    config: AppConfig,
+}
+
+#[cfg(test)]
+impl AppConfigBuilder {
+    pub fn rpc_urls(mut self, rpc_urls: Vec<Url>) -> Self {
+        self.config.rpc_urls = rpc_urls;
+        self
+    }
+
+    pub fn monitor_config_path(mut self, path: &str) -> Self {
+        self.config.monitor_config_path = path.to_string();
+        self
+    }
+
+    pub fn trigger_config_path(mut self, path: &str) -> Self {
+        self.config.trigger_config_path = path.to_string();
+        self
+    }
+
+    pub fn database_url(mut self, url: &str) -> Self {
+        self.config.database_url = url.to_string();
+        self
+    }
+
+    pub fn build(self) -> AppConfig {
+        self.config
     }
 }
