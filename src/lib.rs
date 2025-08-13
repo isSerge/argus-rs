@@ -7,6 +7,7 @@ pub mod engine;
 pub mod http_client;
 pub mod initialization;
 pub mod models;
+pub mod monitor;
 pub mod notification;
 pub mod persistence;
 pub mod providers;

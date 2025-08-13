@@ -13,12 +13,15 @@ pub struct ConfigLoader {
 /// Errors that can occur during configuration loading.
 #[derive(Debug, Error)]
 pub enum LoaderError {
+    /// Error when reading the configuration file.
     #[error("Failed to read configuration file: {0}")]
     IoError(#[from] std::io::Error),
 
+    /// Error when parsing the configuration file.
     #[error("Failed to parse configuration: {0}")]
     ParseError(#[from] config::ConfigError),
 
+    /// Error when the configuration format is unsupported.
     #[error("Unsupported configuration format")]
     UnsupportedFormat,
 }

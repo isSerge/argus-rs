@@ -1,4 +1,4 @@
-use super::loader::{ConfigLoader, LoaderError};
+use crate::config::{ConfigLoader, LoaderError};
 use crate::models::monitor::Monitor;
 use std::{fs, path::PathBuf};
 use thiserror::Error;
