@@ -67,7 +67,7 @@ impl InitializationService {
         let monitors = monitor_loader.load()?;
 
         // Validate monitors
-        let validator = MonitorValidator {};
+        let validator = MonitorValidator::new(network_id);
         for monitor in &monitors {
             validator.validate(monitor)?;
         }
