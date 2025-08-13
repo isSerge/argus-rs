@@ -6,8 +6,9 @@ use std::{path::PathBuf, sync::Arc};
 
 use crate::{
     abi::{AbiService, loader::AbiLoader},
-    config::{AppConfig, MonitorLoader, TriggerLoader},
+    config::{AppConfig, TriggerLoader},
     persistence::traits::StateRepository,
+    monitor::MonitorLoader,
 };
 
 /// A service responsible for initializing application state at startup.

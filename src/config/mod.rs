@@ -4,7 +4,6 @@ mod app_config;
 mod helpers;
 mod http_retry;
 mod loader;
-mod monitor_loader;
 mod rhai;
 mod rpc_retry;
 mod trigger_loader;
@@ -15,7 +14,7 @@ pub use helpers::{
     serialize_duration_to_ms, serialize_duration_to_seconds,
 };
 pub use http_retry::{HttpRetryConfig, JitterSetting};
-pub use monitor_loader::{MonitorLoader, MonitorLoaderError};
 pub use rhai::RhaiConfig;
 pub use rpc_retry::RpcRetryConfig;
 pub use trigger_loader::{TriggerLoader, TriggerLoaderError};
+pub use loader::{ConfigLoader, LoaderError};

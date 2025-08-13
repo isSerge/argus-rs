@@ -12,3 +12,4 @@ pub mod persistence;
 pub mod providers;
 pub mod supervisor;
 pub mod test_helpers;
+pub mod monitor;
