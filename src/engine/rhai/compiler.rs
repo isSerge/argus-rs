@@ -3,15 +3,17 @@
 
 use dashmap::DashMap;
 use rhai::{AST, Engine};
+use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::sync::Arc;
 use thiserror::Error;
-use sha2::{Sha256, Digest};
 
-use super::ast_analysis;
+use crate::config::RhaiConfig;
+
+use super::{ast_analysis, create_engine};
 
 /// Represents the result of analyzing a Rhai script.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ScriptAnalysis {
     /// The compiled AST of the Rhai script.
     pub ast: Arc<AST>,
@@ -25,6 +27,7 @@ type ScriptHash = [u8; 32];
 
 /// The Rhai compiler that compiles scripts and analyzes their ASTs.
 /// It caches the results to avoid redundant compilations.
+#[derive(Debug)]
 pub struct RhaiCompiler {
     /// The Rhai engine used for compiling scripts.
     engine: Arc<Engine>,
@@ -42,11 +45,11 @@ pub enum RhaiCompilerError {
 
 impl RhaiCompiler {
     /// Creates a new instance of the Rhai compiler.
-    pub fn new() -> Self {
-        let engine = Arc::new(Engine::new_raw());
+    pub fn new(rhai_config: RhaiConfig) -> Self {
+        let engine = create_engine(rhai_config);
 
         RhaiCompiler {
-            engine,
+            engine: Arc::new(engine),
             cache: DashMap::new(),
         }
     }
@@ -99,7 +102,8 @@ mod tests {
 
     #[test]
     fn test_analyze_valid_script() {
-        let compiler = RhaiCompiler::new();
+        let config = RhaiConfig::default();
+        let compiler = RhaiCompiler::new(config);
         let script = "tx.value > 100";
 
         let result = compiler.analyze_script(script);
@@ -117,7 +121,8 @@ mod tests {
 
     #[test]
     fn test_analyze_invalid_script() {
-        let compiler = RhaiCompiler::new();
+        let config = RhaiConfig::default();
+        let compiler = RhaiCompiler::new(config);
         // This script is invalid because of the unclosed quote.
         let script = "tx.value > 100 && tx.from == \"0x123";
 
@@ -132,7 +137,8 @@ mod tests {
 
     #[test]
     fn test_caching_works() {
-        let compiler = RhaiCompiler::new();
+        let config = RhaiConfig::default();
+        let compiler = RhaiCompiler::new(config);
         let script = "let x = 42; x > 0";
 
         // 1. First call: This will compile, analyze, and cache.
@@ -158,7 +164,8 @@ mod tests {
 
     #[test]
     fn test_get_ast_convenience_method() {
-        let compiler = RhaiCompiler::new();
+        let config = RhaiConfig::default();
+        let compiler = RhaiCompiler::new(config);
         let script = "1 + 1 == 2";
 
         let result = compiler.get_ast(script);
@@ -173,7 +180,8 @@ mod tests {
 
     #[test]
     fn test_caching_with_different_scripts() {
-        let compiler = RhaiCompiler::new();
+        let config = RhaiConfig::default();
+        let compiler = RhaiCompiler::new(config);
         let script1 = "tx.value > 100";
         let script2 = "log.name == \"Transfer\"";
 
@@ -192,7 +200,8 @@ mod tests {
 
     #[test]
     fn test_empty_script_is_valid() {
-        let compiler = RhaiCompiler::new();
+        let config = RhaiConfig::default();
+        let compiler = RhaiCompiler::new(config);
         let script = ""; // An empty script
 
         let result = compiler.analyze_script(script);
@@ -205,7 +214,8 @@ mod tests {
 
     #[test]
     fn test_script_with_comments_only() {
-        let compiler = RhaiCompiler::new();
+        let config = RhaiConfig::default();
+        let compiler = RhaiCompiler::new(config);
         let script = r#"
             // This is a test script.
             // It only contains comments.
