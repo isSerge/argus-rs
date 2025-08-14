@@ -134,7 +134,7 @@ impl AsWebhookComponents for TriggerTypeConfig {
                 disable_web_preview,
                 retry_policy,
             }) => (
-                format!("https://api.telegram.org/bot{}/sendMessage", token),
+                format!("https://api.telegram.org/bot{token}/sendMessage"),
                 message.clone(),
                 Some("POST".to_string()),
                 None,
@@ -195,10 +195,11 @@ impl NotificationService {
     /// # Arguments
     ///
     /// * `triggers` - A vector of `TriggerConfig` loaded and validated at application startup.
-    pub fn new(triggers: Vec<TriggerConfig>) -> Self {
+    /// * `client_pool` - A shared pool of HTTP clients.
+    pub fn new(triggers: Vec<TriggerConfig>, client_pool: Arc<HttpClientPool>) -> Self {
         let triggers = triggers.into_iter().map(|t| (t.name, t.config)).collect();
         NotificationService {
-            client_pool: Arc::new(HttpClientPool::new()),
+            client_pool,
             triggers,
             template_service: TemplateService::new(),
         }
@@ -220,7 +221,7 @@ impl NotificationService {
     pub async fn execute(&self, monitor_match: &MonitorMatch) -> Result<(), NotificationError> {
         let trigger_name = &monitor_match.trigger_name;
         let trigger_config = self.triggers.get(trigger_name).ok_or_else(|| {
-            NotificationError::ConfigError(format!("Trigger '{}' not found", trigger_name))
+            NotificationError::ConfigError(format!("Trigger '{trigger_name}' not found"))
         })?;
 
         // Use the AsWebhookComponents trait to get config, retry policy and payload builder
@@ -234,7 +235,7 @@ impl NotificationService {
 
         // Serialize the MonitorMatch to a JSON value for the template context.
         let context = serde_json::to_value(monitor_match).map_err(|e| {
-            NotificationError::InternalError(format!("Failed to serialize monitor match: {}", e))
+            NotificationError::InternalError(format!("Failed to serialize monitor match: {e}"))
         })?;
 
         // Render the body template.
@@ -290,7 +291,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_missing_trigger_error() {
-        let service = NotificationService::new(vec![]);
+        let http_client_pool = Arc::new(HttpClientPool::new());
+        let service = NotificationService::new(vec![], http_client_pool);
         let monitor_match = create_mock_monitor_match("nonexistent");
 
         let result = service.execute(&monitor_match).await;
@@ -339,4 +341,3 @@ mod tests {
         );
     }
 }
-

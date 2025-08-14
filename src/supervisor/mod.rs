@@ -387,6 +387,7 @@ mod tests {
     use crate::{
         abi::AbiService,
         engine::filtering::MockFilteringEngine,
+        http_client::HttpClientPool,
         persistence::traits::MockStateRepository,
         providers::traits::MockDataSource,
         test_helpers::{BlockBuilder, ReceiptBuilder, TransactionBuilder},
@@ -411,7 +412,8 @@ mod tests {
 
             let abi_service = Arc::new(AbiService::new());
             let block_processor = BlockProcessor::new(abi_service);
-            let notification_service = Arc::new(NotificationService::new(vec![]));
+            let http_client_pool = Arc::new(HttpClientPool::new());
+            let notification_service = Arc::new(NotificationService::new(vec![], http_client_pool));
 
             Self {
                 config,
