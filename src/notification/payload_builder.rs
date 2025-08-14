@@ -21,19 +21,17 @@ use serde_json::json;
 /// This trait is implemented by structs that know how to construct the correct
 /// JSON payload for a specific notification service (e.g., Slack, Discord).
 pub trait WebhookPayloadBuilder: Send + Sync {
-    /// Builds a webhook payload by substituting variables and structuring the JSON.
+    /// Builds a webhook payload.
     ///
     /// # Arguments
     ///
     /// * `title` - The title of the notification message.
-    /// * `body_template` - The message body, which may contain variables in the
-    ///   format `${variable_name}`.
-    /// * `variables` - A map of variable names to their values for substitution.
+    /// * `body` - The rendered message body.
     ///
     /// # Returns
     ///
     /// A `serde_json::Value` representing the final JSON payload to be sent.
-    fn build_payload(&self, title: &str, body_template: &str) -> serde_json::Value;
+    fn build_payload(&self, title: &str, body: &str) -> serde_json::Value;
 }
 
 /// A payload builder for Slack notifications.
@@ -43,8 +41,8 @@ pub trait WebhookPayloadBuilder: Send + Sync {
 pub struct SlackPayloadBuilder;
 
 impl WebhookPayloadBuilder for SlackPayloadBuilder {
-    fn build_payload(&self, title: &str, body_template: &str) -> serde_json::Value {
-        let full_message = format!("*{title}*\n\n{body_template}");
+    fn build_payload(&self, title: &str, body: &str) -> serde_json::Value {
+        let full_message = format!("*{title}*\n\n{body}");
         json!({
             "blocks": [
                 {
@@ -65,8 +63,8 @@ impl WebhookPayloadBuilder for SlackPayloadBuilder {
 pub struct DiscordPayloadBuilder;
 
 impl WebhookPayloadBuilder for DiscordPayloadBuilder {
-    fn build_payload(&self, title: &str, body_template: &str) -> serde_json::Value {
-        let full_message = format!("*{title}*\n\n{body_template}");
+    fn build_payload(&self, title: &str, body: &str) -> serde_json::Value {
+        let full_message = format!("*{title}*\n\n{body}");
         json!({
             "content": full_message
         })
@@ -154,10 +152,10 @@ impl TelegramPayloadBuilder {
 }
 
 impl WebhookPayloadBuilder for TelegramPayloadBuilder {
-    fn build_payload(&self, title: &str, body_template: &str) -> serde_json::Value {
+    fn build_payload(&self, title: &str, body: &str) -> serde_json::Value {
         // Escape both the title and the formatted message for Telegram MarkdownV2.
         let escaped_title = Self::escape_markdown_v2(title);
-        let escaped_message = Self::escape_markdown_v2(body_template);
+        let escaped_message = Self::escape_markdown_v2(body);
 
         let full_message = format!("*{escaped_title}* \n\n{escaped_message}");
         json!({
@@ -175,10 +173,10 @@ impl WebhookPayloadBuilder for TelegramPayloadBuilder {
 pub struct GenericWebhookPayloadBuilder;
 
 impl WebhookPayloadBuilder for GenericWebhookPayloadBuilder {
-    fn build_payload(&self, title: &str, body_template: &str) -> serde_json::Value {
+    fn build_payload(&self, title: &str, body: &str) -> serde_json::Value {
         json!({
             "title": title,
-            "body": body_template
+            "body": body
         })
     }
 }
