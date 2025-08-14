@@ -12,12 +12,9 @@
 //!   and a set of variables, and returns a `serde_json::Value`.
 //! - **Implementations**: Structs like `SlackPayloadBuilder`, `DiscordPayloadBuilder`, etc.,
 //!   implement this trait to generate the JSON required by their respective services.
-//! - **`format_template`**: A utility function for performing simple key-value substitution
-//!   in message templates.
 
 use regex::Regex;
 use serde_json::json;
-use std::collections::HashMap;
 
 /// A trait for building channel-specific webhook payloads.
 ///
@@ -37,27 +34,6 @@ pub trait WebhookPayloadBuilder: Send + Sync {
     ///
     /// A `serde_json::Value` representing the final JSON payload to be sent.
     fn build_payload(&self, title: &str, body_template: &str) -> serde_json::Value;
-}
-
-/// Formats a message template by substituting variables.
-///
-/// This function iterates through the provided variables and replaces placeholders
-/// in the format `${key}` with their corresponding values.
-///
-/// # Arguments
-///
-/// * `template` - The string template to format.
-/// * `variables` - A map of variable keys to their string values.
-///
-/// # Returns
-///
-/// A `String` with all variables substituted.
-pub fn format_template(template: &str, variables: &HashMap<String, String>) -> String {
-    let mut message = template.to_string();
-    for (key, value) in variables {
-        message = message.replace(&format!("${{{}}}", key), value);
-    }
-    message
 }
 
 /// A payload builder for Slack notifications.
