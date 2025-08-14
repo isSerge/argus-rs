@@ -46,8 +46,8 @@ use crate::{
 
 pub mod error;
 pub mod payload_builder;
-mod webhook;
 mod template;
+mod webhook;
 
 use self::webhook::WebhookNotifier;
 use error::NotificationError;
@@ -55,6 +55,7 @@ use payload_builder::{
     DiscordPayloadBuilder, GenericWebhookPayloadBuilder, SlackPayloadBuilder,
     TelegramPayloadBuilder, WebhookPayloadBuilder,
 };
+use template::TemplateService;
 use tokio::sync::mpsc;
 
 /// A private container struct holding the generic components required to send any
@@ -184,8 +185,12 @@ impl AsWebhookComponents for TriggerTypeConfig {
 pub struct NotificationService {
     /// A thread-safe pool for creating and reusing HTTP clients with different retry policies.
     client_pool: Arc<HttpClientPool>,
+
     /// A map of trigger names to their loaded and validated configurations.
     triggers: HashMap<String, TriggerTypeConfig>,
+
+    /// A service for rendering templates
+    template_service: TemplateService,
 }
 
 impl NotificationService {
@@ -199,6 +204,7 @@ impl NotificationService {
         NotificationService {
             client_pool: Arc::new(HttpClientPool::new()),
             triggers,
+            template_service: TemplateService::new(),
         }
     }
 
@@ -221,8 +227,7 @@ impl NotificationService {
     pub async fn execute(
         &self,
         trigger_name: &str,
-        variables: &HashMap<String, String>,
-        _monitor_match: &MonitorMatch,
+        monitor_match: &MonitorMatch,
     ) -> Result<(), NotificationError> {
         let trigger_config = self.triggers.get(trigger_name).ok_or_else(|| {
             NotificationError::ConfigError(format!("Trigger '{}' not found", trigger_name))
@@ -237,12 +242,20 @@ impl NotificationService {
             .get_or_create(&components.retry_policy)
             .await?;
 
+        // Serialize MonitorMatch to JSON
+        let monitor_match_json = serde_json::to_string(monitor_match).map_err(|e| {
+            NotificationError::ConfigError(format!("Failed to serialize MonitorMatch: {}", e))
+        })?;
+
+        // Use the template service to render the message body
+        let body = self
+            .template_service
+            .render(&components.config.body_template, monitor_match_json.into())?;
+
         // Build the payload
-        let payload = components.builder.build_payload(
-            &components.config.title,
-            &components.config.body_template,
-            variables,
-        );
+        let payload = components
+            .builder
+            .build_payload(&components.config.title, &body);
 
         // Create the notifier
         let notifier = WebhookNotifier::new(components.config, http_client)?;
@@ -256,9 +269,8 @@ impl NotificationService {
     /// notifications based on the configured triggers.
     pub async fn run(&self, mut notifications_rx: mpsc::Receiver<MonitorMatch>) {
         while let Some(monitor_match) = notifications_rx.recv().await {
-            let variables = HashMap::new(); // TODO: Populate with actual variables
             if let Err(e) = self
-                .execute(&monitor_match.trigger_name, &variables, &monitor_match)
+                .execute(&monitor_match.trigger_name, &monitor_match)
                 .await
             {
                 tracing::error!(
@@ -293,9 +305,8 @@ mod tests {
     async fn test_missing_trigger_error() {
         let service = NotificationService::new(vec![]);
 
-        let variables = HashMap::new();
         let result = service
-            .execute("nonexistent", &variables, &create_mock_monitor_match())
+            .execute("nonexistent", &create_mock_monitor_match())
             .await;
         assert!(result.is_err());
         match result {
@@ -330,9 +341,7 @@ mod tests {
         assert!(components.config.secret.is_none());
 
         // Assert the builder creates the correct payload
-        let payload = components
-            .builder
-            .build_payload(title, message, &HashMap::new());
+        let payload = components.builder.build_payload(title, message);
         assert!(
             payload.get("blocks").is_some(),
             "Expected a Slack payload with 'blocks'"

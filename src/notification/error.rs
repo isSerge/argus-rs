@@ -1,6 +1,6 @@
 //! Error types for the notification service.
 
-use crate::http_client::HttpClientPoolError;
+use crate::{http_client::HttpClientPoolError, notification::template::TemplateServiceError};
 use thiserror::Error;
 
 /// Defines the possible errors that can occur within the notification service.
@@ -33,4 +33,8 @@ pub enum NotificationError {
     /// An error from the underlying `reqwest` or `reqwest_middleware` libraries.
     #[error("Request error: {0}")]
     RequestError(#[from] reqwest_middleware::Error),
+
+    /// An error related to the template rendering process.
+    #[error("Template rendering error: {0}")]
+    TemplateError(#[from] TemplateServiceError),
 }

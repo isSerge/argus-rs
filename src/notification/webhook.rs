@@ -235,11 +235,7 @@ mod tests {
     }
 
     fn create_test_payload() -> serde_json::Value {
-        GenericWebhookPayloadBuilder.build_payload(
-            "Test Alert",
-            "Test message with value ${value}",
-            &HashMap::from([("value".to_string(), "42".to_string())]),
-        )
+        GenericWebhookPayloadBuilder.build_payload("Test Alert", "Test message with value ${value}")
     }
 
     ////////////////////////////////////////////////////////////
