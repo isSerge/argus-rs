@@ -4,8 +4,8 @@ use minijinja::Environment;
 use thiserror::Error;
 
 /// A service for rendering templates using the minijinja templating engine.
-pub struct TemplateService<'a> {
-    env: Environment<'a>,
+pub struct TemplateService {
+    env: Environment<'static>,
 }
 
 /// Error type for the TemplateService.
@@ -15,8 +15,7 @@ pub enum TemplateServiceError {
     RenderError(#[from] minijinja::Error),
 }
 
-
-impl<'a> TemplateService<'a> {
+impl TemplateService {
     /// Creates a new instance of `TemplateService` with a default environment.
     pub fn new() -> Self {
         let env = Environment::new();
@@ -37,34 +36,33 @@ impl<'a> TemplateService<'a> {
 }
 
 #[cfg(test)]
-  mod tests {
-      use super::*;
-      use serde_json::json;
+mod tests {
+    use super::*;
+    use serde_json::json;
 
-      #[test]
-      fn test_render_template_with_context() {
-          let service = TemplateService::new();
-          let template = "Block number: {{ block.number }}, Tx hash: {{ transaction.hash }}";
-          let context = json!({
-              "block": {
-                  "number": 123
-              },
-              "transaction": {
-                  "hash": "0xabc"
-              }
-          });
-          let result = service.render(template, context).unwrap();
-          assert_eq!(result, "Block number: 123, Tx hash: 0xabc");
-      }
+    #[test]
+    fn test_render_template_with_context() {
+        let service = TemplateService::new();
+        let template = "Block number: {{ block.number }}, Tx hash: {{ transaction.hash }}";
+        let context = json!({
+            "block": {
+                "number": 123
+            },
+            "transaction": {
+                "hash": "0xabc"
+            }
+        });
+        let result = service.render(template, context).unwrap();
+        assert_eq!(result, "Block number: 123, Tx hash: 0xabc");
+    }
 
-
-      #[test]
-      fn test_render_template_with_invalid_template() {
-          let service = TemplateService::new();
-          let template = "Hello, {{ name }";
-          let context = json!({ "name": "World" });
-          let result = service.render(template, context);
-          assert!(result.is_err());
-          assert!(matches!(result, Err(TemplateServiceError::RenderError(_))));
-      }
-  }
+    #[test]
+    fn test_render_template_with_invalid_template() {
+        let service = TemplateService::new();
+        let template = "Hello, {{ name }";
+        let context = json!({ "name": "World" });
+        let result = service.render(template, context);
+        assert!(result.is_err());
+        assert!(matches!(result, Err(TemplateServiceError::RenderError(_))));
+    }
+}
