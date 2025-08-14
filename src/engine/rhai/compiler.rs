@@ -6,6 +6,7 @@ use rhai::{AST, Engine};
 use std::collections::HashSet;
 use std::sync::Arc;
 use thiserror::Error;
+use sha2::{Sha256, Digest};
 
 use super::ast_analysis;
 
@@ -19,13 +20,16 @@ pub struct ScriptAnalysis {
     pub accessed_variables: Arc<HashSet<String>>,
 }
 
+/// A type alias for the hash of a Rhai script.
+type ScriptHash = [u8; 32];
+
 /// The Rhai compiler that compiles scripts and analyzes their ASTs.
 /// It caches the results to avoid redundant compilations.
 pub struct RhaiCompiler {
     /// The Rhai engine used for compiling scripts.
     engine: Arc<Engine>,
     /// A cache that stores the analysis results of scripts.
-    cache: DashMap<String, ScriptAnalysis>,
+    cache: DashMap<ScriptHash, ScriptAnalysis>,
 }
 
 /// Errors that can occur during Rhai compilation or analysis.
@@ -34,10 +38,6 @@ pub enum RhaiCompilerError {
     /// Error that occurs during script compilation.
     #[error("Rhai compilation error: {0}")]
     CompilationError(#[from] rhai::ParseError),
-
-    /// Error that occurs during AST analysis.
-    #[error("Rhai analysis error: {0}")]
-    AnalysisError(String),
 }
 
 impl RhaiCompiler {
@@ -51,11 +51,21 @@ impl RhaiCompiler {
         }
     }
 
+    /// A helper function to compute the hash of a script.
+    fn hash_script(script: &str) -> ScriptHash {
+        let mut hasher = Sha256::new();
+        hasher.update(script.as_bytes());
+        hasher.finalize().into()
+    }
+
     /// Analyzes a Rhai script, compiling it into an AST and extracting accessed variables.
     /// If the script has been analyzed before, it retrieves the result from the cache.
     pub fn analyze_script(&self, script: &str) -> Result<ScriptAnalysis, RhaiCompilerError> {
+        // Compute the hash of the script to use as a cache key.
+        let key = Self::hash_script(script);
+
         // Check the cache first
-        if let Some(cached) = self.cache.get(script) {
+        if let Some(cached) = self.cache.get(&key) {
             return Ok(cached.value().clone());
         }
 
@@ -71,7 +81,7 @@ impl RhaiCompiler {
         };
 
         // Store the analysis in the cache
-        self.cache.insert(script.to_string(), analysis.clone());
+        self.cache.insert(key, analysis.clone());
 
         // Return the analysis result
         Ok(analysis)
@@ -156,7 +166,8 @@ mod tests {
 
         // The AST should be cached after the first call.
         assert_eq!(compiler.cache.len(), 1);
-        let cached_entry = compiler.cache.get(script).unwrap();
+        let key = RhaiCompiler::hash_script(script);
+        let cached_entry = compiler.cache.get(&key).unwrap();
         assert!(Arc::ptr_eq(&result.unwrap(), &cached_entry.ast));
     }
 
@@ -170,10 +181,13 @@ mod tests {
         let _ = compiler.analyze_script(script1).unwrap();
         let _ = compiler.analyze_script(script2).unwrap();
 
+        let key1 = RhaiCompiler::hash_script(script1);
+        let key2 = RhaiCompiler::hash_script(script2);
+
         // The cache should now contain two distinct entries.
         assert_eq!(compiler.cache.len(), 2);
-        assert!(compiler.cache.contains_key(script1));
-        assert!(compiler.cache.contains_key(script2));
+        assert!(compiler.cache.contains_key(&key1));
+        assert!(compiler.cache.contains_key(&key2));
     }
 
     #[test]

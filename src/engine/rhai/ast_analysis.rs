@@ -1,7 +1,7 @@
 //! A utility module for traversing a Rhai AST to extract information.
 //! This module is the core of static analysis for Rhai scripts.
 
-use rhai::{Expr, Stmt, AST};
+use rhai::{AST, Expr, Stmt};
 use std::collections::HashSet;
 
 /// Traverses a compiled `AST` and returns a set of all unique, fully-qualified
@@ -76,7 +76,7 @@ fn walk_stmt(stmt: &Stmt, variables: &mut HashSet<String>) {
             for s in flow_control.body.statements() {
                 walk_stmt(s, variables);
             }
-             for s in flow_control.branch.statements() {
+            for s in flow_control.branch.statements() {
                 walk_stmt(s, variables);
             }
         }
@@ -88,7 +88,7 @@ fn walk_stmt(stmt: &Stmt, variables: &mut HashSet<String>) {
         }
         Stmt::Noop(_)
         | Stmt::Return(None, _, _)
-        | Stmt::BreakLoop(None, _, _) 
+        | Stmt::BreakLoop(None, _, _)
         | Stmt::Export(_, _)
         | Stmt::Share(_) => {}
 
@@ -165,10 +165,10 @@ fn walk_expr(expr: &Expr, variables: &mut HashSet<String>) {
         Expr::Variable(_, _, _) | Expr::Property(_, _) => {}
         Expr::DynamicConstant(_, _)
         | Expr::BoolConstant(_, _)
-        | Expr::IntegerConstant(_, _) 
+        | Expr::IntegerConstant(_, _)
         | Expr::CharConstant(_, _)
         | Expr::StringConstant(_, _)
-        | Expr::Unit(_) 
+        | Expr::Unit(_)
         | Expr::ThisPtr(_)
         | Expr::FloatConstant(_, _) => {}
         _ => {}
@@ -193,9 +193,7 @@ fn get_full_variable_path(expr: &Expr) -> Option<String> {
                 parts.push(var_info.1.to_string());
                 true
             }
-            Expr::Index(binary_expr, _, _) => {
-                collect_path(&binary_expr.lhs, parts)
-            }
+            Expr::Index(binary_expr, _, _) => collect_path(&binary_expr.lhs, parts),
             _ => false,
         }
     }
@@ -224,7 +222,7 @@ mod tests {
         let vars = get_vars("tx.value > 100").unwrap();
         assert_eq!(vars, HashSet::from(["tx.value".to_string()]));
     }
-    
+
     #[test]
     fn test_logical_operators() {
         let script = r#"tx.from == owner && log.name != "Transfer" || block.number > 1000"#;
@@ -245,13 +243,10 @@ mod tests {
         let vars = get_vars("tx.from ?? fallback_addr.address").unwrap();
         assert_eq!(
             vars,
-            HashSet::from([
-                "tx.from".to_string(),
-                "fallback_addr.address".to_string(),
-            ])
+            HashSet::from(["tx.from".to_string(), "fallback_addr.address".to_string(),])
         );
     }
-    
+
     #[test]
     fn test_deeply_nested_variable() {
         let script = r#"log.params.level_one.level_two.user == "admin""#;
@@ -293,7 +288,7 @@ mod tests {
             ])
         );
     }
-    
+
     #[test]
     fn test_variables_in_loops() {
         let script = r#"
