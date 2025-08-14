@@ -170,7 +170,6 @@ impl AsWebhookComponents for TriggerTypeConfig {
             secret,
             headers,
             url_params: None,
-            payload_fields: None,
         };
 
         Ok(WebhookComponents {

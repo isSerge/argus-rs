@@ -28,7 +28,6 @@ pub struct WebhookConfig {
     pub method: Option<String>,
     pub secret: Option<String>,
     pub headers: Option<HashMap<String, String>>,
-    pub payload_fields: Option<HashMap<String, serde_json::Value>>,
 }
 
 /// Implementation of webhook notifications via webhooks
@@ -38,8 +37,6 @@ pub struct WebhookNotifier {
     pub url: String,
     /// URL parameters to use for the webhook request
     pub url_params: Option<HashMap<String, String>>,
-    /// Title to display in the message
-    pub title: String,
     /// Configured HTTP client for webhook requests with retry capabilities
     pub client: Arc<ClientWithMiddleware>,
     /// HTTP method to use for the webhook request
@@ -48,8 +45,6 @@ pub struct WebhookNotifier {
     pub secret: Option<String>,
     /// Headers to use for the webhook request
     pub headers: Option<HashMap<String, String>>,
-    /// Additional fields to include in the webhook payload.
-    pub payload_fields: Option<HashMap<String, serde_json::Value>>,
 }
 
 impl WebhookNotifier {
@@ -72,12 +67,10 @@ impl WebhookNotifier {
         Ok(Self {
             url: config.url,
             url_params: config.url_params,
-            title: config.title,
             client: http_client,
             method: Some(config.method.unwrap_or("POST".to_string())),
             secret: config.secret,
             headers: Some(headers),
-            payload_fields: config.payload_fields,
         })
     }
 
@@ -229,7 +222,6 @@ mod tests {
             method: Some("POST".to_string()),
             secret: secret.map(|s| s.to_string()),
             headers,
-            payload_fields: None,
         };
         WebhookNotifier::new(config, http_client).unwrap()
     }
