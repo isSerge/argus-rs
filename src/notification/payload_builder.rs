@@ -12,57 +12,26 @@
 //!   and a set of variables, and returns a `serde_json::Value`.
 //! - **Implementations**: Structs like `SlackPayloadBuilder`, `DiscordPayloadBuilder`, etc.,
 //!   implement this trait to generate the JSON required by their respective services.
-//! - **`format_template`**: A utility function for performing simple key-value substitution
-//!   in message templates.
 
 use regex::Regex;
 use serde_json::json;
-use std::collections::HashMap;
 
 /// A trait for building channel-specific webhook payloads.
 ///
 /// This trait is implemented by structs that know how to construct the correct
 /// JSON payload for a specific notification service (e.g., Slack, Discord).
 pub trait WebhookPayloadBuilder: Send + Sync {
-    /// Builds a webhook payload by substituting variables and structuring the JSON.
+    /// Builds a webhook payload.
     ///
     /// # Arguments
     ///
     /// * `title` - The title of the notification message.
-    /// * `body_template` - The message body, which may contain variables in the
-    ///   format `${variable_name}`.
-    /// * `variables` - A map of variable names to their values for substitution.
+    /// * `body` - The rendered message body.
     ///
     /// # Returns
     ///
     /// A `serde_json::Value` representing the final JSON payload to be sent.
-    fn build_payload(
-        &self,
-        title: &str,
-        body_template: &str,
-        variables: &HashMap<String, String>,
-    ) -> serde_json::Value;
-}
-
-/// Formats a message template by substituting variables.
-///
-/// This function iterates through the provided variables and replaces placeholders
-/// in the format `${key}` with their corresponding values.
-///
-/// # Arguments
-///
-/// * `template` - The string template to format.
-/// * `variables` - A map of variable keys to their string values.
-///
-/// # Returns
-///
-/// A `String` with all variables substituted.
-pub fn format_template(template: &str, variables: &HashMap<String, String>) -> String {
-    let mut message = template.to_string();
-    for (key, value) in variables {
-        message = message.replace(&format!("${{{}}}", key), value);
-    }
-    message
+    fn build_payload(&self, title: &str, body: &str) -> serde_json::Value;
 }
 
 /// A payload builder for Slack notifications.
@@ -72,14 +41,8 @@ pub fn format_template(template: &str, variables: &HashMap<String, String>) -> S
 pub struct SlackPayloadBuilder;
 
 impl WebhookPayloadBuilder for SlackPayloadBuilder {
-    fn build_payload(
-        &self,
-        title: &str,
-        body_template: &str,
-        variables: &HashMap<String, String>,
-    ) -> serde_json::Value {
-        let message = format_template(body_template, variables);
-        let full_message = format!("*{}*\n\n{}", title, message);
+    fn build_payload(&self, title: &str, body: &str) -> serde_json::Value {
+        let full_message = format!("*{title}*\n\n{body}");
         json!({
             "blocks": [
                 {
@@ -100,14 +63,8 @@ impl WebhookPayloadBuilder for SlackPayloadBuilder {
 pub struct DiscordPayloadBuilder;
 
 impl WebhookPayloadBuilder for DiscordPayloadBuilder {
-    fn build_payload(
-        &self,
-        title: &str,
-        body_template: &str,
-        variables: &HashMap<String, String>,
-    ) -> serde_json::Value {
-        let message = format_template(body_template, variables);
-        let full_message = format!("*{}*\n\n{}", title, message);
+    fn build_payload(&self, title: &str, body: &str) -> serde_json::Value {
+        let full_message = format!("*{title}*\n\n{body}");
         json!({
             "content": full_message
         })
@@ -195,20 +152,12 @@ impl TelegramPayloadBuilder {
 }
 
 impl WebhookPayloadBuilder for TelegramPayloadBuilder {
-    fn build_payload(
-        &self,
-        title: &str,
-        body_template: &str,
-        variables: &HashMap<String, String>,
-    ) -> serde_json::Value {
-        // First, substitute variables.
-        let message = format_template(body_template, variables);
-
-        // Then, escape both the title and the formatted message for Telegram MarkdownV2.
+    fn build_payload(&self, title: &str, body: &str) -> serde_json::Value {
+        // Escape both the title and the formatted message for Telegram MarkdownV2.
         let escaped_title = Self::escape_markdown_v2(title);
-        let escaped_message = Self::escape_markdown_v2(&message);
+        let escaped_message = Self::escape_markdown_v2(body);
 
-        let full_message = format!("*{}* \n\n{}", escaped_title, escaped_message);
+        let full_message = format!("*{escaped_title}* \n\n{escaped_message}");
         json!({
             "chat_id": self.chat_id,
             "text": full_message,
@@ -224,16 +173,10 @@ impl WebhookPayloadBuilder for TelegramPayloadBuilder {
 pub struct GenericWebhookPayloadBuilder;
 
 impl WebhookPayloadBuilder for GenericWebhookPayloadBuilder {
-    fn build_payload(
-        &self,
-        title: &str,
-        body_template: &str,
-        variables: &HashMap<String, String>,
-    ) -> serde_json::Value {
-        let message = format_template(body_template, variables);
+    fn build_payload(&self, title: &str, body: &str) -> serde_json::Value {
         json!({
             "title": title,
-            "body": message
+            "body": body
         })
     }
 }
@@ -247,8 +190,7 @@ mod tests {
     fn test_slack_payload_builder() {
         let title = "Test Title";
         let message = "Test Message";
-        let variables = HashMap::from([("value".to_string(), "42".to_string())]);
-        let payload = SlackPayloadBuilder.build_payload(title, message, &variables);
+        let payload = SlackPayloadBuilder.build_payload(title, message);
         assert_eq!(
             payload,
             json!({
@@ -269,8 +211,7 @@ mod tests {
     fn test_discord_payload_builder() {
         let title = "Test Title";
         let message = "Test Message";
-        let variables = HashMap::from([("value".to_string(), "42".to_string())]);
-        let payload = DiscordPayloadBuilder.build_payload(title, message, &variables);
+        let payload = DiscordPayloadBuilder.build_payload(title, message);
         assert_eq!(
             payload,
             json!({
@@ -287,8 +228,7 @@ mod tests {
         };
         let title = "Test Title";
         let message = "Test Message";
-        let variables = HashMap::from([("value".to_string(), "42".to_string())]);
-        let payload = builder.build_payload(title, message, &variables);
+        let payload = builder.build_payload(title, message);
         assert_eq!(
             payload,
             json!({
@@ -304,8 +244,7 @@ mod tests {
     fn test_generic_webhook_payload_builder() {
         let title = "Test Title";
         let message = "Test Message";
-        let variables = HashMap::from([("value".to_string(), "42".to_string())]);
-        let payload = GenericWebhookPayloadBuilder.build_payload(title, message, &variables);
+        let payload = GenericWebhookPayloadBuilder.build_payload(title, message);
         assert_eq!(
             payload,
             json!({

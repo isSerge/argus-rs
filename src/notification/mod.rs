@@ -46,9 +46,10 @@ use crate::{
 
 pub mod error;
 pub mod payload_builder;
+mod template;
 mod webhook;
 
-use self::webhook::WebhookNotifier;
+use self::{template::TemplateService, webhook::WebhookNotifier};
 use error::NotificationError;
 use payload_builder::{
     DiscordPayloadBuilder, GenericWebhookPayloadBuilder, SlackPayloadBuilder,
@@ -133,7 +134,7 @@ impl AsWebhookComponents for TriggerTypeConfig {
                 disable_web_preview,
                 retry_policy,
             }) => (
-                format!("https://api.telegram.org/bot{}/sendMessage", token),
+                format!("https://api.telegram.org/bot{token}/sendMessage"),
                 message.clone(),
                 Some("POST".to_string()),
                 None,
@@ -168,7 +169,6 @@ impl AsWebhookComponents for TriggerTypeConfig {
             secret,
             headers,
             url_params: None,
-            payload_fields: None,
         };
 
         Ok(WebhookComponents {
@@ -185,6 +185,8 @@ pub struct NotificationService {
     client_pool: Arc<HttpClientPool>,
     /// A map of trigger names to their loaded and validated configurations.
     triggers: HashMap<String, TriggerTypeConfig>,
+    /// The service for rendering notification templates.
+    template_service: TemplateService,
 }
 
 impl NotificationService {
@@ -193,11 +195,13 @@ impl NotificationService {
     /// # Arguments
     ///
     /// * `triggers` - A vector of `TriggerConfig` loaded and validated at application startup.
-    pub fn new(triggers: Vec<TriggerConfig>) -> Self {
+    /// * `client_pool` - A shared pool of HTTP clients.
+    pub fn new(triggers: Vec<TriggerConfig>, client_pool: Arc<HttpClientPool>) -> Self {
         let triggers = triggers.into_iter().map(|t| (t.name, t.config)).collect();
         NotificationService {
-            client_pool: Arc::new(HttpClientPool::new()),
+            client_pool,
             triggers,
+            template_service: TemplateService::new(),
         }
     }
 
@@ -208,23 +212,16 @@ impl NotificationService {
     ///
     /// # Arguments
     ///
-    /// * `trigger_name` - The name of the trigger to execute, as defined in the trigger configuration file.
-    /// * `variables` - A map of key-value pairs for substituting variables in the notification message template.
-    /// * `_monitor_match` - The monitor match data that initiated this trigger. Currently unused but
-    ///   reserved for future features like script-based triggers.
+    /// * `monitor_match` - The monitor match data that initiated this trigger.
     ///
     /// # Returns
     ///
     /// * `Result<(), NotificationError>` - Returns `Ok(())` on success, or a `NotificationError` if
     ///   the trigger is not found, the HTTP client fails, or the notification fails to send.
-    pub async fn execute(
-        &self,
-        trigger_name: &str,
-        variables: &HashMap<String, String>,
-        _monitor_match: &MonitorMatch,
-    ) -> Result<(), NotificationError> {
+    pub async fn execute(&self, monitor_match: &MonitorMatch) -> Result<(), NotificationError> {
+        let trigger_name = &monitor_match.trigger_name;
         let trigger_config = self.triggers.get(trigger_name).ok_or_else(|| {
-            NotificationError::ConfigError(format!("Trigger '{}' not found", trigger_name))
+            NotificationError::ConfigError(format!("Trigger '{trigger_name}' not found"))
         })?;
 
         // Use the AsWebhookComponents trait to get config, retry policy and payload builder
@@ -236,12 +233,20 @@ impl NotificationService {
             .get_or_create(&components.retry_policy)
             .await?;
 
+        // Serialize the MonitorMatch to a JSON value for the template context.
+        let context = serde_json::to_value(monitor_match).map_err(|e| {
+            NotificationError::InternalError(format!("Failed to serialize monitor match: {e}"))
+        })?;
+
+        // Render the body template.
+        let rendered_body = self
+            .template_service
+            .render(&components.config.body_template, context)?;
+
         // Build the payload
-        let payload = components.builder.build_payload(
-            &components.config.title,
-            &components.config.body_template,
-            variables,
-        );
+        let payload = components
+            .builder
+            .build_payload(&components.config.title, &rendered_body);
 
         // Create the notifier
         let notifier = WebhookNotifier::new(components.config, http_client)?;
@@ -255,11 +260,7 @@ impl NotificationService {
     /// notifications based on the configured triggers.
     pub async fn run(&self, mut notifications_rx: mpsc::Receiver<MonitorMatch>) {
         while let Some(monitor_match) = notifications_rx.recv().await {
-            let variables = HashMap::new(); // TODO: Populate with actual variables
-            if let Err(e) = self
-                .execute(&monitor_match.trigger_name, &variables, &monitor_match)
-                .await
-            {
+            if let Err(e) = self.execute(&monitor_match).await {
                 tracing::error!(
                     "Failed to execute notification for trigger '{}': {}",
                     monitor_match.trigger_name,
@@ -276,26 +277,26 @@ mod tests {
     use crate::{config::HttpRetryConfig, models::notification::NotificationMessage};
     use serde_json::json;
 
-    fn create_mock_monitor_match() -> MonitorMatch {
+    fn create_mock_monitor_match(trigger_name: &str) -> MonitorMatch {
         MonitorMatch {
             monitor_id: 1,
             block_number: 123,
             transaction_hash: Default::default(),
             contract_address: Default::default(),
-            trigger_name: "test_trigger".to_string(),
-            trigger_data: json!({}),
+            trigger_name: trigger_name.to_string(),
+            trigger_data: json!({ "foo": "bar" }),
             log_index: None,
         }
     }
 
     #[tokio::test]
     async fn test_missing_trigger_error() {
-        let service = NotificationService::new(vec![]);
+        let http_client_pool = Arc::new(HttpClientPool::new());
+        let service = NotificationService::new(vec![], http_client_pool);
+        let monitor_match = create_mock_monitor_match("nonexistent");
 
-        let variables = HashMap::new();
-        let result = service
-            .execute("nonexistent", &variables, &create_mock_monitor_match())
-            .await;
+        let result = service.execute(&monitor_match).await;
+
         assert!(result.is_err());
         match result {
             Err(NotificationError::ConfigError(msg)) => {
@@ -329,9 +330,7 @@ mod tests {
         assert!(components.config.secret.is_none());
 
         // Assert the builder creates the correct payload
-        let payload = components
-            .builder
-            .build_payload(title, message, &HashMap::new());
+        let payload = components.builder.build_payload(title, message);
         assert!(
             payload.get("blocks").is_some(),
             "Expected a Slack payload with 'blocks'"

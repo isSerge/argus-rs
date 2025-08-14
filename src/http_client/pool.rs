@@ -61,7 +61,7 @@ impl HttpClientPool {
         &self,
         retry_policy: &HttpRetryConfig,
     ) -> Result<Arc<ClientWithMiddleware>, HttpClientPoolError> {
-        let key = format!("{:?}", retry_policy);
+        let key = format!("{retry_policy:?}");
 
         // Fast path: Check if the client already exists with a read lock.
         if let Some(client) = self.clients.read().await.get(&key) {

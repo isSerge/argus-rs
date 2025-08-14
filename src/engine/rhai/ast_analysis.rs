@@ -105,11 +105,10 @@ fn walk_expr(expr: &Expr, variables: &mut HashSet<String>) {
     if let Some(path) = get_full_variable_path(expr) {
         variables.insert(path);
         // For Index, also collect index variable if present
-        if let Expr::Index(binary_expr, _, _) = expr {
-            if let Some(index_path) = get_full_variable_path(&binary_expr.rhs) {
+        if let Expr::Index(binary_expr, _, _) = expr
+            && let Some(index_path) = get_full_variable_path(&binary_expr.rhs) {
                 variables.insert(index_path);
             }
-        }
         return;
     }
 

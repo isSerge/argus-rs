@@ -28,7 +28,6 @@ pub struct WebhookConfig {
     pub method: Option<String>,
     pub secret: Option<String>,
     pub headers: Option<HashMap<String, String>>,
-    pub payload_fields: Option<HashMap<String, serde_json::Value>>,
 }
 
 /// Implementation of webhook notifications via webhooks
@@ -38,8 +37,6 @@ pub struct WebhookNotifier {
     pub url: String,
     /// URL parameters to use for the webhook request
     pub url_params: Option<HashMap<String, String>>,
-    /// Title to display in the message
-    pub title: String,
     /// Configured HTTP client for webhook requests with retry capabilities
     pub client: Arc<ClientWithMiddleware>,
     /// HTTP method to use for the webhook request
@@ -48,8 +45,6 @@ pub struct WebhookNotifier {
     pub secret: Option<String>,
     /// Headers to use for the webhook request
     pub headers: Option<HashMap<String, String>>,
-    /// Additional fields to include in the webhook payload.
-    pub payload_fields: Option<HashMap<String, serde_json::Value>>,
 }
 
 impl WebhookNotifier {
@@ -72,12 +67,10 @@ impl WebhookNotifier {
         Ok(Self {
             url: config.url,
             url_params: config.url_params,
-            title: config.title,
             client: http_client,
             method: Some(config.method.unwrap_or("POST".to_string())),
             secret: config.secret,
             headers: Some(headers),
-            payload_fields: config.payload_fields,
         })
     }
 
@@ -97,13 +90,13 @@ impl WebhookNotifier {
 
         // Create HMAC instance
         let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .map_err(|e| NotificationError::ConfigError(format!("Invalid secret: {}", e)))?;
+            .map_err(|e| NotificationError::ConfigError(format!("Invalid secret: {e}")))?;
 
         // Create the message to sign
         let serialized_payload = serde_json::to_string(payload).map_err(|e| {
-            NotificationError::InternalError(format!("Failed to serialize payload: {}", e))
+            NotificationError::InternalError(format!("Failed to serialize payload: {e}"))
         })?;
-        let message = format!("{}{}", serialized_payload, timestamp);
+        let message = format!("{serialized_payload}{timestamp}");
         mac.update(message.as_bytes());
 
         // Get the HMAC result
@@ -152,13 +145,13 @@ impl WebhookNotifier {
             headers.insert(
                 HeaderName::from_static("x-signature"),
                 HeaderValue::from_str(&signature).map_err(|e| {
-                    NotificationError::NotifyFailed(format!("Invalid signature value: {}", e))
+                    NotificationError::NotifyFailed(format!("Invalid signature value: {e}"))
                 })?,
             );
             headers.insert(
                 HeaderName::from_static("x-timestamp"),
                 HeaderValue::from_str(&timestamp).map_err(|e| {
-                    NotificationError::NotifyFailed(format!("Invalid timestamp value: {}", e))
+                    NotificationError::NotifyFailed(format!("Invalid timestamp value: {e}"))
                 })?,
             );
         }
@@ -167,12 +160,11 @@ impl WebhookNotifier {
         if let Some(headers_map) = &self.headers {
             for (key, value) in headers_map {
                 let header_name = HeaderName::from_bytes(key.as_bytes()).map_err(|e| {
-                    NotificationError::NotifyFailed(format!("Invalid header name: {}: {}", key, e))
+                    NotificationError::NotifyFailed(format!("Invalid header name: {key}: {e}"))
                 })?;
                 let header_value = HeaderValue::from_str(value).map_err(|e| {
                     NotificationError::NotifyFailed(format!(
-                        "Invalid header value for {}: {}: {}",
-                        key, value, e
+                        "Invalid header value for {key}: {value}: {e}"
                     ))
                 })?;
                 headers.insert(header_name, header_value);
@@ -192,8 +184,7 @@ impl WebhookNotifier {
 
         if !status.is_success() {
             return Err(NotificationError::NotifyFailed(format!(
-                "Webhook request failed with status: {}",
-                status
+                "Webhook request failed with status: {status}"
             )));
         }
 
@@ -229,17 +220,12 @@ mod tests {
             method: Some("POST".to_string()),
             secret: secret.map(|s| s.to_string()),
             headers,
-            payload_fields: None,
         };
         WebhookNotifier::new(config, http_client).unwrap()
     }
 
     fn create_test_payload() -> serde_json::Value {
-        GenericWebhookPayloadBuilder.build_payload(
-            "Test Alert",
-            "Test message with value ${value}",
-            &HashMap::from([("value".to_string(), "42".to_string())]),
-        )
+        GenericWebhookPayloadBuilder.build_payload("Test Alert", "Test message with value ${value}")
     }
 
     ////////////////////////////////////////////////////////////
