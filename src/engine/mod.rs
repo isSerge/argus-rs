@@ -2,4 +2,4 @@
 
 pub mod block_processor;
 pub mod filtering;
-mod rhai;
+pub mod rhai;

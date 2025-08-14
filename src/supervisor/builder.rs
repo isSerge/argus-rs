@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::{
     abi::AbiService,
     config::AppConfig,
-    engine::{block_processor::BlockProcessor, filtering::RhaiFilteringEngine},
+    engine::{block_processor::BlockProcessor, filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
     notification::NotificationService,
     persistence::traits::StateRepository,
     providers::traits::DataSource,
@@ -76,7 +76,8 @@ impl SupervisorBuilder {
 
         // Construct the internal services.
         let block_processor = BlockProcessor::new(Arc::clone(&abi_service));
-        let filtering_engine = RhaiFilteringEngine::new(monitors, config.rhai.clone());
+        let compiler = Arc::new(RhaiCompiler::new(config.rhai.clone()));
+        let filtering_engine = RhaiFilteringEngine::new(monitors, compiler, config.rhai.clone());
         let notification_service = NotificationService::new(triggers);
 
         // Finally, construct the Supervisor with all its components.

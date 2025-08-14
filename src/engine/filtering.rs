@@ -1,16 +1,16 @@
 //! This module defines the `FilteringEngine` and its implementations.
 
 use super::rhai::{
-    bigint::register_bigint_with_rhai,
     conversions::{
         build_log_map, build_log_params_map, build_transaction_map, build_trigger_data_from_params,
     },
+    create_engine,
 };
-use crate::config::RhaiConfig;
 use crate::models::correlated_data::CorrelatedBlockItem;
 use crate::models::decoded_block::DecodedBlockData;
 use crate::models::monitor::Monitor;
 use crate::models::monitor_match::MonitorMatch;
+use crate::{config::RhaiConfig, engine::rhai::compiler::RhaiCompiler};
 use alloy::primitives::Address;
 use async_trait::async_trait;
 use dashmap::DashMap;
@@ -18,9 +18,9 @@ use futures::future;
 #[cfg(test)]
 use mockall::automock;
 use rhai::{AST, Engine, EvalAltResult, Scope};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
+use std::{collections::HashSet, sync::Arc};
 use thiserror::Error;
 use tokio::sync::RwLock;
 use tokio::sync::mpsc;
@@ -78,37 +78,28 @@ pub struct RhaiFilteringEngine {
     monitors_by_address: Arc<RwLock<DashMap<String, Vec<Monitor>>>>,
     /// Monitors that apply to all transactions.
     transaction_monitors: Arc<RwLock<Vec<Monitor>>>,
-    engine: Engine,
-    rhai_config: RhaiConfig,
+    compiler: Arc<RhaiCompiler>,
     requires_receipts: AtomicBool,
+    config: RhaiConfig,
+    engine: Engine,
 }
 
 impl RhaiFilteringEngine {
     /// Creates a new `RhaiFilteringEngine` with the given monitors and Rhai configuration.
-    pub fn new(monitors: Vec<Monitor>, rhai_config: RhaiConfig) -> Self {
-        let mut engine = Engine::new();
-
-        // Apply security limits
-        engine.set_max_operations(rhai_config.max_operations);
-        engine.set_max_call_levels(rhai_config.max_call_levels);
-        engine.set_max_string_size(rhai_config.max_string_size);
-        engine.set_max_array_size(rhai_config.max_array_size);
-
-        // Disable dangerous language features
-        Self::disable_dangerous_features(&mut engine);
-
-        // Register BigInt wrapper for transparent big number handling
-        register_bigint_with_rhai(&mut engine);
+    pub fn new(monitors: Vec<Monitor>, compiler: Arc<RhaiCompiler>, config: RhaiConfig) -> Self {
+        // Currently use the default Rhai engine creation function, but can consider adding more customizations later
+        let engine = create_engine(config.clone());
 
         let (monitors_by_address, transaction_monitors, needs_receipts) =
-            Self::organize_monitors(monitors);
+            Self::organize_monitors(monitors, &compiler);
 
         Self {
             monitors_by_address: Arc::new(RwLock::new(monitors_by_address)),
             transaction_monitors: Arc::new(RwLock::new(transaction_monitors)),
-            engine,
-            rhai_config,
+            compiler,
             requires_receipts: AtomicBool::new(needs_receipts),
+            config,
+            engine,
         }
     }
 
@@ -116,10 +107,20 @@ impl RhaiFilteringEngine {
     /// and validates them.
     fn organize_monitors(
         monitors: Vec<Monitor>,
+        compiler: &RhaiCompiler,
     ) -> (DashMap<String, Vec<Monitor>>, Vec<Monitor>, bool) {
         let monitors_by_address: DashMap<String, Vec<Monitor>> = DashMap::new();
         let mut transaction_monitors = Vec::new();
         let mut needs_receipts = false;
+
+        // Receipt-specific fields that are only available from transaction receipts
+        let receipt_fields: HashSet<String> = [
+            "tx.gas_used".to_string(),
+            "tx.status".to_string(),
+            "tx.effective_gas_price".to_string(),
+        ]
+        .into_iter()
+        .collect();
 
         for monitor in monitors {
             if let Some(address_str) = &monitor.address {
@@ -138,31 +139,24 @@ impl RhaiFilteringEngine {
             }
 
             // Check if this monitor's script needs receipt data
-            if !needs_receipts && Self::script_needs_receipt_data(&monitor.filter_script) {
-                needs_receipts = true;
+            if !needs_receipts {
+                match compiler.analyze_script(&monitor.filter_script) {
+                    Ok(analysis) => {
+                        // Check for intersection between accessed variables and receipt fields.
+                        if !analysis.accessed_variables.is_disjoint(&receipt_fields) {
+                            needs_receipts = true;
+                        }
+                    }
+                    Err(e) => {
+                        // If a script fails to compile, we can't analyze it. Log an error.
+                        // It won't match anyway, but this highlights a problem.
+                        tracing::error!(monitor_id = monitor.id, error = ?e, "Failed to compile and analyze script during monitor organization");
+                    }
+                }
             }
         }
 
         (monitors_by_address, transaction_monitors, needs_receipts)
-    }
-
-    /// Disable dangerous language features and standard library functions
-    fn disable_dangerous_features(engine: &mut Engine) {
-        // List of dangerous symbols to disable
-        const DANGEROUS_SYMBOLS: &[&str] = &[
-            "eval", "import", "export", "print", "debug", "File", "file", "http", "net", "system",
-            "process", "thread", "spawn",
-        ];
-        for &symbol in DANGEROUS_SYMBOLS {
-            engine.disable_symbol(symbol);
-        }
-    }
-
-    /// Compile a script with security checks
-    fn compile_script(&self, script: &str) -> Result<AST, RhaiError> {
-        self.engine
-            .compile(script)
-            .map_err(|e| RhaiError::CompilationError(e.into()))
     }
 
     /// Execute a pre-compiled AST with security controls including timeout
@@ -174,21 +168,12 @@ impl RhaiFilteringEngine {
         // Execute with timeout protection
         let execution = async { self.engine.eval_ast_with_scope::<bool>(scope, ast) };
 
-        match timeout(self.rhai_config.execution_timeout, execution).await {
+        match timeout(self.config.execution_timeout, execution).await {
             Ok(result) => result.map_err(RhaiError::RuntimeError),
             Err(_) => Err(RhaiError::ExecutionTimeout {
-                timeout: self.rhai_config.execution_timeout,
+                timeout: self.config.execution_timeout,
             }),
         }
-    }
-
-    /// Analyzes a Rhai script to determine if it accesses receipt-related transaction fields.
-    fn script_needs_receipt_data(script: &str) -> bool {
-        // Receipt-specific fields that are only available from transaction receipts
-        let receipt_fields = ["tx.gas_used", "tx.status", "tx.effective_gas_price"];
-
-        // Simple string search for receipt-specific fields
-        receipt_fields.iter().any(|field| script.contains(field))
     }
 }
 
@@ -257,13 +242,7 @@ impl FilteringEngine for RhaiFilteringEngine {
             let mut scope = Scope::new();
             scope.push("tx", tx_map.clone());
 
-            let ast = match self.compile_script(&monitor.filter_script) {
-                Ok(ast) => ast,
-                Err(e) => {
-                    tracing::error!(monitor_id = monitor.id, "Failed to compile script: {}", e);
-                    continue;
-                }
-            };
+            let ast = self.compiler.get_ast(&monitor.filter_script)?;
 
             match self.eval_ast_bool_secure(&ast, &mut scope).await {
                 Ok(true) => {
@@ -307,17 +286,7 @@ impl FilteringEngine for RhaiFilteringEngine {
                         scope.push("tx", tx_map.clone());
                         scope.push("log", log_map.clone());
 
-                        let ast = match self.compile_script(&monitor.filter_script) {
-                            Ok(ast) => ast,
-                            Err(e) => {
-                                tracing::error!(
-                                    monitor_id = monitor.id,
-                                    "Failed to compile script: {}",
-                                    e
-                                );
-                                continue;
-                            }
-                        };
+                        let ast = self.compiler.get_ast(&monitor.filter_script)?;
 
                         match self.eval_ast_bool_secure(&ast, &mut scope).await {
                             Ok(true) => {
@@ -362,7 +331,7 @@ impl FilteringEngine for RhaiFilteringEngine {
     /// Updates the set of monitors used by the engine.
     async fn update_monitors(&self, monitors: Vec<Monitor>) {
         let (new_monitors_by_address, new_transaction_monitors, needs_receipts) =
-            Self::organize_monitors(monitors);
+            Self::organize_monitors(monitors, self.compiler.as_ref());
 
         let mut monitors_by_address_guard = self.monitors_by_address.write().await;
         *monitors_by_address_guard = new_monitors_by_address;
@@ -437,6 +406,8 @@ mod tests {
         let monitor4 = create_test_monitor(4, None, None, "tx.value > 0"); // Tx monitor
 
         // Test `new()`
+        let config = RhaiConfig::default();
+        let compiler = Arc::new(RhaiCompiler::new(config.clone()));
         let engine = RhaiFilteringEngine::new(
             vec![
                 monitor1.clone(),
@@ -444,7 +415,8 @@ mod tests {
                 monitor3.clone(),
                 monitor4.clone(),
             ],
-            RhaiConfig::default(),
+            compiler,
+            config,
         );
 
         let monitors_by_address_read = engine.monitors_by_address.read().await;
@@ -501,7 +473,9 @@ mod tests {
             Some("abi.json"),
             "log.name == \"Transfer\"",
         );
-        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
+        let config = RhaiConfig::default();
+        let compiler = Arc::new(RhaiCompiler::new(config.clone()));
+        let engine = RhaiFilteringEngine::new(vec![monitor], compiler, config);
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
         let item = CorrelatedBlockItem::new(tx, vec![log], None);
@@ -515,7 +489,9 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_item_transaction_based_match() {
         let monitor = create_test_monitor(1, None, None, "bigint(tx.value) > bigint(100)");
-        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
+        let config = RhaiConfig::default();
+        let compiler = Arc::new(RhaiCompiler::new(config.clone()));
+        let engine = RhaiFilteringEngine::new(vec![monitor], compiler, config);
 
         let tx = TransactionBuilder::new().value(U256::from(150)).build();
         // This item has no logs, but should still be evaluated by the tx monitor
@@ -530,7 +506,9 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_item_no_match_for_tx_monitor() {
         let monitor = create_test_monitor(1, None, None, "bigint(tx.value) > bigint(200)");
-        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
+        let config = RhaiConfig::default();
+        let compiler = Arc::new(RhaiCompiler::new(config.clone()));
+        let engine = RhaiFilteringEngine::new(vec![monitor], compiler, config);
 
         let tx = TransactionBuilder::new().value(U256::from(150)).build();
         let item = CorrelatedBlockItem::new(tx, vec![], None);
@@ -549,7 +527,9 @@ mod tests {
             "log.name == \"Transfer\"",
         );
         let tx_monitor = create_test_monitor(2, None, None, "bigint(tx.value) > bigint(100)");
-        let engine = RhaiFilteringEngine::new(vec![log_monitor, tx_monitor], RhaiConfig::default());
+        let config = RhaiConfig::default();
+        let compiler = Arc::new(RhaiCompiler::new(config.clone()));
+        let engine = RhaiFilteringEngine::new(vec![log_monitor, tx_monitor], compiler, config);
 
         // Create a transaction that will match the transaction-level monitor
         let tx = TransactionBuilder::new().value(U256::from(150)).build();
@@ -581,7 +561,9 @@ mod tests {
             Some("abi.json"),
             "log.name == \"ValueTransfered\" && bigint(log.params.value) > bigint(100)",
         );
-        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
+        let config = RhaiConfig::default();
+        let compiler = Arc::new(RhaiCompiler::new(config.clone()));
+        let engine = RhaiFilteringEngine::new(vec![monitor], compiler, config);
 
         let (tx, log) = create_test_log_and_tx(
             addr,
@@ -600,7 +582,9 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_item_no_decoded_logs_still_triggers_tx_monitor() {
         let monitor = create_test_monitor(1, None, None, "true"); // Always matches
-        let engine = RhaiFilteringEngine::new(vec![monitor], RhaiConfig::default());
+        let config = RhaiConfig::default();
+        let compiler = Arc::new(RhaiCompiler::new(config.clone()));
+        let engine = RhaiFilteringEngine::new(vec![monitor], compiler, config);
 
         let tx = TransactionBuilder::new().build();
         let item = CorrelatedBlockItem::new(tx, vec![], None);
@@ -608,5 +592,81 @@ mod tests {
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].monitor_id, 1);
+    }
+
+    #[tokio::test]
+    async fn test_requires_receipt_data_flag_set_correctly() {
+        let config = RhaiConfig::default();
+        let compiler = Arc::new(RhaiCompiler::new(config.clone()));
+
+        // --- Scenario 1: A monitor explicitly uses a receipt field ---
+        let monitors_with_receipt_field = vec![
+            create_test_monitor(1, None, None, "tx.value > 100"), // No receipt needed
+            create_test_monitor(2, None, None, "tx.status == 1"), // Receipt needed!
+        ];
+        let engine_needs_receipts = RhaiFilteringEngine::new(
+            monitors_with_receipt_field,
+            Arc::clone(&compiler),
+            config.clone(),
+        );
+        assert_eq!(
+            engine_needs_receipts.requires_receipt_data(),
+            true,
+            "Should require receipts when 'tx.status' is used"
+        );
+
+        // --- Scenario 2: No monitors use any receipt fields ---
+        let monitors_without_receipt_field = vec![
+            create_test_monitor(1, None, None, "tx.value > 100"),
+            create_test_monitor(2, None, None, "log.name == \"Transfer\""),
+        ];
+        let engine_no_receipts = RhaiFilteringEngine::new(
+            monitors_without_receipt_field,
+            Arc::clone(&compiler),
+            config.clone(),
+        );
+        assert_eq!(
+            engine_no_receipts.requires_receipt_data(),
+            false,
+            "Should not require receipts when no receipt fields are used"
+        );
+
+        // --- Scenario 3: A receipt field appears in a comment or string (proves AST analysis works) ---
+        let monitors_with_receipt_field_in_comment = vec![
+            create_test_monitor(1, None, None, "// This script checks tx.status"),
+            create_test_monitor(
+                2,
+                None,
+                None,
+                "tx.value > 100 && log.name == \"tx.gas_used\"",
+            ),
+        ];
+        let engine_ast_check = RhaiFilteringEngine::new(
+            monitors_with_receipt_field_in_comment,
+            Arc::clone(&compiler),
+            config.clone(),
+        );
+        assert_eq!(
+            engine_ast_check.requires_receipt_data(),
+            false,
+            "Should not require receipts when fields are only in comments or strings"
+        );
+
+        // --- Scenario 4: A mix of valid and invalid scripts ---
+        let monitors_mixed_validity = vec![
+            create_test_monitor(1, None, None, "tx.value > 100"), // Valid, no receipt
+            create_test_monitor(2, None, None, "tx.gas_used > 50000"), // Valid, needs receipt
+            create_test_monitor(3, None, None, "tx.value >"),     // Invalid syntax
+        ];
+        let engine_mixed = RhaiFilteringEngine::new(
+            monitors_mixed_validity,
+            Arc::clone(&compiler),
+            config.clone(),
+        );
+        assert_eq!(
+            engine_mixed.requires_receipt_data(),
+            true,
+            "Should require receipts even if other scripts are invalid"
+        );
     }
 }
