@@ -44,7 +44,7 @@ pub struct SlackPayloadBuilder;
 
 impl WebhookPayloadBuilder for SlackPayloadBuilder {
     fn build_payload(&self, title: &str, body_template: &str) -> serde_json::Value {
-        let full_message = format!("*{}*\n\n{}", title, body_template);
+        let full_message = format!("*{title}*\n\n{body_template}");
         json!({
             "blocks": [
                 {
@@ -66,7 +66,7 @@ pub struct DiscordPayloadBuilder;
 
 impl WebhookPayloadBuilder for DiscordPayloadBuilder {
     fn build_payload(&self, title: &str, body_template: &str) -> serde_json::Value {
-        let full_message = format!("*{}*\n\n{}", title, body_template);
+        let full_message = format!("*{title}*\n\n{body_template}");
         json!({
             "content": full_message
         })
@@ -157,9 +157,9 @@ impl WebhookPayloadBuilder for TelegramPayloadBuilder {
     fn build_payload(&self, title: &str, body_template: &str) -> serde_json::Value {
         // Escape both the title and the formatted message for Telegram MarkdownV2.
         let escaped_title = Self::escape_markdown_v2(title);
-        let escaped_message = Self::escape_markdown_v2(&body_template);
+        let escaped_message = Self::escape_markdown_v2(body_template);
 
-        let full_message = format!("*{}* \n\n{}", escaped_title, escaped_message);
+        let full_message = format!("*{escaped_title}* \n\n{escaped_message}");
         json!({
             "chat_id": self.chat_id,
             "text": full_message,

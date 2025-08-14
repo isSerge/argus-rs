@@ -71,8 +71,7 @@ impl InitializationService {
         tracing::debug!(network_id = %network_id, "Checking for existing monitors in database...");
         let existing_monitors = self.repo.get_monitors(network_id).await.map_err(|e| {
             InitializationError::MonitorLoadError(format!(
-                "Failed to fetch existing monitors from DB: {}",
-                e
+                "Failed to fetch existing monitors from DB: {e}"
             ))
         })?;
 
@@ -89,8 +88,7 @@ impl InitializationService {
         let monitor_loader = MonitorLoader::new(PathBuf::from(config_path));
         let monitors = monitor_loader.load().map_err(|e| {
             InitializationError::MonitorLoadError(format!(
-                "Failed to load monitors from file: {}",
-                e
+                "Failed to load monitors from file: {e}"
             ))
         })?;
 
@@ -109,8 +107,7 @@ impl InitializationService {
         tracing::info!(count = count, "Loaded monitors from configuration file.");
         self.repo.clear_monitors(network_id).await.map_err(|e| {
             InitializationError::MonitorLoadError(format!(
-                "Failed to clear existing monitors in DB: {}",
-                e
+                "Failed to clear existing monitors in DB: {e}"
             ))
         })?;
         self.repo
@@ -118,8 +115,7 @@ impl InitializationService {
             .await
             .map_err(|e| {
                 InitializationError::MonitorLoadError(format!(
-                    "Failed to add monitors to DB: {}",
-                    e
+                    "Failed to add monitors to DB: {e}"
                 ))
             })?;
         tracing::info!(count = count, network_id = %network_id, "Monitors from file stored in database.");
@@ -133,8 +129,7 @@ impl InitializationService {
         tracing::debug!(network_id = %network_id, "Checking for existing triggers in database...");
         let existing_triggers = self.repo.get_triggers(network_id).await.map_err(|e| {
             InitializationError::TriggerLoadError(format!(
-                "Failed to fetch existing triggers from DB: {}",
-                e
+                "Failed to fetch existing triggers from DB: {e}"
             ))
         })?;
 
@@ -151,16 +146,14 @@ impl InitializationService {
         let trigger_loader = TriggerLoader::new(PathBuf::from(config_path));
         let triggers = trigger_loader.load().map_err(|e| {
             InitializationError::TriggerLoadError(format!(
-                "Failed to load triggers from file: {}",
-                e
+                "Failed to load triggers from file: {e}"
             ))
         })?;
         let count = triggers.len();
         tracing::info!(count = count, "Loaded triggers from configuration file.");
         self.repo.clear_triggers(network_id).await.map_err(|e| {
             InitializationError::TriggerLoadError(format!(
-                "Failed to clear existing triggers in DB: {}",
-                e
+                "Failed to clear existing triggers in DB: {e}"
             ))
         })?;
         self.repo
@@ -168,8 +161,7 @@ impl InitializationService {
             .await
             .map_err(|e| {
                 InitializationError::TriggerLoadError(format!(
-                    "Failed to add triggers to DB: {}",
-                    e
+                    "Failed to add triggers to DB: {e}"
                 ))
             })?;
         tracing::info!(count = count, network_id = %network_id, "Triggers from file stored in database.");
@@ -181,8 +173,7 @@ impl InitializationService {
         tracing::debug!(network_id = %network_id, "Loading ABIs from monitors in database...");
         let monitors = self.repo.get_monitors(network_id).await.map_err(|e| {
             InitializationError::AbiLoadError(format!(
-                "Failed to fetch monitors for ABI loading: {}",
-                e
+                "Failed to fetch monitors for ABI loading: {e}"
             ))
         })?;
 
