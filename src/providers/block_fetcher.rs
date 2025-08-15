@@ -41,7 +41,6 @@ where
     /// This method does NOT fetch transaction receipts, which must be fetched
     /// separately if required.
     #[tracing::instrument(skip(self), level = "debug")]
-    #[cfg(not(test))]
     pub async fn fetch_block_and_logs(
         &self,
         number: u64,
@@ -57,29 +56,6 @@ where
             .ok_or(BlockFetcherError::BlockNotFound(number))?;
 
         let logs = logs_result?;
-
-        Ok((block, logs))
-    }
-
-    // TODO: this is a workaround for tests, remove when tests use more
-    // sophisticated transport mocking.
-    /// Test-only version of `fetch_block_and_logs` that runs sequentially.
-    #[tracing::instrument(skip(self), level = "debug")]
-    #[cfg(test)]
-    pub async fn fetch_block_and_logs(
-        &self,
-        number: u64,
-    ) -> Result<(Block, Vec<Log>), BlockFetcherError> {
-        // Fetch the full block first, then the logs.
-        let block = self
-            .provider
-            .get_block_by_number(number.into())
-            .full()
-            .await
-            .map_err(|e| BlockFetcherError::Provider(Box::new(e)))?
-            .ok_or(BlockFetcherError::BlockNotFound(number))?;
-
-        let logs = self.fetch_logs_for_block(number).await?;
 
         Ok((block, logs))
     }
