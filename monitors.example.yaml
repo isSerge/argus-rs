@@ -34,7 +34,7 @@ monitors:
     # Note: We use `bigint` because token amounts are very large numbers.
     # The value "1000000000000" represents 1,000,000 USDC, as USDC has 6 decimal places.
     filter_script: |
-      log.name == "Transfer" && bigint(log.params.value) > bigint("1000000000000")
+      log.name == "Transfer" && log.params.value > bigint("1000000000000")
 
   # ------------------------------------------------------------------------------------
   # EXAMPLE 2: Monitoring a Standard Contract (WETH Deposits)
@@ -72,4 +72,4 @@ monitors:
     # Note: We use `bigint` because `tx.value` is a very large number.
     # The value "10000000000000000000" is 10 ETH in Wei (10 * 10^18).
     filter_script: |
-      bigint(tx.value) > bigint("10000000000000000000")
+      tx.value > bigint("10000000000000000000")

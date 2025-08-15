@@ -41,6 +41,7 @@ polling_interval_ms: 10000
 confirmation_blocks: 12
 notification_channel_capacity: 1024
 monitor_config_path: "monitors.yaml"
+trigger_config_path: "triggers.yaml"
 
 # Optional: Configuration for the RPC retry policy.
 # If this section is omitted, default values will be used.
@@ -83,6 +84,7 @@ rhai:
 - `shutdown_timeout_secs`: Graceful shutdown timeout
 - `rhai`: Security configuration for Rhai script execution
 - `monitor_config_path`: Path to monitor configuration file
+- `trigger_config_path`: Path to trigger configuration file
 - `notification_channel_capacity`: The capacity of the channel used for sending notifications (default: 1024)
 
 ## Logging
@@ -131,12 +133,14 @@ The `src` directory is organized into several modules, each with a distinct resp
 -   `abi`: Handles ABI parsing, decoding, and management.
 -   `config`: Manages application configuration loading and validation.
 -   `engine`: The core processing and filtering logic. It contains the `BlockProcessor` and the `FilteringEngine`, which uses Rhai for script execution.
+-   `http_client`: Module that provides a retryable HTTP client and a pool for managing multiple HTTP clients
 -   `http_server`: (Future) Will contain the REST API server (`axum`) for dynamic monitor management.
+-   `initialization`: Service responsible for loading initial application data (monitors, triggers, ABIs) into the database and ABI service at startup
 -   `models`: Defines the core data structures used throughout the application (e.g., `Monitor`, `BlockData`, `Transaction`).
--   `notifiers`: (Future) Will contain implementations for various notification services (e.g., Webhook, Slack).
+-   `notification`: Notification service implementation (e.g., Webhook, Slack).
 -   `persistence`: Manages the application's state. It defines the `StateRepository` trait and includes its `SQLite` implementation.
 -   `providers`: Responsible for fetching data from external sources. It defines the `DataSource` trait and includes the `EvmRpcSource` for communicating with EVM nodes.
 -   `supervisor`: The top-level orchestrator that initializes and coordinates all the other components.
+-   `test_helpers`: Contains utility functions and mock objects for use in integration and unit tests.
 -   `main.rs`: The entry point of the application. It initializes the configuration and starts the `supervisor`.
 -   `lib.rs`: The library crate root, where all modules are declared.
--   `test_helpers`: Contains utility functions and mock objects for use in integration and unit tests.

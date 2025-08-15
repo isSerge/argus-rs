@@ -1,0 +1,120 @@
+# This is an example configuration file for defining triggers.
+# Triggers define what happens when a monitor's filter script returns true.
+# You can copy this file to `triggers.yaml` and update `config.yaml` to point to it.
+
+triggers:
+  # ------------------------------------------------------------------------------------
+  # EXAMPLE 1: Generic Webhook
+  #
+  # This trigger sends a POST request to a generic webhook endpoint.
+  # It includes an optional secret for HMAC-SHA256 signature verification.
+  # ------------------------------------------------------------------------------------
+  - name: "my-generic-webhook"
+    webhook:
+      # The URL of your webhook endpoint.
+      url: "https://my-service.com/webhook-endpoint"
+      # The HTTP method to use. Defaults to "POST".
+      method: "POST"
+      # (Optional) A secret key to sign the request payload.
+      # If provided, Argus will compute an HMAC-SHA256 signature of the payload
+      # and include it in the `X-Signature` header. The `X-Timestamp` header
+      # will also be included.
+      # The signature is computed as: hex(hmac_sha256(payload_body + timestamp, secret))
+      secret: "your-super-secret-webhook-secret"
+      # (Optional) Custom headers to include in the request.
+      headers:
+        Authorization: "Bearer your-auth-token"
+        X-Custom-Header: "custom-value"
+      # The message to send. Both `title` and `body` support templating.
+      message:
+        title: "New Transaction Alert: {{ monitor_name }}"
+        # The body can use any data from the monitor match.
+        # - monitor_id, block_number, transaction_hash, contract_address, trigger_name
+        # - trigger_data: The data returned by the monitor's `filter_script`.
+        body: |
+          A new event was detected on contract {{ contract_address }}.
+          - **Block Number**: {{ block_number }}
+          - **Transaction Hash**: {{ transaction_hash }}
+          - **Monitor ID**: {{ monitor_id }}
+          - **Details**: {{ trigger_data }}
+
+  # ------------------------------------------------------------------------------------
+  # EXAMPLE 2: Slack Notification
+  #
+  # This trigger sends a message to a Slack channel via an Incoming Webhook.
+  # ------------------------------------------------------------------------------------
+  - name: "slack-notifications"
+    slack:
+      # Your Slack Incoming Webhook URL.
+      slack_url: "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX"
+      message:
+        title: "Large USDC Transfer Detected"
+        # You can use markdown in the body.
+        # The `trigger_data` here would come from the "Large USDC Transfers" monitor.
+        # For example, if the filter script returns a map like `#{ from: log.params.from, to: log.params.to, value: log.params.value }`
+        body: |
+          A transfer of over 1,000,000 USDC was detected.
+          - *From*: `{{ trigger_data.from }}`
+          - *To*: `{{ trigger_data.to }}`
+          - *Value*: `{{ trigger_data.value }}`
+          <https://etherscan.io/tx/{{ transaction_hash }}|View on Etherscan>
+
+  # ------------------------------------------------------------------------------------
+  # EXAMPLE 3: Discord Notification
+  #
+  # This trigger sends a message to a Discord channel via a webhook.
+  # ------------------------------------------------------------------------------------
+  - name: "discord-alerts"
+    discord:
+      # Your Discord Webhook URL.
+      discord_url: "https://discord.com/api/webhooks/000000000000000000/XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+      message:
+        title: "WETH Deposit Event"
+        body: |
+          A new WETH deposit was detected on Ethereum.
+          - **Transaction**: `{{ transaction_hash }}`
+          - **Block**: {{ block_number }}
+
+  # ------------------------------------------------------------------------------------
+  # EXAMPLE 4: Telegram Notification
+  #
+  # This trigger sends a message to a Telegram chat via a bot.
+  # ------------------------------------------------------------------------------------
+  - name: "telegram-updates"
+    telegram:
+      # Your Telegram Bot Token.
+      token: "0000000000:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      # The ID of the chat to send the message to.
+      chat_id: "-1000000000000"
+      # (Optional) Disable the web page preview for links in the message.
+      disable_web_preview: true
+      message:
+        title: "Large Native Token Transfer"
+        # Telegram uses a specific version of Markdown (MarkdownV2).
+        # Argus will automatically escape special characters for you.
+        body: |
+          A transfer of over 10 ETH was detected.
+          - *Value*: {{ trigger_data.value }} ETH
+          - *From*: `{{ trigger_data.from }}`
+          - *To*: `{{ trigger_data.to }}`
+          [View on Etherscan](https://etherscan.io/tx/{{ transaction_hash }})
+
+  # ------------------------------------------------------------------------------------
+  # EXAMPLE 5: Trigger with Custom Retry Policy
+  #
+  # All triggers support a custom retry policy.
+  # ------------------------------------------------------------------------------------
+  - name: "webhook-with-retries"
+    webhook:
+      url: "https://my-flaky-service.com/webhook"
+      message:
+        title: "Notification with Retries"
+        body: "This notification will be retried on failure."
+      # (Optional) Custom retry policy.
+      retry_policy:
+        # Maximum number of retries.
+        max_retries: 5
+        # Initial delay between retries in milliseconds.
+        initial_delay_ms: 100
+        # Factor by which the delay increases after each retry (e.g., 2.0 for exponential backoff).
+        backoff_factor: 2.0
