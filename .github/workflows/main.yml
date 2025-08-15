@@ -1,0 +1,88 @@
+name: Main CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: 'sqlite://data/data.db'
+
+    steps:
+      # Checkout the repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Set up the Rust toolchain
+      - name: Set up Rust nightly
+        run: |
+          rustup default nightly
+          rustup component add clippy rustfmt
+
+      # Cache Cargo registry (dependencies) and Git repositories
+      - name: Cache Cargo registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      # Cache build artifacts
+      - name: Cache Cargo build
+        uses: actions/cache@v3
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+
+      # Install sqlx-cli for database migrations and checks
+      - name: Install sqlx-cli
+        run: cargo install sqlx-cli
+
+      - name: Verify sqlx-data.json is up-to-date
+        run: cargo sqlx prepare --check --workspace
+
+      # Check code formatting with rustfmt
+      - name: Check code formatting
+        run: cargo fmt -- --check
+
+      # Run cargo check to verify the project compiles
+      - name: Run cargo check
+        env:
+          SQLX_OFFLINE: '1'
+        run: cargo check --workspace
+
+      # Run clippy to catch lints and warnings (treat warnings as errors)
+      - name: Run cargo clippy
+        env:
+          SQLX_OFFLINE: '1'
+        run: cargo clippy --workspace -- -D warnings
+
+      # Run tests
+      - name: Run tests
+        env:
+          SQLX_OFFLINE: '1'
+        run: cargo test --workspace
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Run tests with coverage
+        run: cargo install cargo-tarpaulin && cargo tarpaulin --out Html
+
+      - name: Upload HTML coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: tarpaulin-report.html
