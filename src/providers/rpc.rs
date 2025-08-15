@@ -137,3 +137,155 @@ pub fn create_provider(
     let provider = ProviderBuilder::new().layer(CallBatchLayer::new()).connect_client(client);
     Ok(provider)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use alloy::{
+        network::Ethereum,
+        primitives::{B256, U256, b256},
+        providers::{Provider, ProviderBuilder},
+        transports::mock::Asserter,
+    };
+
+    use super::*;
+    use crate::test_helpers::{BlockBuilder, LogBuilder, ReceiptBuilder};
+
+    fn mock_provider() -> (impl Provider<Ethereum>, Asserter) {
+        let asserter = Asserter::new();
+        let provider = ProviderBuilder::new().connect_mocked_client(asserter.clone());
+        (provider, asserter)
+    }
+
+    #[tokio::test]
+    async fn test_fetch_block_core_data_success() {
+        let (provider, asserter) = mock_provider();
+        let block = BlockBuilder::new().number(1).build();
+        let log: crate::models::Log = LogBuilder::new().block_number(1).build();
+        let alloy_log: Log = log.into();
+
+        asserter.push_success(&block);
+        asserter.push_success(&vec![alloy_log.clone()]);
+
+        let source = EvmRpcSource::new(provider);
+
+        let (fetched_block, fetched_logs) = source.fetch_block_core_data(1).await.unwrap();
+
+        assert_eq!(fetched_block, block);
+        assert_eq!(fetched_logs, vec![alloy_log]);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_block_core_data_block_not_found() {
+        let (provider, asserter) = mock_provider();
+
+        asserter.push_success(&Option::<Block>::None);
+        asserter.push_success(&Vec::<Log>::new());
+
+        let source = EvmRpcSource::new(provider);
+
+        let result = source.fetch_block_core_data(1).await;
+
+        assert!(matches!(result, Err(DataSourceError::BlockNotFound(1))));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_block_core_data_error_handling() {
+        let (provider, asserter) = mock_provider();
+        asserter.push_failure_msg("RPC error");
+        asserter.push_success(&Vec::<Log>::new());
+        let source = EvmRpcSource::new(provider);
+
+        let result = source.fetch_block_core_data(1).await;
+
+        assert!(matches!(result, Err(DataSourceError::BlockFetcher(_))));
+    }
+
+    #[tokio::test]
+    async fn test_get_current_block_number() {
+        let (provider, asserter) = mock_provider();
+        asserter.push_success(&U256::from(1));
+        let source = EvmRpcSource::new(provider);
+
+        let block_number = source.get_current_block_number().await.unwrap();
+
+        assert_eq!(block_number, 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_current_block_number_error_handling() {
+        let (provider, asserter) = mock_provider();
+        asserter.push_failure_msg("RPC error");
+        let source = EvmRpcSource::new(provider);
+
+        let result = source.get_current_block_number().await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_fetch_receipts_success() {
+        let (provider, asserter) = mock_provider();
+        let receipt = ReceiptBuilder::new()
+            .transaction_hash(b256!(
+                "0x0000000000000000000000000000000000000000000000000000000000000002"
+            ))
+            .block_number(1)
+            .build();
+        asserter.push_success(&receipt);
+        let source = EvmRpcSource::new(provider);
+
+        let tx_hashes = &[receipt.transaction_hash];
+        let receipts = source.fetch_receipts(tx_hashes).await.unwrap();
+
+        assert_eq!(receipts.len(), 1);
+        assert_eq!(receipts.get(&receipt.transaction_hash), Some(&receipt));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_receipts_partial_success() {
+        let (provider, asserter) = mock_provider();
+        let receipt =
+            ReceiptBuilder::new().transaction_hash(B256::default()).block_number(1).build();
+
+        asserter.push_success(&Option::<TransactionReceipt>::None);
+        asserter.push_success(&receipt);
+
+        let source = EvmRpcSource::new(provider);
+
+        let tx_hashes = &[B256::default(), receipt.transaction_hash];
+        let receipts = source.fetch_receipts(tx_hashes).await.unwrap();
+
+        assert_eq!(receipts.len(), 1);
+        assert_eq!(receipts.get(&receipt.transaction_hash), Some(&receipt));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_receipts_error_handling() {
+        let (provider, asserter) = mock_provider();
+        asserter.push_failure_msg("RPC error");
+        let source = EvmRpcSource::new(provider);
+
+        let tx_hashes = &[B256::default()];
+        let result = source.fetch_receipts(tx_hashes).await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_create_provider_success() {
+        let url = Url::from_str("http://localhost:8545").unwrap();
+        let retry_config = RpcRetryConfig::default();
+
+        let result = create_provider(vec![url], retry_config);
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_create_provider_error_handling() {
+        let retry_config = RpcRetryConfig::default();
+        let result = create_provider(vec![], retry_config);
+        assert!(matches!(result, Err(ProviderError::CreationError(_))));
+    }
+}
