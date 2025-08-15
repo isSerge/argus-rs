@@ -74,8 +74,8 @@ jobs:
       - name: Run tests with coverage
         run: cargo install cargo-tarpaulin && cargo tarpaulin --out Html
 
-      - name: Upload HTML coverage report
-        uses: actions/upload-artifact@v4
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
         with:
-          name: coverage-report
-          path: tarpaulin-report.html
+          files: tarpaulin-report.html
+          fail_ci_if_error: true
