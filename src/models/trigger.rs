@@ -150,3 +150,143 @@ pub struct TriggerConfig {
     #[serde(flatten)]
     pub config: TriggerTypeConfig,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::notification::NotificationMessage;
+
+    // Helper to create a default notification message
+    fn notification_message() -> NotificationMessage {
+        NotificationMessage { title: "Test Title".to_string(), body: "Test Body".to_string() }
+    }
+
+    #[test]
+    fn test_validate_webhook_ok() {
+        let config = TriggerTypeConfig::Webhook(WebhookConfig {
+            url: "http://localhost/webhook".to_string(),
+            message: notification_message(),
+            ..Default::default()
+        });
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_webhook_invalid_url() {
+        let config = TriggerTypeConfig::Webhook(WebhookConfig {
+            url: "not a url".to_string(),
+            message: notification_message(),
+            ..Default::default()
+        });
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), TriggerTypeConfigError::InvalidUrl(_)));
+    }
+
+    #[test]
+    fn test_validate_webhook_empty_title() {
+        let config = TriggerTypeConfig::Webhook(WebhookConfig {
+            url: "http://localhost/webhook".to_string(),
+            message: NotificationMessage { title: "".to_string(), body: "Test Body".to_string() },
+            ..Default::default()
+        });
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), TriggerTypeConfigError::EmptyTitle));
+    }
+
+    #[test]
+    fn test_validate_slack_ok() {
+        let config = TriggerTypeConfig::Slack(SlackConfig {
+            slack_url:
+                "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX"
+                    .to_string(),
+            message: notification_message(),
+            ..Default::default()
+        });
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_slack_invalid_url() {
+        let config = TriggerTypeConfig::Slack(SlackConfig {
+            slack_url: "not a url".to_string(),
+            message: notification_message(),
+            ..Default::default()
+        });
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), TriggerTypeConfigError::InvalidUrl(_)));
+    }
+
+    #[test]
+    fn test_validate_slack_not_a_slack_url() {
+        let config = TriggerTypeConfig::Slack(SlackConfig {
+            slack_url: "https://example.com/not-slack".to_string(),
+            message: notification_message(),
+            ..Default::default()
+        });
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), TriggerTypeConfigError::InvalidUrl(_)));
+    }
+
+    #[test]
+    fn test_validate_discord_ok() {
+        let config = TriggerTypeConfig::Discord(DiscordConfig {
+            discord_url: "https://discord.com/api/webhooks/1234567890/abcdef".to_string(),
+            message: notification_message(),
+            ..Default::default()
+        });
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_discord_invalid_url() {
+        let config = TriggerTypeConfig::Discord(DiscordConfig {
+            discord_url: "not a url".to_string(),
+            message: notification_message(),
+            ..Default::default()
+        });
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), TriggerTypeConfigError::InvalidUrl(_)));
+    }
+
+    #[test]
+    fn test_validate_telegram_ok() {
+        let config = TriggerTypeConfig::Telegram(TelegramConfig {
+            token: "test_token".to_string(),
+            chat_id: "test_chat_id".to_string(),
+            message: notification_message(),
+            ..Default::default()
+        });
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_telegram_empty_token() {
+        let config = TriggerTypeConfig::Telegram(TelegramConfig {
+            token: "".to_string(),
+            chat_id: "test_chat_id".to_string(),
+            message: notification_message(),
+            ..Default::default()
+        });
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), TriggerTypeConfigError::EmptyTelegramToken));
+    }
+
+    #[test]
+    fn test_validate_telegram_empty_chat_id() {
+        let config = TriggerTypeConfig::Telegram(TelegramConfig {
+            token: "test_token".to_string(),
+            chat_id: "".to_string(),
+            message: notification_message(),
+            ..Default::default()
+        });
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), TriggerTypeConfigError::EmptyTelegramChatId));
+    }
+}

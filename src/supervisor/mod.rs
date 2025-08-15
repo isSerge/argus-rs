@@ -641,4 +641,159 @@ mod tests {
         assert!(result.is_ok());
         drain.abort();
     }
+
+    #[tokio::test]
+    async fn test_monitor_cycle_waits_when_chain_is_shorter_than_confirmation_buffer() {
+        // Arrange
+        let mut harness = SupervisorTestHarness::new();
+        harness.config.confirmation_blocks = 5;
+
+        // Simulate the current chain head is at block 4, which is less than the
+        // confirmation buffer.
+        harness.mock_data_source.expect_get_current_block_number().returning(|| Ok(4));
+        // We expect the cycle to return early without further interactions.
+        harness.mock_state_repo.expect_get_last_processed_block().returning(|_| Ok(None));
+        harness.mock_data_source.expect_fetch_block_core_data().times(0);
+        harness.mock_state_repo.expect_set_last_processed_block().times(0);
+
+        let supervisor = harness.build();
+        let (tx, _rx) = mpsc::channel(10);
+
+        // Act
+        let result = supervisor.monitor_cycle(tx).await;
+
+        // Assert
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_monitor_cycle_waits_when_caught_up_to_confirmation_buffer() {
+        // Arrange
+        let mut harness = SupervisorTestHarness::new();
+        harness.config.confirmation_blocks = 5;
+
+        // Last processed block is 95.
+        harness.mock_state_repo.expect_get_last_processed_block().returning(|_| Ok(Some(95)));
+        // Current chain head is 100. The safe block is 100 - 5 = 95.
+        harness.mock_data_source.expect_get_current_block_number().returning(|| Ok(100));
+        // The next block to process would be 96, which is greater than the safe block.
+        // The cycle should wait.
+        harness.mock_data_source.expect_fetch_block_core_data().times(0);
+        harness.mock_state_repo.expect_set_last_processed_block().times(0);
+
+        let supervisor = harness.build();
+        let (tx, _rx) = mpsc::channel(10);
+
+        // Act
+        let result = supervisor.monitor_cycle(tx).await;
+
+        // Assert
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_monitor_cycle_fails_if_get_last_processed_block_fails() {
+        // Arrange
+        let mut harness = SupervisorTestHarness::new();
+
+        // Simulate a database error when fetching the last processed block.
+        harness
+            .mock_state_repo
+            .expect_get_last_processed_block()
+            .returning(|_| Err(sqlx::Error::PoolTimedOut));
+
+        let supervisor = harness.build();
+        let (tx, _rx) = mpsc::channel(10);
+
+        // Act
+        let result = supervisor.monitor_cycle(tx).await;
+
+        // Assert
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), SupervisorError::MonitorLoadError(_)));
+    }
+
+    #[tokio::test]
+    async fn test_monitor_cycle_fails_if_get_current_block_number_fails() {
+        // Arrange
+        let mut harness = SupervisorTestHarness::new();
+
+        harness.mock_state_repo.expect_get_last_processed_block().returning(|_| Ok(Some(121)));
+        // Simulate an RPC error when fetching the current block number.
+        harness.mock_data_source.expect_get_current_block_number().returning(|| {
+            Err(DataSourceError::Provider(Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "RPC error",
+            ))))
+        });
+
+        let supervisor = harness.build();
+        let (tx, _rx) = mpsc::channel(10);
+
+        // Act
+        let result = supervisor.monitor_cycle(tx).await;
+
+        // Assert
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), SupervisorError::DataSourceError(_)));
+    }
+
+    #[tokio::test]
+    async fn test_monitor_cycle_fails_if_fetch_block_core_data_fails() {
+        // Arrange
+        let mut harness = SupervisorTestHarness::new();
+
+        harness.mock_state_repo.expect_get_last_processed_block().returning(|_| Ok(Some(121)));
+        harness.mock_data_source.expect_get_current_block_number().returning(|| Ok(123));
+        // Simulate an RPC error when fetching the block data.
+        harness.mock_data_source.expect_fetch_block_core_data().with(eq(122)).returning(|_| {
+            Err(DataSourceError::Provider(Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "RPC error",
+            ))))
+        });
+        // The state should not be updated if the cycle fails.
+        harness.mock_state_repo.expect_set_last_processed_block().times(0);
+
+        let supervisor = harness.build();
+        let (tx, _rx) = mpsc::channel(10);
+
+        // Act
+        let result = supervisor.monitor_cycle(tx).await;
+
+        // Assert
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), SupervisorError::DataSourceError(_)));
+    }
+
+    #[tokio::test]
+    async fn test_monitor_cycle_stops_when_channel_is_closed() {
+        // Arrange
+        let mut harness = SupervisorTestHarness::new();
+
+        harness.mock_filtering_engine.expect_requires_receipt_data().returning(|| false);
+        harness.mock_state_repo.expect_get_last_processed_block().returning(|_| Ok(Some(121)));
+        harness.mock_data_source.expect_get_current_block_number().returning(|| Ok(123));
+        harness
+            .mock_data_source
+            .expect_fetch_block_core_data()
+            .with(eq(122))
+            .returning(|block_num| Ok((BlockBuilder::new().number(block_num).build(), vec![])));
+        // The state should not be updated because the cycle will fail before the final
+        // save.
+        harness.mock_state_repo.expect_set_last_processed_block().times(0);
+
+        let supervisor = harness.build();
+        let (tx, rx) = mpsc::channel(10);
+
+        // Drop the receiver to immediately close the channel.
+        drop(rx);
+
+        // Act
+        let result = supervisor.monitor_cycle(tx).await;
+
+        // Assert
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), SupervisorError::ChannelClosed));
+    }
 }
