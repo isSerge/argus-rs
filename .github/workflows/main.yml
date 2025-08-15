@@ -72,10 +72,10 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
 
       - name: Run tests with coverage
-        run: cargo install cargo-tarpaulin && cargo tarpaulin --out Html
+        run: cargo install cargo-tarpaulin && cargo tarpaulin --out Xml
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
-          files: tarpaulin-report.html
+          files: cobertura.xml
           fail_ci_if_error: true
