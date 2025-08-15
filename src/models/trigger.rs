@@ -158,10 +158,7 @@ mod tests {
 
     // Helper to create a default notification message
     fn notification_message() -> NotificationMessage {
-        NotificationMessage {
-            title: "Test Title".to_string(),
-            body: "Test Body".to_string(),
-        }
+        NotificationMessage { title: "Test Title".to_string(), body: "Test Body".to_string() }
     }
 
     #[test]
@@ -183,35 +180,27 @@ mod tests {
         });
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            TriggerTypeConfigError::InvalidUrl(_)
-        ));
+        assert!(matches!(result.unwrap_err(), TriggerTypeConfigError::InvalidUrl(_)));
     }
 
     #[test]
     fn test_validate_webhook_empty_title() {
         let config = TriggerTypeConfig::Webhook(WebhookConfig {
             url: "http://localhost/webhook".to_string(),
-            message: NotificationMessage {
-                title: "".to_string(),
-                body: "Test Body".to_string(),
-            },
+            message: NotificationMessage { title: "".to_string(), body: "Test Body".to_string() },
             ..Default::default()
         });
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            TriggerTypeConfigError::EmptyTitle
-        ));
+        assert!(matches!(result.unwrap_err(), TriggerTypeConfigError::EmptyTitle));
     }
 
     #[test]
     fn test_validate_slack_ok() {
         let config = TriggerTypeConfig::Slack(SlackConfig {
-            slack_url: "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX"
-                .to_string(),
+            slack_url:
+                "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX"
+                    .to_string(),
             message: notification_message(),
             ..Default::default()
         });
@@ -227,10 +216,7 @@ mod tests {
         });
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            TriggerTypeConfigError::InvalidUrl(_)
-        ));
+        assert!(matches!(result.unwrap_err(), TriggerTypeConfigError::InvalidUrl(_)));
     }
 
     #[test]
@@ -242,10 +228,7 @@ mod tests {
         });
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            TriggerTypeConfigError::InvalidUrl(_)
-        ));
+        assert!(matches!(result.unwrap_err(), TriggerTypeConfigError::InvalidUrl(_)));
     }
 
     #[test]
@@ -267,10 +250,7 @@ mod tests {
         });
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            TriggerTypeConfigError::InvalidUrl(_)
-        ));
+        assert!(matches!(result.unwrap_err(), TriggerTypeConfigError::InvalidUrl(_)));
     }
 
     #[test]
@@ -294,10 +274,7 @@ mod tests {
         });
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            TriggerTypeConfigError::EmptyTelegramToken
-        ));
+        assert!(matches!(result.unwrap_err(), TriggerTypeConfigError::EmptyTelegramToken));
     }
 
     #[test]
@@ -310,9 +287,6 @@ mod tests {
         });
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            TriggerTypeConfigError::EmptyTelegramChatId
-        ));
+        assert!(matches!(result.unwrap_err(), TriggerTypeConfigError::EmptyTelegramChatId));
     }
 }

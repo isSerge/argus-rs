@@ -746,16 +746,12 @@ mod tests {
         harness.mock_state_repo.expect_get_last_processed_block().returning(|_| Ok(Some(121)));
         harness.mock_data_source.expect_get_current_block_number().returning(|| Ok(123));
         // Simulate an RPC error when fetching the block data.
-        harness
-            .mock_data_source
-            .expect_fetch_block_core_data()
-            .with(eq(122))
-            .returning(|_| {
-                Err(DataSourceError::Provider(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "RPC error",
-                ))))
-            });
+        harness.mock_data_source.expect_fetch_block_core_data().with(eq(122)).returning(|_| {
+            Err(DataSourceError::Provider(Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "RPC error",
+            ))))
+        });
         // The state should not be updated if the cycle fails.
         harness.mock_state_repo.expect_set_last_processed_block().times(0);
 
