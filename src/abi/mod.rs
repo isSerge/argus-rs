@@ -1,19 +1,22 @@
-//! This module contains the `AbiService` for decoding and caching contract ABIs.
+//! This module contains the `AbiService` for decoding and caching contract
+//! ABIs.
 //!
 //! It is designed to work with ABIs that are loaded at runtime, and therefore
-//! does not use the `sol!` macro, which requires compile-time knowledge of the ABI.
+//! does not use the `sol!` macro, which requires compile-time knowledge of the
+//! ABI.
 pub mod loader;
 
-use crate::models::{Log, transaction::Transaction};
+use std::{collections::HashMap, sync::Arc};
+
 use alloy::{
     dyn_abi::{self, DynSolValue, EventExt},
     json_abi::{Event, Function, JsonAbi},
     primitives::{Address, B256},
 };
 use dashmap::DashMap;
-use std::collections::HashMap;
-use std::sync::Arc;
 use thiserror::Error;
+
+use crate::models::{Log, transaction::Transaction};
 
 /// A pre-processed, cached representation of a contract's ABI.
 ///
@@ -41,11 +44,7 @@ impl From<&JsonAbi> for CachedContract {
             .map(|event| (event.selector(), event.clone()))
             .collect::<HashMap<B256, Event>>();
 
-        Self {
-            functions,
-            events,
-            abi: abi.clone(),
-        }
+        Self { functions, events, abi: abi.clone() }
     }
 }
 
@@ -56,15 +55,18 @@ pub enum AbiError {
     #[error("Contract ABI not found for address: {0}")]
     AbiNotFound(Address),
 
-    /// Returned when an event signature (topic hash) is not found in the contract ABI
+    /// Returned when an event signature (topic hash) is not found in the
+    /// contract ABI
     #[error("Event signature not found in ABI: {0}")]
     EventNotFound(B256),
 
-    /// Returned when a function selector (4-byte) is not found in the contract ABI
+    /// Returned when a function selector (4-byte) is not found in the contract
+    /// ABI
     #[error("Function selector not found in ABI: {0:?}")]
     FunctionNotFound([u8; 4]),
 
-    /// Returned when trying to decode a function call from a contract creation transaction
+    /// Returned when trying to decode a function call from a contract creation
+    /// transaction
     #[error("Transaction is a contract creation, not a function call")]
     ContractCreation,
 
@@ -72,7 +74,8 @@ pub enum AbiError {
     #[error("Input data too short to contain a function selector")]
     InputTooShort,
 
-    /// Returned when a log has no topics and thus cannot be identified as an event
+    /// Returned when a log has no topics and thus cannot be identified as an
+    /// event
     #[error("Log has no topics, cannot identify event")]
     LogHasNoTopics,
 
@@ -144,7 +147,8 @@ impl AbiService {
 
     /// Removes a contract's ABI from the service cache.
     ///
-    /// Returns true if the ABI was present and removed, false if it wasn't in the cache.
+    /// Returns true if the ABI was present and removed, false if it wasn't in
+    /// the cache.
     pub fn remove_abi(&self, address: &Address) -> bool {
         self.cache.remove(address).is_some()
     }
@@ -161,10 +165,8 @@ impl AbiService {
 
     /// Decodes an event log using proper Alloy APIs.
     pub fn decode_log(&self, log: &Log) -> Result<DecodedLog, AbiError> {
-        let contract = self
-            .cache
-            .get(&log.address())
-            .ok_or_else(|| AbiError::AbiNotFound(log.address()))?;
+        let contract =
+            self.cache.get(&log.address()).ok_or_else(|| AbiError::AbiNotFound(log.address()))?;
 
         let event_signature = log.topics().first().ok_or(AbiError::LogHasNoTopics)?;
 
@@ -182,23 +184,16 @@ impl AbiService {
             .map(|(input, value)| (input.name.clone(), value))
             .collect();
 
-        tracing::trace!(
-            "Decoded event: {} with {} parameters",
-            event.name,
-            params.len()
-        );
+        tracing::trace!("Decoded event: {} with {} parameters", event.name, params.len());
 
-        Ok(DecodedLog {
-            name: event.name.clone(),
-            params,
-            log: log.clone(),
-        })
+        Ok(DecodedLog { name: event.name.clone(), params, log: log.clone() })
     }
 
     /// Decodes a function call from transaction input data.
     ///
-    /// This method extracts the function selector from the transaction input data,
-    /// looks up the corresponding function definition, and decodes the parameters.
+    /// This method extracts the function selector from the transaction input
+    /// data, looks up the corresponding function definition, and decodes
+    /// the parameters.
     pub fn decode_function_input(&self, tx: Transaction) -> Result<DecodedCall, AbiError> {
         // Get the target contract address from the transaction
 
@@ -219,10 +214,7 @@ impl AbiService {
         // Extract the function selector (first 4 bytes)
         let selector: [u8; 4] = input[0..4].try_into().unwrap();
 
-        let contract = self
-            .cache
-            .get(&to)
-            .ok_or_else(|| AbiError::AbiNotFound(to))?;
+        let contract = self.cache.get(&to).ok_or_else(|| AbiError::AbiNotFound(to))?;
 
         // Look up the function in the contract ABI using the selector
         let function = contract
@@ -230,11 +222,8 @@ impl AbiService {
             .get(&selector)
             .ok_or_else(|| AbiError::FunctionNotFound(selector))?;
 
-        let input_types: Vec<dyn_abi::DynSolType> = function
-            .inputs
-            .iter()
-            .map(|p| p.ty.parse())
-            .collect::<Result<Vec<_>, _>>()?;
+        let input_types: Vec<dyn_abi::DynSolType> =
+            function.inputs.iter().map(|p| p.ty.parse()).collect::<Result<Vec<_>, _>>()?;
 
         let tuple_type = dyn_abi::DynSolType::Tuple(input_types);
         let decoded_value = tuple_type.abi_decode(&input[4..])?;
@@ -261,22 +250,19 @@ impl AbiService {
             params.len()
         );
 
-        Ok(DecodedCall {
-            name: function.name.clone(),
-            params,
-            tx,
-        })
+        Ok(DecodedCall { name: function.name.clone(), params, tx })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::test_helpers::{LogBuilder, TransactionBuilder};
     use alloy::{
         primitives::{Address, Bytes, U256, address, b256, bytes},
         rpc::types::Log as AlloyLog,
     };
+
+    use super::*;
+    use crate::test_helpers::{LogBuilder, TransactionBuilder};
 
     fn simple_abi_json() -> &'static str {
         r#"[
@@ -360,14 +346,10 @@ mod tests {
 
         let log = LogBuilder::new()
             .address(contract_address)
-            .topic(b256!(
-                "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
-            ))
+            .topic(b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"))
             .topic(from.into_word())
             .topic(to.into_word())
-            .data(bytes!(
-                "0000000000000000000000000000000000000000000000000000000000000064"
-            ))
+            .data(bytes!("0000000000000000000000000000000000000000000000000000000000000064"))
             .build();
 
         let log: Log = log.into();
@@ -472,9 +454,7 @@ mod tests {
 
         let log = LogBuilder::new()
             .address(contract_address)
-            .topic(b256!(
-                "0000000000000000000000000000000000000000000000000000000000000001"
-            ))
+            .topic(b256!("0000000000000000000000000000000000000000000000000000000000000001"))
             .build();
         let err = service.decode_log(&log).unwrap_err();
         assert!(matches!(err, AbiError::EventNotFound(_)));
@@ -532,9 +512,7 @@ mod tests {
 
         let log = LogBuilder::new()
             .address(contract_address)
-            .topic(b256!(
-                "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
-            ))
+            .topic(b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"))
             .topic(from.into_word())
             .topic(to.into_word())
             .data(bytes!("00000001"))

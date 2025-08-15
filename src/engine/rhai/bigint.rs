@@ -1,8 +1,9 @@
 //! BigInt wrapper type for Rhai scripting with transparent big number handling
 //!
-//! This module provides a BigInt wrapper that allows users to work with arbitrarily large
-//! numbers in Rhai scripts while maintaining performance for standard integer operations.
-//! Users wrap large numbers with `bigint()` and can then use standard operators seamlessly.
+//! This module provides a BigInt wrapper that allows users to work with
+//! arbitrarily large numbers in Rhai scripts while maintaining performance for
+//! standard integer operations. Users wrap large numbers with `bigint()` and
+//! can then use standard operators seamlessly.
 
 use num_bigint::BigInt;
 use num_traits::Zero;
@@ -16,9 +17,7 @@ pub fn bigint_constructor_int(value: i64) -> BigInt {
 
 /// Constructor function for creating BigInt from string
 pub fn bigint_constructor_string(value: String) -> Result<BigInt, Box<EvalAltResult>> {
-    value
-        .parse::<BigInt>()
-        .map_err(|e| format!("Failed to create BigInt from string: {e}").into())
+    value.parse::<BigInt>().map_err(|e| format!("Failed to create BigInt from string: {e}").into())
 }
 
 /// Register BigInt type and operations with Rhai engine
@@ -31,30 +30,24 @@ pub fn register_bigint_with_rhai(engine: &mut rhai::Engine) {
     engine.register_fn("bigint", bigint_constructor_string);
 
     // Register arithmetic operators for BigInt
-    engine.register_fn(
-        "+",
-        |left: BigInt, right: BigInt| -> Result<BigInt, Box<EvalAltResult>> { Ok(left + right) },
-    );
+    engine.register_fn("+", |left: BigInt, right: BigInt| -> Result<BigInt, Box<EvalAltResult>> {
+        Ok(left + right)
+    });
 
-    engine.register_fn(
-        "-",
-        |left: BigInt, right: BigInt| -> Result<BigInt, Box<EvalAltResult>> { Ok(left - right) },
-    );
+    engine.register_fn("-", |left: BigInt, right: BigInt| -> Result<BigInt, Box<EvalAltResult>> {
+        Ok(left - right)
+    });
 
-    engine.register_fn(
-        "*",
-        |left: BigInt, right: BigInt| -> Result<BigInt, Box<EvalAltResult>> { Ok(left * right) },
-    );
+    engine.register_fn("*", |left: BigInt, right: BigInt| -> Result<BigInt, Box<EvalAltResult>> {
+        Ok(left * right)
+    });
 
-    engine.register_fn(
-        "/",
-        |left: BigInt, right: BigInt| -> Result<BigInt, Box<EvalAltResult>> {
-            if right.is_zero() {
-                return Err("Division by zero".into());
-            }
-            Ok(left / right)
-        },
-    );
+    engine.register_fn("/", |left: BigInt, right: BigInt| -> Result<BigInt, Box<EvalAltResult>> {
+        if right.is_zero() {
+            return Err("Division by zero".into());
+        }
+        Ok(left / right)
+    });
 
     // Register comparison operators for BigInt
     engine.register_fn("==", |left: BigInt, right: BigInt| left == right);
@@ -67,8 +60,9 @@ pub fn register_bigint_with_rhai(engine: &mut rhai::Engine) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use rhai::Engine;
+
+    use super::*;
 
     #[test]
     fn test_rhai_integration() {
@@ -79,9 +73,7 @@ mod tests {
         let result: BigInt = engine.eval("bigint(42)").unwrap();
         assert_eq!(result.to_string(), "42");
 
-        let result: BigInt = engine
-            .eval("bigint(\"123456789012345678901234567890\")")
-            .unwrap();
+        let result: BigInt = engine.eval("bigint(\"123456789012345678901234567890\")").unwrap();
         assert_eq!(result.to_string(), "123456789012345678901234567890");
 
         // Test BigInt arithmetic (only BigInt + BigInt)
@@ -105,15 +97,13 @@ mod tests {
         register_bigint_with_rhai(&mut engine);
 
         // Test basic arithmetic expressions
-        let result: BigInt = engine
-            .eval("bigint(1000000000000000000) + bigint(2000000000000000000)")
-            .unwrap();
+        let result: BigInt =
+            engine.eval("bigint(1000000000000000000) + bigint(2000000000000000000)").unwrap();
         assert_eq!(result.to_string(), "3000000000000000000");
 
         // Test subtraction
-        let result: BigInt = engine
-            .eval("bigint(5000000000000000000) - bigint(1000000000000000000)")
-            .unwrap();
+        let result: BigInt =
+            engine.eval("bigint(5000000000000000000) - bigint(1000000000000000000)").unwrap();
         assert_eq!(result.to_string(), "4000000000000000000");
 
         // Test multiplication
@@ -121,9 +111,7 @@ mod tests {
         assert_eq!(result.to_string(), "1000000000000");
 
         // Test division
-        let result: BigInt = engine
-            .eval("bigint(1000000000000) / bigint(1000000)")
-            .unwrap();
+        let result: BigInt = engine.eval("bigint(1000000000000) / bigint(1000000)").unwrap();
         assert_eq!(result.to_string(), "1000000");
     }
 

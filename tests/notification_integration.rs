@@ -1,14 +1,17 @@
-use argus::config::HttpRetryConfig;
-use argus::http_client::HttpClientPool;
-use argus::models::{
-    NotificationMessage,
-    monitor_match::MonitorMatch,
-    trigger::{DiscordConfig, TriggerConfig, TriggerTypeConfig},
+use std::sync::Arc;
+
+use argus::{
+    config::HttpRetryConfig,
+    http_client::HttpClientPool,
+    models::{
+        NotificationMessage,
+        monitor_match::MonitorMatch,
+        trigger::{DiscordConfig, TriggerConfig, TriggerTypeConfig},
+    },
+    notification::NotificationService,
 };
-use argus::notification::NotificationService;
 use mockito;
 use serde_json::json;
-use std::sync::Arc;
 
 #[tokio::test]
 async fn test_success() {
@@ -58,10 +61,7 @@ async fn test_success() {
 async fn test_failure_with_retryable_error() {
     let mut server = mockito::Server::new_async().await;
 
-    let retry_policy = HttpRetryConfig {
-        max_retries: 2,
-        ..Default::default()
-    };
+    let retry_policy = HttpRetryConfig { max_retries: 2, ..Default::default() };
 
     let mock_discord_trigger = TriggerConfig {
         name: "test_discord_retry".to_string(),
@@ -100,7 +100,8 @@ async fn test_failure_with_retryable_error() {
 
     let result = notification_service.execute(&monitor_match).await;
 
-    // The final result should be an error because the mock never returns a success status.
+    // The final result should be an error because the mock never returns a success
+    // status.
     assert!(result.is_err());
     mock.assert();
 }
@@ -109,10 +110,7 @@ async fn test_failure_with_retryable_error() {
 async fn test_failure_with_non_retryable_error() {
     let mut server = mockito::Server::new_async().await;
 
-    let retry_policy = HttpRetryConfig {
-        max_retries: 3,
-        ..Default::default()
-    };
+    let retry_policy = HttpRetryConfig { max_retries: 3, ..Default::default() };
 
     let mock_discord_trigger = TriggerConfig {
         name: "test_discord_no_retry".to_string(),

@@ -1,18 +1,23 @@
 //! Data conversion utilities for Rhai scripting engine.
 //!
-//! This module handles conversion between blockchain data types and Rhai-compatible types
+//! This module handles conversion between blockchain data types and
+//! Rhai-compatible types
 
-use crate::abi::DecodedLog;
-use crate::models::transaction::Transaction;
-use alloy::primitives::{I256, U256};
-use alloy::{consensus::TxType, dyn_abi::DynSolValue};
+use alloy::{
+    consensus::TxType,
+    dyn_abi::DynSolValue,
+    primitives::{I256, U256},
+};
 use num_bigint::{BigInt, Sign};
 use rhai::{Dynamic, Map};
 use serde_json::Value;
 
+use crate::{abi::DecodedLog, models::transaction::Transaction};
+
 /// Converts a `DynSolValue` directly to a Rhai `Dynamic` value.
 ///
-/// Large numbers (>i64/u64 range) are converted to `BigInt` to preserve precision.
+/// Large numbers (>i64/u64 range) are converted to `BigInt` to preserve
+/// precision.
 pub fn dyn_sol_value_to_rhai(value: &DynSolValue) -> Dynamic {
     match value {
         DynSolValue::Address(a) => a.to_checksum(None).into(),
@@ -51,7 +56,8 @@ pub fn dyn_sol_value_to_rhai(value: &DynSolValue) -> Dynamic {
 
 /// Converts a `DynSolValue` directly to a `serde_json::Value`.
 ///
-/// Large numbers (>i64/u64 range) are converted to strings to preserve precision.
+/// Large numbers (>i64/u64 range) are converted to strings to preserve
+/// precision.
 pub fn dyn_sol_value_to_json(value: &DynSolValue) -> Value {
     match value {
         DynSolValue::Address(a) => Value::String(a.to_checksum(None)),
@@ -118,45 +124,29 @@ pub fn build_transaction_map(
     let value_dynamic = u256_to_dynamic(value_u256);
     map.insert("value".into(), value_dynamic);
 
-    map.insert(
-        "gas_limit".into(),
-        u256_to_dynamic(U256::from(transaction.gas())),
-    );
-    map.insert(
-        "nonce".into(),
-        u256_to_dynamic(U256::from(transaction.nonce())),
-    );
-    map.insert(
-        "input".into(),
-        format!("0x{}", hex::encode(transaction.input())).into(),
-    );
+    map.insert("gas_limit".into(), u256_to_dynamic(U256::from(transaction.gas())));
+    map.insert("nonce".into(), u256_to_dynamic(U256::from(transaction.nonce())));
+    map.insert("input".into(), format!("0x{}", hex::encode(transaction.input())).into());
 
     if let Some(block_number) = transaction.block_number() {
-        map.insert(
-            "block_number".into(),
-            u256_to_dynamic(U256::from(block_number)),
-        );
+        map.insert("block_number".into(), u256_to_dynamic(U256::from(block_number)));
     } else {
         map.insert("block_number".into(), Dynamic::UNIT);
     }
 
     if let Some(transaction_index) = transaction.transaction_index() {
-        map.insert(
-            "transaction_index".into(),
-            u256_to_dynamic(U256::from(transaction_index)),
-        );
+        map.insert("transaction_index".into(), u256_to_dynamic(U256::from(transaction_index)));
     } else {
         map.insert("transaction_index".into(), Dynamic::UNIT);
     }
 
     match transaction.transaction_type() {
-        TxType::Legacy => {
+        TxType::Legacy =>
             if let Some(gas_price) = transaction.gas_price() {
                 map.insert("gas_price".into(), u256_to_dynamic(U256::from(gas_price)));
             } else {
                 map.insert("gas_price".into(), Dynamic::UNIT);
-            }
-        }
+            },
         TxType::Eip1559 => {
             map.insert(
                 "max_fee_per_gas".into(),
@@ -176,10 +166,7 @@ pub fn build_transaction_map(
 
     // Add receipt fields if available
     if let Some(receipt) = receipt {
-        map.insert(
-            "gas_used".into(),
-            u256_to_dynamic(U256::from(receipt.gas_used)),
-        );
+        map.insert("gas_used".into(), u256_to_dynamic(U256::from(receipt.gas_used)));
 
         // Use the actual status from the receipt envelope
         map.insert("status".into(), receipt.inner.status().into());
@@ -207,20 +194,13 @@ pub fn build_log_map(log: &DecodedLog, params_map: Map) -> Map {
 
     log_map.insert("address".into(), log.log.address().to_checksum(None).into());
     if let Some(block_number) = log.log.block_number() {
-        log_map.insert(
-            "block_number".into(),
-            u256_to_dynamic(U256::from(block_number)),
-        );
+        log_map.insert("block_number".into(), u256_to_dynamic(U256::from(block_number)));
     } else {
         log_map.insert("block_number".into(), Dynamic::UNIT);
     }
     log_map.insert(
         "transaction_hash".into(),
-        log.log
-            .transaction_hash()
-            .unwrap_or_default()
-            .to_string()
-            .into(),
+        log.log.transaction_hash().unwrap_or_default().to_string().into(),
     );
     if let Some(log_index) = log.log.log_index() {
         log_map.insert("log_index".into(), u256_to_dynamic(U256::from(log_index)));
@@ -228,10 +208,7 @@ pub fn build_log_map(log: &DecodedLog, params_map: Map) -> Map {
         log_map.insert("log_index".into(), Dynamic::UNIT);
     }
     if let Some(transaction_index) = log.log.transaction_index() {
-        log_map.insert(
-            "transaction_index".into(),
-            u256_to_dynamic(U256::from(transaction_index)),
-        );
+        log_map.insert("transaction_index".into(), u256_to_dynamic(U256::from(transaction_index)));
     } else {
         log_map.insert("transaction_index".into(), Dynamic::UNIT);
     }
@@ -262,19 +239,17 @@ fn i256_to_dynamic(value: I256) -> Dynamic {
         small_int.into()
     } else {
         // Too large for i64, use BigInt representation
-        let sign = if value.is_negative() {
-            Sign::Minus
-        } else {
-            Sign::Plus
-        };
+        let sign = if value.is_negative() { Sign::Minus } else { Sign::Plus };
         let bytes = value.abs().to_be_bytes::<32>();
         Dynamic::from(BigInt::from_bytes_be(sign, &bytes))
     }
 }
 
-/// Builds trigger data JSON from log parameters using the same conversion logic as Rhai.
+/// Builds trigger data JSON from log parameters using the same conversion logic
+/// as Rhai.
 ///
-/// This ensures consistency between the data seen by Rhai scripts and the data in trigger_data.
+/// This ensures consistency between the data seen by Rhai scripts and the data
+/// in trigger_data.
 pub fn build_trigger_data_from_params(params: &[(String, DynSolValue)]) -> Value {
     let mut json_map = serde_json::Map::new();
     for (name, value) in params {
@@ -285,9 +260,6 @@ pub fn build_trigger_data_from_params(params: &[(String, DynSolValue)]) -> Value
 
 #[cfg(test)]
 mod tests {
-    use crate::test_helpers::{LogBuilder, ReceiptBuilder, TransactionBuilder};
-
-    use super::*;
     use alloy::{
         dyn_abi::Word,
         primitives::{Address, Function, I256, address, b256},
@@ -295,15 +267,15 @@ mod tests {
     use num_bigint::BigInt;
     use serde_json::json;
 
+    use super::*;
+    use crate::test_helpers::{LogBuilder, ReceiptBuilder, TransactionBuilder};
+
     #[test]
     fn test_dyn_sol_value_to_rhai_basic_types() {
         // Address
         let addr = Address::repeat_byte(0x11);
         let result = dyn_sol_value_to_rhai(&DynSolValue::Address(addr));
-        assert_eq!(
-            result.cast::<String>(),
-            "0x1111111111111111111111111111111111111111"
-        );
+        assert_eq!(result.cast::<String>(), "0x1111111111111111111111111111111111111111");
 
         // Bool
         let result = dyn_sol_value_to_rhai(&DynSolValue::Bool(true));
@@ -358,10 +330,7 @@ mod tests {
     #[test]
     fn test_build_log_params_map() {
         let params = vec![
-            (
-                "value".to_string(),
-                DynSolValue::Uint(U256::from(150).into(), 256),
-            ),
+            ("value".to_string(), DynSolValue::Uint(U256::from(150).into(), 256)),
             (
                 "sender".to_string(),
                 DynSolValue::Address(address!("1111111111111111111111111111111111111111")),
@@ -384,10 +353,7 @@ mod tests {
         assert_eq!(u256_to_dynamic(U256::from(123)).cast::<i64>(), 123);
 
         // At boundary
-        assert_eq!(
-            u256_to_dynamic(U256::from(i64::MAX as u64)).cast::<i64>(),
-            i64::MAX
-        );
+        assert_eq!(u256_to_dynamic(U256::from(i64::MAX as u64)).cast::<i64>(), i64::MAX);
 
         // Beyond boundary
         let large = U256::from(i64::MAX as u64) + U256::from(1);
@@ -448,10 +414,7 @@ mod tests {
     #[test]
     fn test_build_trigger_data_from_params() {
         let params = vec![
-            (
-                "value".to_string(),
-                DynSolValue::Uint(U256::from(150).into(), 256),
-            ),
+            ("value".to_string(), DynSolValue::Uint(U256::from(150).into(), 256)),
             (
                 "sender".to_string(),
                 DynSolValue::Address(address!("1111111111111111111111111111111111111111")),
@@ -614,12 +577,7 @@ mod tests {
         let result = dyn_sol_value_to_json(&DynSolValue::Tuple(tuple_values));
         assert_eq!(
             result,
-            json!([
-                "0x1111111111111111111111111111111111111111",
-                42,
-                true,
-                "tuple_item"
-            ])
+            json!(["0x1111111111111111111111111111111111111111", 42, true, "tuple_item"])
         );
     }
 
@@ -638,18 +596,9 @@ mod tests {
         let map = build_transaction_map(&tx, None);
 
         assert!(!map.contains_key("to"));
-        assert_eq!(
-            map.get("from").unwrap().clone().cast::<String>(),
-            tx.from().to_checksum(None)
-        );
-        assert_eq!(
-            map.get("hash").unwrap().clone().cast::<String>(),
-            tx.hash().to_string()
-        );
-        assert_eq!(
-            map.get("value").unwrap().clone().cast::<i64>(),
-            tx.value().to::<i64>()
-        );
+        assert_eq!(map.get("from").unwrap().clone().cast::<String>(), tx.from().to_checksum(None));
+        assert_eq!(map.get("hash").unwrap().clone().cast::<String>(), tx.hash().to_string());
+        assert_eq!(map.get("value").unwrap().clone().cast::<i64>(), tx.value().to::<i64>());
 
         // Verify receipt fields are UNIT when no receipt provided
         assert!(map.get("gas_used").unwrap().is_unit());
@@ -678,26 +627,11 @@ mod tests {
             map.get("to").unwrap().clone().cast::<String>(),
             tx.to().unwrap().to_checksum(None)
         );
-        assert_eq!(
-            map.get("from").unwrap().clone().cast::<String>(),
-            tx.from().to_checksum(None)
-        );
-        assert_eq!(
-            map.get("hash").unwrap().clone().cast::<String>(),
-            tx.hash().to_string()
-        );
-        assert_eq!(
-            map.get("value").unwrap().clone().cast::<i64>(),
-            tx.value().to::<i64>()
-        );
-        assert_eq!(
-            map.get("gas_limit").unwrap().clone().cast::<i64>(),
-            tx.gas() as i64
-        );
-        assert_eq!(
-            map.get("nonce").unwrap().clone().cast::<i64>(),
-            tx.nonce() as i64
-        );
+        assert_eq!(map.get("from").unwrap().clone().cast::<String>(), tx.from().to_checksum(None));
+        assert_eq!(map.get("hash").unwrap().clone().cast::<String>(), tx.hash().to_string());
+        assert_eq!(map.get("value").unwrap().clone().cast::<i64>(), tx.value().to::<i64>());
+        assert_eq!(map.get("gas_limit").unwrap().clone().cast::<i64>(), tx.gas() as i64);
+        assert_eq!(map.get("nonce").unwrap().clone().cast::<i64>(), tx.nonce() as i64);
         assert_eq!(
             map.get("block_number").unwrap().clone().cast::<i64>(),
             tx.block_number().unwrap() as i64
@@ -717,10 +651,7 @@ mod tests {
             tx.max_fee_per_gas() as i64
         );
         assert_eq!(
-            map.get("max_priority_fee_per_gas")
-                .unwrap()
-                .clone()
-                .cast::<i64>(),
+            map.get("max_priority_fee_per_gas").unwrap().clone().cast::<i64>(),
             tx.max_priority_fee_per_gas().unwrap() as i64
         );
         assert!(!map.contains_key("gas_price"));
@@ -746,26 +677,11 @@ mod tests {
             map.get("to").unwrap().clone().cast::<String>(),
             tx.to().unwrap().to_checksum(None)
         );
-        assert_eq!(
-            map.get("from").unwrap().clone().cast::<String>(),
-            tx.from().to_checksum(None)
-        );
-        assert_eq!(
-            map.get("hash").unwrap().clone().cast::<String>(),
-            tx.hash().to_string()
-        );
-        assert_eq!(
-            map.get("value").unwrap().clone().cast::<i64>(),
-            tx.value().to::<i64>()
-        );
-        assert_eq!(
-            map.get("gas_limit").unwrap().clone().cast::<i64>(),
-            tx.gas() as i64
-        );
-        assert_eq!(
-            map.get("nonce").unwrap().clone().cast::<i64>(),
-            tx.nonce() as i64
-        );
+        assert_eq!(map.get("from").unwrap().clone().cast::<String>(), tx.from().to_checksum(None));
+        assert_eq!(map.get("hash").unwrap().clone().cast::<String>(), tx.hash().to_string());
+        assert_eq!(map.get("value").unwrap().clone().cast::<i64>(), tx.value().to::<i64>());
+        assert_eq!(map.get("gas_limit").unwrap().clone().cast::<i64>(), tx.gas() as i64);
+        assert_eq!(map.get("nonce").unwrap().clone().cast::<i64>(), tx.nonce() as i64);
         assert_eq!(
             map.get("block_number").unwrap().clone().cast::<i64>(),
             tx.block_number().unwrap() as i64
@@ -801,36 +717,24 @@ mod tests {
             .transaction_index(2)
             .build();
 
-        let decoded_log = DecodedLog {
-            name: "Transfer".to_string(),
-            params: vec![],
-            log: log_raw.into(),
-        };
+        let decoded_log =
+            DecodedLog { name: "Transfer".to_string(), params: vec![], log: log_raw.into() };
 
         let params_map = Map::new(); // Empty for this test, as we're testing log fields
         let map = build_log_map(&decoded_log, params_map);
 
-        assert_eq!(
-            map.get("name").unwrap().clone().cast::<String>(),
-            "Transfer"
-        );
+        assert_eq!(map.get("name").unwrap().clone().cast::<String>(), "Transfer");
         assert_eq!(
             map.get("address").unwrap().clone().cast::<String>(),
             log_address.to_checksum(None)
         );
         assert_eq!(map.get("block_number").unwrap().clone().cast::<i64>(), 100);
         assert_eq!(
-            map.get("transaction_hash")
-                .unwrap()
-                .clone()
-                .cast::<String>(),
+            map.get("transaction_hash").unwrap().clone().cast::<String>(),
             tx_hash.to_string()
         );
         assert_eq!(map.get("log_index").unwrap().clone().cast::<i64>(), 5);
-        assert_eq!(
-            map.get("transaction_index").unwrap().clone().cast::<i64>(),
-            2
-        );
+        assert_eq!(map.get("transaction_index").unwrap().clone().cast::<i64>(), 2);
     }
 
     #[test]
@@ -858,21 +762,12 @@ mod tests {
             map.get("to").unwrap().clone().cast::<String>(),
             tx.to().unwrap().to_checksum(None)
         );
-        assert_eq!(
-            map.get("hash").unwrap().clone().cast::<String>(),
-            tx.hash().to_string()
-        );
+        assert_eq!(map.get("hash").unwrap().clone().cast::<String>(), tx.hash().to_string());
 
         // Verify receipt fields are included
         assert_eq!(map.get("gas_used").unwrap().clone().cast::<i64>(), 18500);
         assert_eq!(map.get("status").unwrap().clone().cast::<bool>(), true);
-        assert_eq!(
-            map.get("effective_gas_price")
-                .unwrap()
-                .clone()
-                .cast::<i64>(),
-            145
-        );
+        assert_eq!(map.get("effective_gas_price").unwrap().clone().cast::<i64>(), 145);
     }
 
     #[test]

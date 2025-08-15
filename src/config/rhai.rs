@@ -1,8 +1,11 @@
-use super::deserialize_duration_from_ms;
-use serde::Deserialize;
 use std::time::Duration;
 
-/// Configuration for Rhai script execution including security limits and other settings
+use serde::Deserialize;
+
+use super::deserialize_duration_from_ms;
+
+/// Configuration for Rhai script execution including security limits and other
+/// settings
 #[derive(Debug, Deserialize, Clone)]
 pub struct RhaiConfig {
     /// Maximum number of operations a script can perform
@@ -65,8 +68,9 @@ fn default_execution_timeout() -> Duration {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use config::Config;
+
+    use super::*;
 
     #[test]
     fn test_rhai_config_default() {

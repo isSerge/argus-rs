@@ -1,11 +1,12 @@
 //! A builder for creating `Transaction` instances for testing purposes.
 
-use crate::models::transaction::Transaction;
 use alloy::{
     consensus::TxType,
     primitives::{Address, B256, Bytes, U256},
     rpc::types::Transaction as AlloyTransaction,
 };
+
+use crate::models::transaction::Transaction;
 
 const STANDARD_GAS_LIMIT: u64 = 21_000;
 
@@ -144,9 +145,8 @@ impl TransactionBuilder {
         let block_number = self.block_number;
         let transaction_index = self.transaction_index;
         let max_fee_per_gas = self.max_fee_per_gas.unwrap_or(U256::from(2_000_000_000u64));
-        let max_priority_fee_per_gas = self
-            .max_priority_fee_per_gas
-            .unwrap_or(U256::from(1_000_000_000u64));
+        let max_priority_fee_per_gas =
+            self.max_priority_fee_per_gas.unwrap_or(U256::from(1_000_000_000u64));
         let chain_id = self.chain_id.unwrap_or(1);
         let tx_type = self.tx_type.unwrap_or(TxType::Eip1559);
 
@@ -188,11 +188,12 @@ impl TransactionBuilder {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use alloy::{
         consensus::TxType,
         primitives::{address, b256},
     };
+
+    use super::*;
 
     #[test]
     fn test_transaction_builder() {

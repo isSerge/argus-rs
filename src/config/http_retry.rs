@@ -1,9 +1,11 @@
+use std::time::Duration;
+
+use serde::{Deserialize, Serialize};
+
 use super::{
     deserialize_duration_from_ms, deserialize_duration_from_seconds, serialize_duration_to_ms,
     serialize_duration_to_seconds,
 };
-use serde::{Deserialize, Serialize};
-use std::time::Duration;
 
 /// --- Default values for retry configuration settings ---
 fn default_max_attempts() -> u32 {
@@ -33,7 +35,8 @@ pub enum JitterSetting {
     Full,
 }
 
-/// Configuration for HTTP (RPC and Webhook notifiers) and SMTP (Email notifier) retry policies
+/// Configuration for HTTP (RPC and Webhook notifiers) and SMTP (Email notifier)
+/// retry policies
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct HttpRetryConfig {
     /// Maximum number of retries for transient errors
@@ -76,9 +79,11 @@ impl Default for HttpRetryConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use config::Config;
     use std::time::Duration;
+
+    use config::Config;
+
+    use super::*;
 
     #[test]
     fn test_http_retry_config_with_custom_values() {

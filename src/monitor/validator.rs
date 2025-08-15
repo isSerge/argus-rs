@@ -14,9 +14,11 @@ pub struct MonitorValidator<'a> {
 /// An error that occurs during monitor validation.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum MonitorValidationError {
-    /// A monitor that accesses log data does not have a contract address specified.
+    /// A monitor that accesses log data does not have a contract address
+    /// specified.
     #[error(
-        "Monitor '{monitor_name}' accesses log data ('log.*') but is not tied to a specific contract address. Please provide an 'address' for this monitor."
+        "Monitor '{monitor_name}' accesses log data ('log.*') but is not tied to a specific \
+         contract address. Please provide an 'address' for this monitor."
     )]
     MonitorRequiresAddress {
         /// The name of the monitor that failed validation.
@@ -25,7 +27,8 @@ pub enum MonitorValidationError {
 
     /// A monitor that accesses log data does not have an ABI defined.
     #[error(
-        "Monitor '{monitor_name}' accesses log data but does not have an ABI defined. Please provide an 'abi' file path."
+        "Monitor '{monitor_name}' accesses log data but does not have an ABI defined. Please \
+         provide an 'abi' file path."
     )]
     MonitorRequiresAbi {
         /// The name of the monitor that failed validation.
@@ -43,7 +46,8 @@ pub enum MonitorValidationError {
 
     /// The monitor is configured for a different network than expected.
     #[error(
-        "Monitor '{monitor_name}' is configured for network '{expected_network}', but it is actually on network '{actual_network}'."
+        "Monitor '{monitor_name}' is configured for network '{expected_network}', but it is \
+         actually on network '{actual_network}'."
     )]
     InvalidNetwork {
         /// The name of the monitor that failed validation.
@@ -88,12 +92,10 @@ impl<'a> MonitorValidator<'a> {
 
             // Parse the address to ensure it's valid.
             if let Some(address) = &monitor.address {
-                address
-                    .parse::<Address>()
-                    .map_err(|_| MonitorValidationError::InvalidAddress {
-                        monitor_name: monitor.name.clone(),
-                        address: address.clone(),
-                    })?;
+                address.parse::<Address>().map_err(|_| MonitorValidationError::InvalidAddress {
+                    monitor_name: monitor.name.clone(),
+                    address: address.clone(),
+                })?;
             }
         }
         Ok(())
@@ -156,9 +158,7 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(
             result.unwrap_err(),
-            MonitorValidationError::MonitorRequiresAddress {
-                monitor_name: invalid_monitor.name
-            }
+            MonitorValidationError::MonitorRequiresAddress { monitor_name: invalid_monitor.name }
         );
     }
 
@@ -177,9 +177,7 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(
             result.unwrap_err(),
-            MonitorValidationError::MonitorRequiresAbi {
-                monitor_name: invalid_monitor.name
-            }
+            MonitorValidationError::MonitorRequiresAbi { monitor_name: invalid_monitor.name }
         );
     }
 

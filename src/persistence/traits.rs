@@ -1,9 +1,10 @@
 //! This module contains the state management logic for the Argus application.
 
-use crate::models::{monitor::Monitor, trigger::TriggerConfig};
 use async_trait::async_trait;
 #[cfg(test)]
 use mockall::automock;
+
+use crate::models::{monitor::Monitor, trigger::TriggerConfig};
 
 /// Represents the state management interface for the Argus application.
 #[cfg_attr(test, automock)]

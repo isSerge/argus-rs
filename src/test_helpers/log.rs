@@ -1,10 +1,11 @@
 //! A builder for creating `Log` instances for testing.
 
-use crate::models::Log;
 use alloy::{
     primitives::{Address, B256, Bytes, LogData},
     rpc::types::Log as AlloyLog,
 };
+
+use crate::models::Log;
 
 /// A builder for creating `Log` instances for testing.
 #[derive(Debug, Clone, Default)]
@@ -107,23 +108,19 @@ impl LogBuilder {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use alloy::primitives::{address, b256};
+
+    use super::*;
 
     #[test]
     fn test_log_builder() {
         let log = LogBuilder::new()
             .address(address!("1111111111111111111111111111111111111111"))
-            .topic(b256!(
-                "2222222222222222222222222222222222222222222222222222222222222222"
-            ))
+            .topic(b256!("2222222222222222222222222222222222222222222222222222222222222222"))
             .data(Bytes::from(vec![0xde, 0xad, 0xbe, 0xef]))
             .build();
 
-        assert_eq!(
-            log.address(),
-            address!("1111111111111111111111111111111111111111")
-        );
+        assert_eq!(log.address(), address!("1111111111111111111111111111111111111111"));
         assert_eq!(log.topics().len(), 1);
         assert_eq!(
             log.topics()[0],

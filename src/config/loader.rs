@@ -1,8 +1,9 @@
 //! Generic configuration loader for loading items from a YAML file.
 
+use std::{fs, path::PathBuf};
+
 use config::{Config, File, FileFormat};
 use serde::de::DeserializeOwned;
-use std::{fs, path::PathBuf};
 use thiserror::Error;
 
 /// A generic loader for YAML files.
@@ -43,9 +44,8 @@ impl ConfigLoader {
 
         let config_str = fs::read_to_string(&self.path)?;
 
-        let config = Config::builder()
-            .add_source(File::from_str(&config_str, FileFormat::Yaml))
-            .build()?;
+        let config =
+            Config::builder().add_source(File::from_str(&config_str, FileFormat::Yaml)).build()?;
 
         let items = config.get(key)?;
 
@@ -54,20 +54,18 @@ impl ConfigLoader {
 
     /// Checks if the file has a YAML extension.
     fn is_yaml_file(&self) -> bool {
-        matches!(
-            self.path.extension().and_then(|ext| ext.to_str()),
-            Some("yaml") | Some("yml")
-        )
+        matches!(self.path.extension().and_then(|ext| ext.to_str()), Some("yaml") | Some("yml"))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::{fs::File, io::Write};
+
     use serde::Deserialize;
-    use std::fs::File;
-    use std::io::Write;
     use tempfile::TempDir;
+
+    use super::*;
 
     #[derive(Debug, Deserialize, PartialEq)]
     struct TestItem {
@@ -99,20 +97,8 @@ items:
         assert!(result.is_ok());
         let items = result.unwrap();
         assert_eq!(items.len(), 2);
-        assert_eq!(
-            items[0],
-            TestItem {
-                name: "A".into(),
-                value: 1
-            }
-        );
-        assert_eq!(
-            items[1],
-            TestItem {
-                name: "B".into(),
-                value: 2
-            }
-        );
+        assert_eq!(items[0], TestItem { name: "A".into(), value: 1 });
+        assert_eq!(items[1], TestItem { name: "B".into(), value: 2 });
     }
 
     #[test]
@@ -146,10 +132,7 @@ items:
         let result: Result<Vec<TestItem>, _> = loader.load("items");
 
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            LoaderError::UnsupportedFormat
-        ));
+        assert!(matches!(result.unwrap_err(), LoaderError::UnsupportedFormat));
     }
 
     #[test]

@@ -1,12 +1,14 @@
 //! This module contains the `BlockFetcher` component, responsible for
-//! efficiently retrieving all necessary data for a given block from an EVM RPC endpoint.
+//! efficiently retrieving all necessary data for a given block from an EVM RPC
+//! endpoint.
+
+use std::collections::HashMap;
 
 use alloy::{
     primitives::TxHash,
     providers::Provider,
     rpc::types::{Block, Filter, Log, TransactionReceipt},
 };
-use std::collections::HashMap;
 use thiserror::Error;
 
 /// Custom error type for the `BlockFetcher`.
@@ -59,7 +61,8 @@ where
         Ok((block, logs))
     }
 
-    // TODO: this is a workaround for tests, remove when tests use more sophisticated transport mocking.
+    // TODO: this is a workaround for tests, remove when tests use more
+    // sophisticated transport mocking.
     /// Test-only version of `fetch_block_and_logs` that runs sequentially.
     #[tracing::instrument(skip(self), level = "debug")]
     #[cfg(test)]
@@ -81,7 +84,8 @@ where
         Ok((block, logs))
     }
 
-    /// Fetches only the transaction receipts for a given list of transaction hashes.
+    /// Fetches only the transaction receipts for a given list of transaction
+    /// hashes.
     ///
     /// This method leverages the provider's `CallBatchLayer`
     /// to automatically batch these requests.
@@ -116,26 +120,18 @@ where
     /// Fetches all logs for a given block number.
     async fn fetch_logs_for_block(&self, number: u64) -> Result<Vec<Log>, BlockFetcherError> {
         let filter = Filter::new().from_block(number).to_block(number);
-        self.provider
-            .get_logs(&filter)
-            .await
-            .map_err(|e| BlockFetcherError::Provider(Box::new(e)))
+        self.provider.get_logs(&filter).await.map_err(|e| BlockFetcherError::Provider(Box::new(e)))
     }
 
     /// Fetches the current block number from the data source.
     #[tracing::instrument(skip(self), level = "debug")]
     pub async fn get_current_block_number(&self) -> Result<u64, BlockFetcherError> {
-        self.provider
-            .get_block_number()
-            .await
-            .map_err(|e| BlockFetcherError::Provider(Box::new(e)))
+        self.provider.get_block_number().await.map_err(|e| BlockFetcherError::Provider(Box::new(e)))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::test_helpers::ReceiptBuilder;
     use alloy::{
         network::Ethereum,
         primitives::{B256, U256},
@@ -143,6 +139,9 @@ mod tests {
         rpc::types::{Block, BlockTransactions, Header, Log},
         transports::mock::Asserter,
     };
+
+    use super::*;
+    use crate::test_helpers::ReceiptBuilder;
 
     // Helper to create a provider and asserter from the user's example.
     fn mock_provider() -> (impl Provider<Ethereum>, Asserter) {
@@ -273,11 +272,6 @@ mod tests {
         let result = fetcher.get_current_block_number().await;
 
         assert!(matches!(result, Err(BlockFetcherError::Provider(_))));
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("test provider error")
-        );
+        assert!(result.unwrap_err().to_string().contains("test provider error"));
     }
 }

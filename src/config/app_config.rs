@@ -1,11 +1,13 @@
+use std::time::Duration;
+
+use config::{Config, ConfigError, File};
+use serde::Deserialize;
+use url::Url;
+
 use super::{
     HttpRetryConfig, RhaiConfig, RpcRetryConfig, deserialize_duration_from_ms,
     deserialize_duration_from_seconds, deserialize_urls,
 };
-use config::{Config, ConfigError, File};
-use serde::Deserialize;
-use std::time::Duration;
-use url::Url;
 
 /// Provides the default value for shutdown_timeout_secs.
 fn default_shutdown_timeout() -> Duration {

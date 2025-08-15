@@ -3,7 +3,8 @@ use rhai::Engine;
 use crate::config::RhaiConfig;
 
 /// Creates a Rhai engine with security features and custom configurations.
-/// Used for both RhaiCompiler (AST compilation) and RhaiFilteringEngine (AST evaluation).
+/// Used for both RhaiCompiler (AST compilation) and RhaiFilteringEngine (AST
+/// evaluation).
 pub fn create_engine(rhai_config: RhaiConfig) -> Engine {
     let mut engine = Engine::new();
 

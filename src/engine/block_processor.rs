@@ -1,18 +1,20 @@
 //! This module defines the `BlockProcessor` component.
 //!
-//! The `BlockProcessor` is responsible for in-memory processing of blockchain data,
-//! including log decoding, data correlation, and applying filtering logic.
-//! It supports both single block processing and batch processing for improved throughput.
+//! The `BlockProcessor` is responsible for in-memory processing of blockchain
+//! data, including log decoding, data correlation, and applying filtering
+//! logic. It supports both single block processing and batch processing for
+//! improved throughput.
 
-use crate::abi::{AbiService, DecodedLog};
-use crate::models::DecodedBlockData;
-use crate::models::transaction::Transaction;
-use crate::models::{BlockData, CorrelatedBlockItem};
+use std::{result, sync::Arc};
+
 use alloy::rpc::types::BlockTransactions;
 use futures::future::join_all;
-use std::result;
-use std::sync::Arc;
 use thiserror::Error;
+
+use crate::{
+    abi::{AbiService, DecodedLog},
+    models::{BlockData, CorrelatedBlockItem, DecodedBlockData, transaction::Transaction},
+};
 
 /// Custom error type for `BlockProcessor` operations.
 #[derive(Error, Debug)]
@@ -40,10 +42,7 @@ impl BlockProcessor {
         &self,
         block_data: BlockData,
     ) -> Result<DecodedBlockData, BlockProcessorError> {
-        tracing::debug!(
-            block_number = block_data.block.header.number,
-            "Processing block data."
-        );
+        tracing::debug!(block_number = block_data.block.header.number, "Processing block data.");
 
         let num_txs = match &block_data.block.transactions {
             BlockTransactions::Full(txs) => txs.len(),
@@ -72,7 +71,8 @@ impl BlockProcessor {
                             match self.abi_service.decode_log(log) {
                                 Ok(decoded) => decoded_logs.push(decoded),
                                 Err(e) => {
-                                    // If we are monitoring the address, a decoding failure is a significant warning.
+                                    // If we are monitoring the address, a decoding failure is a
+                                    // significant warning.
                                     tracing::warn!(
                                         log_address = %log.address(),
                                         error = %e,
@@ -121,15 +121,13 @@ impl BlockProcessor {
             "Processing batch of blocks."
         );
 
-        let processing_futures = blocks
-            .into_iter()
-            .map(|block_data| self.process_block(block_data));
+        let processing_futures =
+            blocks.into_iter().map(|block_data| self.process_block(block_data));
 
         let results = join_all(processing_futures).await;
 
-        let decoded_blocks = results
-            .into_iter()
-            .collect::<result::Result<Vec<_>, BlockProcessorError>>();
+        let decoded_blocks =
+            results.into_iter().collect::<result::Result<Vec<_>, BlockProcessorError>>();
 
         tracing::info!(total_decoded_blocks = count, "Batch processing completed.");
 
@@ -139,17 +137,19 @@ impl BlockProcessor {
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::HashMap, sync::Arc};
+
+    use alloy::{
+        json_abi::JsonAbi,
+        primitives::{Address, B256, Bytes, U256, address, b256},
+    };
+
     use super::*;
     use crate::{
         abi::AbiService,
         models::block_data::BlockData,
         test_helpers::{BlockBuilder, LogBuilder, TransactionBuilder},
     };
-    use alloy::{
-        json_abi::JsonAbi,
-        primitives::{Address, B256, Bytes, U256, address, b256},
-    };
-    use std::{collections::HashMap, sync::Arc};
 
     fn simple_abi() -> JsonAbi {
         serde_json::from_str(
@@ -188,9 +188,7 @@ mod tests {
 
         let log = LogBuilder::new()
             .address(contract_address)
-            .topic(b256!(
-                "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
-            ))
+            .topic(b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"))
             .topic(Address::default().into_word())
             .topic(Address::default().into_word())
             .data(Bytes::from(U256::from(1000).to_be_bytes::<32>()))
@@ -198,10 +196,7 @@ mod tests {
             .block_number(block_number)
             .build();
 
-        let block = BlockBuilder::new()
-            .number(block_number)
-            .transaction(tx)
-            .build();
+        let block = BlockBuilder::new().number(block_number).transaction(tx).build();
 
         let mut logs_by_tx = HashMap::new();
         logs_by_tx.insert(tx_hash, vec![log.into()]);
@@ -218,10 +213,7 @@ mod tests {
         assert_eq!(decoded_block.items.len(), 1);
         let correlated_item = &decoded_block.items[0];
         assert_eq!(correlated_item.transaction.hash(), tx_hash);
-        assert_eq!(
-            correlated_item.transaction.block_number(),
-            Some(block_number)
-        );
+        assert_eq!(correlated_item.transaction.block_number(), Some(block_number));
         assert_eq!(correlated_item.decoded_logs.len(), 1);
         let decoded_log = &correlated_item.decoded_logs[0];
         assert_eq!(decoded_log.name, "Transfer");
@@ -256,10 +248,7 @@ mod tests {
         let decoded_block = block_processor.process_block(block_data).await.unwrap();
 
         for item in decoded_block.items {
-            assert!(
-                item.decoded_logs.is_empty(),
-                "Expected no decoded logs due to decoding error"
-            );
+            assert!(item.decoded_logs.is_empty(), "Expected no decoded logs due to decoding error");
         }
     }
     #[tokio::test]
@@ -282,9 +271,7 @@ mod tests {
 
             let log = LogBuilder::new()
                 .address(contract_address)
-                .topic(b256!(
-                    "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
-                ))
+                .topic(b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"))
                 .topic(Address::default().into_word())
                 .topic(Address::default().into_word())
                 .data(Bytes::from(U256::from(1000).to_be_bytes::<32>()))
@@ -292,10 +279,7 @@ mod tests {
                 .block_number(block_num)
                 .build();
 
-            let block = BlockBuilder::new()
-                .number(block_num)
-                .transaction(tx)
-                .build();
+            let block = BlockBuilder::new().number(block_num).transaction(tx).build();
 
             let mut logs_by_tx = HashMap::new();
             logs_by_tx.insert(tx_hash, vec![log.into()]);
@@ -320,10 +304,7 @@ mod tests {
         let abi_service = Arc::new(AbiService::new());
         let block_processor = BlockProcessor::new(abi_service);
 
-        let matches = block_processor
-            .process_blocks_batch(Vec::new())
-            .await
-            .unwrap();
+        let matches = block_processor.process_blocks_batch(Vec::new()).await.unwrap();
         assert!(matches.is_empty());
     }
 
@@ -336,16 +317,10 @@ mod tests {
         let block = BlockBuilder::new().build();
         let block_data = BlockData::new(block, HashMap::new(), HashMap::new());
 
-        let decoded_blocks = block_processor
-            .process_blocks_batch(vec![block_data])
-            .await
-            .unwrap();
+        let decoded_blocks = block_processor.process_blocks_batch(vec![block_data]).await.unwrap();
 
         for decoded_block in decoded_blocks {
-            assert!(
-                decoded_block.items.is_empty(),
-                "Expected no items in decoded block"
-            );
+            assert!(decoded_block.items.is_empty(), "Expected no items in decoded block");
         }
     }
 
@@ -363,11 +338,9 @@ mod tests {
         logs_by_tx.insert(tx_hash, vec![log.into()]);
         let block_data = BlockData::new(block, HashMap::new(), logs_by_tx);
 
-        // Should run without error, but no matches will be found as decoding fails silently.
-        let decoded_blocks = block_processor
-            .process_blocks_batch(vec![block_data])
-            .await
-            .unwrap();
+        // Should run without error, but no matches will be found as decoding fails
+        // silently.
+        let decoded_blocks = block_processor.process_blocks_batch(vec![block_data]).await.unwrap();
 
         for decoded_block in decoded_blocks {
             for item in decoded_block.items {

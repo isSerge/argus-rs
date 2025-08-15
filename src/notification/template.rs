@@ -1,4 +1,5 @@
-//! This module provides a service for rendering templates using the minijinja templating engine.
+//! This module provides a service for rendering templates using the minijinja
+//! templating engine.
 
 use minijinja::Environment;
 use thiserror::Error;
@@ -29,16 +30,15 @@ impl TemplateService {
         template_str: &str,
         context: serde_json::Value,
     ) -> Result<String, TemplateServiceError> {
-        self.env
-            .render_str(template_str, context)
-            .map_err(TemplateServiceError::RenderError)
+        self.env.render_str(template_str, context).map_err(TemplateServiceError::RenderError)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn test_render_template_with_context() {

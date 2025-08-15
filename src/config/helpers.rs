@@ -1,5 +1,6 @@
-use serde::{Deserialize, Deserializer, Serializer, de};
 use std::time::Duration;
+
+use serde::{Deserialize, Deserializer, Serializer, de};
 use url::Url;
 
 /// Custom deserializer for Duration from milliseconds
@@ -45,16 +46,15 @@ where
     D: Deserializer<'de>,
 {
     let s = Vec::<String>::deserialize(deserializer)?;
-    s.into_iter()
-        .map(|url_str| Url::parse(&url_str).map_err(de::Error::custom))
-        .collect()
+    s.into_iter().map(|url_str| Url::parse(&url_str).map_err(de::Error::custom)).collect()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde::Serialize;
     use serde_json;
+
+    use super::*;
 
     #[derive(Debug, Deserialize, Serialize, PartialEq)]
     struct TestDurationMs {
@@ -83,18 +83,14 @@ mod tests {
     #[test]
     fn test_deserialize_duration_from_ms() {
         let json = r#"{"duration": 5000}"#;
-        let expected = TestDurationMs {
-            duration: Duration::from_millis(5000),
-        };
+        let expected = TestDurationMs { duration: Duration::from_millis(5000) };
         let actual: TestDurationMs = serde_json::from_str(json).unwrap();
         assert_eq!(actual, expected);
     }
 
     #[test]
     fn test_serialize_duration_to_ms() {
-        let data = TestDurationMs {
-            duration: Duration::from_millis(5000),
-        };
+        let data = TestDurationMs { duration: Duration::from_millis(5000) };
         let expected = r#"{"duration":5000}"#;
         let actual = serde_json::to_string(&data).unwrap();
         assert_eq!(actual, expected);
@@ -103,18 +99,14 @@ mod tests {
     #[test]
     fn test_deserialize_duration_from_seconds() {
         let json = r#"{"duration": 5}"#;
-        let expected = TestDurationSecs {
-            duration: Duration::from_secs(5),
-        };
+        let expected = TestDurationSecs { duration: Duration::from_secs(5) };
         let actual: TestDurationSecs = serde_json::from_str(json).unwrap();
         assert_eq!(actual, expected);
     }
 
     #[test]
     fn test_serialize_duration_to_seconds() {
-        let data = TestDurationSecs {
-            duration: Duration::from_secs(5),
-        };
+        let data = TestDurationSecs { duration: Duration::from_secs(5) };
         let expected = r#"{"duration":5}"#;
         let actual = serde_json::to_string(&data).unwrap();
         assert_eq!(actual, expected);

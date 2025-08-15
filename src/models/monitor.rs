@@ -1,4 +1,5 @@
-//! This module defines the `Monitor` structure, which represents a blockchain monitor that tracks specific addresses and networks.
+//! This module defines the `Monitor` structure, which represents a blockchain
+//! monitor that tracks specific addresses and networks.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -7,7 +8,8 @@ use sqlx::FromRow;
 /// Represents a blockchain monitor that tracks specific addresses and networks.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Monitor {
-    /// Unique identifier for the monitor (auto-generated when loading from config)
+    /// Unique identifier for the monitor (auto-generated when loading from
+    /// config)
     #[sqlx(rename = "monitor_id")]
     #[serde(default)]
     pub id: i64,
@@ -19,7 +21,8 @@ pub struct Monitor {
     pub network: String,
 
     /// The specific address this monitor is tracking.
-    /// If `None`, the monitor will be applied to all transactions (e.g., for native token transfers).
+    /// If `None`, the monitor will be applied to all transactions (e.g., for
+    /// native token transfers).
     #[serde(default)]
     pub address: Option<String>,
 

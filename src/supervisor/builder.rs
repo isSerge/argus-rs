@@ -1,7 +1,9 @@
-//! This module provides the `SupervisorBuilder` for constructing a `Supervisor`.
+//! This module provides the `SupervisorBuilder` for constructing a
+//! `Supervisor`.
 
 use std::sync::Arc;
 
+use super::{Supervisor, SupervisorError};
 use crate::{
     abi::AbiService,
     config::AppConfig,
@@ -11,8 +13,6 @@ use crate::{
     persistence::traits::StateRepository,
     providers::traits::DataSource,
 };
-
-use super::{Supervisor, SupervisorError};
 
 /// A builder for creating a `Supervisor` instance.
 #[derive(Default)]
@@ -56,8 +56,9 @@ impl SupervisorBuilder {
     /// Assembles and validates the components to build a `Supervisor`.
     ///
     /// This method performs the final "wiring" of the application's services.
-    /// It ensures all required dependencies have been provided and then constructs
-    /// the internal services, such as the `BlockProcessor` and `FilteringEngine`.
+    /// It ensures all required dependencies have been provided and then
+    /// constructs the internal services, such as the `BlockProcessor` and
+    /// `FilteringEngine`.
     pub async fn build(self) -> Result<Supervisor, SupervisorError> {
         let config = self.config.ok_or(SupervisorError::MissingConfig)?;
         let state = self.state.ok_or(SupervisorError::MissingStateRepository)?;
@@ -96,13 +97,15 @@ impl SupervisorBuilder {
 
 #[cfg(test)]
 mod tests {
+    use std::{fs::File, io::Write};
+
+    use tempfile::tempdir;
+
     use super::*;
     use crate::{
         models::monitor::Monitor, persistence::traits::MockStateRepository,
         providers::traits::MockDataSource,
     };
-    use std::{fs::File, io::Write};
-    use tempfile::tempdir;
 
     fn create_test_monitor(name: &str, address: Option<&str>, abi_path: Option<&str>) -> Monitor {
         Monitor::from_config(
@@ -128,12 +131,8 @@ mod tests {
         );
 
         let mut mock_state_repo = MockStateRepository::new();
-        mock_state_repo
-            .expect_get_monitors()
-            .returning(move |_| Ok(vec![monitor.clone()]));
-        mock_state_repo
-            .expect_get_triggers()
-            .returning(|_| Ok(vec![]));
+        mock_state_repo.expect_get_monitors().returning(move |_| Ok(vec![monitor.clone()]));
+        mock_state_repo.expect_get_triggers().returning(|_| Ok(vec![]));
 
         let builder = SupervisorBuilder::new()
             .config(AppConfig::default())
@@ -164,10 +163,7 @@ mod tests {
             .data_source(Box::new(MockDataSource::new()));
 
         let result = builder.build().await;
-        assert!(matches!(
-            result,
-            Err(SupervisorError::MissingStateRepository)
-        ));
+        assert!(matches!(result, Err(SupervisorError::MissingStateRepository)));
     }
 
     #[tokio::test]
@@ -196,10 +192,7 @@ mod tests {
     async fn build_fails_on_database_error_fetching_monitors() {
         let mut mock_state_repo = MockStateRepository::new();
         mock_state_repo.expect_get_monitors().returning(|_| {
-            Err(sqlx::Error::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Database error",
-            )))
+            Err(sqlx::Error::Io(std::io::Error::new(std::io::ErrorKind::Other, "Database error")))
         });
         // Do NOT expect get_triggers, as the function should exit early.
 

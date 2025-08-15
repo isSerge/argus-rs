@@ -1,7 +1,11 @@
-use crate::config::{ConfigLoader, LoaderError};
-use crate::models::monitor::Monitor;
 use std::{fs, path::PathBuf};
+
 use thiserror::Error;
+
+use crate::{
+    config::{ConfigLoader, LoaderError},
+    models::monitor::Monitor,
+};
 
 /// Loads monitor configurations from a file.
 pub struct MonitorLoader {
@@ -32,10 +36,7 @@ impl MonitorLoader {
         let mut monitors: Vec<Monitor> = loader.load("monitors")?;
 
         // Resolve ABI paths to be absolute
-        let base_dir = self
-            .path
-            .parent()
-            .unwrap_or_else(|| std::path::Path::new(""));
+        let base_dir = self.path.parent().unwrap_or_else(|| std::path::Path::new(""));
 
         for monitor in &mut monitors {
             if let Some(abi_path_str) = &monitor.abi {
@@ -57,12 +58,15 @@ impl MonitorLoader {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::fs;
+
     use tempfile::TempDir;
 
+    use super::*;
+
     /// Helper for creating test directories with configuration files.
-    /// Optionally creates an ABI file if `abi_filename` and `abi_content` are Some.
+    /// Optionally creates an ABI file if `abi_filename` and `abi_content` are
+    /// Some.
     fn create_test_dir_with_files(
         yaml_filename: &str,
         yaml_content: &str,
@@ -224,10 +228,7 @@ monitors:
         assert_eq!(monitors[2].name, "Native ETH Transfer Monitor");
         assert_eq!(monitors[2].network, "ethereum");
         assert_eq!(monitors[2].address, None);
-        assert_eq!(
-            monitors[2].filter_script,
-            "bigint(tx.value) > bigint(\"1000000000000000000\")"
-        );
+        assert_eq!(monitors[2].filter_script, "bigint(tx.value) > bigint(\"1000000000000000000\")");
     }
 
     #[test]
@@ -267,10 +268,7 @@ monitors:
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(matches!(
-            err,
-            MonitorLoaderError::Loader(LoaderError::IoError(_))
-        ));
+        assert!(matches!(err, MonitorLoaderError::Loader(LoaderError::IoError(_))));
     }
 
     #[test]
@@ -284,10 +282,7 @@ monitors:
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(matches!(
-            err,
-            MonitorLoaderError::Loader(LoaderError::UnsupportedFormat)
-        ));
+        assert!(matches!(err, MonitorLoaderError::Loader(LoaderError::UnsupportedFormat)));
     }
 
     #[test]
@@ -300,10 +295,7 @@ monitors:
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(matches!(
-            err,
-            MonitorLoaderError::Loader(LoaderError::UnsupportedFormat)
-        ));
+        assert!(matches!(err, MonitorLoaderError::Loader(LoaderError::UnsupportedFormat)));
     }
 
     #[test]
@@ -326,10 +318,7 @@ invalid_yaml: {key without value
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(matches!(
-            err,
-            MonitorLoaderError::Loader(LoaderError::ParseError(_))
-        ));
+        assert!(matches!(err, MonitorLoaderError::Loader(LoaderError::ParseError(_))));
     }
 
     #[test]
@@ -348,9 +337,6 @@ monitors:
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(matches!(
-            err,
-            MonitorLoaderError::Loader(LoaderError::ParseError(_))
-        ));
+        assert!(matches!(err, MonitorLoaderError::Loader(LoaderError::ParseError(_))));
     }
 }

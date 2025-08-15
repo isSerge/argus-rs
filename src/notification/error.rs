@@ -1,7 +1,8 @@
 //! Error types for the notification service.
 
-use crate::{http_client::HttpClientPoolError, notification::template::TemplateServiceError};
 use thiserror::Error;
+
+use crate::{http_client::HttpClientPoolError, notification::template::TemplateServiceError};
 
 /// Defines the possible errors that can occur within the notification service.
 #[derive(Debug, Error)]
@@ -10,7 +11,8 @@ pub enum NotificationError {
     #[error("Configuration error: {0}")]
     ConfigError(String),
 
-    /// An error that occurs when failing to deserialize the trigger configuration from a string.
+    /// An error that occurs when failing to deserialize the trigger
+    /// configuration from a string.
     #[error("Failed to deserialize trigger configuration: {0}")]
     DeserializationError(#[from] serde_json::Error),
 
@@ -30,7 +32,8 @@ pub enum NotificationError {
     #[error("HTTP client error")]
     HttpClientError(#[from] HttpClientPoolError),
 
-    /// An error from the underlying `reqwest` or `reqwest_middleware` libraries.
+    /// An error from the underlying `reqwest` or `reqwest_middleware`
+    /// libraries.
     #[error("Request error: {0}")]
     RequestError(#[from] reqwest_middleware::Error),
 

@@ -1,6 +1,8 @@
-//! This module defines the interface for fetching data from an EVM-compatible blockchain.
+//! This module defines the interface for fetching data from an EVM-compatible
+//! blockchain.
 
-use super::block_fetcher::BlockFetcherError;
+use std::collections::HashMap;
+
 use alloy::{
     primitives::TxHash,
     rpc::types::{Block, Log, TransactionReceipt},
@@ -8,8 +10,9 @@ use alloy::{
 use async_trait::async_trait;
 #[cfg(test)]
 use mockall::automock;
-use std::collections::HashMap;
 use thiserror::Error;
+
+use super::block_fetcher::BlockFetcherError;
 
 /// Custom error type for data source operations.
 #[derive(Error, Debug)]
@@ -35,7 +38,8 @@ pub enum DataSourceError {
 #[cfg_attr(test, automock)]
 #[async_trait]
 pub trait DataSource: Send + Sync {
-    /// Fetches the core data for a single block (block with transactions and logs).
+    /// Fetches the core data for a single block (block with transactions and
+    /// logs).
     async fn fetch_block_core_data(
         &self,
         block_number: u64,

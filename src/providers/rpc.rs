@@ -1,23 +1,28 @@
 //! This module provides functionality to create a provider for EVM RPC requests
 //! with retry logic and backoff strategies.
 
-use super::block_fetcher::{BlockFetcher, BlockFetcherError};
-use super::traits::{DataSource, DataSourceError};
-use crate::config::RpcRetryConfig;
-use alloy::primitives::TxHash;
-use alloy::rpc::types::{Block, Log, TransactionReceipt};
+use std::{collections::HashMap, num::NonZeroUsize};
+
 use alloy::{
+    primitives::TxHash,
     providers::{Provider, ProviderBuilder, layers::CallBatchLayer},
-    rpc::client::RpcClient,
+    rpc::{
+        client::RpcClient,
+        types::{Block, Log, TransactionReceipt},
+    },
     transports::{
         http::{Http, reqwest::Url},
         layers::{FallbackLayer, RetryBackoffLayer},
     },
 };
 use async_trait::async_trait;
-use std::collections::HashMap;
-use std::num::NonZeroUsize;
 use tower::ServiceBuilder;
+
+use super::{
+    block_fetcher::{BlockFetcher, BlockFetcherError},
+    traits::{DataSource, DataSourceError},
+};
+use crate::config::RpcRetryConfig;
 
 /// A `DataSource` implementation that fetches data from an EVM RPC endpoint.
 pub struct EvmRpcSource<P> {
@@ -31,9 +36,7 @@ where
     /// Creates a new `EvmRpcSource`.
     #[tracing::instrument(skip(provider), level = "debug")]
     pub fn new(provider: P) -> Self {
-        Self {
-            block_fetcher: BlockFetcher::new(provider),
-        }
+        Self { block_fetcher: BlockFetcher::new(provider) }
     }
 }
 
@@ -72,10 +75,7 @@ where
             .get_current_block_number()
             .await
             .map_err(Into::<DataSourceError>::into)?;
-        tracing::debug!(
-            current_block = block_number,
-            "Successfully fetched current block number."
-        );
+        tracing::debug!(current_block = block_number, "Successfully fetched current block number.");
         Ok(block_number)
     }
 
@@ -112,9 +112,7 @@ pub fn create_provider(
     retry_config: RpcRetryConfig,
 ) -> Result<impl Provider, ProviderError> {
     if urls.is_empty() {
-        return Err(ProviderError::CreationError(
-            "RPC URL list cannot be empty".into(),
-        ));
+        return Err(ProviderError::CreationError("RPC URL list cannot be empty".into()));
     }
 
     // Create a FallbackLayer with the provided URLs
@@ -132,14 +130,10 @@ pub fn create_provider(
     );
 
     // Apply the layers
-    let service = ServiceBuilder::new()
-        .layer(retry_layer)
-        .layer(fallback_layer)
-        .service(transports);
+    let service =
+        ServiceBuilder::new().layer(retry_layer).layer(fallback_layer).service(transports);
 
     let client = RpcClient::builder().transport(service, false);
-    let provider = ProviderBuilder::new()
-        .layer(CallBatchLayer::new())
-        .connect_client(client);
+    let provider = ProviderBuilder::new().layer(CallBatchLayer::new()).connect_client(client);
     Ok(provider)
 }

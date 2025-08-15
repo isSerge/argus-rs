@@ -43,11 +43,7 @@ impl InitializationService {
         repo: Arc<dyn StateRepository>,
         abi_service: Arc<AbiService>,
     ) -> Self {
-        Self {
-            config,
-            repo,
-            abi_service,
-        }
+        Self { config, repo, abi_service }
     }
 
     /// Runs the initialization process, loading monitors, triggers, and ABIs.
@@ -87,9 +83,7 @@ impl InitializationService {
         tracing::info!(config_path = %config_path, "No monitors found in database. Loading from configuration file...");
         let monitor_loader = MonitorLoader::new(PathBuf::from(config_path));
         let monitors = monitor_loader.load().map_err(|e| {
-            InitializationError::MonitorLoadError(format!(
-                "Failed to load monitors from file: {e}"
-            ))
+            InitializationError::MonitorLoadError(format!("Failed to load monitors from file: {e}"))
         })?;
 
         // Validate monitors
@@ -110,14 +104,9 @@ impl InitializationService {
                 "Failed to clear existing monitors in DB: {e}"
             ))
         })?;
-        self.repo
-            .add_monitors(network_id, monitors)
-            .await
-            .map_err(|e| {
-                InitializationError::MonitorLoadError(format!(
-                    "Failed to add monitors to DB: {e}"
-                ))
-            })?;
+        self.repo.add_monitors(network_id, monitors).await.map_err(|e| {
+            InitializationError::MonitorLoadError(format!("Failed to add monitors to DB: {e}"))
+        })?;
         tracing::info!(count = count, network_id = %network_id, "Monitors from file stored in database.");
         Ok(())
     }
@@ -145,9 +134,7 @@ impl InitializationService {
         tracing::info!(config_path = %config_path, "No triggers found in database. Loading from configuration file...");
         let trigger_loader = TriggerLoader::new(PathBuf::from(config_path));
         let triggers = trigger_loader.load().map_err(|e| {
-            InitializationError::TriggerLoadError(format!(
-                "Failed to load triggers from file: {e}"
-            ))
+            InitializationError::TriggerLoadError(format!("Failed to load triggers from file: {e}"))
         })?;
         let count = triggers.len();
         tracing::info!(count = count, "Loaded triggers from configuration file.");
@@ -156,14 +143,9 @@ impl InitializationService {
                 "Failed to clear existing triggers in DB: {e}"
             ))
         })?;
-        self.repo
-            .add_triggers(network_id, triggers)
-            .await
-            .map_err(|e| {
-                InitializationError::TriggerLoadError(format!(
-                    "Failed to add triggers to DB: {e}"
-                ))
-            })?;
+        self.repo.add_triggers(network_id, triggers).await.map_err(|e| {
+            InitializationError::TriggerLoadError(format!("Failed to add triggers to DB: {e}"))
+        })?;
         tracing::info!(count = count, network_id = %network_id, "Triggers from file stored in database.");
         Ok(())
     }
@@ -204,18 +186,21 @@ impl InitializationService {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::config::{AppConfig, HttpRetryConfig};
-    use crate::models::notification::NotificationMessage;
-    use crate::models::{
-        monitor::Monitor,
-        trigger::{SlackConfig, TriggerConfig, TriggerTypeConfig},
-    };
-    use crate::persistence::traits::MockStateRepository;
+    use std::{fs, io::Write};
+
     use mockall::predicate::*;
-    use std::fs;
-    use std::io::Write;
     use tempfile::tempdir;
+
+    use super::*;
+    use crate::{
+        config::{AppConfig, HttpRetryConfig},
+        models::{
+            monitor::Monitor,
+            notification::NotificationMessage,
+            trigger::{SlackConfig, TriggerConfig, TriggerTypeConfig},
+        },
+        persistence::traits::MockStateRepository,
+    };
 
     // Helper to create a dummy config file
     fn create_dummy_config_file(dir: &tempfile::TempDir, filename: &str, content: &str) -> PathBuf {
@@ -288,27 +273,15 @@ monitors:
             .with(eq(network_id))
             .times(2) // Called once for monitor loading, once for ABI loading
             .returning(|_| Ok(vec![]));
-        mock_repo
-            .expect_clear_monitors()
-            .with(eq(network_id))
-            .once()
-            .returning(|_| Ok(()));
+        mock_repo.expect_clear_monitors().with(eq(network_id)).once().returning(|_| Ok(()));
         mock_repo
             .expect_add_monitors()
             .with(eq(network_id), always())
             .once()
             .returning(|_, _| Ok(()));
         // Triggers
-        mock_repo
-            .expect_get_triggers()
-            .with(eq(network_id))
-            .once()
-            .returning(|_| Ok(vec![]));
-        mock_repo
-            .expect_clear_triggers()
-            .with(eq(network_id))
-            .once()
-            .returning(|_| Ok(()));
+        mock_repo.expect_get_triggers().with(eq(network_id)).once().returning(|_| Ok(vec![]));
+        mock_repo.expect_clear_triggers().with(eq(network_id)).once().returning(|_| Ok(()));
         mock_repo
             .expect_add_triggers()
             .with(eq(network_id), always())
@@ -477,23 +450,12 @@ monitors:
 
         let mut mock_repo = MockStateRepository::new();
         // Expect get_monitors to be called and return empty
-        mock_repo
-            .expect_get_monitors()
-            .with(eq(network_id))
-            .once()
-            .returning(|_| Ok(vec![]));
+        mock_repo.expect_get_monitors().with(eq(network_id)).once().returning(|_| Ok(vec![]));
         // Expect clear_monitors and add_monitors to be called
-        mock_repo
-            .expect_clear_monitors()
-            .with(eq(network_id))
-            .once()
-            .returning(|_| Ok(()));
+        mock_repo.expect_clear_monitors().with(eq(network_id)).once().returning(|_| Ok(()));
         mock_repo
             .expect_add_monitors()
-            .with(
-                eq(network_id),
-                function(|monitors: &Vec<Monitor>| monitors.len() == 1),
-            )
+            .with(eq(network_id), function(|monitors: &Vec<Monitor>| monitors.len() == 1))
             .once()
             .returning(|_, _| Ok(()));
 
@@ -529,11 +491,7 @@ monitors:
 
         let mut mock_repo = MockStateRepository::new();
         // Expect get_monitors to be called and return empty
-        mock_repo
-            .expect_get_monitors()
-            .with(eq(network_id))
-            .once()
-            .returning(|_| Ok(vec![]));
+        mock_repo.expect_get_monitors().with(eq(network_id)).once().returning(|_| Ok(vec![]));
 
         // Dummy config for AppConfig
         let config = AppConfig::builder()
@@ -602,23 +560,12 @@ monitors:
 
         let mut mock_repo = MockStateRepository::new();
         // Expect get_triggers to be called and return empty
-        mock_repo
-            .expect_get_triggers()
-            .with(eq(network_id))
-            .once()
-            .returning(|_| Ok(vec![]));
+        mock_repo.expect_get_triggers().with(eq(network_id)).once().returning(|_| Ok(vec![]));
         // Expect clear_triggers and add_triggers to be called
-        mock_repo
-            .expect_clear_triggers()
-            .with(eq(network_id))
-            .once()
-            .returning(|_| Ok(()));
+        mock_repo.expect_clear_triggers().with(eq(network_id)).once().returning(|_| Ok(()));
         mock_repo
             .expect_add_triggers()
-            .with(
-                eq(network_id),
-                function(|triggers: &Vec<TriggerConfig>| triggers.len() == 1),
-            )
+            .with(eq(network_id), function(|triggers: &Vec<TriggerConfig>| triggers.len() == 1))
             .once()
             .returning(|_, _| Ok(()));
 
@@ -645,20 +592,16 @@ monitors:
 
         let mut mock_repo = MockStateRepository::new();
         // Expect get_triggers to be called and return non-empty
-        mock_repo
-            .expect_get_triggers()
-            .with(eq(network_id))
-            .once()
-            .returning(|_| {
-                Ok(vec![TriggerConfig {
-                    name: "Dummy Trigger".to_string(),
-                    config: TriggerTypeConfig::Slack(SlackConfig {
-                        slack_url: "http://dummy.url".to_string(),
-                        message: NotificationMessage::default(),
-                        retry_policy: HttpRetryConfig::default(),
-                    }),
-                }])
-            }); // Return a dummy trigger
+        mock_repo.expect_get_triggers().with(eq(network_id)).once().returning(|_| {
+            Ok(vec![TriggerConfig {
+                name: "Dummy Trigger".to_string(),
+                config: TriggerTypeConfig::Slack(SlackConfig {
+                    slack_url: "http://dummy.url".to_string(),
+                    message: NotificationMessage::default(),
+                    retry_policy: HttpRetryConfig::default(),
+                }),
+            }])
+        }); // Return a dummy trigger
         // Expect clear_triggers and add_triggers to NOT be called
         mock_repo.expect_clear_triggers().times(0);
         mock_repo.expect_add_triggers().times(0);
@@ -717,11 +660,8 @@ monitors:
         // Verify ABI was added to AbiService
         assert_eq!(abi_service.cache_size(), initial_abi_cache_size + 1);
         assert!(
-            abi_service.is_monitored(
-                &"0x0000000000000000000000000000000000000001"
-                    .parse()
-                    .unwrap()
-            )
+            abi_service
+                .is_monitored(&"0x0000000000000000000000000000000000000001".parse().unwrap())
         );
     }
 }

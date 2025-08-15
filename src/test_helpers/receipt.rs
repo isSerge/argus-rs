@@ -61,16 +61,11 @@ impl ReceiptBuilder {
             Eip658Value::Eip658(false)
         };
 
-        let inner_receipt = Receipt {
-            status,
-            cumulative_gas_used: self.gas_used.unwrap_or(21_000),
-            logs: vec![],
-        };
+        let inner_receipt =
+            Receipt { status, cumulative_gas_used: self.gas_used.unwrap_or(21_000), logs: vec![] };
 
-        let receipt_with_bloom = ReceiptWithBloom {
-            receipt: inner_receipt,
-            logs_bloom: Bloom::default(),
-        };
+        let receipt_with_bloom =
+            ReceiptWithBloom { receipt: inner_receipt, logs_bloom: Bloom::default() };
 
         TransactionReceipt {
             transaction_hash: self.transaction_hash.unwrap_or_default(),
@@ -91,8 +86,9 @@ impl ReceiptBuilder {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use alloy::primitives::{address, b256};
+
+    use super::*;
 
     #[test]
     fn test_receipt_builder() {
@@ -112,14 +108,8 @@ mod tests {
         );
         assert_eq!(receipt.block_number, Some(321));
         assert_eq!(receipt.transaction_index, Some(1));
-        assert_eq!(
-            receipt.from,
-            address!("0x0000000000000000000000000000000000000000")
-        );
-        assert_eq!(
-            receipt.to,
-            Some(address!("0x0000000000000000000000000000000000000000"))
-        );
+        assert_eq!(receipt.from, address!("0x0000000000000000000000000000000000000000"));
+        assert_eq!(receipt.to, Some(address!("0x0000000000000000000000000000000000000000")));
         assert_eq!(receipt.gas_used, 30_000);
         assert_eq!(receipt.effective_gas_price, 2_000_000_000); // 2 Gwei
         assert!(receipt.contract_address.is_none());

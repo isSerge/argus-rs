@@ -1,9 +1,11 @@
 //! Loads and validates trigger configurations from a YAML file.
 
+use std::path::PathBuf;
+
+use thiserror::Error;
+
 use super::loader::{ConfigLoader, LoaderError};
 use crate::models::trigger::{TriggerConfig, TriggerTypeConfigError};
-use std::path::PathBuf;
-use thiserror::Error;
 
 /// Loads trigger configurations from a file.
 pub struct TriggerLoader {
@@ -43,10 +45,11 @@ impl TriggerLoader {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::fs::File;
-    use std::io::Write;
+    use std::{fs::File, io::Write};
+
     use tempfile::TempDir;
+
+    use super::*;
 
     fn create_test_file(dir: &TempDir, filename: &str, content: &str) -> PathBuf {
         let path = dir.path().join(filename);
