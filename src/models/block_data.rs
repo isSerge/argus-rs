@@ -1,13 +1,17 @@
-//! This module defines the `BlockData` structure, which encapsulates all relevant information for a single blockchain block.
+//! This module defines the `BlockData` structure, which encapsulates all
+//! relevant information for a single blockchain block.
 
-use crate::models::Log;
+use std::collections::HashMap;
+
 use alloy::{
     primitives::TxHash,
     rpc::types::{Block, Log as AlloyLog, TransactionReceipt},
 };
-use std::collections::HashMap;
 
-/// A comprehensive data structure holding all relevant information for a single block.
+use crate::models::Log;
+
+/// A comprehensive data structure holding all relevant information for a single
+/// block.
 #[derive(Debug, Clone, Default)]
 pub struct BlockData {
     /// The full block object, including headers and transaction details.
@@ -33,19 +37,17 @@ impl BlockData {
                 (tx_hash, logs)
             })
             .collect();
-        Self {
-            block,
-            receipts,
-            logs,
-        }
+        Self { block, receipts, logs }
     }
 
     /// Creates a new `BlockData` instance from raw, ungrouped logs.
     ///
     /// Arguments:
     /// - `block`: The full block object.
-    /// - `receipts`: A map of transaction receipts keyed by their transaction hash.
-    /// - `raw_logs`: A vector of logs that may not be grouped by transaction hash.
+    /// - `receipts`: A map of transaction receipts keyed by their transaction
+    ///   hash.
+    /// - `raw_logs`: A vector of logs that may not be grouped by transaction
+    ///   hash.
     ///
     /// Returns:
     /// - A `BlockData` instance with logs grouped by their transaction hash
@@ -61,18 +63,15 @@ impl BlockData {
             }
         }
 
-        Self {
-            block,
-            receipts,
-            logs,
-        }
+        Self { block, receipts, logs }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use alloy::primitives::B256;
+
+    use super::*;
 
     #[test]
     fn test_new_constructor() {
@@ -101,14 +100,8 @@ mod tests {
     #[test]
     fn test_from_raw_data_ignores_logs_without_tx_hash() {
         let tx_hash = B256::from_slice(&[1; 32]);
-        let log_with_hash = AlloyLog {
-            transaction_hash: Some(tx_hash),
-            ..Default::default()
-        };
-        let log_without_hash = AlloyLog {
-            transaction_hash: None,
-            ..Default::default()
-        };
+        let log_with_hash = AlloyLog { transaction_hash: Some(tx_hash), ..Default::default() };
+        let log_without_hash = AlloyLog { transaction_hash: None, ..Default::default() };
 
         let raw_logs = vec![log_with_hash, log_without_hash];
         let block = Block::default();
@@ -125,18 +118,9 @@ mod tests {
         let tx_hash1 = B256::from_slice(&[1; 32]);
         let tx_hash2 = B256::from_slice(&[2; 32]);
 
-        let log1 = AlloyLog {
-            transaction_hash: Some(tx_hash1),
-            ..Default::default()
-        };
-        let log2 = AlloyLog {
-            transaction_hash: Some(tx_hash2),
-            ..Default::default()
-        };
-        let log3 = AlloyLog {
-            transaction_hash: Some(tx_hash1),
-            ..Default::default()
-        };
+        let log1 = AlloyLog { transaction_hash: Some(tx_hash1), ..Default::default() };
+        let log2 = AlloyLog { transaction_hash: Some(tx_hash2), ..Default::default() };
+        let log3 = AlloyLog { transaction_hash: Some(tx_hash1), ..Default::default() };
 
         let raw_logs = vec![log1, log2, log3];
         let block = Block::default();

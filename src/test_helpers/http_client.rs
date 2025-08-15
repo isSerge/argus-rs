@@ -1,6 +1,7 @@
+use std::sync::Arc;
+
 use reqwest::Client;
 use reqwest_middleware::ClientWithMiddleware;
-use std::sync::Arc;
 
 use crate::{config::HttpRetryConfig, http_client::create_retryable_http_client};
 

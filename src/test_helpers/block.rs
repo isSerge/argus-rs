@@ -1,10 +1,11 @@
 //! A builder for creating `Block` instances for testing.
 
-use crate::models::transaction::Transaction;
 use alloy::{
     primitives::B256,
     rpc::types::{Block, BlockTransactions, Header},
 };
+
+use crate::models::transaction::Transaction;
 
 /// A builder for creating `Block` instances for testing.
 #[derive(Debug, Clone, Default)]
@@ -51,9 +52,10 @@ impl BlockBuilder {
 
 #[cfg(test)]
 mod tests {
+    use alloy::primitives::{address, b256};
+
     use super::*;
     use crate::test_helpers::TransactionBuilder;
-    use alloy::primitives::{address, b256};
 
     #[test]
     fn test_block_builder() {
@@ -63,11 +65,8 @@ mod tests {
             .to(Some(address!("0000000000000000000000000000000000000001")))
             .build();
 
-        let block = BlockBuilder::new()
-            .number(123)
-            .hash(B256::repeat_byte(0x42))
-            .transaction(tx)
-            .build();
+        let block =
+            BlockBuilder::new().number(123).hash(B256::repeat_byte(0x42)).transaction(tx).build();
 
         assert_eq!(block.header.number, 123);
         assert_eq!(block.header.hash, B256::repeat_byte(0x42));

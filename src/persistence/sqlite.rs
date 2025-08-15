@@ -1,18 +1,23 @@
-//! This module provides a concrete implementation of the StateRepository using SQLite.
+//! This module provides a concrete implementation of the StateRepository using
+//! SQLite.
 
-use super::traits::StateRepository;
-use crate::models::{monitor::Monitor, trigger::TriggerConfig};
+use std::str::FromStr;
+
 use async_trait::async_trait;
 use sqlx::{
     Row, SqlitePool,
     sqlite::{SqliteConnectOptions, SqliteRow},
 };
-use std::str::FromStr;
+
+use super::traits::StateRepository;
+use crate::models::{monitor::Monitor, trigger::TriggerConfig};
 
 /// SQL query constants for monitor operations
 mod monitor_sql {
     /// Select all monitors for a specific network
-    pub const SELECT_MONITORS_BY_NETWORK: &str = "SELECT monitor_id, name, network, address, abi, filter_script, created_at, updated_at FROM monitors WHERE network = ?";
+    pub const SELECT_MONITORS_BY_NETWORK: &str = "SELECT monitor_id, name, network, address, abi, \
+                                                  filter_script, created_at, updated_at FROM \
+                                                  monitors WHERE network = ?";
 
     /// Insert a new monitor
     pub const INSERT_MONITOR: &str =
@@ -54,8 +59,9 @@ pub struct SqliteStateRepository {
 }
 
 impl SqliteStateRepository {
-    /// Creates a new instance of SqliteStateRepository with the provided database URL.
-    /// This will create the database file if it does not exist.
+    /// Creates a new instance of SqliteStateRepository with the provided
+    /// database URL. This will create the database file if it does not
+    /// exist.
     #[tracing::instrument(level = "info")]
     pub async fn new(database_url: &str) -> Result<Self, sqlx::Error> {
         tracing::debug!(database_url, "Attempting to connect to SQLite database.");
@@ -69,13 +75,10 @@ impl SqliteStateRepository {
     #[tracing::instrument(skip(self), level = "info")]
     pub async fn run_migrations(&self) -> Result<(), sqlx::migrate::MigrateError> {
         tracing::debug!("Running database migrations.");
-        sqlx::migrate!("./migrations")
-            .run(&self.pool)
-            .await
-            .map_err(|e| {
-                tracing::error!(error = %e, "Failed to run database migrations.");
-                e
-            })?;
+        sqlx::migrate!("./migrations").run(&self.pool).await.map_err(|e| {
+            tracing::error!(error = %e, "Failed to run database migrations.");
+            e
+        })?;
         tracing::info!("Database migrations completed successfully.");
         Ok(())
     }
@@ -109,26 +112,20 @@ impl SqliteStateRepository {
     async fn checkpoint_wal(&self, mode: &str) -> Result<(), sqlx::Error> {
         let allowed_modes = ["PASSIVE", "TRUNCATE", "RESTART", "RESTART_OR_TRUNCATE"];
         if !allowed_modes.contains(&mode) {
-            return Err(sqlx::Error::Protocol(format!(
-                "Invalid WAL checkpoint mode: {mode}"
-            )));
+            return Err(sqlx::Error::Protocol(format!("Invalid WAL checkpoint mode: {mode}")));
         }
         let pragma = format!("PRAGMA wal_checkpoint({mode})");
-        self.execute_pragma(&pragma, &format!("WAL checkpoint {mode}"))
-            .await
+        self.execute_pragma(&pragma, &format!("WAL checkpoint {mode}")).await
     }
 
     /// Sets the synchronous mode
     async fn set_synchronous_mode(&self, mode: &str) -> Result<(), sqlx::Error> {
         let allowed_modes = ["OFF", "NORMAL", "FULL"];
         if !allowed_modes.contains(&mode) {
-            return Err(sqlx::Error::Protocol(format!(
-                "Invalid synchronous mode: {mode}"
-            )));
+            return Err(sqlx::Error::Protocol(format!("Invalid synchronous mode: {mode}")));
         }
         let pragma = format!("PRAGMA synchronous = {mode}");
-        self.execute_pragma(&pragma, &format!("set synchronous mode to {mode}"))
-            .await
+        self.execute_pragma(&pragma, &format!("set synchronous mode to {mode}")).await
     }
 
     /// Helper to execute database queries with consistent error handling
@@ -198,11 +195,7 @@ impl StateRepository for SqliteStateRepository {
         network_id: &str,
         block_number: u64,
     ) -> Result<(), sqlx::Error> {
-        tracing::debug!(
-            network_id,
-            block_number,
-            "Attempting to set last processed block."
-        );
+        tracing::debug!(network_id, block_number, "Attempting to set last processed block.");
 
         let block_number_i64 = i64::try_from(block_number).map_err(|error| {
             tracing::error!(error = %error, block_number, "Failed to convert block_number to i64 for database insertion.");
@@ -221,11 +214,7 @@ impl StateRepository for SqliteStateRepository {
         )
         .await?;
 
-        tracing::info!(
-            network_id,
-            block_number,
-            "Last processed block set successfully."
-        );
+        tracing::info!(network_id, block_number, "Last processed block set successfully.");
         Ok(())
     }
 
@@ -234,7 +223,8 @@ impl StateRepository for SqliteStateRepository {
     async fn cleanup(&self) -> Result<(), sqlx::Error> {
         tracing::debug!("Performing state repository cleanup.");
 
-        // Force a checkpoint to ensure all WAL data is written to the main database file
+        // Force a checkpoint to ensure all WAL data is written to the main database
+        // file
         self.checkpoint_wal("TRUNCATE").await?;
 
         tracing::debug!("State repository cleanup completed.");
@@ -252,7 +242,8 @@ impl StateRepository for SqliteStateRepository {
         // Force a checkpoint to flush WAL to main database
         self.checkpoint_wal("TRUNCATE").await?;
 
-        // Revert synchronous mode to NORMAL for better performance during normal operations
+        // Revert synchronous mode to NORMAL for better performance during normal
+        // operations
         self.set_synchronous_mode("NORMAL").await?;
 
         tracing::debug!("Pending writes flushed successfully.");
@@ -275,8 +266,7 @@ impl StateRepository for SqliteStateRepository {
         );
 
         // Save the current state and flush to ensure it's persisted
-        self.set_last_processed_block(network_id, block_number)
-            .await?;
+        self.set_last_processed_block(network_id, block_number).await?;
         self.flush().await?;
 
         tracing::info!(
@@ -320,11 +310,7 @@ impl StateRepository for SqliteStateRepository {
         network_id: &str,
         monitors: Vec<Monitor>,
     ) -> Result<(), sqlx::Error> {
-        tracing::debug!(
-            network_id,
-            monitor_count = monitors.len(),
-            "Adding monitors."
-        );
+        tracing::debug!(network_id, monitor_count = monitors.len(), "Adding monitors.");
 
         // Validate that all monitors belong to the correct network
         for monitor in &monitors {
@@ -423,15 +409,12 @@ impl StateRepository for SqliteStateRepository {
         network_id: &str,
         triggers: Vec<TriggerConfig>,
     ) -> Result<(), sqlx::Error> {
-        tracing::debug!(
-            network_id,
-            trigger_count = triggers.len(),
-            "Adding triggers."
-        );
+        tracing::debug!(network_id, trigger_count = triggers.len(), "Adding triggers.");
 
-        // Note: We are not validating network_id here because triggers are network-agnostic.
-        // A single trigger (e.g., a webhook) can be used by monitors on any network.
-        // The `network_id` in the database table is for organizational purposes.
+        // Note: We are not validating network_id here because triggers are
+        // network-agnostic. A single trigger (e.g., a webhook) can be used by
+        // monitors on any network. The `network_id` in the database table is
+        // for organizational purposes.
 
         let mut tx = self.pool.begin().await?;
 
@@ -476,16 +459,16 @@ impl StateRepository for SqliteStateRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::notification::NotificationMessage;
-    use crate::models::trigger::{SlackConfig, TriggerTypeConfig};
+    use crate::models::{
+        notification::NotificationMessage,
+        trigger::{SlackConfig, TriggerTypeConfig},
+    };
 
     async fn setup_test_db() -> SqliteStateRepository {
         let repo = SqliteStateRepository::new("sqlite::memory:")
             .await
             .expect("Failed to connect to in-memory db");
-        repo.run_migrations()
-            .await
-            .expect("Failed to run migrations");
+        repo.run_migrations().await.expect("Failed to run migrations");
         repo
     }
 
@@ -538,9 +521,7 @@ mod tests {
         let network = "emergency_test";
 
         // Save emergency state
-        repo.save_emergency_state(network, 555, "Test emergency shutdown")
-            .await
-            .unwrap();
+        repo.save_emergency_state(network, 555, "Test emergency shutdown").await.unwrap();
 
         // Verify the state was saved
         let block = repo.get_last_processed_block(network).await.unwrap();
@@ -573,9 +554,7 @@ mod tests {
         // Save emergency state during first run
         // This simulates a scenario where the application is starting fresh
         // and needs to save an emergency state immediately.
-        repo.save_emergency_state(network, 42, "Emergency during first run")
-            .await
-            .unwrap();
+        repo.save_emergency_state(network, 42, "Emergency during first run").await.unwrap();
 
         // Verify the emergency state was saved
         let saved_state = repo.get_last_processed_block(network).await.unwrap();
@@ -618,19 +597,15 @@ mod tests {
         ];
 
         // Add monitors
-        repo.add_monitors(network_id, test_monitors.clone())
-            .await
-            .unwrap();
+        repo.add_monitors(network_id, test_monitors.clone()).await.unwrap();
 
         // Retrieve monitors and verify
         let stored_monitors = repo.get_monitors(network_id).await.unwrap();
         assert_eq!(stored_monitors.len(), 3);
 
         // Check USDC monitor
-        let usdc_monitor = stored_monitors
-            .iter()
-            .find(|m| m.name == "USDC Transfer Monitor")
-            .unwrap();
+        let usdc_monitor =
+            stored_monitors.iter().find(|m| m.name == "USDC Transfer Monitor").unwrap();
         assert_eq!(usdc_monitor.network, network_id);
         assert_eq!(
             usdc_monitor.address,
@@ -639,10 +614,7 @@ mod tests {
         assert!(usdc_monitor.id > 0);
 
         // Check Native ETH monitor
-        let eth_monitor = stored_monitors
-            .iter()
-            .find(|m| m.name == "Native ETH Monitor")
-            .unwrap();
+        let eth_monitor = stored_monitors.iter().find(|m| m.name == "Native ETH Monitor").unwrap();
         assert_eq!(eth_monitor.network, network_id);
         assert_eq!(eth_monitor.address, None);
         assert!(eth_monitor.id > 0);
@@ -679,9 +651,7 @@ mod tests {
         )];
 
         // Add monitors to different networks
-        repo.add_monitors(network1, ethereum_monitors)
-            .await
-            .unwrap();
+        repo.add_monitors(network1, ethereum_monitors).await.unwrap();
         repo.add_monitors(network2, polygon_monitors).await.unwrap();
 
         // Verify network isolation
@@ -801,9 +771,7 @@ mod tests {
         )];
 
         // Should handle large scripts
-        repo.add_monitors(network_id, monitor_with_large_script)
-            .await
-            .unwrap();
+        repo.add_monitors(network_id, monitor_with_large_script).await.unwrap();
 
         // Verify the script was stored correctly
         let stored_monitors = repo.get_monitors(network_id).await.unwrap();
@@ -836,9 +804,7 @@ mod tests {
         }];
 
         // Add triggers
-        repo.add_triggers(network_id, test_triggers.clone())
-            .await
-            .unwrap();
+        repo.add_triggers(network_id, test_triggers.clone()).await.unwrap();
 
         // Retrieve triggers and verify
         let stored_triggers = repo.get_triggers(network_id).await.unwrap();
@@ -878,9 +844,7 @@ mod tests {
         }];
 
         // Add triggers to different networks
-        repo.add_triggers(network1, ethereum_triggers)
-            .await
-            .unwrap();
+        repo.add_triggers(network1, ethereum_triggers).await.unwrap();
         repo.add_triggers(network2, polygon_triggers).await.unwrap();
 
         // Verify network isolation
@@ -906,9 +870,10 @@ mod tests {
         let repo = setup_test_db().await;
         let network_id = "ethereum";
 
-        // Create a batch of triggers where one has a name that is too long, causing a DB constraint error.
-        // This test is a bit contrived as we can't easily create an invalid JSON,
-        // but we can simulate a constraint violation. Here, we'll rely on the UNIQUE constraint.
+        // Create a batch of triggers where one has a name that is too long, causing a
+        // DB constraint error. This test is a bit contrived as we can't easily
+        // create an invalid JSON, but we can simulate a constraint violation.
+        // Here, we'll rely on the UNIQUE constraint.
         let triggers1 = vec![
             TriggerConfig {
                 name: "Unique Trigger".to_string(),

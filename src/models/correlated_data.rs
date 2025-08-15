@@ -1,8 +1,8 @@
 //! This module defines data structures for correlated blockchain data.
 
-use crate::abi::DecodedLog;
-use crate::models::transaction::Transaction;
 use alloy::{primitives::TxHash, rpc::types::TransactionReceipt};
+
+use crate::{abi::DecodedLog, models::transaction::Transaction};
 
 /// Represents a correlated set of data for a single transaction within a block.
 /// This is the unit of data that the `FilteringEngine` will evaluate.
@@ -24,11 +24,7 @@ impl CorrelatedBlockItem {
         decoded_logs: Vec<DecodedLog>,
         receipt: Option<TransactionReceipt>,
     ) -> Self {
-        Self {
-            transaction,
-            decoded_logs,
-            receipt,
-        }
+        Self { transaction, decoded_logs, receipt }
     }
 
     /// Returns the hash of the transaction.

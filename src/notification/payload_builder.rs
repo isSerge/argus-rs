@@ -1,17 +1,19 @@
 //! # Webhook Payload Builder
 //!
-//! This module provides traits and implementations for constructing channel-specific
-//! JSON payloads for various notification services. Each service (e.g., Slack, Discord)
-//! has a unique JSON structure, and the builders in this module are responsible for
-//! creating them.
+//! This module provides traits and implementations for constructing
+//! channel-specific JSON payloads for various notification services. Each
+//! service (e.g., Slack, Discord) has a unique JSON structure, and the builders
+//! in this module are responsible for creating them.
 //!
 //! ## Core Components
 //!
-//! - **`WebhookPayloadBuilder` Trait**: A common interface for all payload builders.
-//!   It defines a single method, `build_payload`, which takes a title, a body template,
-//!   and a set of variables, and returns a `serde_json::Value`.
-//! - **Implementations**: Structs like `SlackPayloadBuilder`, `DiscordPayloadBuilder`, etc.,
-//!   implement this trait to generate the JSON required by their respective services.
+//! - **`WebhookPayloadBuilder` Trait**: A common interface for all payload
+//!   builders. It defines a single method, `build_payload`, which takes a
+//!   title, a body template, and a set of variables, and returns a
+//!   `serde_json::Value`.
+//! - **Implementations**: Structs like `SlackPayloadBuilder`,
+//!   `DiscordPayloadBuilder`, etc., implement this trait to generate the JSON
+//!   required by their respective services.
 
 use regex::Regex;
 use serde_json::json;
@@ -59,7 +61,8 @@ impl WebhookPayloadBuilder for SlackPayloadBuilder {
 
 /// A payload builder for Discord notifications.
 ///
-/// Discord uses a simple `content` field for standard markdown-formatted messages.
+/// Discord uses a simple `content` field for standard markdown-formatted
+/// messages.
 pub struct DiscordPayloadBuilder;
 
 impl WebhookPayloadBuilder for DiscordPayloadBuilder {
@@ -169,7 +172,8 @@ impl WebhookPayloadBuilder for TelegramPayloadBuilder {
 
 /// A payload builder for generic webhooks.
 ///
-/// This builder creates a simple, unopinionated JSON payload with a `title` and `body`.
+/// This builder creates a simple, unopinionated JSON payload with a `title` and
+/// `body`.
 pub struct GenericWebhookPayloadBuilder;
 
 impl WebhookPayloadBuilder for GenericWebhookPayloadBuilder {
@@ -183,8 +187,9 @@ impl WebhookPayloadBuilder for GenericWebhookPayloadBuilder {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn test_slack_payload_builder() {
@@ -222,10 +227,8 @@ mod tests {
 
     #[test]
     fn test_telegram_payload_builder() {
-        let builder = TelegramPayloadBuilder {
-            chat_id: "12345".to_string(),
-            disable_web_preview: true,
-        };
+        let builder =
+            TelegramPayloadBuilder { chat_id: "12345".to_string(), disable_web_preview: true };
         let title = "Test Title";
         let message = "Test Message";
         let payload = builder.build_payload(title, message);
@@ -283,22 +286,13 @@ mod tests {
         );
 
         // Test inline code (should be preserved)
-        assert_eq!(
-            TelegramPayloadBuilder::escape_markdown_v2("`inline code`"),
-            "`inline code`"
-        );
+        assert_eq!(TelegramPayloadBuilder::escape_markdown_v2("`inline code`"), "`inline code`");
 
         // Test bold text (should be preserved)
-        assert_eq!(
-            TelegramPayloadBuilder::escape_markdown_v2("*bold text*"),
-            "*bold text*"
-        );
+        assert_eq!(TelegramPayloadBuilder::escape_markdown_v2("*bold text*"), "*bold text*");
 
         // Test italic text (should be preserved)
-        assert_eq!(
-            TelegramPayloadBuilder::escape_markdown_v2("_italic text_"),
-            "_italic text_"
-        );
+        assert_eq!(TelegramPayloadBuilder::escape_markdown_v2("_italic text_"), "_italic text_");
 
         // Test strikethrough (should be preserved)
         assert_eq!(
@@ -329,10 +323,7 @@ mod tests {
         );
 
         // Test escaping backslashes
-        assert_eq!(
-            TelegramPayloadBuilder::escape_markdown_v2("test\\test"),
-            "test\\\\test"
-        );
+        assert_eq!(TelegramPayloadBuilder::escape_markdown_v2("test\\test"), "test\\\\test");
 
         // Test all special characters
         assert_eq!(

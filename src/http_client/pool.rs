@@ -1,17 +1,18 @@
 //! A reusable, thread-safe pool for managing HTTP clients.
 //!
-//! This module provides a generic `HttpClientPool` that can be shared across the
-//! application to create and reuse HTTP clients with different configurations.
+//! This module provides a generic `HttpClientPool` that can be shared across
+//! the application to create and reuse HTTP clients with different
+//! configurations.
+
+use std::{collections::HashMap, sync::Arc, time::Duration};
+
+use reqwest::Client as ReqwestClient;
+use reqwest_middleware::ClientWithMiddleware;
+use thiserror::Error;
+use tokio::sync::RwLock;
 
 use super::client::create_retryable_http_client;
 use crate::config::HttpRetryConfig;
-use reqwest::Client as ReqwestClient;
-use reqwest_middleware::ClientWithMiddleware;
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::Duration;
-use thiserror::Error;
-use tokio::sync::RwLock;
 
 /// Errors that can occur within the `HttpClientPool`.
 #[derive(Debug, Error)]
@@ -38,25 +39,25 @@ pub struct HttpClientPool {
 impl HttpClientPool {
     /// Creates a new, empty `HttpClientPool`.
     pub fn new() -> Self {
-        Self {
-            clients: Arc::new(RwLock::new(HashMap::new())),
-        }
+        Self { clients: Arc::new(RwLock::new(HashMap::new())) }
     }
 
-    /// Gets an existing HTTP client from the pool or creates a new one if none exists
-    /// for the given retry policy.
+    /// Gets an existing HTTP client from the pool or creates a new one if none
+    /// exists for the given retry policy.
     ///
-    /// This method ensures that only one client per `HttpRetryConfig` is created and
-    /// reused, which is essential for connection pooling and performance. It uses a
-    /// double-checked locking pattern to minimize contention.
+    /// This method ensures that only one client per `HttpRetryConfig` is
+    /// created and reused, which is essential for connection pooling and
+    /// performance. It uses a double-checked locking pattern to minimize
+    /// contention.
     ///
     /// # Arguments
-    /// * `retry_policy` - Configuration for the HTTP retry policy. This is used as the
-    ///   unique key for the client in the pool.
+    /// * `retry_policy` - Configuration for the HTTP retry policy. This is used
+    ///   as the unique key for the client in the pool.
     ///
     /// # Returns
-    /// * `Result<Arc<ClientWithMiddleware>, HttpClientPoolError>` - The HTTP client
-    ///   wrapped in an `Arc` for shared ownership, or an error if client creation fails.
+    /// * `Result<Arc<ClientWithMiddleware>, HttpClientPoolError>` - The HTTP
+    ///   client wrapped in an `Arc` for shared ownership, or an error if client
+    ///   creation fails.
     pub async fn get_or_create(
         &self,
         retry_policy: &HttpRetryConfig,
@@ -126,10 +127,7 @@ mod tests {
         let retry_config = HttpRetryConfig::default();
         let client = pool.get_or_create(&retry_config).await;
 
-        assert!(
-            client.is_ok(),
-            "Should successfully create or get HTTP client"
-        );
+        assert!(client.is_ok(), "Should successfully create or get HTTP client");
 
         assert_eq!(
             pool.get_active_client_count().await,
@@ -145,10 +143,7 @@ mod tests {
         let client1 = pool.get_or_create(&retry_config).await.unwrap();
         let client2 = pool.get_or_create(&retry_config).await.unwrap();
 
-        assert!(
-            Arc::ptr_eq(&client1, &client2),
-            "Should return the same client instance"
-        );
+        assert!(Arc::ptr_eq(&client1, &client2), "Should return the same client instance");
         assert_eq!(
             pool.get_active_client_count().await,
             1,
@@ -169,10 +164,7 @@ mod tests {
             let retry_config = retry_config.clone();
             tasks.push(tokio::spawn(async move {
                 let client = pool_clone.get_or_create(&retry_config).await;
-                assert!(
-                    client.is_ok(),
-                    "Should successfully create or get HTTP client"
-                );
+                assert!(client.is_ok(), "Should successfully create or get HTTP client");
             }));
         }
 
@@ -196,10 +188,7 @@ mod tests {
 
         let client = pool.get_or_create(&retry_config).await;
 
-        assert!(
-            client.is_ok(),
-            "Default pool should successfully create or get HTTP client"
-        );
+        assert!(client.is_ok(), "Default pool should successfully create or get HTTP client");
 
         assert_eq!(
             pool.get_active_client_count().await,
@@ -216,10 +205,7 @@ mod tests {
         let retry_config_1 = HttpRetryConfig::default();
 
         // Config 2 (different retry count)
-        let retry_config_2 = HttpRetryConfig {
-            max_retries: 5,
-            ..Default::default()
-        };
+        let retry_config_2 = HttpRetryConfig { max_retries: 5, ..Default::default() };
 
         // Get a client for each config
         let client1 = pool.get_or_create(&retry_config_1).await.unwrap();

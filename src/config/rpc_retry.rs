@@ -7,25 +7,23 @@ pub struct RpcRetryConfig {
     /// The maximum number of retries for a request.
     pub max_retry: u32,
     /// The initial backoff delay in milliseconds.
-    pub backoff_ms: u64, // Keep as u64 because alloy::transports::layers::RetryBackoffLayer expects it.
+    pub backoff_ms: u64, /* Keep as u64 because alloy::transports::layers::RetryBackoffLayer
+                          * expects it. */
     /// The number of compute units per second to allow.
     pub compute_units_per_second: u64,
 }
 
 impl Default for RpcRetryConfig {
     fn default() -> Self {
-        Self {
-            max_retry: 10,
-            backoff_ms: 1000,
-            compute_units_per_second: 100,
-        }
+        Self { max_retry: 10, backoff_ms: 1000, compute_units_per_second: 100 }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use config::Config;
+
+    use super::*;
 
     #[test]
     fn test_rpc_retry_config_with_custom_values() {
@@ -55,9 +53,6 @@ mod tests {
 
         assert_eq!(config.max_retry, default_config.max_retry);
         assert_eq!(config.backoff_ms, default_config.backoff_ms);
-        assert_eq!(
-            config.compute_units_per_second,
-            default_config.compute_units_per_second
-        );
+        assert_eq!(config.compute_units_per_second, default_config.compute_units_per_second);
     }
 }

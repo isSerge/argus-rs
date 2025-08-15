@@ -1,16 +1,14 @@
 //! This module defines the `FilteringEngine` and its implementations.
 
-use super::rhai::{
-    conversions::{
-        build_log_map, build_log_params_map, build_transaction_map, build_trigger_data_from_params,
+use std::{
+    collections::HashSet,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
     },
-    create_engine,
+    time::Duration,
 };
-use crate::models::correlated_data::CorrelatedBlockItem;
-use crate::models::decoded_block::DecodedBlockData;
-use crate::models::monitor::Monitor;
-use crate::models::monitor_match::MonitorMatch;
-use crate::{config::RhaiConfig, engine::rhai::compiler::RhaiCompiler};
+
 use alloy::primitives::Address;
 use async_trait::async_trait;
 use dashmap::DashMap;
@@ -18,13 +16,26 @@ use futures::future;
 #[cfg(test)]
 use mockall::automock;
 use rhai::{AST, Engine, EvalAltResult, Scope};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
-use std::{collections::HashSet, sync::Arc};
 use thiserror::Error;
-use tokio::sync::RwLock;
-use tokio::sync::mpsc;
-use tokio::time::timeout;
+use tokio::{
+    sync::{RwLock, mpsc},
+    time::timeout,
+};
+
+use super::rhai::{
+    conversions::{
+        build_log_map, build_log_params_map, build_transaction_map, build_trigger_data_from_params,
+    },
+    create_engine,
+};
+use crate::{
+    config::RhaiConfig,
+    engine::rhai::compiler::RhaiCompiler,
+    models::{
+        correlated_data::CorrelatedBlockItem, decoded_block::DecodedBlockData, monitor::Monitor,
+        monitor_match::MonitorMatch,
+    },
+};
 
 /// Rhai script execution errors that can occur during compilation or runtime
 #[derive(Debug, Error)]
@@ -49,8 +60,8 @@ pub enum RhaiError {
 #[cfg_attr(test, automock)]
 #[async_trait]
 pub trait FilteringEngine: Send + Sync {
-    /// Evaluates the provided correlated block item against configured monitor rules.
-    /// Returns a vector of `MonitorMatch` if any conditions are met.
+    /// Evaluates the provided correlated block item against configured monitor
+    /// rules. Returns a vector of `MonitorMatch` if any conditions are met.
     async fn evaluate_item(
         &self,
         item: &CorrelatedBlockItem,
@@ -59,11 +70,13 @@ pub trait FilteringEngine: Send + Sync {
     /// Updates the set of monitors used by the engine.
     async fn update_monitors(&self, monitors: Vec<Monitor>);
 
-    /// Returns true if any monitor requires transaction receipt data for evaluation.
-    /// This allows optimizing data fetching by only including receipts when needed.
+    /// Returns true if any monitor requires transaction receipt data for
+    /// evaluation. This allows optimizing data fetching by only including
+    /// receipts when needed.
     fn requires_receipt_data(&self) -> bool;
 
-    /// Runs the filtering engine with a stream of correlated block items and sends matches to the notification queue.
+    /// Runs the filtering engine with a stream of correlated block items and
+    /// sends matches to the notification queue.
     async fn run(
         &self,
         mut receiver: mpsc::Receiver<DecodedBlockData>,
@@ -71,7 +84,8 @@ pub trait FilteringEngine: Send + Sync {
     );
 }
 
-/// A Rhai-based implementation of the `FilteringEngine` with integrated security controls.
+/// A Rhai-based implementation of the `FilteringEngine` with integrated
+/// security controls.
 #[derive(Debug)]
 pub struct RhaiFilteringEngine {
     /// Monitors that are tied to a specific contract address.
@@ -85,9 +99,11 @@ pub struct RhaiFilteringEngine {
 }
 
 impl RhaiFilteringEngine {
-    /// Creates a new `RhaiFilteringEngine` with the given monitors and Rhai configuration.
+    /// Creates a new `RhaiFilteringEngine` with the given monitors and Rhai
+    /// configuration.
     pub fn new(monitors: Vec<Monitor>, compiler: Arc<RhaiCompiler>, config: RhaiConfig) -> Self {
-        // Currently use the default Rhai engine creation function, but can consider adding more customizations later
+        // Currently use the default Rhai engine creation function, but can consider
+        // adding more customizations later
         let engine = create_engine(config.clone());
 
         let (monitors_by_address, transaction_monitors, needs_receipts) =
@@ -103,8 +119,8 @@ impl RhaiFilteringEngine {
         }
     }
 
-    /// Organizes monitors into address-specific and transaction-level collections,
-    /// and validates them.
+    /// Organizes monitors into address-specific and transaction-level
+    /// collections, and validates them.
     fn organize_monitors(
         monitors: Vec<Monitor>,
         compiler: &RhaiCompiler,
@@ -124,16 +140,12 @@ impl RhaiFilteringEngine {
 
         for monitor in monitors {
             if let Some(address_str) = &monitor.address {
-                let address: Address = address_str
-                    .parse()
-                    .expect("Address should be valid at this stage");
+                let address: Address =
+                    address_str.parse().expect("Address should be valid at this stage");
 
                 let checksummed_address = address.to_checksum(None);
 
-                monitors_by_address
-                    .entry(checksummed_address)
-                    .or_default()
-                    .push(monitor.clone());
+                monitors_by_address.entry(checksummed_address).or_default().push(monitor.clone());
             } else {
                 transaction_monitors.push(monitor.clone());
             }
@@ -170,9 +182,7 @@ impl RhaiFilteringEngine {
 
         match timeout(self.config.execution_timeout, execution).await {
             Ok(result) => result.map_err(RhaiError::RuntimeError),
-            Err(_) => Err(RhaiError::ExecutionTimeout {
-                timeout: self.config.execution_timeout,
-            }),
+            Err(_) => Err(RhaiError::ExecutionTimeout { timeout: self.config.execution_timeout }),
         }
     }
 }
@@ -185,10 +195,7 @@ impl FilteringEngine for RhaiFilteringEngine {
         notifications_tx: mpsc::Sender<MonitorMatch>,
     ) {
         while let Some(decoded_block) = receiver.recv().await {
-            let futures = decoded_block
-                .items
-                .iter()
-                .map(|item| self.evaluate_item(item));
+            let futures = decoded_block.items.iter().map(|item| self.evaluate_item(item));
 
             let results = future::join_all(futures).await;
 
@@ -341,8 +348,7 @@ impl FilteringEngine for RhaiFilteringEngine {
         *transaction_monitors_guard = new_transaction_monitors;
         drop(transaction_monitors_guard);
 
-        self.requires_receipts
-            .store(needs_receipts, Ordering::Relaxed);
+        self.requires_receipts.store(needs_receipts, Ordering::Relaxed);
     }
 
     fn requires_receipt_data(&self) -> bool {
@@ -352,14 +358,19 @@ impl FilteringEngine for RhaiFilteringEngine {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::abi::DecodedLog;
-    use crate::config::RhaiConfig;
-    use crate::models::transaction::Transaction;
-    use crate::test_helpers::{LogBuilder, TransactionBuilder};
-    use alloy::dyn_abi::DynSolValue;
-    use alloy::primitives::{Address, U256, address};
+    use alloy::{
+        dyn_abi::DynSolValue,
+        primitives::{Address, U256, address},
+    };
     use serde_json::json;
+
+    use super::*;
+    use crate::{
+        abi::DecodedLog,
+        config::RhaiConfig,
+        models::transaction::Transaction,
+        test_helpers::{LogBuilder, TransactionBuilder},
+    };
 
     fn create_test_monitor(
         id: i64,
@@ -385,11 +396,8 @@ mod tests {
     ) -> (Transaction, DecodedLog) {
         let tx = TransactionBuilder::new().build();
         let log_raw = LogBuilder::new().address(log_address).build();
-        let log = DecodedLog {
-            name: log_name.to_string(),
-            params: log_params,
-            log: log_raw.into(),
-        };
+        let log =
+            DecodedLog { name: log_name.to_string(), params: log_params, log: log_raw.into() };
         (tx.into(), log)
     }
 
@@ -409,26 +417,15 @@ mod tests {
         let config = RhaiConfig::default();
         let compiler = Arc::new(RhaiCompiler::new(config.clone()));
         let engine = RhaiFilteringEngine::new(
-            vec![
-                monitor1.clone(),
-                monitor2.clone(),
-                monitor3.clone(),
-                monitor4.clone(),
-            ],
+            vec![monitor1.clone(), monitor2.clone(), monitor3.clone(), monitor4.clone()],
             compiler,
             config,
         );
 
         let monitors_by_address_read = engine.monitors_by_address.read().await;
         assert_eq!(monitors_by_address_read.len(), 2);
-        assert_eq!(
-            monitors_by_address_read.get(addr1_checksum).unwrap().len(),
-            2
-        );
-        assert_eq!(
-            monitors_by_address_read.get(addr2_checksum).unwrap().len(),
-            1
-        );
+        assert_eq!(monitors_by_address_read.get(addr1_checksum).unwrap().len(), 2);
+        assert_eq!(monitors_by_address_read.get(addr2_checksum).unwrap().len(), 1);
         drop(monitors_by_address_read);
 
         let transaction_monitors_read = engine.transaction_monitors.read().await;
@@ -439,24 +436,13 @@ mod tests {
         // Test `update_monitors()`
         let monitor5 = create_test_monitor(5, Some(addr2_lower), Some("abi.json"), "true");
         let monitor6 = create_test_monitor(6, None, None, "true");
-        engine
-            .update_monitors(vec![monitor1.clone(), monitor5.clone(), monitor6.clone()])
-            .await;
+        engine.update_monitors(vec![monitor1.clone(), monitor5.clone(), monitor6.clone()]).await;
 
         let monitors_by_address_read = engine.monitors_by_address.read().await;
         assert_eq!(monitors_by_address_read.len(), 2);
-        assert_eq!(
-            monitors_by_address_read.get(addr1_checksum).unwrap().len(),
-            1
-        );
-        assert_eq!(
-            monitors_by_address_read.get(addr2_checksum).unwrap().len(),
-            1
-        );
-        assert_eq!(
-            monitors_by_address_read.get(addr2_checksum).unwrap()[0].id,
-            5
-        );
+        assert_eq!(monitors_by_address_read.get(addr1_checksum).unwrap().len(), 1);
+        assert_eq!(monitors_by_address_read.get(addr2_checksum).unwrap().len(), 1);
+        assert_eq!(monitors_by_address_read.get(addr2_checksum).unwrap()[0].id, 5);
         drop(monitors_by_address_read);
 
         let transaction_monitors_read = engine.transaction_monitors.read().await;
@@ -536,11 +522,7 @@ mod tests {
 
         // Create a log that will match the log-based monitor
         let log_raw = LogBuilder::new().address(addr).build();
-        let log = DecodedLog {
-            name: "Transfer".to_string(),
-            params: vec![],
-            log: log_raw.into(),
-        };
+        let log = DecodedLog { name: "Transfer".to_string(), params: vec![], log: log_raw.into() };
 
         // The item contains both the transaction and the log
         let item = CorrelatedBlockItem::new(tx.into(), vec![log], None);
@@ -631,15 +613,11 @@ mod tests {
             "Should not require receipts when no receipt fields are used"
         );
 
-        // --- Scenario 3: A receipt field appears in a comment or string (proves AST analysis works) ---
+        // --- Scenario 3: A receipt field appears in a comment or string (proves AST
+        // analysis works) ---
         let monitors_with_receipt_field_in_comment = vec![
             create_test_monitor(1, None, None, "// This script checks tx.status"),
-            create_test_monitor(
-                2,
-                None,
-                None,
-                "tx.value > 100 && log.name == \"tx.gas_used\"",
-            ),
+            create_test_monitor(2, None, None, "tx.value > 100 && log.name == \"tx.gas_used\""),
         ];
         let engine_ast_check = RhaiFilteringEngine::new(
             monitors_with_receipt_field_in_comment,

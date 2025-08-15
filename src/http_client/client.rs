@@ -1,9 +1,11 @@
-//! This module provides functionality to create a retryable HTTP client with middleware
-//! for handling transient errors, such as network issues or rate limiting.
+//! This module provides functionality to create a retryable HTTP client with
+//! middleware for handling transient errors, such as network issues or rate
+//! limiting.
 
-use crate::config::{HttpRetryConfig, JitterSetting};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::{Jitter, RetryTransientMiddleware, policies::ExponentialBackoff};
+
+use crate::config::{HttpRetryConfig, JitterSetting};
 
 /// Creates a retryable HTTP client with middleware for a single URL
 ///
@@ -13,7 +15,6 @@ use reqwest_retry::{Jitter, RetryTransientMiddleware, policies::ExponentialBacko
 ///
 /// # Returns
 /// A `ClientWithMiddleware` that includes retry capabilities
-///
 pub fn create_retryable_http_client(
     config: &HttpRetryConfig,
     base_client: reqwest::Client,

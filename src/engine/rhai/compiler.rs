@@ -1,16 +1,16 @@
 //! Rhai compiler and analysis module.
-//! Compiles Rhai scripts into an intermediate representation (AST), performs analysis and stores them in local cache.
+//! Compiles Rhai scripts into an intermediate representation (AST), performs
+//! analysis and stores them in local cache.
+
+use std::{collections::HashSet, sync::Arc};
 
 use dashmap::DashMap;
 use rhai::{AST, Engine};
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
-use std::sync::Arc;
 use thiserror::Error;
 
-use crate::config::RhaiConfig;
-
 use super::{ast_analysis, create_engine};
+use crate::config::RhaiConfig;
 
 /// Represents the result of analyzing a Rhai script.
 #[derive(Clone, Debug)]
@@ -48,10 +48,7 @@ impl RhaiCompiler {
     pub fn new(rhai_config: RhaiConfig) -> Self {
         let engine = create_engine(rhai_config);
 
-        RhaiCompiler {
-            engine: Arc::new(engine),
-            cache: DashMap::new(),
-        }
+        RhaiCompiler { engine: Arc::new(engine), cache: DashMap::new() }
     }
 
     /// A helper function to compute the hash of a script.
@@ -61,8 +58,9 @@ impl RhaiCompiler {
         hasher.finalize().into()
     }
 
-    /// Analyzes a Rhai script, compiling it into an AST and extracting accessed variables.
-    /// If the script has been analyzed before, it retrieves the result from the cache.
+    /// Analyzes a Rhai script, compiling it into an AST and extracting accessed
+    /// variables. If the script has been analyzed before, it retrieves the
+    /// result from the cache.
     pub fn analyze_script(&self, script: &str) -> Result<ScriptAnalysis, RhaiCompilerError> {
         // Compute the hash of the script to use as a cache key.
         let key = Self::hash_script(script);
@@ -78,10 +76,8 @@ impl RhaiCompiler {
         let accessed_variables = ast_analysis::get_accessed_variables(&ast);
 
         // Create the ScriptAnalysis struct
-        let analysis = ScriptAnalysis {
-            ast: Arc::new(ast),
-            accessed_variables: Arc::new(accessed_variables),
-        };
+        let analysis =
+            ScriptAnalysis { ast: Arc::new(ast), accessed_variables: Arc::new(accessed_variables) };
 
         // Store the analysis in the cache
         self.cache.insert(key, analysis.clone());
@@ -90,7 +86,8 @@ impl RhaiCompiler {
         Ok(analysis)
     }
 
-    /// Convenience method to get the AST of a script without needing to handle the analysis result.
+    /// Convenience method to get the AST of a script without needing to handle
+    /// the analysis result.
     pub fn get_ast(&self, script: &str) -> Result<Arc<AST>, RhaiCompilerError> {
         self.analyze_script(script).map(|analysis| analysis.ast)
     }
@@ -129,10 +126,7 @@ mod tests {
         let result = compiler.analyze_script(script);
         assert!(result.is_err());
 
-        assert!(matches!(
-            result.err().unwrap(),
-            RhaiCompilerError::CompilationError(_)
-        ));
+        assert!(matches!(result.err().unwrap(), RhaiCompilerError::CompilationError(_)));
     }
 
     #[test]
@@ -154,12 +148,10 @@ mod tests {
         assert_eq!(compiler.cache.len(), 1);
 
         // 3. Verify that the returned objects are the same shared instance.
-        // We use `Arc::ptr_eq` to check if they point to the exact same memory location.
+        // We use `Arc::ptr_eq` to check if they point to the exact same memory
+        // location.
         assert!(Arc::ptr_eq(&first_result.ast, &second_result.ast));
-        assert!(Arc::ptr_eq(
-            &first_result.accessed_variables,
-            &second_result.accessed_variables
-        ));
+        assert!(Arc::ptr_eq(&first_result.accessed_variables, &second_result.accessed_variables));
     }
 
     #[test]

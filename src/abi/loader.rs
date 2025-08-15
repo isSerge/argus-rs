@@ -1,7 +1,8 @@
 //! This module provides the `AbiLoader` for loading contract ABIs from files.
 
-use alloy::json_abi::JsonAbi;
 use std::{fs, path::PathBuf};
+
+use alloy::json_abi::JsonAbi;
 use thiserror::Error;
 
 /// Errors that can occur while loading an ABI.
@@ -40,15 +41,11 @@ impl AbiLoader {
 
     /// Loads and parses the ABI from the specified file.
     pub fn load(&self) -> Result<JsonAbi, AbiLoaderError> {
-        let content = fs::read_to_string(&self.path).map_err(|e| AbiLoaderError::IoError {
-            path: self.path.clone(),
-            source: e,
-        })?;
+        let content = fs::read_to_string(&self.path)
+            .map_err(|e| AbiLoaderError::IoError { path: self.path.clone(), source: e })?;
 
-        let abi = serde_json::from_str(&content).map_err(|e| AbiLoaderError::ParseError {
-            path: self.path.clone(),
-            source: e,
-        })?;
+        let abi = serde_json::from_str(&content)
+            .map_err(|e| AbiLoaderError::ParseError { path: self.path.clone(), source: e })?;
 
         Ok(abi)
     }
@@ -56,9 +53,11 @@ impl AbiLoader {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::io::Write;
+
     use tempfile::tempdir;
+
+    use super::*;
 
     fn create_test_abi_file(dir: &tempfile::TempDir, filename: &str, content: &str) -> PathBuf {
         let file_path = dir.path().join(filename);

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use argus::{
     abi::AbiService,
     config::AppConfig,
@@ -6,16 +8,14 @@ use argus::{
     providers::rpc::{EvmRpcSource, create_provider},
     supervisor::Supervisor,
 };
-use std::sync::Arc;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 #[tokio::main]
 #[tracing::instrument(level = "info")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing subscriber
-    let subscriber = FmtSubscriber::builder()
-        .with_env_filter(EnvFilter::from_default_env())
-        .finish();
+    let subscriber =
+        FmtSubscriber::builder().with_env_filter(EnvFilter::from_default_env()).finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
     tracing::debug!("Loading application configuration...");
@@ -31,7 +31,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::debug!("Initializing ABI service");
     let abi_service = Arc::new(AbiService::new());
 
-    // Initialize application state (monitors, triggers, ABIs) from files into DB/ABI service
+    // Initialize application state (monitors, triggers, ABIs) from files into
+    // DB/ABI service
     tracing::debug!("Initializing application state...");
     let initialization_service = InitializationService::new(
         config.clone(),

@@ -1,8 +1,9 @@
 //! A utility module for traversing a Rhai AST to extract information.
 //! This module is the core of static analysis for Rhai scripts.
 
-use rhai::{AST, Expr, Stmt};
 use std::collections::HashSet;
+
+use rhai::{AST, Expr, Stmt};
 
 /// Traverses a compiled `AST` and returns a set of all unique, fully-qualified
 /// variable paths accessed in the script.
@@ -20,11 +21,10 @@ pub fn get_accessed_variables(ast: &AST) -> HashSet<String> {
 fn walk_stmt(stmt: &Stmt, variables: &mut HashSet<String>) {
     match stmt {
         Stmt::Expr(expr) => walk_expr(expr, variables),
-        Stmt::Block(stmt_block) => {
+        Stmt::Block(stmt_block) =>
             for s in stmt_block.statements() {
                 walk_stmt(s, variables);
-            }
-        }
+            },
         Stmt::If(flow_control, _) => {
             walk_expr(&flow_control.expr, variables);
             for s in flow_control.body.statements() {
@@ -59,11 +59,10 @@ fn walk_stmt(stmt: &Stmt, variables: &mut HashSet<String>) {
             walk_expr(&assignment.1.lhs, variables);
             walk_expr(&assignment.1.rhs, variables);
         }
-        Stmt::FnCall(fn_call_expr, _) => {
+        Stmt::FnCall(fn_call_expr, _) =>
             for arg in &fn_call_expr.args {
                 walk_expr(arg, variables);
-            }
-        }
+            },
         Stmt::Switch(switch_data, _) => {
             let (expr, cases_collection) = &**switch_data;
             walk_expr(expr, variables);
@@ -80,9 +79,8 @@ fn walk_stmt(stmt: &Stmt, variables: &mut HashSet<String>) {
                 walk_stmt(s, variables);
             }
         }
-        Stmt::Return(Some(expr), _, _) | Stmt::BreakLoop(Some(expr), _, _) => {
-            walk_expr(expr, variables)
-        }
+        Stmt::Return(Some(expr), _, _) | Stmt::BreakLoop(Some(expr), _, _) =>
+            walk_expr(expr, variables),
         Stmt::Import(import_data, _) => {
             walk_expr(&import_data.0, variables);
         }
@@ -95,20 +93,23 @@ fn walk_stmt(stmt: &Stmt, variables: &mut HashSet<String>) {
         _ => {
             // For all other statements, we do not track them as variable paths.
             // This includes comments, empty statements, etc.
-            // The main walker will handle these cases by recursing into their components.
+            // The main walker will handle these cases by recursing into their
+            // components.
         }
     }
 }
 
-/// Recursively walks an expression (`Expr`) to find and record variable access paths.
+/// Recursively walks an expression (`Expr`) to find and record variable access
+/// paths.
 fn walk_expr(expr: &Expr, variables: &mut HashSet<String>) {
     if let Some(path) = get_full_variable_path(expr) {
         variables.insert(path);
         // For Index, also collect index variable if present
         if let Expr::Index(binary_expr, _, _) = expr
-            && let Some(index_path) = get_full_variable_path(&binary_expr.rhs) {
-                variables.insert(index_path);
-            }
+            && let Some(index_path) = get_full_variable_path(&binary_expr.rhs)
+        {
+            variables.insert(index_path);
+        }
         return;
     }
 
@@ -126,41 +127,35 @@ fn walk_expr(expr: &Expr, variables: &mut HashSet<String>) {
                 walk_expr(&binary_expr.rhs, variables);
             }
         }
-        Expr::MethodCall(method_call_expr, _) => {
+        Expr::MethodCall(method_call_expr, _) =>
             for arg in &method_call_expr.args {
                 walk_expr(arg, variables);
-            }
-        }
-        Expr::FnCall(fn_call_expr, _) => {
+            },
+        Expr::FnCall(fn_call_expr, _) =>
             for arg in &fn_call_expr.args {
                 walk_expr(arg, variables);
-            }
-        }
+            },
         Expr::And(expr_vec, _) | Expr::Or(expr_vec, _) | Expr::Coalesce(expr_vec, _) => {
             for e in &**expr_vec {
                 walk_expr(e, variables);
             }
         }
-        Expr::Array(expr_vec, _) | Expr::InterpolatedString(expr_vec, _) => {
+        Expr::Array(expr_vec, _) | Expr::InterpolatedString(expr_vec, _) =>
             for e in expr_vec {
                 walk_expr(e, variables);
-            }
-        }
-        Expr::Map(map_data, _) => {
+            },
+        Expr::Map(map_data, _) =>
             for (_, value_expr) in &map_data.0 {
                 walk_expr(value_expr, variables);
-            }
-        }
-        Expr::Stmt(stmt_block) => {
+            },
+        Expr::Stmt(stmt_block) =>
             for s in stmt_block.statements() {
                 walk_stmt(s, variables);
-            }
-        }
-        Expr::Custom(custom_expr, _) => {
+            },
+        Expr::Custom(custom_expr, _) =>
             for e in &custom_expr.inputs {
                 walk_expr(e, variables);
-            }
-        }
+            },
         Expr::Variable(_, _, _) | Expr::Property(_, _) => {}
         Expr::DynamicConstant(_, _)
         | Expr::BoolConstant(_, _)
@@ -174,7 +169,8 @@ fn walk_expr(expr: &Expr, variables: &mut HashSet<String>) {
     }
 }
 
-/// Attempts to reconstruct a full variable path (e.g., "tx.value") from an expression.
+/// Attempts to reconstruct a full variable path (e.g., "tx.value") from an
+/// expression.
 fn get_full_variable_path(expr: &Expr) -> Option<String> {
     // Recursively collect property/index chains in left-to-right order
     fn collect_path(expr: &Expr, parts: &mut Vec<String>) -> bool {
@@ -207,8 +203,9 @@ fn get_full_variable_path(expr: &Expr) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use rhai::{Engine, ParseError};
+
+    use super::*;
 
     fn get_vars(script: &str) -> Result<HashSet<String>, ParseError> {
         let engine = Engine::new();
@@ -250,19 +247,13 @@ mod tests {
     fn test_deeply_nested_variable() {
         let script = r#"log.params.level_one.level_two.user == "admin""#;
         let vars = get_vars(script).unwrap();
-        assert_eq!(
-            vars,
-            HashSet::from(["log.params.level_one.level_two.user".to_string()])
-        );
+        assert_eq!(vars, HashSet::from(["log.params.level_one.level_two.user".to_string()]));
     }
 
     #[test]
     fn test_variables_in_function_calls() {
         let vars = get_vars("my_func(tx.value, log.params.user, 42)").unwrap();
-        assert_eq!(
-            vars,
-            HashSet::from(["tx.value".to_string(), "log.params.user".to_string()])
-        );
+        assert_eq!(vars, HashSet::from(["tx.value".to_string(), "log.params.user".to_string()]));
     }
 
     #[test]

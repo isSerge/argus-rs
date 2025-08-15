@@ -27,22 +27,26 @@ impl Log {
         &self.0.data().data
     }
 
-    /// Returns the hash of the block containing the log, or `None` if it's pending.
+    /// Returns the hash of the block containing the log, or `None` if it's
+    /// pending.
     pub fn block_hash(&self) -> Option<B256> {
         self.0.block_hash
     }
 
-    /// Returns the number of the block containing the log, or `None` if it's pending.
+    /// Returns the number of the block containing the log, or `None` if it's
+    /// pending.
     pub fn block_number(&self) -> Option<u64> {
         self.0.block_number
     }
 
-    /// Returns the hash of the transaction that generated the log, or `None` if it's pending.
+    /// Returns the hash of the transaction that generated the log, or `None` if
+    /// it's pending.
     pub fn transaction_hash(&self) -> Option<B256> {
         self.0.transaction_hash
     }
 
-    /// Returns the index of the transaction that generated the log, or `None` if it's pending.
+    /// Returns the index of the transaction that generated the log, or `None`
+    /// if it's pending.
     pub fn transaction_index(&self) -> Option<u64> {
         self.0.transaction_index
     }

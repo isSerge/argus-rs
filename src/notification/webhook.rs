@@ -1,7 +1,10 @@
 //! Webhook notification implementation.
 //!
 //! Provides functionality to send formatted messages to webhooks
-//! via incoming webhooks, supporting message templates with variable substitution.
+//! via incoming webhooks, supporting message templates with variable
+//! substitution.
+
+use std::{collections::HashMap, sync::Arc};
 
 use chrono::Utc;
 use hmac::{Hmac, Mac};
@@ -11,7 +14,6 @@ use reqwest::{
 };
 use reqwest_middleware::ClientWithMiddleware;
 use sha2::Sha256;
-use std::{collections::HashMap, sync::Arc};
 
 use super::error::NotificationError;
 
@@ -55,7 +57,8 @@ impl WebhookNotifier {
     /// * `http_client` - HTTP client with middleware for retries
     ///
     /// # Returns
-    /// * `Result<Self, NotificationError>` - Notifier instance if config is valid
+    /// * `Result<Self, NotificationError>` - Notifier instance if config is
+    ///   valid
     pub fn new(
         config: WebhookConfig,
         http_client: Arc<ClientWithMiddleware>,
@@ -79,7 +82,8 @@ impl WebhookNotifier {
         secret: &str,
         payload: &serde_json::Value,
     ) -> Result<(String, String), NotificationError> {
-        // Explicitly reject empty secret, because `HmacSha256::new_from_slice` currently allows empty secrets
+        // Explicitly reject empty secret, because `HmacSha256::new_from_slice`
+        // currently allows empty secrets
         if secret.is_empty() {
             return Err(NotificationError::NotifyFailed(
                 "Invalid secret: cannot be empty.".to_string(),
@@ -116,10 +120,8 @@ impl WebhookNotifier {
         let mut url = self.url.clone();
         // Add URL parameters if present
         if let Some(params) = &self.url_params {
-            let params_str: Vec<String> = params
-                .iter()
-                .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
-                .collect();
+            let params_str: Vec<String> =
+                params.iter().map(|(k, v)| format!("{}={}", k, urlencoding::encode(v))).collect();
             if !params_str.is_empty() {
                 url = format!("{}?{}", url, params_str.join("&"));
             }
@@ -172,13 +174,8 @@ impl WebhookNotifier {
         }
 
         // Send request with custom payload
-        let response = self
-            .client
-            .request(method, url.as_str())
-            .headers(headers)
-            .json(payload)
-            .send()
-            .await?;
+        let response =
+            self.client.request(method, url.as_str()).headers(headers).json(payload).send().await?;
 
         let status = response.status();
 
@@ -194,13 +191,15 @@ impl WebhookNotifier {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use mockito::{Matcher, Mock};
+    use serde_json::json;
+
     use super::*;
     use crate::notification::payload_builder::{
         GenericWebhookPayloadBuilder, WebhookPayloadBuilder,
     };
-    use mockito::{Matcher, Mock};
-    use serde_json::json;
-    use std::sync::Arc;
 
     fn create_test_http_client() -> Arc<ClientWithMiddleware> {
         Arc::new(reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build())
@@ -292,10 +291,7 @@ mod tests {
         let notifier = create_test_notifier(
             server.url().as_str(),
             Some("top-secret"),
-            Some(HashMap::from([(
-                "Content-Type".to_string(),
-                "application/json".to_string(),
-            )])),
+            Some(HashMap::from([("Content-Type".to_string(), "application/json".to_string())])),
         );
 
         let payload = create_test_payload();
@@ -392,15 +388,9 @@ mod tests {
         let (signature, timestamp) = result;
 
         // Validate signature format (should be a hex string)
-        assert!(
-            hex::decode(&signature).is_ok(),
-            "Signature should be valid hex"
-        );
+        assert!(hex::decode(&signature).is_ok(), "Signature should be valid hex");
 
         // Validate timestamp format (should be a valid i64)
-        assert!(
-            timestamp.parse::<i64>().is_ok(),
-            "Timestamp should be valid i64"
-        );
+        assert!(timestamp.parse::<i64>().is_ok(), "Timestamp should be valid i64");
     }
 }

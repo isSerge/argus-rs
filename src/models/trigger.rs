@@ -1,11 +1,12 @@
 //! This module defines the data structures for trigger configurations.
 
-use crate::config::HttpRetryConfig;
-use crate::models::notification::NotificationMessage;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
+
+use crate::{config::HttpRetryConfig, models::notification::NotificationMessage};
 
 /// Configuration for a generic webhook.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Default)]
@@ -123,9 +124,7 @@ impl TriggerTypeConfig {
             }
             TriggerTypeConfig::Discord(config) => {
                 if Url::parse(&config.discord_url).is_err() {
-                    return Err(TriggerTypeConfigError::InvalidUrl(
-                        config.discord_url.clone(),
-                    ));
+                    return Err(TriggerTypeConfigError::InvalidUrl(config.discord_url.clone()));
                 }
                 Ok(())
             }
