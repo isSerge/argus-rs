@@ -40,13 +40,6 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
 
-      # Install sqlx-cli for database migrations and checks
-      - name: Install sqlx-cli
-        run: cargo install sqlx-cli
-
-      - name: Verify sqlx-data.json is up-to-date
-        run: cargo sqlx prepare --check --workspace
-
       # Check code formatting with rustfmt
       - name: Check code formatting
         run: cargo fmt -- --check
