@@ -1,3 +1,5 @@
+//! Integration tests for the notification service
+
 use std::sync::Arc;
 
 use argus::{
