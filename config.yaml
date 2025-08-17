@@ -9,6 +9,7 @@ polling_interval_ms: 10000
 confirmation_blocks: 12
 notification_channel_capacity: 1024
 monitor_config_path: "monitors.yaml"
+trigger_config_path: "triggers.yaml"
 
 # Optional: Configuration for the RPC retry policy.
 # If this section is omitted, default values will be used.

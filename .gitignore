@@ -2,3 +2,4 @@
 .env
 monitor.db
 monitors.yaml
+triggers.yaml
