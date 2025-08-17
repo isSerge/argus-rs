@@ -3,5 +3,5 @@
 mod loader;
 mod validator;
 
-pub use loader::MonitorLoader;
+pub use loader::{MonitorLoader, MonitorLoaderError};
 pub use validator::{MonitorValidationError, MonitorValidator};

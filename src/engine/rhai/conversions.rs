@@ -7,10 +7,11 @@ use alloy::{
     consensus::TxType,
     dyn_abi::DynSolValue,
     primitives::{I256, U256},
+    rpc::types::TransactionReceipt,
 };
 use num_bigint::{BigInt, Sign};
 use rhai::{Dynamic, Map};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::{abi::DecodedLog, models::transaction::Transaction};
 
@@ -256,6 +257,54 @@ pub fn build_trigger_data_from_params(params: &[(String, DynSolValue)]) -> Value
         json_map.insert(name.clone(), dyn_sol_value_to_json(value));
     }
     Value::Object(json_map)
+}
+
+/// Builds trigger data JSON from a transaction, ensuring consistency with Rhai
+/// script data.
+pub fn build_trigger_data_from_transaction(
+    transaction: &Transaction,
+    receipt: Option<&TransactionReceipt>,
+) -> Value {
+    let mut map = serde_json::Map::new();
+
+    if let Some(to) = transaction.to() {
+        map.insert("to".to_string(), json!(to.to_checksum(None)));
+    }
+    map.insert("from".to_string(), json!(transaction.from().to_checksum(None)));
+    map.insert("hash".to_string(), json!(transaction.hash().to_string()));
+    map.insert("value".to_string(), json!(transaction.value().to_string()));
+    map.insert("gas_limit".to_string(), json!(transaction.gas()));
+    map.insert("nonce".to_string(), json!(transaction.nonce()));
+    map.insert("input".to_string(), json!(format!("0x{}", hex::encode(transaction.input()))));
+
+    if let Some(block_number) = transaction.block_number() {
+        map.insert("block_number".to_string(), json!(block_number));
+    }
+    if let Some(transaction_index) = transaction.transaction_index() {
+        map.insert("transaction_index".to_string(), json!(transaction_index));
+    }
+
+    match transaction.transaction_type() {
+        TxType::Legacy =>
+            if let Some(gas_price) = transaction.gas_price() {
+                map.insert("gas_price".to_string(), json!(gas_price));
+            },
+        TxType::Eip1559 => {
+            map.insert("max_fee_per_gas".to_string(), json!(transaction.max_fee_per_gas()));
+            if let Some(max_priority_fee_per_gas) = transaction.max_priority_fee_per_gas() {
+                map.insert("max_priority_fee_per_gas".to_string(), json!(max_priority_fee_per_gas));
+            }
+        }
+        _ => {}
+    }
+
+    if let Some(receipt) = receipt {
+        map.insert("gas_used".to_string(), json!(receipt.gas_used));
+        map.insert("status".to_string(), json!(receipt.inner.status()));
+        map.insert("effective_gas_price".to_string(), json!(receipt.effective_gas_price));
+    }
+
+    Value::Object(map)
 }
 
 #[cfg(test)]

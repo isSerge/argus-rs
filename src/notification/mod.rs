@@ -215,9 +215,13 @@ impl NotificationService {
     ///   fails, or the notification fails to send.
     pub async fn execute(&self, monitor_match: &MonitorMatch) -> Result<(), NotificationError> {
         let trigger_name = &monitor_match.trigger_name;
+        tracing::info!(trigger = %trigger_name, "Executing notification trigger.");
+
         let trigger_config = self.triggers.get(trigger_name).ok_or_else(|| {
+            tracing::warn!(trigger = %trigger_name, "Trigger configuration not found.");
             NotificationError::ConfigError(format!("Trigger '{trigger_name}' not found"))
         })?;
+        tracing::debug!(trigger = %trigger_name, "Found trigger configuration.");
 
         // Use the AsWebhookComponents trait to get config, retry policy and payload
         // builder
@@ -234,14 +238,17 @@ impl NotificationService {
         // Render the body template.
         let rendered_body =
             self.template_service.render(&components.config.body_template, context)?;
+        tracing::debug!(trigger = %trigger_name, body = %rendered_body, "Rendered notification template.");
 
         // Build the payload
         let payload = components.builder.build_payload(&components.config.title, &rendered_body);
 
         // Create the notifier
+        tracing::info!(trigger = %trigger_name, url = %components.config.url, "Dispatching notification.");
         let notifier = WebhookNotifier::new(components.config, http_client)?;
 
         notifier.notify_json(&payload).await?;
+        tracing::info!(trigger = %trigger_name, "Notification dispatched successfully.");
 
         Ok(())
     }

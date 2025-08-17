@@ -25,12 +25,13 @@ use tokio::{
 use super::rhai::{
     conversions::{
         build_log_map, build_log_params_map, build_transaction_map, build_trigger_data_from_params,
+        build_trigger_data_from_transaction,
     },
     create_engine,
 };
 use crate::{
     config::RhaiConfig,
-    engine::rhai::compiler::RhaiCompiler,
+    engine::rhai::compiler::{RhaiCompiler, RhaiCompilerError},
     models::{
         correlated_data::CorrelatedBlockItem, decoded_block::DecodedBlockData, monitor::Monitor,
         monitor_match::MonitorMatch,
@@ -42,7 +43,7 @@ use crate::{
 pub enum RhaiError {
     /// Error that occurs during script compilation
     #[error("Script compilation failed: {0}")]
-    CompilationError(#[from] Box<EvalAltResult>),
+    CompilationError(#[from] RhaiCompilerError),
 
     /// Error that occurs during script runtime execution
     #[error("Script runtime error: {0}")]
@@ -65,7 +66,7 @@ pub trait FilteringEngine: Send + Sync {
     async fn evaluate_item(
         &self,
         item: &CorrelatedBlockItem,
-    ) -> Result<Vec<MonitorMatch>, Box<dyn std::error::Error + Send + Sync>>;
+    ) -> Result<Vec<MonitorMatch>, RhaiError>;
 
     /// Updates the set of monitors used by the engine.
     async fn update_monitors(&self, monitors: Vec<Monitor>);
@@ -238,7 +239,7 @@ impl FilteringEngine for RhaiFilteringEngine {
     async fn evaluate_item(
         &self,
         item: &CorrelatedBlockItem,
-    ) -> Result<Vec<MonitorMatch>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Vec<MonitorMatch>, RhaiError> {
         let mut matches = Vec::new();
 
         let tx_map = build_transaction_map(&item.transaction, item.receipt.as_ref());
@@ -253,13 +254,22 @@ impl FilteringEngine for RhaiFilteringEngine {
 
             match self.eval_ast_bool_secure(&ast, &mut scope).await {
                 Ok(true) => {
+                    tracing::debug!(
+                        monitor_id = monitor.id,
+                        tx_hash = %item.transaction.hash(),
+                        "Transaction monitor condition met."
+                    );
+                    let trigger_data = build_trigger_data_from_transaction(
+                        &item.transaction,
+                        item.receipt.as_ref(),
+                    );
                     let monitor_match = MonitorMatch {
                         monitor_id: monitor.id,
                         block_number: item.transaction.block_number().unwrap_or(0),
                         transaction_hash: item.transaction.hash(),
                         contract_address: Default::default(),
                         trigger_name: "transaction".to_string(),
-                        trigger_data: Default::default(),
+                        trigger_data,
                         log_index: None,
                     };
                     matches.push(monitor_match);
@@ -267,7 +277,8 @@ impl FilteringEngine for RhaiFilteringEngine {
                 Ok(false) => {
                     tracing::debug!(
                         monitor_id = monitor.id,
-                        "Transaction monitor condition not met."
+                        tx_hash = %item.transaction.hash(),
+                        "Transaction monitor condition NOT met."
                     );
                 }
                 Err(e) => {
