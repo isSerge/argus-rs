@@ -5,10 +5,42 @@ use argus::{
     config::AppConfig,
     initialization::InitializationService,
     persistence::{sqlite::SqliteStateRepository, traits::StateRepository},
-    providers::rpc::{EvmRpcSource, create_provider},
+    providers::rpc::{create_provider, EvmRpcSource},
     supervisor::Supervisor,
 };
+use clap::{Parser, Subcommand};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
+
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Runs the main monitoring supervisor.
+    Run,
+    /// Performs a dry run of a single monitor over a specified block range.
+    DryRun(DryRunArgs),
+}
+
+#[derive(Parser, Debug)]
+pub struct DryRunArgs {
+    /// Path to the monitor file to test.
+    #[arg(short, long)]
+    monitor: String,
+    /// The starting block number.
+    #[arg(short, long)]
+    from_block: u64,
+    /// The ending block number.
+    #[arg(short, long)]
+    to_block: u64,
+    /// Path to the triggers file. If not provided, uses the path from the main config.
+    #[arg(short, long)]
+    triggers: Option<String>,
+}
 
 #[tokio::main]
 #[tracing::instrument(level = "info")]
@@ -18,6 +50,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         FmtSubscriber::builder().with_env_filter(EnvFilter::from_default_env()).finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
+    let cli = Cli::parse();
+
+    match cli.command {
+        Commands::Run => run_supervisor().await?,
+        Commands::DryRun(args) => {
+            println!("Dry run command not yet implemented. Args: {:?}", args);
+        }
+    }
+
+    Ok(())
+}
+
+async fn run_supervisor() -> Result<(), Box<dyn std::error::Error>> {
     tracing::debug!("Loading application configuration...");
     let config = AppConfig::new(None)?; // TODO: get config path from env
     tracing::debug!(database_url = %config.database_url, rpc_urls = ?config.rpc_urls, network_id = %config.network_id, "Configuration loaded.");
