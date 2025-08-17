@@ -24,7 +24,8 @@ use tokio::{
 
 use super::rhai::{
     conversions::{
-        build_log_map, build_log_params_map, build_transaction_map, build_trigger_data_from_params,
+        build_log_map, build_log_params_map, build_transaction_map,
+        build_trigger_data_from_params, build_trigger_data_from_transaction,
     },
     create_engine,
 };
@@ -253,13 +254,22 @@ impl FilteringEngine for RhaiFilteringEngine {
 
             match self.eval_ast_bool_secure(&ast, &mut scope).await {
                 Ok(true) => {
+                    tracing::debug!(
+                        monitor_id = monitor.id,
+                        tx_hash = %item.transaction.hash(),
+                        "Transaction monitor condition met."
+                    );
+                    let trigger_data = build_trigger_data_from_transaction(
+                        &item.transaction,
+                        item.receipt.as_ref(),
+                    );
                     let monitor_match = MonitorMatch {
                         monitor_id: monitor.id,
                         block_number: item.transaction.block_number().unwrap_or(0),
                         transaction_hash: item.transaction.hash(),
                         contract_address: Default::default(),
                         trigger_name: "transaction".to_string(),
-                        trigger_data: Default::default(),
+                        trigger_data,
                         log_index: None,
                     };
                     matches.push(monitor_match);
@@ -267,7 +277,8 @@ impl FilteringEngine for RhaiFilteringEngine {
                 Ok(false) => {
                     tracing::debug!(
                         monitor_id = monitor.id,
-                        "Transaction monitor condition not met."
+                        tx_hash = %item.transaction.hash(),
+                        "Transaction monitor condition NOT met."
                     );
                 }
                 Err(e) => {
