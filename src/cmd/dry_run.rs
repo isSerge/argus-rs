@@ -24,77 +24,93 @@ use crate::{
     },
 };
 
-/// Errors that can occur during dry run execution
+/// Errors that can occur during the execution of a dry run.
 #[derive(Error, Debug)]
 pub enum DryRunError {
-    /// Configuration errors
+    /// An error occurred while loading the application configuration.
     #[error("Config error: {0}")]
     Config(#[from] config::ConfigError),
 
-    /// Monitor loading errors
+    /// An error occurred while loading monitor definitions.
     #[error("Monitor loading error: {0}")]
     MonitorLoading(#[from] MonitorLoaderError),
 
-    /// Trigger loading errors
+    /// An error occurred while loading trigger definitions.
     #[error("Trigger loading error: {0}")]
     TriggerLoading(#[from] TriggerLoaderError),
 
-    /// Monitor validation errors
+    /// A monitor failed validation against the defined rules.
     #[error("Monitor validation error: {0}")]
     MonitorValidation(#[from] MonitorValidationError),
 
-    /// Provider errors
+    /// An error occurred with the blockchain provider.
     #[error("Provider error: {0}")]
     Provider(#[from] ProviderError),
 
-    /// Data source errors
+    /// An error occurred while fetching data from the blockchain.
     #[error("Data source error: {0}")]
     DataSource(#[from] DataSourceError),
 
-    /// Block processor errors
+    /// An error occurred during the block processing stage.
     #[error("Block processor error: {0}")]
     BlockProcessor(#[from] BlockProcessorError),
 
-    /// Filtering engine errors
+    /// An error occurred within the filtering engine, likely during script
+    /// execution.
     #[error("Filtering engine error: {0}")]
     Filtering(#[from] RhaiError),
 
-    /// JSON serialization errors
+    /// An error occurred while serializing the final report to JSON.
     #[error("JSON serialization error: {0}")]
     Json(#[from] serde_json::Error),
 }
 
-/// Arguments for the dry run command
+/// A command to perform a dry run of monitors over a specified block range.
+///
+/// This command initializes the application's services in a one-shot mode to
+/// test monitor configurations against historical blockchain data. It fetches,
+/// processes, and filters data for each block in the range, dispatches real
+/// notifications for any matches, and prints a JSON report of all matches to
+/// standard output.
 #[derive(Parser, Debug)]
 pub struct DryRunArgs {
-    /// Path to the monitor file to test.
+    /// Path to the monitor configuration file. If not provided, uses the path
+    /// from the main `config.yaml`.
     #[arg(short, long)]
     monitor: Option<String>,
-    /// The starting block number.
+    /// The starting block number for the dry run (inclusive).
     #[arg(long)]
     from: u64,
-    /// The ending block number.
+    /// The ending block number for the dry run (inclusive).
     #[arg(long)]
     to: u64,
-    /// Path to the triggers file. If not provided, uses the path from the main
-    /// config.
+    /// Path to the triggers configuration file. If not provided, uses the path
+    /// from the main `config.yaml`.
     #[arg(short, long)]
     triggers: Option<String>,
 }
 
-/// Executes a dry run of the monitoring process over a specified block range.
+/// The main entry point for the `dry-run` command.
+///
+/// This function orchestrates the entire dry run process:
+/// 1.  Loads the main application configuration.
+/// 2.  Initializes all necessary services (data source, block processor,
+///     filtering engine, etc.).
+/// 3.  Loads and validates the monitor and trigger configurations.
+/// 4.  Calls `run_dry_run_loop` to execute the core processing logic.
+/// 5.  Serializes the results to a pretty JSON string and prints to stdout.
 pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let config = AppConfig::new(None)?;
 
-    // Init EVM data source
+    // Init EVM data source for fetching blockchain data.
     let provider = create_provider(config.rpc_urls.clone(), config.rpc_retry_config.clone())?;
     let evm_source = EvmRpcSource::new(provider);
 
-    // Init ABI service and block processor
+    // Init services for processing and decoding data.
     let abi_service = Arc::new(AbiService::new());
     let block_processor = BlockProcessor::new(Arc::clone(&abi_service));
 
-    // Load Monitors and Triggers
+    // Load and validate monitor and trigger configurations from files.
     let monitors_path = args.monitor.as_deref().unwrap_or(&config.monitor_config_path);
     let monitor_loader = MonitorLoader::new(monitors_path.into());
     let monitors = monitor_loader.load()?;
@@ -102,7 +118,6 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let trigger_loader = TriggerLoader::new(triggers_path.into());
     let triggers = trigger_loader.load()?;
 
-    // Monitor Validation
     let monitor_validator = MonitorValidator::new(&config.network_id);
     for monitor in monitors.iter() {
         tracing::debug!(monitor = %monitor.name, "Validating monitor...");
@@ -110,15 +125,13 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     }
     tracing::info!("Monitor validation successful.");
 
-    // Init Notification Service
+    // Init services for notifications and filtering logic.
     let client_pool = Arc::new(HttpClientPool::new());
     let notification_service = NotificationService::new(triggers, client_pool);
-
-    // Init Rhai Filtering Engine
     let rhai_compiler = Arc::new(RhaiCompiler::new(config.rhai.clone()));
     let filtering_engine = RhaiFilteringEngine::new(monitors, rhai_compiler, config.rhai.clone());
 
-    // Run the core processing loop
+    // Execute the core processing loop.
     let matches = run_dry_run_loop(
         args.from,
         args.to,
@@ -129,14 +142,34 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     )
     .await?;
 
-    // Reporting
+    // Serialize and print the final report.
     let report = serde_json::to_string_pretty(&matches)?;
     println!("{}", report);
 
     Ok(())
 }
 
-/// The core processing loop for the dry run, decoupled from concrete data sources.
+/// The core processing logic for the dry run.
+///
+/// This function is decoupled from the concrete `EvmRpcSource` to facilitate
+/// testing with a mock data source. It iterates through the specified block
+/// range, fetches the necessary data, processes it, evaluates it against the
+/// filtering engine, and dispatches notifications for any matches.
+///
+/// # Arguments
+///
+/// * `from_block` - The starting block number.
+/// * `to_block` - The ending block number.
+/// * `data_source` - A boxed trait object for fetching blockchain data.
+/// * `block_processor` - The service for decoding raw block data.
+/// * `filtering_engine` - The service for evaluating data against monitor
+///   scripts.
+/// * `notification_service` - The service for sending notifications.
+///
+/// # Returns
+///
+/// A `Result` containing a vector of all `MonitorMatch`es found during the run,
+/// or a `DryRunError`.
 async fn run_dry_run_loop(
     from_block: u64,
     to_block: u64,
@@ -152,6 +185,8 @@ async fn run_dry_run_loop(
 
     while current_block <= to_block {
         let (block, logs) = data_source.fetch_block_core_data(current_block).await?;
+
+        // Conditionally fetch transaction receipts only if a monitor requires them.
         let receipts = if filtering_engine.requires_receipt_data() {
             let tx_hashes: Vec<_> = block.transactions.hashes().collect();
             if tx_hashes.is_empty() {
@@ -163,13 +198,16 @@ async fn run_dry_run_loop(
             Default::default()
         };
 
+        // Process the raw block data into a decoded format.
         let block_data = BlockData::from_raw_data(block, receipts, logs);
         let decoded_blocks = block_processor.process_blocks_batch(vec![block_data]).await?;
 
+        // Evaluate each item in the decoded block against the filtering engine.
         for decoded_block in decoded_blocks {
             for item in decoded_block.items {
                 let item_matches = filtering_engine.evaluate_item(&item).await?;
                 for m in item_matches {
+                    // For every match, dispatch a notification and collect the result.
                     let _ = notification_service.execute(&m).await;
                     matches.push(m.clone());
                 }
