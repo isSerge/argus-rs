@@ -1,5 +1,5 @@
-//! This module provides functionality to execute a dry run of the monitoring process
-//! over a specified block range.
+//! This module provides functionality to execute a dry run of the monitoring
+//! process over a specified block range.
 
 use std::sync::Arc;
 
@@ -15,11 +15,11 @@ use crate::{
         rhai::RhaiCompiler,
     },
     http_client::HttpClientPool,
-    models::{monitor_match::MonitorMatch, BlockData},
+    models::{BlockData, monitor_match::MonitorMatch},
     monitor::{MonitorLoader, MonitorLoaderError, MonitorValidationError, MonitorValidator},
     notification::NotificationService,
     providers::{
-        rpc::{create_provider, EvmRpcSource, ProviderError},
+        rpc::{EvmRpcSource, ProviderError, create_provider},
         traits::{DataSource, DataSourceError},
     },
 };
@@ -93,12 +93,12 @@ pub struct DryRunArgs {
 /// The main entry point for the `dry-run` command.
 ///
 /// This function orchestrates the entire dry run process:
-/// 1.  Loads the main application configuration.
-/// 2.  Initializes all necessary services (data source, block processor,
-///     filtering engine, etc.).
-/// 3.  Loads and validates the monitor and trigger configurations.
-/// 4.  Calls `run_dry_run_loop` to execute the core processing logic.
-/// 5.  Serializes the results to a pretty JSON string and prints to stdout.
+/// 1. Loads the main application configuration.
+/// 2. Initializes all necessary services (data source, block processor,
+///    filtering engine, etc.).
+/// 3. Loads and validates the monitor and trigger configurations.
+/// 4. Calls `run_dry_run_loop` to execute the core processing logic.
+/// 5. Serializes the results to a pretty JSON string and prints to stdout.
 pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let config = AppConfig::new(None)?;
 
@@ -121,7 +121,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let monitor_validator = MonitorValidator::new(&config.network_id);
     for monitor in monitors.iter() {
         tracing::debug!(monitor = %monitor.name, "Validating monitor...");
-        monitor_validator.validate(&monitor)?;
+        monitor_validator.validate(monitor)?;
     }
     tracing::info!("Monitor validation successful.");
 
@@ -222,14 +222,17 @@ async fn run_dry_run_loop(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use alloy::primitives::U256;
+    use mockall::predicate::eq;
+
     use super::*;
     use crate::{
         abi::AbiService,
         config::RhaiConfig,
         engine::{
-            block_processor::BlockProcessor,
-            filtering::RhaiFilteringEngine,
-            rhai::RhaiCompiler,
+            block_processor::BlockProcessor, filtering::RhaiFilteringEngine, rhai::RhaiCompiler,
         },
         http_client::HttpClientPool,
         models::monitor::Monitor,
@@ -237,9 +240,6 @@ mod tests {
         providers::traits::MockDataSource,
         test_helpers::{BlockBuilder, TransactionBuilder},
     };
-    use alloy::primitives::U256;
-    use mockall::predicate::eq;
-    use std::sync::Arc;
 
     #[tokio::test]
     async fn test_run_dry_run_loop_succeeds() {
@@ -250,18 +250,13 @@ mod tests {
 
         // Create a mock data source
         let mut mock_data_source = MockDataSource::new();
-        mock_data_source
-            .expect_fetch_block_core_data()
-            .with(eq(from_block))
-            .times(1)
-            .returning(|block_num| {
-                let tx = TransactionBuilder::new()
-                    .value(U256::MAX)
-                    .block_number(block_num)
-                    .build();
+        mock_data_source.expect_fetch_block_core_data().with(eq(from_block)).times(1).returning(
+            |block_num| {
+                let tx = TransactionBuilder::new().value(U256::MAX).block_number(block_num).build();
                 let block = BlockBuilder::new().number(block_num).transaction(tx).build();
                 Ok((block, vec![]))
-            });
+            },
+        );
 
         // Create a monitor that will match the transaction
         let monitor = Monitor::from_config(
@@ -277,8 +272,7 @@ mod tests {
         let block_processor = BlockProcessor::new(abi_service);
         let rhai_config = RhaiConfig::default();
         let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));
-        let filtering_engine =
-            RhaiFilteringEngine::new(vec![monitor], rhai_compiler, rhai_config);
+        let filtering_engine = RhaiFilteringEngine::new(vec![monitor], rhai_compiler, rhai_config);
         let client_pool = Arc::new(HttpClientPool::new());
         let notification_service = NotificationService::new(vec![], client_pool);
 
@@ -309,18 +303,16 @@ mod tests {
 
         // Create a mock data source
         let mut mock_data_source = MockDataSource::new();
-        mock_data_source
-            .expect_fetch_block_core_data()
-            .with(eq(from_block))
-            .times(1)
-            .returning(|block_num| {
+        mock_data_source.expect_fetch_block_core_data().with(eq(from_block)).times(1).returning(
+            |block_num| {
                 let tx = TransactionBuilder::new()
                     .value(U256::from(50)) // Value is less than the script's condition
                     .block_number(block_num)
                     .build();
                 let block = BlockBuilder::new().number(block_num).transaction(tx).build();
                 Ok((block, vec![]))
-            });
+            },
+        );
 
         let monitor = Monitor::from_config(
             "Test Monitor".to_string(),
@@ -335,8 +327,7 @@ mod tests {
         let block_processor = BlockProcessor::new(abi_service);
         let rhai_config = RhaiConfig::default();
         let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));
-        let filtering_engine =
-            RhaiFilteringEngine::new(vec![monitor], rhai_compiler, rhai_config);
+        let filtering_engine = RhaiFilteringEngine::new(vec![monitor], rhai_compiler, rhai_config);
         let client_pool = Arc::new(HttpClientPool::new());
         let notification_service = NotificationService::new(vec![], client_pool);
 
@@ -366,15 +357,13 @@ mod tests {
 
         // Create a mock data source
         let mut mock_data_source = MockDataSource::new();
-        mock_data_source
-            .expect_fetch_block_core_data()
-            .with(eq(from_block))
-            .times(1)
-            .returning(|block_num| {
+        mock_data_source.expect_fetch_block_core_data().with(eq(from_block)).times(1).returning(
+            |block_num| {
                 let tx = TransactionBuilder::new().block_number(block_num).build();
                 let block = BlockBuilder::new().number(block_num).transaction(tx).build();
                 Ok((block, vec![]))
-            });
+            },
+        );
 
         // This is the key assertion for this test: fetch_receipts must be called.
         mock_data_source.expect_fetch_receipts().times(1).returning(|_| Ok(Default::default()));
@@ -392,8 +381,7 @@ mod tests {
         let block_processor = BlockProcessor::new(abi_service);
         let rhai_config = RhaiConfig::default();
         let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));
-        let filtering_engine =
-            RhaiFilteringEngine::new(vec![monitor], rhai_compiler, rhai_config);
+        let filtering_engine = RhaiFilteringEngine::new(vec![monitor], rhai_compiler, rhai_config);
         let client_pool = Arc::new(HttpClientPool::new());
         let notification_service = NotificationService::new(vec![], client_pool);
 

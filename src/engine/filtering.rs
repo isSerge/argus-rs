@@ -24,8 +24,8 @@ use tokio::{
 
 use super::rhai::{
     conversions::{
-        build_log_map, build_log_params_map, build_transaction_map,
-        build_trigger_data_from_params, build_trigger_data_from_transaction,
+        build_log_map, build_log_params_map, build_transaction_map, build_trigger_data_from_params,
+        build_trigger_data_from_transaction,
     },
     create_engine,
 };

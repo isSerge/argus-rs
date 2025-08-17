@@ -6,11 +6,12 @@
 use alloy::{
     consensus::TxType,
     dyn_abi::DynSolValue,
-    primitives::{I256, U256}, rpc::types::TransactionReceipt,
+    primitives::{I256, U256},
+    rpc::types::TransactionReceipt,
 };
 use num_bigint::{BigInt, Sign};
 use rhai::{Dynamic, Map};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::{abi::DecodedLog, models::transaction::Transaction};
 
@@ -284,11 +285,10 @@ pub fn build_trigger_data_from_transaction(
     }
 
     match transaction.transaction_type() {
-        TxType::Legacy => {
+        TxType::Legacy =>
             if let Some(gas_price) = transaction.gas_price() {
                 map.insert("gas_price".to_string(), json!(gas_price));
-            }
-        }
+            },
         TxType::Eip1559 => {
             map.insert("max_fee_per_gas".to_string(), json!(transaction.max_fee_per_gas()));
             if let Some(max_priority_fee_per_gas) = transaction.max_priority_fee_per_gas() {
