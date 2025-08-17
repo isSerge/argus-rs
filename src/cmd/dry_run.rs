@@ -1,4 +1,5 @@
-//! Dry Run Command Implementation
+//! This module provides functionality to execute a dry run of the monitoring process
+//! over a specified block range.
 
 use std::sync::Arc;
 
@@ -14,7 +15,7 @@ use crate::{
         rhai::RhaiCompiler,
     },
     http_client::HttpClientPool,
-    models::monitor_match::MonitorMatch,
+    models::{monitor_match::MonitorMatch, BlockData},
     monitor::{MonitorLoader, MonitorLoaderError, MonitorValidationError, MonitorValidator},
     notification::NotificationService,
     providers::{
@@ -68,13 +69,13 @@ pub enum DryRunError {
 pub struct DryRunArgs {
     /// Path to the monitor file to test.
     #[arg(short, long)]
-    monitor: String,
+    monitor: Option<String>,
     /// The starting block number.
-    #[arg(short, long)]
-    from_block: u64,
+    #[arg(long)]
+    from: u64,
     /// The ending block number.
-    #[arg(short, long)]
-    to_block: u64,
+    #[arg(long)]
+    to: u64,
     /// Path to the triggers file. If not provided, uses the path from the main
     /// config.
     #[arg(short, long)]
@@ -83,7 +84,6 @@ pub struct DryRunArgs {
 
 /// Executes a dry run of the monitoring process over a specified block range.
 pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
-    // 1. Initialization
     let config = AppConfig::new(None)?;
 
     // Init EVM data source
@@ -94,8 +94,9 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let abi_service = Arc::new(AbiService::new());
     let block_processor = BlockProcessor::new(Arc::clone(&abi_service));
 
-    // 2. Monitor and Trigger Loading
-    let monitor_loader = MonitorLoader::new(args.monitor.clone().into());
+    // Load Monitors and Triggers
+    let monitors_path = args.monitor.as_deref().unwrap_or(&config.monitor_config_path);
+    let monitor_loader = MonitorLoader::new(monitors_path.into());
     let monitors = monitor_loader.load()?;
     let triggers_path = args.triggers.as_deref().unwrap_or(&config.trigger_config_path);
     let trigger_loader = TriggerLoader::new(triggers_path.into());
@@ -107,6 +108,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
         tracing::debug!(monitor = %monitor.name, "Validating monitor...");
         monitor_validator.validate(&monitor)?;
     }
+    tracing::info!("Monitor validation successful.");
     
     // Init Notification Service
     let client_pool = Arc::new(HttpClientPool::new());
@@ -116,15 +118,13 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let rhai_compiler = Arc::new(RhaiCompiler::new(config.rhai.clone()));
     let filtering_engine = RhaiFilteringEngine::new(monitors, rhai_compiler, config.rhai.clone());
 
-    tracing::info!("Monitor validation successful.");
-
-    // 4. Core Loop
+    // Core Loop
     let mut matches: Vec<MonitorMatch> = Vec::new();
-    let mut current_block = args.from_block;
+    let mut current_block = args.from;
 
-    tracing::info!(from = args.from_block, to = args.to_block, "Starting block processing...");
+    tracing::info!(from = args.from, to = args.to, "Starting block processing...");
 
-    while current_block <= args.to_block {
+    while current_block <= args.to {
         let (block, logs) = evm_source.fetch_block_core_data(current_block).await?;
         let receipts = if filtering_engine.requires_receipt_data() {
             let tx_hashes: Vec<_> = block.transactions.hashes().collect();
@@ -137,7 +137,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
             Default::default()
         };
 
-        let block_data = crate::models::BlockData::from_raw_data(block, receipts, logs);
+        let block_data = BlockData::from_raw_data(block, receipts, logs);
         let decoded_blocks = block_processor.process_blocks_batch(vec![block_data]).await?;
 
         for decoded_block in decoded_blocks {
