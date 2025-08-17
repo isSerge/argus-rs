@@ -13,9 +13,7 @@ async fn setup_db() -> SqliteStateRepository {
     let repo = SqliteStateRepository::new("sqlite::memory:")
         .await
         .expect("Failed to set up in-memory database");
-    repo.run_migrations()
-        .await
-        .expect("Failed to run migrations");
+    repo.run_migrations().await.expect("Failed to run migrations");
     repo
 }
 
@@ -57,9 +55,7 @@ async fn test_monitor_lifecycle() {
         create_test_monitor("Monitor 1", network_id),
         create_test_monitor("Monitor 2", network_id),
     ];
-    repo.add_monitors(network_id, monitors_to_add.clone())
-        .await
-        .unwrap();
+    repo.add_monitors(network_id, monitors_to_add.clone()).await.unwrap();
 
     // 3. Get monitors and verify they were added
     let stored_monitors = repo.get_monitors(network_id).await.unwrap();
@@ -83,13 +79,8 @@ async fn test_trigger_lifecycle() {
     assert!(initial_triggers.is_empty());
 
     // 2. Add triggers
-    let triggers_to_add = vec![
-        create_test_trigger("Trigger 1"),
-        create_test_trigger("Trigger 2"),
-    ];
-    repo.add_triggers(network_id, triggers_to_add.clone())
-        .await
-        .unwrap();
+    let triggers_to_add = vec![create_test_trigger("Trigger 1"), create_test_trigger("Trigger 2")];
+    repo.add_triggers(network_id, triggers_to_add.clone()).await.unwrap();
 
     // 3. Get triggers and verify they were added
     let stored_triggers = repo.get_triggers(network_id).await.unwrap();
@@ -113,16 +104,12 @@ async fn test_processed_block_management() {
     assert!(initial_block.is_none());
 
     // 2. Set and get the last processed block
-    repo.set_last_processed_block(network_id, 12345)
-        .await
-        .unwrap();
+    repo.set_last_processed_block(network_id, 12345).await.unwrap();
     let retrieved_block = repo.get_last_processed_block(network_id).await.unwrap();
     assert_eq!(retrieved_block, Some(12345));
 
     // 3. Update the last processed block
-    repo.set_last_processed_block(network_id, 54321)
-        .await
-        .unwrap();
+    repo.set_last_processed_block(network_id, 54321).await.unwrap();
     let updated_block = repo.get_last_processed_block(network_id).await.unwrap();
     assert_eq!(updated_block, Some(54321));
 }
@@ -134,24 +121,14 @@ async fn test_network_isolation() {
     let poly_network = "polygon";
 
     // Add monitors and triggers to both networks
-    repo.add_monitors(
-        eth_network,
-        vec![create_test_monitor("ETH Monitor", eth_network)],
-    )
-    .await
-    .unwrap();
-    repo.add_monitors(
-        poly_network,
-        vec![create_test_monitor("Polygon Monitor", poly_network)],
-    )
-    .await
-    .unwrap();
-    repo.add_triggers(eth_network, vec![create_test_trigger("ETH Trigger")])
+    repo.add_monitors(eth_network, vec![create_test_monitor("ETH Monitor", eth_network)])
         .await
         .unwrap();
-    repo.add_triggers(poly_network, vec![create_test_trigger("Polygon Trigger")])
+    repo.add_monitors(poly_network, vec![create_test_monitor("Polygon Monitor", poly_network)])
         .await
         .unwrap();
+    repo.add_triggers(eth_network, vec![create_test_trigger("ETH Trigger")]).await.unwrap();
+    repo.add_triggers(poly_network, vec![create_test_trigger("Polygon Trigger")]).await.unwrap();
 
     // Verify data for Ethereum
     let eth_monitors = repo.get_monitors(eth_network).await.unwrap();
