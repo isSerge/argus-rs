@@ -30,7 +30,7 @@ use super::rhai::{
 };
 use crate::{
     config::RhaiConfig,
-    engine::rhai::compiler::RhaiCompiler,
+    engine::rhai::compiler::{RhaiCompiler, RhaiCompilerError},
     models::{
         correlated_data::CorrelatedBlockItem, decoded_block::DecodedBlockData, monitor::Monitor,
         monitor_match::MonitorMatch,
@@ -42,7 +42,7 @@ use crate::{
 pub enum RhaiError {
     /// Error that occurs during script compilation
     #[error("Script compilation failed: {0}")]
-    CompilationError(#[from] Box<EvalAltResult>),
+    CompilationError(#[from] RhaiCompilerError),
 
     /// Error that occurs during script runtime execution
     #[error("Script runtime error: {0}")]
@@ -65,7 +65,7 @@ pub trait FilteringEngine: Send + Sync {
     async fn evaluate_item(
         &self,
         item: &CorrelatedBlockItem,
-    ) -> Result<Vec<MonitorMatch>, Box<dyn std::error::Error + Send + Sync>>;
+    ) -> Result<Vec<MonitorMatch>, RhaiError>;
 
     /// Updates the set of monitors used by the engine.
     async fn update_monitors(&self, monitors: Vec<Monitor>);
@@ -238,7 +238,7 @@ impl FilteringEngine for RhaiFilteringEngine {
     async fn evaluate_item(
         &self,
         item: &CorrelatedBlockItem,
-    ) -> Result<Vec<MonitorMatch>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Vec<MonitorMatch>, RhaiError> {
         let mut matches = Vec::new();
 
         let tx_map = build_transaction_map(&item.transaction, item.receipt.as_ref());
