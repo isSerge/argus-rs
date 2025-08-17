@@ -54,7 +54,7 @@ pub struct AppConfig {
         deserialize_with = "deserialize_duration_from_ms",
         serialize_with = "serialize_duration_to_ms"
     )]
-    pub polling_interval: Duration,
+    pub polling_interval_ms: Duration,
 
     /// Number of confirmation blocks to wait for before processing.
     pub confirmation_blocks: u64,
@@ -133,5 +133,60 @@ impl AppConfigBuilder {
 
     pub fn build(self) -> AppConfig {
         self.config
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_app_config_builder() {
+        let rpc_urls = vec![Url::parse("http://localhost:8545").unwrap()];
+        let config = AppConfig::builder()
+            .rpc_urls(rpc_urls)
+            .network_id("testnet")
+            .monitor_config_path("test_monitor.yaml")
+            .trigger_config_path("test_trigger.yaml")
+            .database_url("sqlite::memory:")
+            .confirmation_blocks(12)
+            .build();
+
+        assert_eq!(config.rpc_urls.len(), 1);
+        assert_eq!(config.network_id, "testnet");
+        assert_eq!(config.monitor_config_path, "test_monitor.yaml");
+        assert_eq!(config.trigger_config_path, "test_trigger.yaml");
+        assert_eq!(config.database_url, "sqlite::memory:");
+        assert_eq!(config.confirmation_blocks, 12);
+    }
+
+    #[test]
+    fn test_app_config_from_file() {
+        // Create a temporary config file for testing
+        let config_content = r#"
+        database_url: "sqlite::memory:"
+        rpc_urls:
+          - "http://localhost:8545"
+        network_id: "testnet"
+        monitor_config_path: "test_monitor.yaml"
+        trigger_config_path: "test_trigger.yaml"
+        confirmation_blocks: 12
+        block_chunk_size: 0
+        polling_interval_ms: 10000
+        "#;
+        let temp_file = tempfile::NamedTempFile::with_suffix(".yaml").unwrap();
+        std::fs::write(temp_file.path(), config_content).unwrap();
+
+        let config = AppConfig::new(Some(temp_file.path().to_str().unwrap())).unwrap();
+        assert!(!config.rpc_urls.is_empty());
+        assert_eq!(config.network_id, "testnet");
+        assert_eq!(config.monitor_config_path, "test_monitor.yaml");
+        assert_eq!(config.trigger_config_path, "test_trigger.yaml");
+        assert_eq!(config.database_url, "sqlite::memory:");
+        assert_eq!(config.confirmation_blocks, 12);
+        assert_eq!(config.shutdown_timeout, Duration::from_secs(30));
+        assert_eq!(config.notification_channel_capacity, 1024);
+        assert_eq!(config.block_chunk_size, 0);
+        assert_eq!(config.polling_interval_ms, Duration::from_millis(10000));
     }
 }

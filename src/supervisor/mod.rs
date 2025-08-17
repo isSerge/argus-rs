@@ -212,7 +212,7 @@ impl Supervisor {
         // This is the main application loop.
         loop {
             let tx_clone = decoded_blocks_tx.clone();
-            let polling_delay = tokio::time::sleep(self.config.polling_interval);
+            let polling_delay = tokio::time::sleep(self.config.polling_interval_ms);
 
             tokio::select! {
               // Use `biased` to ensure the shutdown signal is always checked first.
