@@ -77,10 +77,10 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
-    /// Creates a new `AppConfig` by reading from the configuration file.
-    pub fn new(config_path: Option<&str>) -> Result<Self, ConfigError> {
+    /// Creates a new `AppConfig` by reading from the configuration directory.
+    pub fn new(config_dir: Option<&str>) -> Result<Self, ConfigError> {
         let s = Config::builder()
-            .add_source(File::with_name(config_path.unwrap_or("config.yaml")))
+            .add_source(File::with_name(&format!("{}/app.yaml", config_dir.unwrap_or("configs"))))
             .build()?;
         s.try_deserialize()
     }
@@ -174,10 +174,11 @@ mod tests {
         block_chunk_size: 0
         polling_interval_ms: 10000
         "#;
-        let temp_file = tempfile::NamedTempFile::with_suffix(".yaml").unwrap();
-        std::fs::write(temp_file.path(), config_content).unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let app_yaml_path = temp_dir.path().join("app.yaml");
+        std::fs::write(&app_yaml_path, config_content).unwrap();
 
-        let config = AppConfig::new(Some(temp_file.path().to_str().unwrap())).unwrap();
+        let config = AppConfig::new(Some(temp_dir.path().to_str().unwrap())).unwrap();
         assert!(!config.rpc_urls.is_empty());
         assert_eq!(config.network_id, "testnet");
         assert_eq!(config.monitor_config_path, "test_monitor.yaml");
