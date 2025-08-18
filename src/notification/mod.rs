@@ -266,7 +266,13 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::{config::HttpRetryConfig, models::{notification::NotificationMessage, notifier::{DiscordConfig, SlackConfig, TelegramConfig, WebhookConfig}}};
+    use crate::{
+        config::HttpRetryConfig,
+        models::{
+            notification::NotificationMessage,
+            notifier::{DiscordConfig, SlackConfig, TelegramConfig, WebhookConfig},
+        },
+    };
 
     fn create_mock_monitor_match(notifier_name: &str) -> MonitorMatch {
         MonitorMatch {
@@ -323,7 +329,7 @@ mod tests {
         assert!(payload.get("content").is_none(), "Did not expect a Discord payload");
     }
 
-        #[test]
+    #[test]
     fn as_webhook_components_trait_for_discord_config() {
         let title = "Discord Title"; // Not directly used in Discord payload, but part of the message struct
         let message = "Discord Body";
@@ -367,7 +373,10 @@ mod tests {
         let components = telegram_config.as_webhook_components().unwrap();
 
         // Assert WebhookConfig is correct
-        assert_eq!(components.config.url, format!("https://api.telegram.org/bot{token}/sendMessage"));
+        assert_eq!(
+            components.config.url,
+            format!("https://api.telegram.org/bot{token}/sendMessage")
+        );
         assert_eq!(components.config.title, title);
         assert_eq!(components.config.body_template, message);
         assert_eq!(components.config.method, Some("POST".to_string()));
