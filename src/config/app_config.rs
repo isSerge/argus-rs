@@ -33,9 +33,11 @@ pub struct AppConfig {
     pub network_id: String,
 
     /// Path to monitor configuration file.
+    #[serde(skip_deserializing)]
     pub monitor_config_path: String,
 
     /// Path to notifier configuration file.
+    #[serde(skip_deserializing)]
     pub notifier_config_path: String,
 
     /// Optional retry configuration.
@@ -90,10 +92,10 @@ impl AppConfig {
         // Join the config paths with the config directory
         // This ensures that the paths are correctly resolved relative to the config
         // directory.
-        let monitor_path = config_path.join(&config.monitor_config_path);
+        let monitor_path = config_path.join("monitors.yaml");
         config.monitor_config_path = monitor_path.to_string_lossy().into_owned();
 
-        let notifier_path = config_path.join(&config.notifier_config_path);
+        let notifier_path = config_path.join("notifiers.yaml");
         config.notifier_config_path = notifier_path.to_string_lossy().into_owned();
 
         Ok(config)
@@ -182,8 +184,6 @@ mod tests {
         rpc_urls:
           - "http://localhost:8545"
         network_id: "testnet"
-        monitor_config_path: "test_monitor.yaml"
-        notifier_config_path: "test_notifier.yaml"
         confirmation_blocks: 12
         block_chunk_size: 0
         polling_interval_ms: 10000
@@ -197,11 +197,17 @@ mod tests {
         assert!(!config.rpc_urls.is_empty());
         assert_eq!(config.network_id, "testnet");
 
-        let expected_monitor_path = temp_dir_path.join("test_monitor.yaml");
-        assert_eq!(config.monitor_config_path, expected_monitor_path.to_str().unwrap());
+        let expected_monitor_path = temp_dir_path.join("monitors.yaml");
+        assert_eq!(
+            config.monitor_config_path,
+            expected_monitor_path.to_str().unwrap()
+        );
 
-        let expected_notifier_path = temp_dir_path.join("test_notifier.yaml");
-        assert_eq!(config.notifier_config_path, expected_notifier_path.to_str().unwrap());
+        let expected_notifier_path = temp_dir_path.join("notifiers.yaml");
+        assert_eq!(
+            config.notifier_config_path,
+            expected_notifier_path.to_str().unwrap()
+        );
 
         assert_eq!(config.database_url, "sqlite::memory:");
         assert_eq!(config.confirmation_blocks, 12);
