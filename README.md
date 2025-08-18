@@ -26,7 +26,7 @@ Argus is a next-generation, open-source, self-hosted monitoring tool for EVM cha
 
 ## Configuration
 
-The application is configured via a `config.yaml` file in the project root.
+The application is configured via a `app.yaml` file in the `configs` folder.
 
 Example `config.yaml` file:
 ```yaml
@@ -40,8 +40,10 @@ block_chunk_size: 5
 polling_interval_ms: 10000
 confirmation_blocks: 12
 notification_channel_capacity: 1024
+# File has to be located in the same folder as `app.yaml`
 monitor_config_path: "monitors.yaml"
-trigger_config_path: "triggers.yaml"
+# File has to be located in the same folder as `app.yaml`
+notifier_config_path: "notifiers.yaml"
 
 # Optional: Configuration for the RPC retry policy.
 # If this section is omitted, default values will be used.
@@ -72,6 +74,20 @@ rhai:
   execution_timeout: 5000
 ```
 
+It is possible to specify alternative config folder using `config_dir` env variable:
+
+- Default mode:
+
+```bash
+cargo run --run --config-dir custom_config_folder
+```
+
+- Dry-run mode:
+
+```bash
+cargo run --dry-run --config-dir custom_config_folder
+```
+
 ### Configuration Parameters
 
 - `database_url`: The connection string for the SQLite database.
@@ -84,7 +100,7 @@ rhai:
 - `shutdown_timeout_secs`: Graceful shutdown timeout
 - `rhai`: Security configuration for Rhai script execution
 - `monitor_config_path`: Path to monitor configuration file
-- `trigger_config_path`: Path to trigger configuration file
+- `notifier_config_path`: Path to trigger configuration file
 - `notification_channel_capacity`: The capacity of the channel used for sending notifications (default: 1024)
 
 ## Logging
@@ -135,7 +151,7 @@ The `src` directory is organized into several modules, each with a distinct resp
 -   `engine`: The core processing and filtering logic. It contains the `BlockProcessor` and the `FilteringEngine`, which uses Rhai for script execution.
 -   `http_client`: Module that provides a retryable HTTP client and a pool for managing multiple HTTP clients
 -   `http_server`: (Future) Will contain the REST API server (`axum`) for dynamic monitor management.
--   `initialization`: Service responsible for loading initial application data (monitors, triggers, ABIs) into the database and ABI service at startup
+-   `initialization`: Service responsible for loading initial application data (monitors, notifiers, ABIs) into the database and ABI service at startup
 -   `models`: Defines the core data structures used throughout the application (e.g., `Monitor`, `BlockData`, `Transaction`).
 -   `notification`: Notification service implementation (e.g., Webhook, Slack).
 -   `persistence`: Manages the application's state. It defines the `StateRepository` trait and includes its `SQLite` implementation.
