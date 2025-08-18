@@ -74,20 +74,16 @@ pub enum DryRunError {
 /// standard output.
 #[derive(Parser, Debug)]
 pub struct DryRunArgs {
-    /// Path to the monitor configuration file. If not provided, uses the path
-    /// from the main `config.yaml`.
+    /// Path to configuration directory containing app, monitor and notifier
+    /// configs
     #[arg(short, long)]
-    monitor: Option<String>,
+    config_dir: Option<String>,
     /// The starting block number for the dry run (inclusive).
     #[arg(long)]
     from: u64,
     /// The ending block number for the dry run (inclusive).
     #[arg(long)]
     to: u64,
-    /// Path to the notifiers configuration file. If not provided, uses the path
-    /// from the main `config.yaml`.
-    #[arg(short, long)]
-    notifiers: Option<String>,
 }
 
 /// The main entry point for the `dry-run` command.
@@ -100,7 +96,8 @@ pub struct DryRunArgs {
 /// 4. Calls `run_dry_run_loop` to execute the core processing logic.
 /// 5. Serializes the results to a pretty JSON string and prints to stdout.
 pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
-    let config = AppConfig::new(None)?;
+    let config_dir = args.config_dir.as_deref().unwrap_or("configs");
+    let config = AppConfig::new(config_dir.into())?;
 
     // Init EVM data source for fetching blockchain data.
     let provider = create_provider(config.rpc_urls.clone(), config.rpc_retry_config.clone())?;
@@ -111,11 +108,10 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let block_processor = BlockProcessor::new(Arc::clone(&abi_service));
 
     // Load and validate monitor and notifier configurations from files.
-    let monitors_path = args.monitor.as_deref().unwrap_or(&config.monitor_config_path);
-    let monitor_loader = MonitorLoader::new(monitors_path.into());
+
+    let monitor_loader = MonitorLoader::new(config.monitor_config_path.into());
     let monitors = monitor_loader.load()?;
-    let notifiers_path = args.notifiers.as_deref().unwrap_or(&config.notifier_config_path);
-    let notifier_loader = NotifierLoader::new(notifiers_path.into());
+    let notifier_loader = NotifierLoader::new(config.notifier_config_path.into());
     let notifiers = notifier_loader.load()?;
 
     let monitor_validator = MonitorValidator::new(&config.network_id);
