@@ -198,16 +198,10 @@ mod tests {
         assert_eq!(config.network_id, "testnet");
 
         let expected_monitor_path = temp_dir_path.join("monitors.yaml");
-        assert_eq!(
-            config.monitor_config_path,
-            expected_monitor_path.to_str().unwrap()
-        );
+        assert_eq!(config.monitor_config_path, expected_monitor_path.to_str().unwrap());
 
         let expected_notifier_path = temp_dir_path.join("notifiers.yaml");
-        assert_eq!(
-            config.notifier_config_path,
-            expected_notifier_path.to_str().unwrap()
-        );
+        assert_eq!(config.notifier_config_path, expected_notifier_path.to_str().unwrap());
 
         assert_eq!(config.database_url, "sqlite::memory:");
         assert_eq!(config.confirmation_blocks, 12);
