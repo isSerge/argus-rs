@@ -41,10 +41,7 @@ use crate::{
     http_client::HttpClientPool,
     models::{
         monitor_match::MonitorMatch,
-        notifier::{
-            DiscordConfig, NotifierConfig, NotifierTypeConfig, SlackConfig, TelegramConfig,
-            WebhookConfig,
-        },
+        notifier::{NotifierConfig, NotifierTypeConfig},
     },
 };
 
@@ -93,84 +90,80 @@ trait AsWebhookComponents {
     /// payload builder from the specific config.
     fn as_webhook_components(&self) -> Result<WebhookComponents, NotificationError>;
 }
-
 impl AsWebhookComponents for NotifierTypeConfig {
     fn as_webhook_components(&self) -> Result<WebhookComponents, NotificationError> {
-        let (url, message, method, secret, headers, builder, retry_policy): (
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            HttpRetryConfig,
-        ) = match self {
-            NotifierTypeConfig::Webhook(WebhookConfig {
-                url,
-                message,
-                method,
-                secret,
-                headers,
-                retry_policy,
-            }) => (
-                url.clone(),
-                message.clone(),
-                method.clone(),
-                secret.clone(),
-                headers.clone(),
-                Box::new(GenericWebhookPayloadBuilder) as Box<dyn WebhookPayloadBuilder>,
-                retry_policy.clone(),
-            ),
-            NotifierTypeConfig::Discord(DiscordConfig { discord_url, message, retry_policy }) => (
-                discord_url.clone(),
-                message.clone(),
-                Some("POST".to_string()),
-                None,
-                None,
-                Box::new(DiscordPayloadBuilder),
-                retry_policy.clone(),
-            ),
-            NotifierTypeConfig::Telegram(TelegramConfig {
-                token,
-                message,
-                chat_id,
-                disable_web_preview,
-                retry_policy,
-            }) => (
-                format!("https://api.telegram.org/bot{token}/sendMessage"),
-                message.clone(),
-                Some("POST".to_string()),
-                None,
-                None,
-                Box::new(TelegramPayloadBuilder {
-                    chat_id: chat_id.clone(),
-                    disable_web_preview: disable_web_preview.unwrap_or(false),
-                }),
-                retry_policy.clone(),
-            ),
-            NotifierTypeConfig::Slack(SlackConfig { slack_url, message, retry_policy }) => (
-                slack_url.clone(),
-                message.clone(),
-                Some("POST".to_string()),
-                None,
-                None,
-                Box::new(SlackPayloadBuilder),
-                retry_policy.clone(),
-            ),
+        // A private helper struct to hold the provider-specific details extracted from
+        // the `match` statement. This helps reduce code repetition.
+        struct ProviderDetails {
+            url: String,
+            builder: Box<dyn WebhookPayloadBuilder>,
+            method: Option<String>,
+            secret: Option<String>,
+            headers: Option<HashMap<String, String>>,
+        }
+
+        impl ProviderDetails {
+            /// A constructor for standard notifiers (like Slack, Discord) that
+            /// use POST and have no custom secret or headers.
+            fn new_standard(url: String, builder: Box<dyn WebhookPayloadBuilder>) -> Self {
+                Self { url, builder, method: Some("POST".to_string()), secret: None, headers: None }
+            }
+        }
+
+        // Extract common components (message and retry_policy) that exist in all
+        // variants.
+        let (message, retry_policy) = match self {
+            NotifierTypeConfig::Webhook(c) => (&c.message, &c.retry_policy),
+            NotifierTypeConfig::Discord(c) => (&c.message, &c.retry_policy),
+            NotifierTypeConfig::Telegram(c) => (&c.message, &c.retry_policy),
+            NotifierTypeConfig::Slack(c) => (&c.message, &c.retry_policy),
         };
 
-        // Construct the final WebhookConfig from the extracted parts.
+        // The match statement now focuses only on creating the provider-specific
+        // details.
+        let details = match self {
+            // The generic webhook is fully customizable.
+            NotifierTypeConfig::Webhook(c) => ProviderDetails {
+                url: c.url.clone(),
+                builder: Box::new(GenericWebhookPayloadBuilder),
+                method: c.method.clone(),
+                secret: c.secret.clone(),
+                headers: c.headers.clone(),
+            },
+            // Other notifiers use the standard POST configuration.
+            NotifierTypeConfig::Discord(c) => ProviderDetails::new_standard(
+                c.discord_url.clone(),
+                Box::new(DiscordPayloadBuilder),
+            ),
+            NotifierTypeConfig::Telegram(c) => {
+                let url = format!("https://api.telegram.org/bot{}/sendMessage", c.token);
+                let builder = Box::new(TelegramPayloadBuilder {
+                    chat_id: c.chat_id.clone(),
+                    disable_web_preview: c.disable_web_preview.unwrap_or(false),
+                });
+                ProviderDetails::new_standard(url, builder)
+            }
+            NotifierTypeConfig::Slack(c) =>
+                ProviderDetails::new_standard(c.slack_url.clone(), Box::new(SlackPayloadBuilder)),
+        };
+
+        // Construct the final WebhookConfig from the common and provider-specific
+        // parts.
         let config = webhook::WebhookConfig {
-            url,
-            title: message.title,
-            body_template: message.body,
-            method,
-            secret,
-            headers,
+            url: details.url,
+            title: message.title.clone(),
+            body_template: message.body.clone(),
+            method: details.method,
+            secret: details.secret,
+            headers: details.headers,
             url_params: None,
         };
 
-        Ok(WebhookComponents { config, retry_policy, builder })
+        Ok(WebhookComponents {
+            config,
+            retry_policy: retry_policy.clone(),
+            builder: details.builder,
+        })
     }
 }
 
@@ -273,7 +266,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::{config::HttpRetryConfig, models::notification::NotificationMessage};
+    use crate::{config::HttpRetryConfig, models::{notification::NotificationMessage, notifier::{DiscordConfig, SlackConfig, TelegramConfig, WebhookConfig}}};
 
     fn create_mock_monitor_match(notifier_name: &str) -> MonitorMatch {
         MonitorMatch {
@@ -328,5 +321,91 @@ mod tests {
         let payload = components.builder.build_payload(title, message);
         assert!(payload.get("blocks").is_some(), "Expected a Slack payload with 'blocks'");
         assert!(payload.get("content").is_none(), "Did not expect a Discord payload");
+    }
+
+        #[test]
+    fn as_webhook_components_trait_for_discord_config() {
+        let title = "Discord Title"; // Not directly used in Discord payload, but part of the message struct
+        let message = "Discord Body";
+
+        let discord_config = NotifierTypeConfig::Discord(DiscordConfig {
+            discord_url: "https://discord.example.com".to_string(),
+            message: NotificationMessage { title: title.to_string(), body: message.to_string() },
+            retry_policy: HttpRetryConfig::default(),
+        });
+
+        let components = discord_config.as_webhook_components().unwrap();
+
+        // Assert WebhookConfig is correct
+        assert_eq!(components.config.url, "https://discord.example.com");
+        assert_eq!(components.config.title, title);
+        assert_eq!(components.config.body_template, message);
+        assert_eq!(components.config.method, Some("POST".to_string()));
+        assert!(components.config.secret.is_none());
+
+        // Assert the builder creates the correct payload
+        let payload = components.builder.build_payload(title, message);
+        assert_eq!(payload.get("content").unwrap(), &format!("*{title}*\n\n{message}"));
+        assert!(payload.get("blocks").is_none(), "Did not expect a Slack payload");
+    }
+
+    #[test]
+    fn as_webhook_components_trait_for_telegram_config() {
+        let title = "Telegram Title"; // Not used in Telegram payload
+        let message = "Telegram Body";
+        let token = "test_token";
+        let chat_id = "test_chat_id";
+
+        let telegram_config = NotifierTypeConfig::Telegram(TelegramConfig {
+            token: token.to_string(),
+            chat_id: chat_id.to_string(),
+            message: NotificationMessage { title: title.to_string(), body: message.to_string() },
+            disable_web_preview: Some(true),
+            retry_policy: HttpRetryConfig::default(),
+        });
+
+        let components = telegram_config.as_webhook_components().unwrap();
+
+        // Assert WebhookConfig is correct
+        assert_eq!(components.config.url, format!("https://api.telegram.org/bot{token}/sendMessage"));
+        assert_eq!(components.config.title, title);
+        assert_eq!(components.config.body_template, message);
+        assert_eq!(components.config.method, Some("POST".to_string()));
+
+        // Assert the builder creates the correct payload
+        let payload = components.builder.build_payload(title, message);
+        assert_eq!(payload.get("chat_id").unwrap(), chat_id);
+        assert_eq!(payload.get("text").unwrap(), &format!("*{title}* \n\n{message}"));
+        assert_eq!(payload.get("disable_web_page_preview").unwrap(), &json!(true));
+    }
+
+    #[test]
+    fn as_webhook_components_trait_for_generic_webhook_config() {
+        let title = "Webhook Title";
+        let message = "Webhook Body";
+        let mut headers = HashMap::new();
+        headers.insert("X-Test-Header".to_string(), "Value".to_string());
+
+        let webhook_config = NotifierTypeConfig::Webhook(WebhookConfig {
+            url: "https://webhook.example.com".to_string(),
+            message: NotificationMessage { title: title.to_string(), body: message.to_string() },
+            method: Some("PUT".to_string()),
+            secret: Some("my-secret".to_string()),
+            headers: Some(headers.clone()),
+            retry_policy: HttpRetryConfig::default(),
+        });
+
+        let components = webhook_config.as_webhook_components().unwrap();
+
+        // Assert WebhookConfig is correct
+        assert_eq!(components.config.url, "https://webhook.example.com");
+        assert_eq!(components.config.method, Some("PUT".to_string()));
+        assert_eq!(components.config.secret, Some("my-secret".to_string()));
+        assert_eq!(components.config.headers, Some(headers));
+
+        // Assert the builder creates the correct payload
+        let payload = components.builder.build_payload(title, message);
+        assert_eq!(payload.get("title").unwrap(), title);
+        assert_eq!(payload.get("body").unwrap(), message);
     }
 }
