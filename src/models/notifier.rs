@@ -1,4 +1,4 @@
-//! This module defines the data structures for trigger configurations.
+//! This module defines the data structures for notifier configurations.
 
 use std::collections::HashMap;
 
@@ -66,23 +66,23 @@ pub struct TelegramConfig {
     pub retry_policy: HttpRetryConfig,
 }
 
-/// An enum representing the different types of trigger configurations.
+/// An enum representing the different types of notifier configurations.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub enum TriggerTypeConfig {
-    /// A generic webhook trigger.
+pub enum NotifierTypeConfig {
+    /// A generic webhook notifier.
     Webhook(WebhookConfig),
-    /// A Slack notification trigger.
+    /// A Slack notification notifier.
     Slack(SlackConfig),
-    /// A Discord notification trigger.
+    /// A Discord notification notifier.
     Discord(DiscordConfig),
-    /// A Telegram notification trigger.
+    /// A Telegram notification notifier.
     Telegram(TelegramConfig),
 }
 
-/// Error types for trigger configuration validation.
+/// Error types for notifier configuration validation.
 #[derive(Debug, Clone, Error)]
-pub enum TriggerTypeConfigError {
+pub enum NotifierTypeConfigError {
     /// Error for invalid URL formats.
     #[error("Invalid URL: {0}")]
     InvalidUrl(String),
@@ -100,40 +100,40 @@ pub enum TriggerTypeConfigError {
     EmptyTelegramChatId,
 }
 
-impl TriggerTypeConfig {
-    /// Validates the trigger configuration.
-    pub fn validate(&self) -> Result<(), TriggerTypeConfigError> {
+impl NotifierTypeConfig {
+    /// Validates the notifier configuration.
+    pub fn validate(&self) -> Result<(), NotifierTypeConfigError> {
         match self {
-            TriggerTypeConfig::Webhook(config) => {
+            NotifierTypeConfig::Webhook(config) => {
                 if Url::parse(&config.url).is_err() {
-                    return Err(TriggerTypeConfigError::InvalidUrl(config.url.clone()));
+                    return Err(NotifierTypeConfigError::InvalidUrl(config.url.clone()));
                 }
                 if config.message.title.is_empty() {
-                    return Err(TriggerTypeConfigError::EmptyTitle);
+                    return Err(NotifierTypeConfigError::EmptyTitle);
                 }
                 Ok(())
             }
-            TriggerTypeConfig::Slack(config) => {
+            NotifierTypeConfig::Slack(config) => {
                 if Url::parse(&config.slack_url).is_err() {
-                    return Err(TriggerTypeConfigError::InvalidUrl(config.slack_url.clone()));
+                    return Err(NotifierTypeConfigError::InvalidUrl(config.slack_url.clone()));
                 }
                 if !config.slack_url.starts_with("https://hooks.slack.com/") {
-                    return Err(TriggerTypeConfigError::InvalidUrl(config.slack_url.clone()));
+                    return Err(NotifierTypeConfigError::InvalidUrl(config.slack_url.clone()));
                 }
                 Ok(())
             }
-            TriggerTypeConfig::Discord(config) => {
+            NotifierTypeConfig::Discord(config) => {
                 if Url::parse(&config.discord_url).is_err() {
-                    return Err(TriggerTypeConfigError::InvalidUrl(config.discord_url.clone()));
+                    return Err(NotifierTypeConfigError::InvalidUrl(config.discord_url.clone()));
                 }
                 Ok(())
             }
-            TriggerTypeConfig::Telegram(config) => {
+            NotifierTypeConfig::Telegram(config) => {
                 if config.token.is_empty() {
-                    return Err(TriggerTypeConfigError::EmptyTelegramToken);
+                    return Err(NotifierTypeConfigError::EmptyTelegramToken);
                 }
                 if config.chat_id.is_empty() {
-                    return Err(TriggerTypeConfigError::EmptyTelegramChatId);
+                    return Err(NotifierTypeConfigError::EmptyTelegramChatId);
                 }
                 Ok(())
             }
@@ -141,14 +141,14 @@ impl TriggerTypeConfig {
     }
 }
 
-/// Represents a single trigger configuration from the YAML file.
+/// Represents a single notifier configuration from the YAML file.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct TriggerConfig {
-    /// The unique name of the trigger.
+pub struct NotifierConfig {
+    /// The unique name of the notifier.
     pub name: String,
-    /// The specific configuration for the trigger type.
+    /// The specific configuration for the notifier type.
     #[serde(flatten)]
-    pub config: TriggerTypeConfig,
+    pub config: NotifierTypeConfig,
 }
 
 #[cfg(test)]
@@ -163,7 +163,7 @@ mod tests {
 
     #[test]
     fn test_validate_webhook_ok() {
-        let config = TriggerTypeConfig::Webhook(WebhookConfig {
+        let config = NotifierTypeConfig::Webhook(WebhookConfig {
             url: "http://localhost/webhook".to_string(),
             message: notification_message(),
             ..Default::default()
@@ -173,31 +173,31 @@ mod tests {
 
     #[test]
     fn test_validate_webhook_invalid_url() {
-        let config = TriggerTypeConfig::Webhook(WebhookConfig {
+        let config = NotifierTypeConfig::Webhook(WebhookConfig {
             url: "not a url".to_string(),
             message: notification_message(),
             ..Default::default()
         });
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), TriggerTypeConfigError::InvalidUrl(_)));
+        assert!(matches!(result.unwrap_err(), NotifierTypeConfigError::InvalidUrl(_)));
     }
 
     #[test]
     fn test_validate_webhook_empty_title() {
-        let config = TriggerTypeConfig::Webhook(WebhookConfig {
+        let config = NotifierTypeConfig::Webhook(WebhookConfig {
             url: "http://localhost/webhook".to_string(),
             message: NotificationMessage { title: "".to_string(), body: "Test Body".to_string() },
             ..Default::default()
         });
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), TriggerTypeConfigError::EmptyTitle));
+        assert!(matches!(result.unwrap_err(), NotifierTypeConfigError::EmptyTitle));
     }
 
     #[test]
     fn test_validate_slack_ok() {
-        let config = TriggerTypeConfig::Slack(SlackConfig {
+        let config = NotifierTypeConfig::Slack(SlackConfig {
             slack_url:
                 "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX"
                     .to_string(),
@@ -209,31 +209,31 @@ mod tests {
 
     #[test]
     fn test_validate_slack_invalid_url() {
-        let config = TriggerTypeConfig::Slack(SlackConfig {
+        let config = NotifierTypeConfig::Slack(SlackConfig {
             slack_url: "not a url".to_string(),
             message: notification_message(),
             ..Default::default()
         });
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), TriggerTypeConfigError::InvalidUrl(_)));
+        assert!(matches!(result.unwrap_err(), NotifierTypeConfigError::InvalidUrl(_)));
     }
 
     #[test]
     fn test_validate_slack_not_a_slack_url() {
-        let config = TriggerTypeConfig::Slack(SlackConfig {
+        let config = NotifierTypeConfig::Slack(SlackConfig {
             slack_url: "https://example.com/not-slack".to_string(),
             message: notification_message(),
             ..Default::default()
         });
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), TriggerTypeConfigError::InvalidUrl(_)));
+        assert!(matches!(result.unwrap_err(), NotifierTypeConfigError::InvalidUrl(_)));
     }
 
     #[test]
     fn test_validate_discord_ok() {
-        let config = TriggerTypeConfig::Discord(DiscordConfig {
+        let config = NotifierTypeConfig::Discord(DiscordConfig {
             discord_url: "https://discord.com/api/webhooks/1234567890/abcdef".to_string(),
             message: notification_message(),
             ..Default::default()
@@ -243,19 +243,19 @@ mod tests {
 
     #[test]
     fn test_validate_discord_invalid_url() {
-        let config = TriggerTypeConfig::Discord(DiscordConfig {
+        let config = NotifierTypeConfig::Discord(DiscordConfig {
             discord_url: "not a url".to_string(),
             message: notification_message(),
             ..Default::default()
         });
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), TriggerTypeConfigError::InvalidUrl(_)));
+        assert!(matches!(result.unwrap_err(), NotifierTypeConfigError::InvalidUrl(_)));
     }
 
     #[test]
     fn test_validate_telegram_ok() {
-        let config = TriggerTypeConfig::Telegram(TelegramConfig {
+        let config = NotifierTypeConfig::Telegram(TelegramConfig {
             token: "test_token".to_string(),
             chat_id: "test_chat_id".to_string(),
             message: notification_message(),
@@ -266,7 +266,7 @@ mod tests {
 
     #[test]
     fn test_validate_telegram_empty_token() {
-        let config = TriggerTypeConfig::Telegram(TelegramConfig {
+        let config = NotifierTypeConfig::Telegram(TelegramConfig {
             token: "".to_string(),
             chat_id: "test_chat_id".to_string(),
             message: notification_message(),
@@ -274,12 +274,12 @@ mod tests {
         });
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), TriggerTypeConfigError::EmptyTelegramToken));
+        assert!(matches!(result.unwrap_err(), NotifierTypeConfigError::EmptyTelegramToken));
     }
 
     #[test]
     fn test_validate_telegram_empty_chat_id() {
-        let config = TriggerTypeConfig::Telegram(TelegramConfig {
+        let config = NotifierTypeConfig::Telegram(TelegramConfig {
             token: "test_token".to_string(),
             chat_id: "".to_string(),
             message: notification_message(),
@@ -287,6 +287,6 @@ mod tests {
         });
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), TriggerTypeConfigError::EmptyTelegramChatId));
+        assert!(matches!(result.unwrap_err(), NotifierTypeConfigError::EmptyTelegramChatId));
     }
 }

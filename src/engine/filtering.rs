@@ -268,7 +268,7 @@ impl FilteringEngine for RhaiFilteringEngine {
                         block_number: item.transaction.block_number().unwrap_or(0),
                         transaction_hash: item.transaction.hash(),
                         contract_address: Default::default(),
-                        trigger_name: "transaction".to_string(),
+                        notifier_name: "transaction".to_string(),
                         trigger_data,
                         log_index: None,
                     };
@@ -316,7 +316,7 @@ impl FilteringEngine for RhaiFilteringEngine {
                                         .transaction_hash()
                                         .unwrap_or_default(),
                                     contract_address: log.log.address(),
-                                    trigger_name: log.name.clone(),
+                                    notifier_name: log.name.clone(),
                                     trigger_data: trigger_data.clone(),
                                     log_index: log.log.log_index(),
                                 };
@@ -480,7 +480,7 @@ mod tests {
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].monitor_id, 1);
-        assert_eq!(matches[0].trigger_name, "Transfer");
+        assert_eq!(matches[0].notifier_name, "Transfer");
     }
 
     #[tokio::test]
@@ -497,7 +497,7 @@ mod tests {
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].monitor_id, 1);
-        assert_eq!(matches[0].trigger_name, "transaction");
+        assert_eq!(matches[0].notifier_name, "transaction");
     }
 
     #[tokio::test]
@@ -568,7 +568,7 @@ mod tests {
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].monitor_id, 1);
-        assert_eq!(matches[0].trigger_name, "ValueTransfered");
+        assert_eq!(matches[0].notifier_name, "ValueTransfered");
         assert_eq!(matches[0].trigger_data["value"], json!(150));
     }
 

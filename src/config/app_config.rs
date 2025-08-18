@@ -35,8 +35,8 @@ pub struct AppConfig {
     /// Path to monitor configuration file.
     pub monitor_config_path: String,
 
-    /// Path to trigger configuration file.
-    pub trigger_config_path: String,
+    /// Path to notifier configuration file.
+    pub notifier_config_path: String,
 
     /// Optional retry configuration.
     #[serde(default)]
@@ -116,8 +116,8 @@ impl AppConfigBuilder {
         self
     }
 
-    pub fn trigger_config_path(mut self, path: &str) -> Self {
-        self.config.trigger_config_path = path.to_string();
+    pub fn notifier_config_path(mut self, path: &str) -> Self {
+        self.config.notifier_config_path = path.to_string();
         self
     }
 
@@ -147,7 +147,7 @@ mod tests {
             .rpc_urls(rpc_urls)
             .network_id("testnet")
             .monitor_config_path("test_monitor.yaml")
-            .trigger_config_path("test_trigger.yaml")
+            .notifier_config_path("test_notifier.yaml")
             .database_url("sqlite::memory:")
             .confirmation_blocks(12)
             .build();
@@ -155,7 +155,7 @@ mod tests {
         assert_eq!(config.rpc_urls.len(), 1);
         assert_eq!(config.network_id, "testnet");
         assert_eq!(config.monitor_config_path, "test_monitor.yaml");
-        assert_eq!(config.trigger_config_path, "test_trigger.yaml");
+        assert_eq!(config.notifier_config_path, "test_notifier.yaml");
         assert_eq!(config.database_url, "sqlite::memory:");
         assert_eq!(config.confirmation_blocks, 12);
     }
@@ -169,7 +169,7 @@ mod tests {
           - "http://localhost:8545"
         network_id: "testnet"
         monitor_config_path: "test_monitor.yaml"
-        trigger_config_path: "test_trigger.yaml"
+        notifier_config_path: "test_notifier.yaml"
         confirmation_blocks: 12
         block_chunk_size: 0
         polling_interval_ms: 10000
@@ -181,7 +181,7 @@ mod tests {
         assert!(!config.rpc_urls.is_empty());
         assert_eq!(config.network_id, "testnet");
         assert_eq!(config.monitor_config_path, "test_monitor.yaml");
-        assert_eq!(config.trigger_config_path, "test_trigger.yaml");
+        assert_eq!(config.notifier_config_path, "test_notifier.yaml");
         assert_eq!(config.database_url, "sqlite::memory:");
         assert_eq!(config.confirmation_blocks, 12);
         assert_eq!(config.shutdown_timeout, Duration::from_secs(30));

@@ -16,9 +16,9 @@ pub struct MonitorMatch {
     pub transaction_hash: TxHash,
     /// The address of the contract that was the main subject of the monitor.
     pub contract_address: Address,
-    /// The specific trigger that caused the match (e.g., an event name or
+    /// The specific notifier that caused the match (e.g., an event name or
     /// function signature).
-    pub trigger_name: String,
+    pub notifier_name: String,
     /// The decoded data of the event or transaction that matched, as a JSON
     /// object.
     pub trigger_data: Value,

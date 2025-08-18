@@ -4,7 +4,7 @@ use argus::{
     models::{
         monitor::Monitor,
         notification::NotificationMessage,
-        trigger::{DiscordConfig, TriggerConfig, TriggerTypeConfig},
+        notifier::{DiscordConfig, NotifierConfig, NotifierTypeConfig},
     },
     persistence::{sqlite::SqliteStateRepository, traits::StateRepository},
 };
@@ -27,10 +27,10 @@ fn create_test_monitor(name: &str, network: &str) -> Monitor {
     )
 }
 
-fn create_test_trigger(name: &str) -> TriggerConfig {
-    TriggerConfig {
+fn create_test_notifier(name: &str) -> NotifierConfig {
+    NotifierConfig {
         name: name.to_string(),
-        config: TriggerTypeConfig::Discord(DiscordConfig {
+        config: NotifierTypeConfig::Discord(DiscordConfig {
             discord_url: "https://discord.com/api/webhooks/test".to_string(),
             message: NotificationMessage {
                 title: "Test Title".to_string(),
@@ -70,28 +70,28 @@ async fn test_monitor_lifecycle() {
 }
 
 #[tokio::test]
-async fn test_trigger_lifecycle() {
+async fn test_notifier_lifecycle() {
     let repo = setup_db().await;
     let network_id = "ethereum";
 
-    // 1. Initially, no triggers should exist
-    let initial_triggers = repo.get_triggers(network_id).await.unwrap();
-    assert!(initial_triggers.is_empty());
+    // 1. Initially, no notifiers should exist
+    let initial_notifiers = repo.get_notifiers(network_id).await.unwrap();
+    assert!(initial_notifiers.is_empty());
 
-    // 2. Add triggers
-    let triggers_to_add = vec![create_test_trigger("Trigger 1"), create_test_trigger("Trigger 2")];
-    repo.add_triggers(network_id, triggers_to_add.clone()).await.unwrap();
+    // 2. Add notifiers
+    let notifiers_to_add = vec![create_test_notifier("Notifier 1"), create_test_notifier("Notifier 2")];
+    repo.add_notifiers(network_id, notifiers_to_add.clone()).await.unwrap();
 
-    // 3. Get triggers and verify they were added
-    let stored_triggers = repo.get_triggers(network_id).await.unwrap();
-    assert_eq!(stored_triggers.len(), 2);
-    assert_eq!(stored_triggers[0].name, "Trigger 1");
-    assert_eq!(stored_triggers[1].name, "Trigger 2");
+    // 3. Get notifiers and verify they were added
+    let stored_notifiers = repo.get_notifiers(network_id).await.unwrap();
+    assert_eq!(stored_notifiers.len(), 2);
+    assert_eq!(stored_notifiers[0].name, "Notifier 1");
+    assert_eq!(stored_notifiers[1].name, "Notifier 2");
 
-    // 4. Clear triggers
-    repo.clear_triggers(network_id).await.unwrap();
-    let cleared_triggers = repo.get_triggers(network_id).await.unwrap();
-    assert!(cleared_triggers.is_empty());
+    // 4. Clear notifiers
+    repo.clear_notifiers(network_id).await.unwrap();
+    let cleared_notifiers = repo.get_notifiers(network_id).await.unwrap();
+    assert!(cleared_notifiers.is_empty());
 }
 
 #[tokio::test]
@@ -120,38 +120,38 @@ async fn test_network_isolation() {
     let eth_network = "ethereum";
     let poly_network = "polygon";
 
-    // Add monitors and triggers to both networks
+    // Add monitors and notifiers to both networks
     repo.add_monitors(eth_network, vec![create_test_monitor("ETH Monitor", eth_network)])
         .await
         .unwrap();
     repo.add_monitors(poly_network, vec![create_test_monitor("Polygon Monitor", poly_network)])
         .await
         .unwrap();
-    repo.add_triggers(eth_network, vec![create_test_trigger("ETH Trigger")]).await.unwrap();
-    repo.add_triggers(poly_network, vec![create_test_trigger("Polygon Trigger")]).await.unwrap();
+    repo.add_notifiers(eth_network, vec![create_test_notifier("ETH Notifier")]).await.unwrap();
+    repo.add_notifiers(poly_network, vec![create_test_notifier("Polygon Notifier")]).await.unwrap();
 
     // Verify data for Ethereum
     let eth_monitors = repo.get_monitors(eth_network).await.unwrap();
-    let eth_triggers = repo.get_triggers(eth_network).await.unwrap();
+    let eth_notifiers = repo.get_notifiers(eth_network).await.unwrap();
     assert_eq!(eth_monitors.len(), 1);
     assert_eq!(eth_monitors[0].name, "ETH Monitor");
-    assert_eq!(eth_triggers.len(), 1);
-    assert_eq!(eth_triggers[0].name, "ETH Trigger");
+    assert_eq!(eth_notifiers.len(), 1);
+    assert_eq!(eth_notifiers[0].name, "ETH Notifier");
 
     // Verify data for Polygon
     let poly_monitors = repo.get_monitors(poly_network).await.unwrap();
-    let poly_triggers = repo.get_triggers(poly_network).await.unwrap();
+    let poly_notifiers = repo.get_notifiers(poly_network).await.unwrap();
     assert_eq!(poly_monitors.len(), 1);
     assert_eq!(poly_monitors[0].name, "Polygon Monitor");
-    assert_eq!(poly_triggers.len(), 1);
-    assert_eq!(poly_triggers[0].name, "Polygon Trigger");
+    assert_eq!(poly_notifiers.len(), 1);
+    assert_eq!(poly_notifiers[0].name, "Polygon Notifier");
 
     // Clear Ethereum and verify it doesn't affect Polygon
     repo.clear_monitors(eth_network).await.unwrap();
-    repo.clear_triggers(eth_network).await.unwrap();
+    repo.clear_notifiers(eth_network).await.unwrap();
 
     assert!(repo.get_monitors(eth_network).await.unwrap().is_empty());
-    assert!(repo.get_triggers(eth_network).await.unwrap().is_empty());
+    assert!(repo.get_notifiers(eth_network).await.unwrap().is_empty());
     assert_eq!(repo.get_monitors(poly_network).await.unwrap().len(), 1);
-    assert_eq!(repo.get_triggers(poly_network).await.unwrap().len(), 1);
+    assert_eq!(repo.get_notifiers(poly_network).await.unwrap().len(), 1);
 }

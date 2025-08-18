@@ -6,7 +6,7 @@ mod http_retry;
 mod loader;
 mod rhai;
 mod rpc_retry;
-mod trigger_loader;
+mod notifier_loader;
 
 pub use app_config::AppConfig;
 pub use helpers::{
@@ -17,4 +17,4 @@ pub use http_retry::{HttpRetryConfig, JitterSetting};
 pub use loader::{ConfigLoader, LoaderError};
 pub use rhai::RhaiConfig;
 pub use rpc_retry::RpcRetryConfig;
-pub use trigger_loader::{TriggerLoader, TriggerLoaderError};
+pub use notifier_loader::{NotifierLoader, NotifierLoaderError};
