@@ -7,8 +7,8 @@ pub mod log;
 pub mod monitor;
 pub mod monitor_match;
 pub mod notification;
-pub mod transaction;
 pub mod notifier;
+pub mod transaction;
 
 pub use block_data::BlockData;
 pub use correlated_data::CorrelatedBlockItem;

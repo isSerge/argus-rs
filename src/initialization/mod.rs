@@ -134,7 +134,9 @@ impl InitializationService {
         tracing::info!(config_path = %config_path, "No notifiers found in database. Loading from configuration file...");
         let notifier_loader = NotifierLoader::new(PathBuf::from(config_path));
         let notifiers = notifier_loader.load().map_err(|e| {
-            InitializationError::NotifierLoadError(format!("Failed to load notifiers from file: {e}"))
+            InitializationError::NotifierLoadError(format!(
+                "Failed to load notifiers from file: {e}"
+            ))
         })?;
         let count = notifiers.len();
         tracing::info!(count = count, "Loaded notifiers from configuration file.");
@@ -197,7 +199,7 @@ mod tests {
         models::{
             monitor::Monitor,
             notification::NotificationMessage,
-            notifier::{SlackConfig, NotifierConfig, NotifierTypeConfig},
+            notifier::{NotifierConfig, NotifierTypeConfig, SlackConfig},
         },
         persistence::traits::MockStateRepository,
     };
@@ -262,8 +264,11 @@ monitors:
         let _ = create_test_abi_file(&temp_dir, "abi.json", create_test_abi_content());
         let monitor_config_path =
             create_dummy_config_file(&temp_dir, "monitors.yaml", create_test_monitor_config_str());
-        let notifier_config_path =
-            create_dummy_config_file(&temp_dir, "notifiers.yaml", create_test_notifier_config_str());
+        let notifier_config_path = create_dummy_config_file(
+            &temp_dir,
+            "notifiers.yaml",
+            create_test_notifier_config_str(),
+        );
         let network_id = "testnet";
 
         let mut mock_repo = MockStateRepository::new();
@@ -554,8 +559,11 @@ monitors:
     #[tokio::test]
     async fn test_load_notifiers_from_file_when_db_empty() {
         let temp_dir = tempdir().unwrap();
-        let config_path =
-            create_dummy_config_file(&temp_dir, "notifiers.yaml", create_test_notifier_config_str());
+        let config_path = create_dummy_config_file(
+            &temp_dir,
+            "notifiers.yaml",
+            create_test_notifier_config_str(),
+        );
         let network_id = "testnet";
 
         let mut mock_repo = MockStateRepository::new();
@@ -586,8 +594,11 @@ monitors:
     #[tokio::test]
     async fn test_load_notifiers_from_file_when_db_not_empty() {
         let temp_dir = tempdir().unwrap();
-        let config_path =
-            create_dummy_config_file(&temp_dir, "notifiers.yaml", create_test_notifier_config_str());
+        let config_path = create_dummy_config_file(
+            &temp_dir,
+            "notifiers.yaml",
+            create_test_notifier_config_str(),
+        );
         let network_id = "testnet";
 
         let mut mock_repo = MockStateRepository::new();

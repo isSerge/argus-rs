@@ -1,5 +1,4 @@
-use std::path::Path;
-use std::time::Duration;
+use std::{path::Path, time::Duration};
 
 use config::{Config, ConfigError, File};
 use serde::Deserialize;
@@ -89,7 +88,8 @@ impl AppConfig {
         let config_path = Path::new(config_dir_str);
 
         // Join the config paths with the config directory
-        // This ensures that the paths are correctly resolved relative to the config directory.
+        // This ensures that the paths are correctly resolved relative to the config
+        // directory.
         let monitor_path = config_path.join(&config.monitor_config_path);
         config.monitor_config_path = monitor_path.to_string_lossy().into_owned();
 
@@ -198,16 +198,10 @@ mod tests {
         assert_eq!(config.network_id, "testnet");
 
         let expected_monitor_path = temp_dir_path.join("test_monitor.yaml");
-        assert_eq!(
-            config.monitor_config_path,
-            expected_monitor_path.to_str().unwrap()
-        );
+        assert_eq!(config.monitor_config_path, expected_monitor_path.to_str().unwrap());
 
         let expected_notifier_path = temp_dir_path.join("test_notifier.yaml");
-        assert_eq!(
-            config.notifier_config_path,
-            expected_notifier_path.to_str().unwrap()
-        );
+        assert_eq!(config.notifier_config_path, expected_notifier_path.to_str().unwrap());
 
         assert_eq!(config.database_url, "sqlite::memory:");
         assert_eq!(config.confirmation_blocks, 12);

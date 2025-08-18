@@ -42,7 +42,7 @@ use crate::{
     models::{
         monitor_match::MonitorMatch,
         notifier::{
-            DiscordConfig, SlackConfig, TelegramConfig, NotifierConfig, NotifierTypeConfig,
+            DiscordConfig, NotifierConfig, NotifierTypeConfig, SlackConfig, TelegramConfig,
             WebhookConfig,
         },
     },

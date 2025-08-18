@@ -79,7 +79,8 @@ async fn test_notifier_lifecycle() {
     assert!(initial_notifiers.is_empty());
 
     // 2. Add notifiers
-    let notifiers_to_add = vec![create_test_notifier("Notifier 1"), create_test_notifier("Notifier 2")];
+    let notifiers_to_add =
+        vec![create_test_notifier("Notifier 1"), create_test_notifier("Notifier 2")];
     repo.add_notifiers(network_id, notifiers_to_add.clone()).await.unwrap();
 
     // 3. Get notifiers and verify they were added
