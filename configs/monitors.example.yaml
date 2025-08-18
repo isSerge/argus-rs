@@ -19,6 +19,8 @@ monitors:
     network: "ethereum"
     # This is the PROXY contract address for USDC on Ethereum mainnet.
     address: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+    # The ABI for the USDC contract.
+    abi: "abis/usdc.json"
     # The Rhai script to filter events.
     # This script will be executed for every log emitted by the specified contract address.
     #
@@ -45,6 +47,8 @@ monitors:
     network: "ethereum"
     # This is the canonical address for Wrapped Ether (WETH) on Ethereum.
     address: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"
+    # The ABI for the WETH contract.
+    abi: "abis/weth.json"
     # This script triggers for any "Deposit" event on the WETH contract.
     filter_script: 'log.name == "Deposit"'
 
