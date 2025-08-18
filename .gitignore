@@ -1,5 +1,5 @@
 /target
 .env
 monitor.db
-monitors.yaml
-triggers.yaml
+configs/monitors.yaml
+configs/notifiers.yaml

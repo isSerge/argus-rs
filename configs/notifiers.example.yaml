@@ -1,8 +1,8 @@
-# This is an example configuration file for defining triggers.
-# Triggers define what happens when a monitor's filter script returns true.
-# You can copy this file to `triggers.yaml` and update `config.yaml` to point to it.
+# This is an example configuration file for defining notifiers.
+# Notifiers define what happens when a monitor's filter script returns true.
+# You can copy this file to `notifiers.yaml` and update `config.yaml` to point to it.
 
-triggers:
+notifiers:
   # ------------------------------------------------------------------------------------
   # EXAMPLE 1: Generic Webhook
   #
