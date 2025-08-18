@@ -234,7 +234,6 @@ impl FilteringEngine for RhaiFilteringEngine {
         }
     }
 
-    // TODO: add script compilation caching
     #[tracing::instrument(skip(self, item))]
     async fn evaluate_item(
         &self,
