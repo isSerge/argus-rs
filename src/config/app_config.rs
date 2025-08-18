@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{path::Path, time::Duration};
 
 use config::{Config, ConfigError, File};
 use serde::Deserialize;
@@ -33,10 +33,12 @@ pub struct AppConfig {
     pub network_id: String,
 
     /// Path to monitor configuration file.
+    #[serde(skip_deserializing)]
     pub monitor_config_path: String,
 
-    /// Path to trigger configuration file.
-    pub trigger_config_path: String,
+    /// Path to notifier configuration file.
+    #[serde(skip_deserializing)]
+    pub notifier_config_path: String,
 
     /// Optional retry configuration.
     #[serde(default)]
@@ -77,12 +79,26 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
-    /// Creates a new `AppConfig` by reading from the configuration file.
-    pub fn new(config_path: Option<&str>) -> Result<Self, ConfigError> {
+    /// Creates a new `AppConfig` by reading from the configuration directory.
+    pub fn new(config_dir: Option<&str>) -> Result<Self, ConfigError> {
+        let config_dir_str = config_dir.unwrap_or("configs");
         let s = Config::builder()
-            .add_source(File::with_name(config_path.unwrap_or("config.yaml")))
+            .add_source(File::with_name(&format!("{}/app.yaml", config_dir_str)))
             .build()?;
-        s.try_deserialize()
+        let mut config: Self = s.try_deserialize()?;
+
+        let config_path = Path::new(config_dir_str);
+
+        // Join the config paths with the config directory
+        // This ensures that the paths are correctly resolved relative to the config
+        // directory.
+        let monitor_path = config_path.join("monitors.yaml");
+        config.monitor_config_path = monitor_path.to_string_lossy().into_owned();
+
+        let notifier_path = config_path.join("notifiers.yaml");
+        config.notifier_config_path = notifier_path.to_string_lossy().into_owned();
+
+        Ok(config)
     }
 
     /// Creates a new `AppConfigBuilder` for testing purposes.
@@ -116,8 +132,8 @@ impl AppConfigBuilder {
         self
     }
 
-    pub fn trigger_config_path(mut self, path: &str) -> Self {
-        self.config.trigger_config_path = path.to_string();
+    pub fn notifier_config_path(mut self, path: &str) -> Self {
+        self.config.notifier_config_path = path.to_string();
         self
     }
 
@@ -147,7 +163,7 @@ mod tests {
             .rpc_urls(rpc_urls)
             .network_id("testnet")
             .monitor_config_path("test_monitor.yaml")
-            .trigger_config_path("test_trigger.yaml")
+            .notifier_config_path("test_notifier.yaml")
             .database_url("sqlite::memory:")
             .confirmation_blocks(12)
             .build();
@@ -155,7 +171,7 @@ mod tests {
         assert_eq!(config.rpc_urls.len(), 1);
         assert_eq!(config.network_id, "testnet");
         assert_eq!(config.monitor_config_path, "test_monitor.yaml");
-        assert_eq!(config.trigger_config_path, "test_trigger.yaml");
+        assert_eq!(config.notifier_config_path, "test_notifier.yaml");
         assert_eq!(config.database_url, "sqlite::memory:");
         assert_eq!(config.confirmation_blocks, 12);
     }
@@ -168,20 +184,25 @@ mod tests {
         rpc_urls:
           - "http://localhost:8545"
         network_id: "testnet"
-        monitor_config_path: "test_monitor.yaml"
-        trigger_config_path: "test_trigger.yaml"
         confirmation_blocks: 12
         block_chunk_size: 0
         polling_interval_ms: 10000
         "#;
-        let temp_file = tempfile::NamedTempFile::with_suffix(".yaml").unwrap();
-        std::fs::write(temp_file.path(), config_content).unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let app_yaml_path = temp_dir.path().join("app.yaml");
+        std::fs::write(&app_yaml_path, config_content).unwrap();
 
-        let config = AppConfig::new(Some(temp_file.path().to_str().unwrap())).unwrap();
+        let temp_dir_path = temp_dir.path();
+        let config = AppConfig::new(Some(temp_dir_path.to_str().unwrap())).unwrap();
         assert!(!config.rpc_urls.is_empty());
         assert_eq!(config.network_id, "testnet");
-        assert_eq!(config.monitor_config_path, "test_monitor.yaml");
-        assert_eq!(config.trigger_config_path, "test_trigger.yaml");
+
+        let expected_monitor_path = temp_dir_path.join("monitors.yaml");
+        assert_eq!(config.monitor_config_path, expected_monitor_path.to_str().unwrap());
+
+        let expected_notifier_path = temp_dir_path.join("notifiers.yaml");
+        assert_eq!(config.notifier_config_path, expected_notifier_path.to_str().unwrap());
+
         assert_eq!(config.database_url, "sqlite::memory:");
         assert_eq!(config.confirmation_blocks, 12);
         assert_eq!(config.shutdown_timeout, Duration::from_secs(30));

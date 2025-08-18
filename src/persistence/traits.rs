@@ -4,7 +4,7 @@ use async_trait::async_trait;
 #[cfg(test)]
 use mockall::automock;
 
-use crate::models::{monitor::Monitor, trigger::TriggerConfig};
+use crate::models::{monitor::Monitor, notifier::NotifierConfig};
 
 /// Represents the state management interface for the Argus application.
 #[cfg_attr(test, automock)]
@@ -47,17 +47,17 @@ pub trait StateRepository: Send + Sync {
     /// Clears all monitors for a specific network.
     async fn clear_monitors(&self, network_id: &str) -> Result<(), sqlx::Error>;
 
-    // Trigger management operations:
-    /// Retrieves all triggers for a specific network.
-    async fn get_triggers(&self, network_id: &str) -> Result<Vec<TriggerConfig>, sqlx::Error>;
+    // Notifier management operations:
+    /// Retrieves all notifiers for a specific network.
+    async fn get_notifiers(&self, network_id: &str) -> Result<Vec<NotifierConfig>, sqlx::Error>;
 
-    /// Adds multiple triggers for a specific network.
-    async fn add_triggers(
+    /// Adds multiple notifiers for a specific network.
+    async fn add_notifiers(
         &self,
         network_id: &str,
-        triggers: Vec<TriggerConfig>,
+        notifiers: Vec<NotifierConfig>,
     ) -> Result<(), sqlx::Error>;
 
-    /// Clears all triggers for a specific network.
-    async fn clear_triggers(&self, network_id: &str) -> Result<(), sqlx::Error>;
+    /// Clears all notifiers for a specific network.
+    async fn clear_notifiers(&self, network_id: &str) -> Result<(), sqlx::Error>;
 }

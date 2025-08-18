@@ -1,5 +1,5 @@
 //! This module provides the `InitializationService` responsible for loading
-//! initial application data (monitors, triggers, ABIs) into the database and
+//! initial application data (monitors, notifiers, ABIs) into the database and
 //! ABI service at startup.
 
 use std::{path::PathBuf, sync::Arc};
@@ -8,7 +8,7 @@ use thiserror::Error;
 
 use crate::{
     abi::{AbiService, loader::AbiLoader},
-    config::{AppConfig, TriggerLoader},
+    config::{AppConfig, NotifierLoader},
     monitor::{MonitorLoader, MonitorValidator},
     persistence::traits::StateRepository,
 };
@@ -20,9 +20,9 @@ pub enum InitializationError {
     #[error("Failed to load monitors from file: {0}")]
     MonitorLoadError(String),
 
-    /// An error occurred while loading triggers from the configuration file.
-    #[error("Failed to load triggers from file: {0}")]
-    TriggerLoadError(String),
+    /// An error occurred while loading notifier from the configuration file.
+    #[error("Failed to load notifier from file: {0}")]
+    NotifierLoadError(String),
 
     /// An error occurred while loading ABIs from monitors.
     #[error("Failed to load ABIs from monitors: {0}")]
@@ -46,13 +46,13 @@ impl InitializationService {
         Self { config, repo, abi_service }
     }
 
-    /// Runs the initialization process, loading monitors, triggers, and ABIs.
+    /// Runs the initialization process, loading monitors, notifiers, and ABIs.
     pub async fn run(&self) -> Result<(), InitializationError> {
         // Load monitors from the configuration file if specified and DB is empty.
         self.load_monitors_from_file().await?;
 
-        // Load triggers from the configuration file if specified and DB is empty.
-        self.load_triggers_from_file().await?;
+        // Load notifiers from the configuration file if specified and DB is empty.
+        self.load_notifiers_from_file().await?;
 
         // Load ABIs into the AbiService from the monitors stored in the database.
         self.load_abis_from_monitors().await?;
@@ -111,42 +111,44 @@ impl InitializationService {
         Ok(())
     }
 
-    pub(crate) async fn load_triggers_from_file(&self) -> Result<(), InitializationError> {
+    pub(crate) async fn load_notifiers_from_file(&self) -> Result<(), InitializationError> {
         let network_id = &self.config.network_id;
-        let config_path = &self.config.trigger_config_path;
+        let config_path = &self.config.notifier_config_path;
 
-        tracing::debug!(network_id = %network_id, "Checking for existing triggers in database...");
-        let existing_triggers = self.repo.get_triggers(network_id).await.map_err(|e| {
-            InitializationError::TriggerLoadError(format!(
-                "Failed to fetch existing triggers from DB: {e}"
+        tracing::debug!(network_id = %network_id, "Checking for existing notifiers in database...");
+        let existing_notifiers = self.repo.get_notifiers(network_id).await.map_err(|e| {
+            InitializationError::NotifierLoadError(format!(
+                "Failed to fetch existing notifiers from DB: {e}"
             ))
         })?;
 
-        if !existing_triggers.is_empty() {
+        if !existing_notifiers.is_empty() {
             tracing::info!(
                 network_id = %network_id,
-                count = existing_triggers.len(),
-                "Triggers already exist in the database. Skipping loading from file."
+                count = existing_notifiers.len(),
+                "Notifiers already exist in the database. Skipping loading from file."
             );
             return Ok(());
         }
 
-        tracing::info!(config_path = %config_path, "No triggers found in database. Loading from configuration file...");
-        let trigger_loader = TriggerLoader::new(PathBuf::from(config_path));
-        let triggers = trigger_loader.load().map_err(|e| {
-            InitializationError::TriggerLoadError(format!("Failed to load triggers from file: {e}"))
-        })?;
-        let count = triggers.len();
-        tracing::info!(count = count, "Loaded triggers from configuration file.");
-        self.repo.clear_triggers(network_id).await.map_err(|e| {
-            InitializationError::TriggerLoadError(format!(
-                "Failed to clear existing triggers in DB: {e}"
+        tracing::info!(config_path = %config_path, "No notifiers found in database. Loading from configuration file...");
+        let notifier_loader = NotifierLoader::new(PathBuf::from(config_path));
+        let notifiers = notifier_loader.load().map_err(|e| {
+            InitializationError::NotifierLoadError(format!(
+                "Failed to load notifiers from file: {e}"
             ))
         })?;
-        self.repo.add_triggers(network_id, triggers).await.map_err(|e| {
-            InitializationError::TriggerLoadError(format!("Failed to add triggers to DB: {e}"))
+        let count = notifiers.len();
+        tracing::info!(count = count, "Loaded notifiers from configuration file.");
+        self.repo.clear_notifiers(network_id).await.map_err(|e| {
+            InitializationError::NotifierLoadError(format!(
+                "Failed to clear existing notifiers in DB: {e}"
+            ))
         })?;
-        tracing::info!(count = count, network_id = %network_id, "Triggers from file stored in database.");
+        self.repo.add_notifiers(network_id, notifiers).await.map_err(|e| {
+            InitializationError::NotifierLoadError(format!("Failed to add notifiers to DB: {e}"))
+        })?;
+        tracing::info!(count = count, network_id = %network_id, "Notifiers from file stored in database.");
         Ok(())
     }
 
@@ -197,7 +199,7 @@ mod tests {
         models::{
             monitor::Monitor,
             notification::NotificationMessage,
-            trigger::{SlackConfig, TriggerConfig, TriggerTypeConfig},
+            notifier::{NotifierConfig, NotifierTypeConfig, SlackConfig},
         },
         persistence::traits::MockStateRepository,
     };
@@ -216,10 +218,10 @@ mod tests {
         file_path
     }
 
-    fn create_test_trigger_config_str() -> &'static str {
+    fn create_test_notifier_config_str() -> &'static str {
         r#"
-triggers:
-  - name: "Test Trigger"
+notifiers:
+  - name: "Test Notifier"
     webhook:
       url: "http://example.com"
       message:
@@ -262,8 +264,11 @@ monitors:
         let _ = create_test_abi_file(&temp_dir, "abi.json", create_test_abi_content());
         let monitor_config_path =
             create_dummy_config_file(&temp_dir, "monitors.yaml", create_test_monitor_config_str());
-        let trigger_config_path =
-            create_dummy_config_file(&temp_dir, "triggers.yaml", create_test_trigger_config_str());
+        let notifier_config_path = create_dummy_config_file(
+            &temp_dir,
+            "notifiers.yaml",
+            create_test_notifier_config_str(),
+        );
         let network_id = "testnet";
 
         let mut mock_repo = MockStateRepository::new();
@@ -279,11 +284,11 @@ monitors:
             .with(eq(network_id), always())
             .once()
             .returning(|_, _| Ok(()));
-        // Triggers
-        mock_repo.expect_get_triggers().with(eq(network_id)).once().returning(|_| Ok(vec![]));
-        mock_repo.expect_clear_triggers().with(eq(network_id)).once().returning(|_| Ok(()));
+        // Notifiers
+        mock_repo.expect_get_notifiers().with(eq(network_id)).once().returning(|_| Ok(vec![]));
+        mock_repo.expect_clear_notifiers().with(eq(network_id)).once().returning(|_| Ok(()));
         mock_repo
-            .expect_add_triggers()
+            .expect_add_notifiers()
             .with(eq(network_id), always())
             .once()
             .returning(|_, _| Ok(()));
@@ -291,7 +296,7 @@ monitors:
         let config = AppConfig::builder()
             .network_id(network_id)
             .monitor_config_path(monitor_config_path.to_str().unwrap())
-            .trigger_config_path(trigger_config_path.to_str().unwrap())
+            .notifier_config_path(notifier_config_path.to_str().unwrap())
             .build();
 
         let abi_service = Arc::new(AbiService::new());
@@ -314,9 +319,9 @@ monitors:
             None,
             "true".to_string(),
         );
-        let trigger = TriggerConfig {
+        let trigger = NotifierConfig {
             name: "Existing Trigger".to_string(),
-            config: TriggerTypeConfig::Webhook(Default::default()),
+            config: NotifierTypeConfig::Webhook(Default::default()),
         };
 
         let mut mock_repo = MockStateRepository::new();
@@ -326,16 +331,16 @@ monitors:
             .with(eq(network_id))
             .times(2) // Called once for monitor loading, once for ABI loading
             .returning(move |_| Ok(vec![monitor.clone()]));
-        // Return existing triggers
+        // Return existing notifiers
         mock_repo
-            .expect_get_triggers()
+            .expect_get_notifiers()
             .with(eq(network_id))
             .once()
             .returning(move |_| Ok(vec![trigger.clone()]));
 
         // Ensure file loading is NOT called
         mock_repo.expect_add_monitors().times(0);
-        mock_repo.expect_add_triggers().times(0);
+        mock_repo.expect_add_notifiers().times(0);
 
         let config = AppConfig::builder().network_id(network_id).build();
         let abi_service = Arc::new(AbiService::new());
@@ -552,71 +557,77 @@ monitors:
     }
 
     #[tokio::test]
-    async fn test_load_triggers_from_file_when_db_empty() {
+    async fn test_load_notifiers_from_file_when_db_empty() {
         let temp_dir = tempdir().unwrap();
-        let config_path =
-            create_dummy_config_file(&temp_dir, "triggers.yaml", create_test_trigger_config_str());
+        let config_path = create_dummy_config_file(
+            &temp_dir,
+            "notifiers.yaml",
+            create_test_notifier_config_str(),
+        );
         let network_id = "testnet";
 
         let mut mock_repo = MockStateRepository::new();
-        // Expect get_triggers to be called and return empty
-        mock_repo.expect_get_triggers().with(eq(network_id)).once().returning(|_| Ok(vec![]));
-        // Expect clear_triggers and add_triggers to be called
-        mock_repo.expect_clear_triggers().with(eq(network_id)).once().returning(|_| Ok(()));
+        // Expect get_notifiers to be called and return empty
+        mock_repo.expect_get_notifiers().with(eq(network_id)).once().returning(|_| Ok(vec![]));
+        // Expect clear_notifiers and add_notifiers to be called
+        mock_repo.expect_clear_notifiers().with(eq(network_id)).once().returning(|_| Ok(()));
         mock_repo
-            .expect_add_triggers()
-            .with(eq(network_id), function(|triggers: &Vec<TriggerConfig>| triggers.len() == 1))
+            .expect_add_notifiers()
+            .with(eq(network_id), function(|notifiers: &Vec<NotifierConfig>| notifiers.len() == 1))
             .once()
             .returning(|_, _| Ok(()));
 
         // Dummy config for AppConfig
         let config = AppConfig::builder()
             .network_id(network_id)
-            .trigger_config_path(config_path.to_str().unwrap())
+            .notifier_config_path(config_path.to_str().unwrap())
             .build();
 
         let abi_service = Arc::new(AbiService::new());
         let initialization_service =
             InitializationService::new(config, Arc::new(mock_repo), abi_service);
 
-        let result = initialization_service.load_triggers_from_file().await;
+        let result = initialization_service.load_notifiers_from_file().await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
-    async fn test_load_triggers_from_file_when_db_not_empty() {
+    async fn test_load_notifiers_from_file_when_db_not_empty() {
         let temp_dir = tempdir().unwrap();
-        let config_path =
-            create_dummy_config_file(&temp_dir, "triggers.yaml", create_test_trigger_config_str());
+        let config_path = create_dummy_config_file(
+            &temp_dir,
+            "notifiers.yaml",
+            create_test_notifier_config_str(),
+        );
         let network_id = "testnet";
 
         let mut mock_repo = MockStateRepository::new();
-        // Expect get_triggers to be called and return non-empty
-        mock_repo.expect_get_triggers().with(eq(network_id)).once().returning(|_| {
-            Ok(vec![TriggerConfig {
-                name: "Dummy Trigger".to_string(),
-                config: TriggerTypeConfig::Slack(SlackConfig {
+        // Expect get_notifiers to be called and return non-empty
+        mock_repo.expect_get_notifiers().with(eq(network_id)).once().returning(|_| {
+            Ok(vec![NotifierConfig {
+                name: "Dummy Notifier".to_string(),
+                config: NotifierTypeConfig::Slack(SlackConfig {
                     slack_url: "http://dummy.url".to_string(),
                     message: NotificationMessage::default(),
                     retry_policy: HttpRetryConfig::default(),
                 }),
             }])
-        }); // Return a dummy trigger
-        // Expect clear_triggers and add_triggers to NOT be called
-        mock_repo.expect_clear_triggers().times(0);
-        mock_repo.expect_add_triggers().times(0);
+        }); // Return a dummy notifier
+        // Expect clear_notifiers and add_notifiers to NOT be called
+        mock_repo.expect_clear_notifiers().times(0);
+        mock_repo.expect_add_notifiers().times(0);
 
         // Dummy config for AppConfig
         let config = AppConfig::builder()
             .network_id(network_id)
-            .trigger_config_path(config_path.to_str().unwrap())
+            .notifier_config_path(config_path.to_str().unwrap())
             .build();
 
         let abi_service = Arc::new(AbiService::new());
         let initialization_service =
             InitializationService::new(config, Arc::new(mock_repo), abi_service);
 
-        let result = initialization_service.load_triggers_from_file().await;
+        let result = initialization_service.load_notifiers_from_file().await;
         assert!(result.is_ok());
     }
 

@@ -10,7 +10,7 @@ use sqlx::{
 };
 
 use super::traits::StateRepository;
-use crate::models::{monitor::Monitor, trigger::TriggerConfig};
+use crate::models::{monitor::Monitor, notifier::NotifierConfig};
 
 /// SQL query constants for monitor operations
 mod monitor_sql {
@@ -27,18 +27,18 @@ mod monitor_sql {
     pub const DELETE_MONITORS_BY_NETWORK: &str = "DELETE FROM monitors WHERE network = ?";
 }
 
-/// SQL query constants for trigger operations
-mod trigger_sql {
-    /// Select all triggers for a specific network
-    pub const SELECT_TRIGGERS_BY_NETWORK: &str =
-        "SELECT name, config FROM triggers WHERE network_id = ?";
+/// SQL query constants for notifier operations
+mod notifier_sql {
+    /// Select all notifiers for a specific network
+    pub const SELECT_NOTIFIERS_BY_NETWORK: &str =
+        "SELECT name, config FROM notifiers WHERE network_id = ?";
 
-    /// Insert a new trigger
-    pub const INSERT_TRIGGER: &str =
-        "INSERT INTO triggers (name, network_id, config) VALUES (?, ?, ?)";
+    /// Insert a new notifier
+    pub const INSERT_NOTIFIER: &str =
+        "INSERT INTO notifiers (name, network_id, config) VALUES (?, ?, ?)";
 
-    /// Delete all triggers for a specific network
-    pub const DELETE_TRIGGERS_BY_NETWORK: &str = "DELETE FROM triggers WHERE network_id = ?";
+    /// Delete all notifiers for a specific network
+    pub const DELETE_NOTIFIERS_BY_NETWORK: &str = "DELETE FROM notifiers WHERE network_id = ?";
 }
 
 /// SQL query constants for processed blocks operations
@@ -367,63 +367,63 @@ impl StateRepository for SqliteStateRepository {
         Ok(())
     }
 
-    // Trigger management operations
+    // Notifier management operations
 
-    /// Retrieves all triggers for a specific network.
+    /// Retrieves all notifiers for a specific network.
     #[tracing::instrument(skip(self), level = "debug")]
-    async fn get_triggers(&self, network_id: &str) -> Result<Vec<TriggerConfig>, sqlx::Error> {
-        tracing::debug!(network_id, "Querying for triggers.");
+    async fn get_notifiers(&self, network_id: &str) -> Result<Vec<NotifierConfig>, sqlx::Error> {
+        tracing::debug!(network_id, "Querying for notifiers.");
 
         let rows = self
             .execute_query_with_error_handling(
-                "query triggers",
-                sqlx::query(trigger_sql::SELECT_TRIGGERS_BY_NETWORK)
+                "query notifiers",
+                sqlx::query(notifier_sql::SELECT_NOTIFIERS_BY_NETWORK)
                     .bind(network_id)
                     .fetch_all(&self.pool),
             )
             .await?;
 
-        let triggers = rows
+        let notifiers = rows
             .into_iter()
             .map(|row| {
                 let name: String = row.get("name");
                 let config_str: String = row.get("config");
                 let config = serde_json::from_str(&config_str)
                     .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
-                Ok(TriggerConfig { name, config })
+                Ok(NotifierConfig { name, config })
             })
             .collect::<Result<Vec<_>, sqlx::Error>>()?;
 
         tracing::debug!(
             network_id,
-            trigger_count = triggers.len(),
-            "Triggers retrieved successfully."
+            notifier_count = notifiers.len(),
+            "Notifiers retrieved successfully."
         );
-        Ok(triggers)
+        Ok(notifiers)
     }
 
-    /// Adds multiple triggers for a specific network.
-    #[tracing::instrument(skip(self, triggers), level = "debug")]
-    async fn add_triggers(
+    /// Adds multiple notifiers for a specific network.
+    #[tracing::instrument(skip(self, notifiers), level = "debug")]
+    async fn add_notifiers(
         &self,
         network_id: &str,
-        triggers: Vec<TriggerConfig>,
+        notifiers: Vec<NotifierConfig>,
     ) -> Result<(), sqlx::Error> {
-        tracing::debug!(network_id, trigger_count = triggers.len(), "Adding triggers.");
+        tracing::debug!(network_id, notifier_count = notifiers.len(), "Adding notifiers.");
 
-        // Note: We are not validating network_id here because triggers are
-        // network-agnostic. A single trigger (e.g., a webhook) can be used by
+        // Note: We are not validating network_id here because notifiers are
+        // network-agnostic. A single notifier (e.g., a webhook) can be used by
         // monitors on any network. The `network_id` in the database table is
         // for organizational purposes.
 
         let mut tx = self.pool.begin().await?;
 
-        for trigger in triggers {
-            let config_str = serde_json::to_string(&trigger.config)
+        for notifier in notifiers {
+            let config_str = serde_json::to_string(&notifier.config)
                 .map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
 
-            sqlx::query(trigger_sql::INSERT_TRIGGER)
-                .bind(&trigger.name)
+            sqlx::query(notifier_sql::INSERT_NOTIFIER)
+                .bind(&notifier.name)
                 .bind(network_id)
                 .bind(&config_str)
                 .execute(&mut *tx)
@@ -432,26 +432,26 @@ impl StateRepository for SqliteStateRepository {
 
         tx.commit().await?;
 
-        tracing::info!(network_id, "Triggers added successfully.");
+        tracing::info!(network_id, "Notifiers added successfully.");
         Ok(())
     }
 
-    /// Clears all triggers for a specific network.
+    /// Clears all notifiers for a specific network.
     #[tracing::instrument(skip(self), level = "debug")]
-    async fn clear_triggers(&self, network_id: &str) -> Result<(), sqlx::Error> {
-        tracing::debug!(network_id, "Clearing triggers.");
+    async fn clear_notifiers(&self, network_id: &str) -> Result<(), sqlx::Error> {
+        tracing::debug!(network_id, "Clearing notifiers.");
 
         let result = self
             .execute_query_with_error_handling(
-                "clear triggers",
-                sqlx::query(trigger_sql::DELETE_TRIGGERS_BY_NETWORK)
+                "clear notifiers",
+                sqlx::query(notifier_sql::DELETE_NOTIFIERS_BY_NETWORK)
                     .bind(network_id)
                     .execute(&self.pool),
             )
             .await?;
 
         let deleted_count = result.rows_affected();
-        tracing::info!(network_id, deleted_count, "Triggers cleared successfully.");
+        tracing::info!(network_id, deleted_count, "Notifiers cleared successfully.");
         Ok(())
     }
 }
@@ -461,7 +461,7 @@ mod tests {
     use super::*;
     use crate::models::{
         notification::NotificationMessage,
-        trigger::{SlackConfig, TriggerTypeConfig},
+        notifier::{DiscordConfig, NotifierTypeConfig, SlackConfig},
     };
 
     async fn setup_test_db() -> SqliteStateRepository {
@@ -781,18 +781,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_trigger_management_operations() {
+    async fn test_notifier_management_operations() {
         let repo = setup_test_db().await;
         let network_id = "ethereum";
 
-        // Initially, should have no triggers
-        let triggers = repo.get_triggers(network_id).await.unwrap();
-        assert!(triggers.is_empty());
+        // Initially, should have no notifiers
+        let notifiers = repo.get_notifiers(network_id).await.unwrap();
+        assert!(notifiers.is_empty());
 
-        // Create test triggers
-        let test_triggers = vec![TriggerConfig {
+        // Create test notifiers
+        let test_notifiers = vec![NotifierConfig {
             name: "Test Slack".to_string(),
-            config: TriggerTypeConfig::Slack(SlackConfig {
+            config: NotifierTypeConfig::Slack(SlackConfig {
                 slack_url: "https://hooks.slack.com/services/123".to_string(),
                 message: NotificationMessage {
                     title: "Test".to_string(),
@@ -803,108 +803,108 @@ mod tests {
             }),
         }];
 
-        // Add triggers
-        repo.add_triggers(network_id, test_triggers.clone()).await.unwrap();
+        // Add notifiers
+        repo.add_notifiers(network_id, test_notifiers.clone()).await.unwrap();
 
-        // Retrieve triggers and verify
-        let stored_triggers = repo.get_triggers(network_id).await.unwrap();
-        assert_eq!(stored_triggers.len(), 1);
-        assert_eq!(stored_triggers[0].name, "Test Slack");
+        // Retrieve notifiers and verify
+        let stored_notifiers = repo.get_notifiers(network_id).await.unwrap();
+        assert_eq!(stored_notifiers.len(), 1);
+        assert_eq!(stored_notifiers[0].name, "Test Slack");
 
-        // Clear triggers
-        repo.clear_triggers(network_id).await.unwrap();
+        // Clear notifiers
+        repo.clear_notifiers(network_id).await.unwrap();
 
-        // Verify triggers are cleared
-        let triggers_after_clear = repo.get_triggers(network_id).await.unwrap();
-        assert!(triggers_after_clear.is_empty());
+        // Verify notifiers are cleared
+        let notifiers_after_clear = repo.get_notifiers(network_id).await.unwrap();
+        assert!(notifiers_after_clear.is_empty());
     }
 
     #[tokio::test]
-    async fn test_trigger_network_isolation() {
+    async fn test_notifier_network_isolation() {
         let repo = setup_test_db().await;
         let network1 = "ethereum";
         let network2 = "polygon";
 
-        // Create triggers for different networks
-        let ethereum_triggers = vec![TriggerConfig {
+        // Create notifiers for different networks
+        let ethereum_notifiers = vec![NotifierConfig {
             name: "Ethereum Slack".to_string(),
-            config: TriggerTypeConfig::Slack(SlackConfig {
+            config: NotifierTypeConfig::Slack(SlackConfig {
                 slack_url: "https://hooks.slack.com/services/eth".to_string(),
                 message: Default::default(),
                 retry_policy: Default::default(),
             }),
         }];
-        let polygon_triggers = vec![TriggerConfig {
+        let polygon_notifiers = vec![NotifierConfig {
             name: "Polygon Discord".to_string(),
-            config: TriggerTypeConfig::Discord(crate::models::trigger::DiscordConfig {
+            config: NotifierTypeConfig::Discord(DiscordConfig {
                 discord_url: "https://discord.com/api/webhooks/poly".to_string(),
                 message: Default::default(),
                 retry_policy: Default::default(),
             }),
         }];
 
-        // Add triggers to different networks
-        repo.add_triggers(network1, ethereum_triggers).await.unwrap();
-        repo.add_triggers(network2, polygon_triggers).await.unwrap();
+        // Add notifiers to different networks
+        repo.add_notifiers(network1, ethereum_notifiers).await.unwrap();
+        repo.add_notifiers(network2, polygon_notifiers).await.unwrap();
 
         // Verify network isolation
-        let eth_triggers = repo.get_triggers(network1).await.unwrap();
-        let poly_triggers = repo.get_triggers(network2).await.unwrap();
+        let eth_notifiers = repo.get_notifiers(network1).await.unwrap();
+        let poly_notifiers = repo.get_notifiers(network2).await.unwrap();
 
-        assert_eq!(eth_triggers.len(), 1);
-        assert_eq!(poly_triggers.len(), 1);
-        assert_eq!(eth_triggers[0].name, "Ethereum Slack");
-        assert_eq!(poly_triggers[0].name, "Polygon Discord");
+        assert_eq!(eth_notifiers.len(), 1);
+        assert_eq!(poly_notifiers.len(), 1);
+        assert_eq!(eth_notifiers[0].name, "Ethereum Slack");
+        assert_eq!(poly_notifiers[0].name, "Polygon Discord");
 
         // Clear one network, should not affect the other
-        repo.clear_triggers(network1).await.unwrap();
-        let eth_triggers_after_clear = repo.get_triggers(network1).await.unwrap();
-        let poly_triggers_after_clear = repo.get_triggers(network2).await.unwrap();
+        repo.clear_notifiers(network1).await.unwrap();
+        let eth_notifiers_after_clear = repo.get_notifiers(network1).await.unwrap();
+        let poly_notifiers_after_clear = repo.get_notifiers(network2).await.unwrap();
 
-        assert!(eth_triggers_after_clear.is_empty());
-        assert_eq!(poly_triggers_after_clear.len(), 1);
+        assert!(eth_notifiers_after_clear.is_empty());
+        assert_eq!(poly_notifiers_after_clear.len(), 1);
     }
 
     #[tokio::test]
-    async fn test_trigger_transaction_atomicity() {
+    async fn test_notifier_transaction_atomicity() {
         let repo = setup_test_db().await;
         let network_id = "ethereum";
 
-        // Create a batch of triggers where one has a name that is too long, causing a
+        // Create a batch of notifiers where one has a name that is too long, causing a
         // DB constraint error. This test is a bit contrived as we can't easily
         // create an invalid JSON, but we can simulate a constraint violation.
         // Here, we'll rely on the UNIQUE constraint.
-        let triggers1 = vec![
-            TriggerConfig {
-                name: "Unique Trigger".to_string(),
-                config: TriggerTypeConfig::Slack(SlackConfig::default()),
+        let notifiers1 = vec![
+            NotifierConfig {
+                name: "Unique Notifier".to_string(),
+                config: NotifierTypeConfig::Slack(SlackConfig::default()),
             },
-            TriggerConfig {
-                name: "Another Unique Trigger".to_string(),
-                config: TriggerTypeConfig::Slack(SlackConfig::default()),
+            NotifierConfig {
+                name: "Another Unique Notifier".to_string(),
+                config: NotifierTypeConfig::Slack(SlackConfig::default()),
             },
         ];
-        let triggers2 = vec![
-            TriggerConfig {
-                name: "Third Trigger".to_string(),
-                config: TriggerTypeConfig::Slack(SlackConfig::default()),
+        let notifiers2 = vec![
+            NotifierConfig {
+                name: "Third Notifier".to_string(),
+                config: NotifierTypeConfig::Slack(SlackConfig::default()),
             },
-            TriggerConfig {
-                name: "Unique Trigger".to_string(), // Duplicate name, will cause failure
-                config: TriggerTypeConfig::Slack(SlackConfig::default()),
+            NotifierConfig {
+                name: "Unique Notifier".to_string(), // Duplicate name, will cause failure
+                config: NotifierTypeConfig::Slack(SlackConfig::default()),
             },
         ];
 
         // This should succeed
-        repo.add_triggers(network_id, triggers1).await.unwrap();
-        assert_eq!(repo.get_triggers(network_id).await.unwrap().len(), 2);
+        repo.add_notifiers(network_id, notifiers1).await.unwrap();
+        assert_eq!(repo.get_notifiers(network_id).await.unwrap().len(), 2);
 
         // This should fail due to the duplicate name violating the UNIQUE constraint
-        let result = repo.add_triggers(network_id, triggers2).await;
+        let result = repo.add_notifiers(network_id, notifiers2).await;
         assert!(result.is_err());
 
-        // Verify no new triggers were added (transaction rolled back)
+        // Verify no new notifiers were added (transaction rolled back)
         // The count should still be 2 from the first successful insert.
-        assert_eq!(repo.get_triggers(network_id).await.unwrap().len(), 2);
+        assert_eq!(repo.get_notifiers(network_id).await.unwrap().len(), 2);
     }
 }

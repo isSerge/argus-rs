@@ -8,7 +8,7 @@ use thiserror::Error;
 
 use crate::{
     abi::AbiService,
-    config::{AppConfig, TriggerLoader, TriggerLoaderError},
+    config::{AppConfig, NotifierLoader, NotifierLoaderError},
     engine::{
         block_processor::{BlockProcessor, BlockProcessorError},
         filtering::{FilteringEngine, RhaiError, RhaiFilteringEngine},
@@ -35,9 +35,9 @@ pub enum DryRunError {
     #[error("Monitor loading error: {0}")]
     MonitorLoading(#[from] MonitorLoaderError),
 
-    /// An error occurred while loading trigger definitions.
-    #[error("Trigger loading error: {0}")]
-    TriggerLoading(#[from] TriggerLoaderError),
+    /// An error occurred while loading notifier definitions.
+    #[error("Notifier loading error: {0}")]
+    NotifierLoading(#[from] NotifierLoaderError),
 
     /// A monitor failed validation against the defined rules.
     #[error("Monitor validation error: {0}")]
@@ -74,20 +74,16 @@ pub enum DryRunError {
 /// standard output.
 #[derive(Parser, Debug)]
 pub struct DryRunArgs {
-    /// Path to the monitor configuration file. If not provided, uses the path
-    /// from the main `config.yaml`.
+    /// Path to configuration directory containing app, monitor and notifier
+    /// configs
     #[arg(short, long)]
-    monitor: Option<String>,
+    config_dir: Option<String>,
     /// The starting block number for the dry run (inclusive).
     #[arg(long)]
     from: u64,
     /// The ending block number for the dry run (inclusive).
     #[arg(long)]
     to: u64,
-    /// Path to the triggers configuration file. If not provided, uses the path
-    /// from the main `config.yaml`.
-    #[arg(short, long)]
-    triggers: Option<String>,
 }
 
 /// The main entry point for the `dry-run` command.
@@ -96,11 +92,12 @@ pub struct DryRunArgs {
 /// 1. Loads the main application configuration.
 /// 2. Initializes all necessary services (data source, block processor,
 ///    filtering engine, etc.).
-/// 3. Loads and validates the monitor and trigger configurations.
+/// 3. Loads and validates the monitor and notifier configurations.
 /// 4. Calls `run_dry_run_loop` to execute the core processing logic.
 /// 5. Serializes the results to a pretty JSON string and prints to stdout.
 pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
-    let config = AppConfig::new(None)?;
+    let config_dir = args.config_dir.as_deref().unwrap_or("configs");
+    let config = AppConfig::new(config_dir.into())?;
 
     // Init EVM data source for fetching blockchain data.
     let provider = create_provider(config.rpc_urls.clone(), config.rpc_retry_config.clone())?;
@@ -110,13 +107,12 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let abi_service = Arc::new(AbiService::new());
     let block_processor = BlockProcessor::new(Arc::clone(&abi_service));
 
-    // Load and validate monitor and trigger configurations from files.
-    let monitors_path = args.monitor.as_deref().unwrap_or(&config.monitor_config_path);
-    let monitor_loader = MonitorLoader::new(monitors_path.into());
+    // Load and validate monitor and notifier configurations from files.
+
+    let monitor_loader = MonitorLoader::new(config.monitor_config_path.into());
     let monitors = monitor_loader.load()?;
-    let triggers_path = args.triggers.as_deref().unwrap_or(&config.trigger_config_path);
-    let trigger_loader = TriggerLoader::new(triggers_path.into());
-    let triggers = trigger_loader.load()?;
+    let notifier_loader = NotifierLoader::new(config.notifier_config_path.into());
+    let notifiers = notifier_loader.load()?;
 
     let monitor_validator = MonitorValidator::new(&config.network_id);
     for monitor in monitors.iter() {
@@ -127,7 +123,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
 
     // Init services for notifications and filtering logic.
     let client_pool = Arc::new(HttpClientPool::new());
-    let notification_service = NotificationService::new(triggers, client_pool);
+    let notification_service = NotificationService::new(notifiers, client_pool);
     let rhai_compiler = Arc::new(RhaiCompiler::new(config.rhai.clone()));
     let filtering_engine = RhaiFilteringEngine::new(monitors, rhai_compiler, config.rhai.clone());
 
