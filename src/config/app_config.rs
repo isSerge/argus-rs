@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::time::Duration;
 
 use config::{Config, ConfigError, File};
@@ -79,10 +80,23 @@ pub struct AppConfig {
 impl AppConfig {
     /// Creates a new `AppConfig` by reading from the configuration directory.
     pub fn new(config_dir: Option<&str>) -> Result<Self, ConfigError> {
+        let config_dir_str = config_dir.unwrap_or("configs");
         let s = Config::builder()
-            .add_source(File::with_name(&format!("{}/app.yaml", config_dir.unwrap_or("configs"))))
+            .add_source(File::with_name(&format!("{}/app.yaml", config_dir_str)))
             .build()?;
-        s.try_deserialize()
+        let mut config: Self = s.try_deserialize()?;
+
+        let config_path = Path::new(config_dir_str);
+
+        // Join the config paths with the config directory
+        // This ensures that the paths are correctly resolved relative to the config directory.
+        let monitor_path = config_path.join(&config.monitor_config_path);
+        config.monitor_config_path = monitor_path.to_string_lossy().into_owned();
+
+        let notifier_path = config_path.join(&config.notifier_config_path);
+        config.notifier_config_path = notifier_path.to_string_lossy().into_owned();
+
+        Ok(config)
     }
 
     /// Creates a new `AppConfigBuilder` for testing purposes.
@@ -178,11 +192,23 @@ mod tests {
         let app_yaml_path = temp_dir.path().join("app.yaml");
         std::fs::write(&app_yaml_path, config_content).unwrap();
 
-        let config = AppConfig::new(Some(temp_dir.path().to_str().unwrap())).unwrap();
+        let temp_dir_path = temp_dir.path();
+        let config = AppConfig::new(Some(temp_dir_path.to_str().unwrap())).unwrap();
         assert!(!config.rpc_urls.is_empty());
         assert_eq!(config.network_id, "testnet");
-        assert_eq!(config.monitor_config_path, "test_monitor.yaml");
-        assert_eq!(config.notifier_config_path, "test_notifier.yaml");
+
+        let expected_monitor_path = temp_dir_path.join("test_monitor.yaml");
+        assert_eq!(
+            config.monitor_config_path,
+            expected_monitor_path.to_str().unwrap()
+        );
+
+        let expected_notifier_path = temp_dir_path.join("test_notifier.yaml");
+        assert_eq!(
+            config.notifier_config_path,
+            expected_notifier_path.to_str().unwrap()
+        );
+
         assert_eq!(config.database_url, "sqlite::memory:");
         assert_eq!(config.confirmation_blocks, 12);
         assert_eq!(config.shutdown_timeout, Duration::from_secs(30));
