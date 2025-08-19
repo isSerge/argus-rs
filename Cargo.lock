@@ -3601,6 +3601,7 @@ dependencies = [
  "num-traits",
  "once_cell",
  "rhai_codegen",
+ "rust_decimal",
  "smallvec",
  "smartstring",
  "thin-vec",

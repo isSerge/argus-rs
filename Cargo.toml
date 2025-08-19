@@ -16,7 +16,7 @@ regex = "1.11.1"
 reqwest = { version = "=0.12.22", features = ["json"] }
 reqwest-middleware = { version = "0.4.2", features = ["json"] }
 reqwest-retry = "0.7.0"
-rhai = { version = "1.22.2", features = ["sync", "internals"] }
+rhai = { version = "1.22.2", features = ["sync", "internals", "decimal"] }
 num-bigint = { version = "0.4.5", features = ["serde"] }
 num-traits = "0.2.19"
 serde = { version = "1.0.219", features = ["derive"] }

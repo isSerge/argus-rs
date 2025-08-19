@@ -204,7 +204,7 @@ pub fn build_log_map(log: &DecodedLog, params_map: Map) -> Map {
 }
 
 /// Converts a U256 value unconditionally to a Rhai `BigInt` dynamic type.
-fn u256_to_bigint_dynamic(value: U256) -> Dynamic {
+pub fn u256_to_bigint_dynamic(value: U256) -> Dynamic {
     let (sign, bytes) = if value.is_zero() {
         (Sign::NoSign, vec![])
     } else {
