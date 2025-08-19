@@ -48,11 +48,11 @@ impl InitializationService {
 
     /// Runs the initialization process, loading monitors, notifiers, and ABIs.
     pub async fn run(&self) -> Result<(), InitializationError> {
-        // Load monitors from the configuration file if specified and DB is empty.
-        self.load_monitors_from_file().await?;
-
         // Load notifiers from the configuration file if specified and DB is empty.
         self.load_notifiers_from_file().await?;
+
+        // Load monitors from the configuration file if specified and DB is empty.
+        self.load_monitors_from_file().await?;
 
         // Load ABIs into the AbiService from the monitors stored in the database.
         self.load_abis_from_monitors().await?;
@@ -87,7 +87,12 @@ impl InitializationService {
         })?;
 
         // Validate monitors
-        let validator = MonitorValidator::new(network_id);
+        let notifiers = self.repo.get_notifiers(network_id).await.map_err(|e| {
+            InitializationError::MonitorLoadError(format!(
+                "Failed to fetch notifiers for monitor validation: {e}"
+            ))
+        })?;
+        let validator = MonitorValidator::new(network_id, &notifiers);
         for monitor in &monitors {
             validator.validate(monitor).map_err(|e| {
                 InitializationError::MonitorLoadError(format!(
@@ -285,7 +290,11 @@ monitors:
             .once()
             .returning(|_, _| Ok(()));
         // Notifiers
-        mock_repo.expect_get_notifiers().with(eq(network_id)).once().returning(|_| Ok(vec![]));
+        mock_repo
+            .expect_get_notifiers()
+            .with(eq(network_id))
+            .times(2) // Called for notifier loading and monitor validation
+            .returning(|_| Ok(vec![]));
         mock_repo.expect_clear_notifiers().with(eq(network_id)).once().returning(|_| Ok(()));
         mock_repo
             .expect_add_notifiers()
@@ -318,6 +327,7 @@ monitors:
             None,
             None,
             "true".to_string(),
+            vec![],
         );
         let trigger = NotifierConfig {
             name: "Existing Trigger".to_string(),
@@ -390,6 +400,7 @@ monitors:
             Some("not-a-valid-address".to_string()),
             Some("abi.json".to_string()),
             "true".to_string(),
+            vec![],
         );
 
         let mut mock_repo = MockStateRepository::new();
@@ -423,6 +434,7 @@ monitors:
             Some("0x0000000000000000000000000000000000000001".to_string()),
             Some(non_existent_abi_path.to_str().unwrap().to_string()),
             "true".to_string(),
+            vec![],
         );
 
         let mut mock_repo = MockStateRepository::new();
@@ -456,6 +468,8 @@ monitors:
         let mut mock_repo = MockStateRepository::new();
         // Expect get_monitors to be called and return empty
         mock_repo.expect_get_monitors().with(eq(network_id)).once().returning(|_| Ok(vec![]));
+        // Expect get_notifiers to be called for validation
+        mock_repo.expect_get_notifiers().with(eq(network_id)).once().returning(|_| Ok(vec![]));
         // Expect clear_monitors and add_monitors to be called
         mock_repo.expect_clear_monitors().with(eq(network_id)).once().returning(|_| Ok(()));
         mock_repo
@@ -497,6 +511,8 @@ monitors:
         let mut mock_repo = MockStateRepository::new();
         // Expect get_monitors to be called and return empty
         mock_repo.expect_get_monitors().with(eq(network_id)).once().returning(|_| Ok(vec![]));
+        // Expect get_notifiers to be called for validation
+        mock_repo.expect_get_notifiers().with(eq(network_id)).once().returning(|_| Ok(vec![]));
 
         // Dummy config for AppConfig
         let config = AppConfig::builder()
@@ -528,6 +544,7 @@ monitors:
             None,
             None,
             "true".to_string(),
+            vec![],
         );
         let network_id = "testnet";
 
@@ -646,6 +663,7 @@ monitors:
             Some("0x0000000000000000000000000000000000000001".to_string()),
             Some(abi_path.to_str().unwrap().to_string()),
             "true".to_string(),
+            vec![],
         );
 
         let mut mock_repo = MockStateRepository::new();
