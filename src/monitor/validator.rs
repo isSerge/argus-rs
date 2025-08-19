@@ -131,9 +131,14 @@ impl<'a> MonitorValidator<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{models::{
-        monitor::Monitor, notifier::{NotifierConfig, NotifierTypeConfig, WebhookConfig}, NotificationMessage
-    }, monitor::{MonitorValidationError, MonitorValidator}};
+    use crate::{
+        models::{
+            NotificationMessage,
+            monitor::Monitor,
+            notifier::{NotifierConfig, NotifierTypeConfig, WebhookConfig},
+        },
+        monitor::{MonitorValidationError, MonitorValidator},
+    };
 
     fn create_test_monitor(
         id: i64,

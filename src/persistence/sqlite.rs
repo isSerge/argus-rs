@@ -16,12 +16,12 @@ use crate::models::{monitor::Monitor, notifier::NotifierConfig};
 mod monitor_sql {
     /// Select all monitors for a specific network
     pub const SELECT_MONITORS_BY_NETWORK: &str = "SELECT monitor_id, name, network, address, abi, \
-                                                  filter_script, notifiers, created_at, updated_at FROM \
-                                                  monitors WHERE network = ?";
+                                                  filter_script, notifiers, created_at, \
+                                                  updated_at FROM monitors WHERE network = ?";
 
     /// Insert a new monitor
-    pub const INSERT_MONITOR: &str =
-        "INSERT INTO monitors (name, network, address, abi, filter_script, notifiers) VALUES (?, ?, ?, ?, ?, ?)";
+    pub const INSERT_MONITOR: &str = "INSERT INTO monitors (name, network, address, abi, \
+                                      filter_script, notifiers) VALUES (?, ?, ?, ?, ?, ?)";
 
     /// Delete all monitors for a specific network
     pub const DELETE_MONITORS_BY_NETWORK: &str = "DELETE FROM monitors WHERE network = ?";
