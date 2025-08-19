@@ -114,6 +114,7 @@ mod tests {
             address.map(String::from),
             abi_path.map(String::from),
             "true".to_string(),
+            vec![],
         )
     }
 
