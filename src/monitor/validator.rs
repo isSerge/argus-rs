@@ -3,12 +3,13 @@
 use alloy::primitives::Address;
 use thiserror::Error;
 
-use crate::models::monitor::Monitor;
+use crate::models::{monitor::Monitor, notifier::NotifierConfig};
 
 /// A validator for monitor configurations.
 pub struct MonitorValidator<'a> {
     /// The application network ID.
     network_id: &'a str,
+    notifiers: &'a [NotifierConfig],
 }
 
 /// An error that occurs during monitor validation.
@@ -57,12 +58,21 @@ pub enum MonitorValidationError {
         /// The actual network ID of the monitor.
         actual_network: String,
     },
+
+    /// The monitor references a notifier that does not exist.
+    #[error("Monitor '{monitor_name}' references an unknown notifier: '{notifier_name}'")]
+    UnknownNotifier {
+        /// The name of the monitor.
+        monitor_name: String,
+        /// The name of the unknown notifier.
+        notifier_name: String,
+    },
 }
 
 impl<'a> MonitorValidator<'a> {
     /// Creates a new `MonitorValidator` for the specified network ID.
-    pub fn new(network_id: &'a str) -> Self {
-        MonitorValidator { network_id }
+    pub fn new(network_id: &'a str, notifiers: &'a [NotifierConfig]) -> Self {
+        MonitorValidator { network_id, notifiers }
     }
 
     /// Validates the given monitor configuration.
@@ -74,6 +84,23 @@ impl<'a> MonitorValidator<'a> {
                 expected_network: self.network_id.to_string(),
                 actual_network: monitor.network.clone(),
             });
+        }
+
+        if monitor.notifiers.is_empty() {
+            tracing::warn!(
+                monitor_name = monitor.name,
+                "Monitor has no notifiers configured and will not send any notifications."
+            );
+        }
+
+        // Check if all notifiers exist.
+        for notifier_name in &monitor.notifiers {
+            if !self.notifiers.iter().any(|n| n.name == *notifier_name) {
+                return Err(MonitorValidationError::UnknownNotifier {
+                    monitor_name: monitor.name.clone(),
+                    notifier_name: notifier_name.clone(),
+                });
+            }
         }
 
         if monitor.filter_script.contains("log.") {
@@ -104,45 +131,62 @@ impl<'a> MonitorValidator<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::{models::{
+        monitor::Monitor, notifier::{NotifierConfig, NotifierTypeConfig, WebhookConfig}, NotificationMessage
+    }, monitor::{MonitorValidationError, MonitorValidator}};
 
     fn create_test_monitor(
         id: i64,
         address: Option<&str>,
         abi: Option<&str>,
         script: &str,
+        notifiers: Vec<String>,
     ) -> Monitor {
-        let mut monitor = Monitor::from_config(
+        Monitor::from_config(
             format!("Test Monitor {id}"),
             "testnet".to_string(),
             address.map(String::from),
             abi.map(String::from),
             script.to_string(),
-        );
-        monitor.id = id;
-        monitor
+            notifiers,
+        )
+    }
+
+    fn create_test_notifier(name: &str) -> NotifierConfig {
+        NotifierConfig {
+            name: name.to_string(),
+            config: NotifierTypeConfig::Webhook(WebhookConfig {
+                url: "http://localhost".to_string(),
+                message: NotificationMessage::default(),
+                ..Default::default()
+            }),
+        }
     }
 
     #[tokio::test]
     async fn test_monitor_validation_success() {
+        let notifiers = vec![create_test_notifier("notifier1")];
+        let validator = MonitorValidator::new("testnet", &notifiers);
+
         // Valid: log monitor accesses log and has address + ABI
         let monitor1 = create_test_monitor(
             1,
             Some("0x0000000000000000000000000000000000000123"),
             Some("abi.json"),
             "log.name == 'A'",
+            vec!["notifier1".to_string()],
         );
         // Valid: tx monitor accesses tx
-        let monitor2 = create_test_monitor(2, None, None, "tx.value > 0");
+        let monitor2 = create_test_monitor(2, None, None, "tx.value > 0", vec![]);
         // Valid: log monitor accesses tx only
         let monitor3 = create_test_monitor(
             3,
             Some("0x0000000000000000000000000000000000000123"),
             None,
             "tx.from == '0x456'",
+            vec![],
         );
 
-        let validator = MonitorValidator::new("testnet");
         assert!(validator.validate(&monitor1).is_ok());
         assert!(validator.validate(&monitor2).is_ok());
         assert!(validator.validate(&monitor3).is_ok());
@@ -150,9 +194,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_monitor_validation_failure_requires_address() {
+        let validator = MonitorValidator::new("testnet", &[]);
         // Invalid: accesses log data but has no address
-        let invalid_monitor = create_test_monitor(1, None, None, "log.name == 'A'");
-        let validator = MonitorValidator::new("testnet");
+        let invalid_monitor = create_test_monitor(1, None, None, "log.name == 'A'", vec![]);
         let result = validator.validate(&invalid_monitor);
 
         assert!(result.is_err());
@@ -164,14 +208,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_monitor_validation_failure_requires_abi() {
+        let validator = MonitorValidator::new("testnet", &[]);
         // Invalid: accesses log data but has no ABI
         let invalid_monitor = create_test_monitor(
             1,
             Some("0x0000000000000000000000000000000000000123"),
             None,
             "log.name == 'A'",
+            vec![],
         );
-        let validator = MonitorValidator::new("testnet");
         let result = validator.validate(&invalid_monitor);
 
         assert!(result.is_err());
@@ -183,11 +228,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_monitor_validation_failure_invalid_address() {
+        let validator = MonitorValidator::new("testnet", &[]);
         // Invalid: address is not a valid hex string
         let invalid_addr = "not-a-valid-address";
         let invalid_monitor =
-            create_test_monitor(1, Some(invalid_addr), Some("abi.json"), "log.name == 'A'");
-        let validator = MonitorValidator::new("testnet");
+            create_test_monitor(1, Some(invalid_addr), Some("abi.json"), "log.name == 'A'", vec![]);
         let result = validator.validate(&invalid_monitor);
 
         assert!(result.is_err());
@@ -202,14 +247,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_monitor_validation_failure_invalid_network() {
+        let validator = MonitorValidator::new("mainnet", &[]);
         // Invalid: monitor is on a different network ("testnet")
         let invalid_monitor = create_test_monitor(
             1,
             Some("0x0000000000000000000000000000000000000123"),
             Some("abi.json"),
             "log.name == 'A'",
+            vec![],
         );
-        let validator = MonitorValidator::new("mainnet"); // Expecting "mainnet" but monitor is "testnet"
         let result = validator.validate(&invalid_monitor);
 
         assert!(result.is_err());
@@ -219,6 +265,29 @@ mod tests {
                 monitor_name: invalid_monitor.name,
                 expected_network: "mainnet".to_string(),
                 actual_network: invalid_monitor.network.clone(),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn test_monitor_validation_failure_unknown_notifier() {
+        let notifiers = vec![create_test_notifier("existing_notifier")];
+        let validator = MonitorValidator::new("testnet", &notifiers);
+        let invalid_monitor = create_test_monitor(
+            1,
+            None,
+            None,
+            "tx.value > 0",
+            vec!["unknown_notifier".to_string()],
+        );
+        let result = validator.validate(&invalid_monitor);
+
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            MonitorValidationError::UnknownNotifier {
+                monitor_name: invalid_monitor.name,
+                notifier_name: "unknown_notifier".to_string(),
             }
         );
     }
