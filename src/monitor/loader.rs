@@ -94,6 +94,8 @@ monitors:
     filter_script: |
       log.name == "Transfer" && 
       bigint(log.params.value) > bigint("1000000000")
+    notifiers:
+        - "test-notifier"
 
   - name: "DEX Swap Monitor"
     network: "ethereum"
@@ -214,6 +216,7 @@ monitors:
         );
         assert!(monitors[0].filter_script.contains("Transfer"));
         assert_eq!(monitors[0].id, 0); // Default value from serde
+        assert_eq!(monitors[0].notifiers, vec!["test-notifier".to_string()]);
 
         // Check second monitor (with address)
         assert_eq!(monitors[1].name, "DEX Swap Monitor");
