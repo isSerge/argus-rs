@@ -262,16 +262,18 @@ impl FilteringEngine for RhaiFilteringEngine {
                         &item.transaction,
                         item.receipt.as_ref(),
                     );
-                    let monitor_match = MonitorMatch {
-                        monitor_id: monitor.id,
-                        block_number: item.transaction.block_number().unwrap_or(0),
-                        transaction_hash: item.transaction.hash(),
-                        contract_address: Default::default(),
-                        notifier_name: "transaction".to_string(),
-                        trigger_data,
-                        log_index: None,
-                    };
-                    matches.push(monitor_match);
+                    for notifier_name in &monitor.notifiers {
+                        let monitor_match = MonitorMatch {
+                            monitor_id: monitor.id,
+                            block_number: item.transaction.block_number().unwrap_or(0),
+                            transaction_hash: item.transaction.hash(),
+                            contract_address: Default::default(),
+                            notifier_name: notifier_name.clone(),
+                            trigger_data: trigger_data.clone(),
+                            log_index: None,
+                        };
+                        matches.push(monitor_match);
+                    }
                 }
                 Ok(false) => {
                     tracing::debug!(
@@ -306,21 +308,22 @@ impl FilteringEngine for RhaiFilteringEngine {
                         let ast = self.compiler.get_ast(&monitor.filter_script)?;
 
                         match self.eval_ast_bool_secure(&ast, &mut scope).await {
-                            Ok(true) => {
-                                let monitor_match = MonitorMatch {
-                                    monitor_id: monitor.id,
-                                    block_number: log.log.block_number().unwrap_or(0),
-                                    transaction_hash: log
-                                        .log
-                                        .transaction_hash()
-                                        .unwrap_or_default(),
-                                    contract_address: log.log.address(),
-                                    notifier_name: log.name.clone(),
-                                    trigger_data: trigger_data.clone(),
-                                    log_index: log.log.log_index(),
-                                };
-                                matches.push(monitor_match);
-                            }
+                            Ok(true) =>
+                                for notifier_name in &monitor.notifiers {
+                                    let monitor_match = MonitorMatch {
+                                        monitor_id: monitor.id,
+                                        block_number: log.log.block_number().unwrap_or(0),
+                                        transaction_hash: log
+                                            .log
+                                            .transaction_hash()
+                                            .unwrap_or_default(),
+                                        contract_address: log.log.address(),
+                                        notifier_name: notifier_name.clone(),
+                                        trigger_data: trigger_data.clone(),
+                                        log_index: log.log.log_index(),
+                                    };
+                                    matches.push(monitor_match);
+                                },
                             Ok(false) => {
                                 tracing::debug!(
                                     monitor_id = monitor.id,
@@ -387,6 +390,7 @@ mod tests {
         address: Option<&str>,
         abi: Option<&str>,
         script: &str,
+        notifiers: Vec<String>,
     ) -> Monitor {
         let mut monitor = Monitor::from_config(
             format!("Test Monitor {id}"),
@@ -394,6 +398,7 @@ mod tests {
             address.map(String::from),
             abi.map(String::from),
             script.to_string(),
+            notifiers,
         );
         monitor.id = id;
         monitor
@@ -418,10 +423,10 @@ mod tests {
         let addr2_lower = "0x0000000000000000000000000000000000000002";
         let addr2_checksum = "0x0000000000000000000000000000000000000002";
 
-        let monitor1 = create_test_monitor(1, Some(addr1_lower), Some("abi.json"), "true");
-        let monitor2 = create_test_monitor(2, Some(addr2_lower), Some("abi.json"), "true");
-        let monitor3 = create_test_monitor(3, Some(addr1_lower), Some("abi.json"), "true");
-        let monitor4 = create_test_monitor(4, None, None, "tx.value > 0"); // Tx monitor
+        let monitor1 = create_test_monitor(1, Some(addr1_lower), Some("abi.json"), "true", vec![]);
+        let monitor2 = create_test_monitor(2, Some(addr2_lower), Some("abi.json"), "true", vec![]);
+        let monitor3 = create_test_monitor(3, Some(addr1_lower), Some("abi.json"), "true", vec![]);
+        let monitor4 = create_test_monitor(4, None, None, "tx.value > bigint(\"0\")", vec![]); // Tx monitor
 
         // Test `new()`
         let config = RhaiConfig::default();
@@ -444,8 +449,8 @@ mod tests {
         drop(transaction_monitors_read);
 
         // Test `update_monitors()`
-        let monitor5 = create_test_monitor(5, Some(addr2_lower), Some("abi.json"), "true");
-        let monitor6 = create_test_monitor(6, None, None, "true");
+        let monitor5 = create_test_monitor(5, Some(addr2_lower), Some("abi.json"), "true", vec![]);
+        let monitor6 = create_test_monitor(6, None, None, "true", vec![]);
         engine.update_monitors(vec![monitor1.clone(), monitor5.clone(), monitor6.clone()]).await;
 
         let monitors_by_address_read = engine.monitors_by_address.read().await;
@@ -468,6 +473,7 @@ mod tests {
             Some(&addr.to_checksum(None)),
             Some("abi.json"),
             "log.name == \"Transfer\"",
+            vec!["notifier1".to_string(), "notifier2".to_string()],
         );
         let config = RhaiConfig::default();
         let compiler = Arc::new(RhaiCompiler::new(config.clone()));
@@ -477,14 +483,22 @@ mod tests {
         let item = CorrelatedBlockItem::new(tx, vec![log], None);
 
         let matches = engine.evaluate_item(&item).await.unwrap();
-        assert_eq!(matches.len(), 1);
+        assert_eq!(matches.len(), 2);
         assert_eq!(matches[0].monitor_id, 1);
-        assert_eq!(matches[0].notifier_name, "Transfer");
+        assert_eq!(matches[0].notifier_name, "notifier1");
+        assert_eq!(matches[1].monitor_id, 1);
+        assert_eq!(matches[1].notifier_name, "notifier2");
     }
 
     #[tokio::test]
     async fn test_evaluate_item_transaction_based_match() {
-        let monitor = create_test_monitor(1, None, None, "bigint(tx.value) > bigint(100)");
+        let monitor = create_test_monitor(
+            1,
+            None,
+            None,
+            "tx.value > bigint(\"100\")",
+            vec!["notifier1".to_string()],
+        );
         let config = RhaiConfig::default();
         let compiler = Arc::new(RhaiCompiler::new(config.clone()));
         let engine = RhaiFilteringEngine::new(vec![monitor], compiler, config);
@@ -496,12 +510,18 @@ mod tests {
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].monitor_id, 1);
-        assert_eq!(matches[0].notifier_name, "transaction");
+        assert_eq!(matches[0].notifier_name, "notifier1");
     }
 
     #[tokio::test]
     async fn test_evaluate_item_no_match_for_tx_monitor() {
-        let monitor = create_test_monitor(1, None, None, "bigint(tx.value) > bigint(200)");
+        let monitor = create_test_monitor(
+            1,
+            None,
+            None,
+            "tx.value > bigint(\"200\")",
+            vec!["notifier1".to_string()],
+        );
         let config = RhaiConfig::default();
         let compiler = Arc::new(RhaiCompiler::new(config.clone()));
         let engine = RhaiFilteringEngine::new(vec![monitor], compiler, config);
@@ -521,14 +541,21 @@ mod tests {
             Some(&addr.to_checksum(None)),
             Some("abi.json"),
             "log.name == \"Transfer\"",
+            vec!["log_notifier".to_string()],
         );
-        let tx_monitor = create_test_monitor(2, None, None, "bigint(tx.value) > bigint(100)");
+        let tx_monitor = create_test_monitor(
+            2,
+            None,
+            None,
+            "tx.value > bigint(\"100\")",
+            vec!["tx_notifier".to_string()],
+        );
         let config = RhaiConfig::default();
         let compiler = Arc::new(RhaiCompiler::new(config.clone()));
         let engine = RhaiFilteringEngine::new(vec![log_monitor, tx_monitor], compiler, config);
 
         // Create a transaction that will match the transaction-level monitor
-        let tx = TransactionBuilder::new().value(U256::from(150)).build();
+        let tx = TransactionBuilder::new().value(U256::from(120)).build();
 
         // Create a log that will match the log-based monitor
         let log_raw = LogBuilder::new().address(addr).build();
@@ -551,29 +578,31 @@ mod tests {
             1,
             Some(&addr.to_checksum(None)),
             Some("abi.json"),
-            "log.name == \"ValueTransfered\" && bigint(log.params.value) > bigint(100)",
+            "log.name == \"ValueTransfered\" && log.params.value > bigint(\"100\")",
+            vec!["notifier1".to_string()],
         );
         let config = RhaiConfig::default();
         let compiler = Arc::new(RhaiCompiler::new(config.clone()));
         let engine = RhaiFilteringEngine::new(vec![monitor], compiler, config);
 
+        let value = 130;
         let (tx, log) = create_test_log_and_tx(
             addr,
             "ValueTransfered",
-            vec![("value".to_string(), DynSolValue::Uint(U256::from(150), 256))],
+            vec![("value".to_string(), DynSolValue::Uint(U256::from(value), 256))],
         );
         let item = CorrelatedBlockItem::new(tx, vec![log], None);
 
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].monitor_id, 1);
-        assert_eq!(matches[0].notifier_name, "ValueTransfered");
-        assert_eq!(matches[0].trigger_data["value"], json!(150));
+        assert_eq!(matches[0].notifier_name, "notifier1");
+        assert_eq!(matches[0].trigger_data["value"], json!(value));
     }
 
     #[tokio::test]
     async fn test_evaluate_item_no_decoded_logs_still_triggers_tx_monitor() {
-        let monitor = create_test_monitor(1, None, None, "true"); // Always matches
+        let monitor = create_test_monitor(1, None, None, "true", vec!["notifier1".to_string()]); // Always matches
         let config = RhaiConfig::default();
         let compiler = Arc::new(RhaiCompiler::new(config.clone()));
         let engine = RhaiFilteringEngine::new(vec![monitor], compiler, config);
@@ -593,8 +622,8 @@ mod tests {
 
         // --- Scenario 1: A monitor explicitly uses a receipt field ---
         let monitors_with_receipt_field = vec![
-            create_test_monitor(1, None, None, "tx.value > 100"), // No receipt needed
-            create_test_monitor(2, None, None, "tx.status == 1"), // Receipt needed!
+            create_test_monitor(1, None, None, "tx.value > bigint(\"100\")", vec![]), /* No receipt needed */
+            create_test_monitor(2, None, None, "tx.status == 1", vec![]), // Receipt needed!
         ];
         let engine_needs_receipts = RhaiFilteringEngine::new(
             monitors_with_receipt_field,
@@ -609,8 +638,8 @@ mod tests {
 
         // --- Scenario 2: No monitors use any receipt fields ---
         let monitors_without_receipt_field = vec![
-            create_test_monitor(1, None, None, "tx.value > 100"),
-            create_test_monitor(2, None, None, "log.name == \"Transfer\""),
+            create_test_monitor(1, None, None, "tx.value > bigint(\"100\")", vec![]),
+            create_test_monitor(2, None, None, "log.name == \"Transfer\"", vec![]),
         ];
         let engine_no_receipts = RhaiFilteringEngine::new(
             monitors_without_receipt_field,
@@ -626,8 +655,14 @@ mod tests {
         // --- Scenario 3: A receipt field appears in a comment or string (proves AST
         // analysis works) ---
         let monitors_with_receipt_field_in_comment = vec![
-            create_test_monitor(1, None, None, "// This script checks tx.status"),
-            create_test_monitor(2, None, None, "tx.value > 100 && log.name == \"tx.gas_used\""),
+            create_test_monitor(1, None, None, "// This script checks tx.status", vec![]),
+            create_test_monitor(
+                2,
+                None,
+                None,
+                "tx.value > bigint(\"100\") && log.name == \"tx.gas_used\"",
+                vec![],
+            ),
         ];
         let engine_ast_check = RhaiFilteringEngine::new(
             monitors_with_receipt_field_in_comment,
@@ -642,9 +677,9 @@ mod tests {
 
         // --- Scenario 4: A mix of valid and invalid scripts ---
         let monitors_mixed_validity = vec![
-            create_test_monitor(1, None, None, "tx.value > 100"), // Valid, no receipt
-            create_test_monitor(2, None, None, "tx.gas_used > 50000"), // Valid, needs receipt
-            create_test_monitor(3, None, None, "tx.value >"),     // Invalid syntax
+            create_test_monitor(1, None, None, "tx.value > bigint(\"100\")", vec![]), /* Valid, no receipt */
+            create_test_monitor(2, None, None, "tx.gas_used > bigint(\"50000\")", vec![]), /* Valid, needs receipt */
+            create_test_monitor(3, None, None, "tx.value >", vec![]), // Invalid syntax
         ];
         let engine_mixed = RhaiFilteringEngine::new(
             monitors_mixed_validity,
