@@ -37,6 +37,10 @@ monitors:
     # The value "1000000000000" represents 1,000,000 USDC, as USDC has 6 decimal places.
     filter_script: |
       log.name == "Transfer" && log.params.value > bigint("1000000000000")
+    # Notifiers are used to send notifications when the monitor triggers.
+    notifiers:
+      # This monitor will use the "discord-alerts" notifier defined in `notifiers.yaml`.
+      - "discord-alerts"
 
   # ------------------------------------------------------------------------------------
   # EXAMPLE 2: Monitoring a Standard Contract (WETH Deposits)
@@ -51,6 +55,10 @@ monitors:
     abi: "abis/weth.json"
     # This script triggers for any "Deposit" event on the WETH contract.
     filter_script: 'log.name == "Deposit"'
+    # Notifiers are used to send notifications when the monitor triggers.
+    notifiers:
+      # This monitor will use the "discord-alerts" notifier defined in `notifiers.yaml`.
+      - "discord-alerts"
 
   # ------------------------------------------------------------------------------------
   # EXAMPLE 3: Monitoring Native Token Transfers (ETH)
@@ -77,3 +85,7 @@ monitors:
     # The value "10000000000000000000" is 10 ETH in Wei (10 * 10^18).
     filter_script: |
       tx.value > bigint("10000000000000000000")
+    # Notifiers are used to send notifications when the monitor triggers.
+    notifiers:
+      # This monitor will use the "discord-alerts" notifier defined in `notifiers.yaml`.
+      - "discord-alerts"

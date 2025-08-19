@@ -79,6 +79,10 @@ monitors:
     # This type of monitor inspects transaction data directly.
     filter_script: |
       tx.value > bigint("10000000000000000000") # 10 ETH
+    # Notifiers are used to send notifications when the monitor triggers.
+    notifiers:
+      # This monitor will use the "my-generic-webhook" notifier defined in `notifiers.yaml`.
+      - "my-generic-webhook"
 
   # Monitor for large USDC transfers (ABI is required)
   - name: "Large USDC Transfers"
@@ -88,6 +92,10 @@ monitors:
     abi: "abis/usdc.json"
     filter_script: |
       log.name == "Transfer" && log.params.value > bigint("1000000000000") # 1M USDC
+    # Notifiers are used to send notifications when the monitor triggers.
+    notifiers:
+      # This monitor will use the "slack-notifications" notifier defined in `notifiers.yaml`.
+      - "slack-notifications"
 ```
 
 ### `notifiers.yaml`
@@ -178,13 +186,13 @@ Once the setup is complete, you can run the application.
     cargo run --release -- run
 
     # To run a dry run for a block range
-    cargo run --release -- dry-run --from-block <START> --to-block <END>
+    cargo run --release -- dry-run --from <START> --to <END>
 
     # This runs the main monitoring service with custom config directory
     cargo run --release -- run --config-dir <CUSTOM CONFIG DIR>
 
     # To run a dry run with custom config directory
-    cargo run --release -- dry-run --from-block <START> --to-block <END> --config-dir <CUSTOM CONFIG DIR>
+    cargo run --release -- dry-run --from <START> --to <END> --config-dir <CUSTOM CONFIG DIR>
     ```
 
 ## Project Structure

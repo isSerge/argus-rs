@@ -16,12 +16,12 @@ use crate::models::{monitor::Monitor, notifier::NotifierConfig};
 mod monitor_sql {
     /// Select all monitors for a specific network
     pub const SELECT_MONITORS_BY_NETWORK: &str = "SELECT monitor_id, name, network, address, abi, \
-                                                  filter_script, created_at, updated_at FROM \
-                                                  monitors WHERE network = ?";
+                                                  filter_script, notifiers, created_at, \
+                                                  updated_at FROM monitors WHERE network = ?";
 
     /// Insert a new monitor
-    pub const INSERT_MONITOR: &str =
-        "INSERT INTO monitors (name, network, address, abi, filter_script) VALUES (?, ?, ?, ?, ?)";
+    pub const INSERT_MONITOR: &str = "INSERT INTO monitors (name, network, address, abi, \
+                                      filter_script, notifiers) VALUES (?, ?, ?, ?, ?, ?)";
 
     /// Delete all monitors for a specific network
     pub const DELETE_MONITORS_BY_NETWORK: &str = "DELETE FROM monitors WHERE network = ?";
@@ -286,14 +286,35 @@ impl StateRepository for SqliteStateRepository {
     async fn get_monitors(&self, network_id: &str) -> Result<Vec<Monitor>, sqlx::Error> {
         tracing::debug!(network_id, "Querying for monitors.");
 
-        let monitors = self
+        let rows = self
             .execute_query_with_error_handling(
                 "query monitors",
-                sqlx::query_as::<_, Monitor>(monitor_sql::SELECT_MONITORS_BY_NETWORK)
+                sqlx::query(monitor_sql::SELECT_MONITORS_BY_NETWORK)
                     .bind(network_id)
                     .fetch_all(&self.pool),
             )
             .await?;
+
+        let monitors = rows
+            .into_iter()
+            .map(|row| {
+                let notifiers_str: String = row.get("notifiers");
+                let notifiers: Vec<String> = serde_json::from_str(&notifiers_str)
+                    .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+
+                Ok(Monitor {
+                    id: row.get("monitor_id"),
+                    name: row.get("name"),
+                    network: row.get("network"),
+                    address: row.get("address"),
+                    abi: row.get("abi"),
+                    filter_script: row.get("filter_script"),
+                    notifiers,
+                    created_at: row.get("created_at"),
+                    updated_at: row.get("updated_at"),
+                })
+            })
+            .collect::<Result<Vec<_>, sqlx::Error>>()?;
 
         tracing::debug!(
             network_id,
@@ -332,12 +353,16 @@ impl StateRepository for SqliteStateRepository {
         let mut tx = self.pool.begin().await?;
 
         for monitor in monitors {
+            let notifiers_str = serde_json::to_string(&monitor.notifiers)
+                .map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
+
             sqlx::query(monitor_sql::INSERT_MONITOR)
                 .bind(&monitor.name)
                 .bind(&monitor.network)
                 .bind(&monitor.address)
                 .bind(&monitor.abi)
                 .bind(&monitor.filter_script)
+                .bind(&notifiers_str)
                 .execute(&mut *tx)
                 .await?;
         }
@@ -579,6 +604,7 @@ mod tests {
                 Some("abis/usdc.json".to_string()),
                 r#"log.name == "Transfer" && bigint(log.params.value) > bigint("1000000000")"#
                     .to_string(),
+                vec!["test-notifier".to_string()],
             ),
             Monitor::from_config(
                 "Simple Transfer Monitor".to_string(),
@@ -586,6 +612,7 @@ mod tests {
                 Some("0x7a250d5630b4cf539739df2c5dacb4c659f2488d".to_string()),
                 Some("abis/test.json".to_string()),
                 r#"log.name == "Transfer""#.to_string(),
+                vec![],
             ),
             Monitor::from_config(
                 "Native ETH Monitor".to_string(),
@@ -593,6 +620,7 @@ mod tests {
                 None, // No address for transaction-level monitor
                 None,
                 r#"bigint(tx.value) > bigint("1000000000000000000")"#.to_string(),
+                vec!["eth-notifier".to_string(), "another-notifier".to_string()],
             ),
         ];
 
@@ -612,12 +640,17 @@ mod tests {
             Some("0xa0b86a33e6441b38d4b5e5bfa1bf7a5eb70c5b1e".to_string())
         );
         assert!(usdc_monitor.id > 0);
+        assert_eq!(usdc_monitor.notifiers, vec!["test-notifier".to_string()]);
 
         // Check Native ETH monitor
         let eth_monitor = stored_monitors.iter().find(|m| m.name == "Native ETH Monitor").unwrap();
         assert_eq!(eth_monitor.network, network_id);
         assert_eq!(eth_monitor.address, None);
         assert!(eth_monitor.id > 0);
+        assert_eq!(
+            eth_monitor.notifiers,
+            vec!["eth-notifier".to_string(), "another-notifier".to_string()]
+        );
 
         // Clear monitors
         repo.clear_monitors(network_id).await.unwrap();
@@ -640,6 +673,7 @@ mod tests {
             Some("0x1111111111111111111111111111111111111111".to_string()),
             Some("abis/test.json".to_string()),
             "true".to_string(),
+            vec![],
         )];
 
         let polygon_monitors = vec![Monitor::from_config(
@@ -648,6 +682,7 @@ mod tests {
             Some("0x2222222222222222222222222222222222222222".to_string()),
             Some("abis/test.json".to_string()),
             "true".to_string(),
+            vec![],
         )];
 
         // Add monitors to different networks
@@ -685,6 +720,7 @@ mod tests {
             Some("0x1111111111111111111111111111111111111111".to_string()),
             Some("abis/test.json".to_string()),
             "true".to_string(),
+            vec![],
         )];
 
         // Should fail due to network mismatch
@@ -736,6 +772,7 @@ mod tests {
                 Some("0x1111111111111111111111111111111111111111".to_string()),
                 Some("abis/test.json".to_string()),
                 "true".to_string(),
+                vec![],
             ),
             Monitor::from_config(
                 "Invalid Monitor".to_string(),
@@ -743,6 +780,7 @@ mod tests {
                 Some("0x2222222222222222222222222222222222222222".to_string()),
                 Some("abis/test.json".to_string()),
                 "true".to_string(),
+                vec![],
             ),
         ];
 
@@ -768,6 +806,7 @@ mod tests {
             Some("0x1111111111111111111111111111111111111111".to_string()),
             Some("abis/test.json".to_string()),
             large_script.clone(),
+            vec![],
         )];
 
         // Should handle large scripts

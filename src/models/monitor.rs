@@ -35,6 +35,10 @@ pub struct Monitor {
     /// The filter script used to determine relevant blockchain events
     pub filter_script: String,
 
+    /// The notifiers to execute when the filter script matches
+    #[serde(default)]
+    pub notifiers: Vec<String>,
+
     /// Timestamp when the monitor was created
     #[serde(default = "default_timestamp")]
     pub created_at: DateTime<Utc>,
@@ -57,6 +61,7 @@ impl Monitor {
         address: Option<String>,
         abi: Option<String>,
         filter_script: String,
+        notifiers: Vec<String>,
     ) -> Self {
         let now = Utc::now();
         Self {
@@ -66,6 +71,7 @@ impl Monitor {
             address,
             abi,
             filter_script,
+            notifiers,
             created_at: now,
             updated_at: now,
         }
@@ -84,6 +90,7 @@ mod tests {
             Some("0x123".to_string()),
             Some("abis/test.json".to_string()),
             "log.name == \"Test\"".to_string(),
+            vec!["test-notifier".to_string()],
         );
 
         assert_eq!(monitor.id, 0);
@@ -91,6 +98,7 @@ mod tests {
         assert_eq!(monitor.network, "ethereum");
         assert_eq!(monitor.address, Some("0x123".to_string()));
         assert_eq!(monitor.filter_script, "log.name == \"Test\"");
+        assert_eq!(monitor.notifiers, vec!["test-notifier".to_string()]);
     }
 
     #[test]
@@ -101,6 +109,7 @@ mod tests {
             None,
             None,
             "bigint(tx.value) > bigint(1000)".to_string(),
+            vec![],
         );
 
         assert_eq!(monitor.id, 0);
@@ -108,5 +117,6 @@ mod tests {
         assert_eq!(monitor.network, "ethereum");
         assert_eq!(monitor.address, None);
         assert_eq!(monitor.filter_script, "bigint(tx.value) > bigint(1000)");
+        assert!(monitor.notifiers.is_empty());
     }
 }
