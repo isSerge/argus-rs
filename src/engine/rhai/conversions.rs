@@ -250,7 +250,11 @@ pub fn build_trigger_data_from_transaction(
     }
     map.insert("from".to_string(), json!(transaction.from().to_checksum(None)));
     map.insert("hash".to_string(), json!(transaction.hash().to_string()));
+
+    // Potentially large values are stringified to prevent overflow
     map.insert("value".to_string(), json!(transaction.value().to_string()));
+
+    // Bounded values are kept as JSON numbers
     map.insert("gas_limit".to_string(), json!(transaction.gas()));
     map.insert("nonce".to_string(), json!(transaction.nonce()));
     map.insert("input".to_string(), json!(format!("0x{}", hex::encode(transaction.input()))));
@@ -265,21 +269,31 @@ pub fn build_trigger_data_from_transaction(
     match transaction.transaction_type() {
         TxType::Legacy =>
             if let Some(gas_price) = transaction.gas_price() {
-                map.insert("gas_price".to_string(), json!(gas_price));
+                map.insert("gas_price".to_string(), json!(gas_price.to_string()));
             },
         TxType::Eip1559 => {
-            map.insert("max_fee_per_gas".to_string(), json!(transaction.max_fee_per_gas()));
+            map.insert(
+                "max_fee_per_gas".to_string(),
+                json!(transaction.max_fee_per_gas().to_string()),
+            );
             if let Some(max_priority_fee_per_gas) = transaction.max_priority_fee_per_gas() {
-                map.insert("max_priority_fee_per_gas".to_string(), json!(max_priority_fee_per_gas));
+                map.insert(
+                    "max_priority_fee_per_gas".to_string(),
+                    json!(max_priority_fee_per_gas.to_string()),
+                );
             }
         }
         _ => {}
     }
 
     if let Some(receipt) = receipt {
-        map.insert("gas_used".to_string(), json!(receipt.gas_used));
+        // gas_used and effective_gas_price are u128 and must be stringified
+        map.insert("gas_used".to_string(), json!(receipt.gas_used.to_string()));
         map.insert("status".to_string(), json!(receipt.inner.status() as u64));
-        map.insert("effective_gas_price".to_string(), json!(receipt.effective_gas_price));
+        map.insert(
+            "effective_gas_price".to_string(),
+            json!(receipt.effective_gas_price.to_string()),
+        );
     }
 
     Value::Object(map)
@@ -287,15 +301,20 @@ pub fn build_trigger_data_from_transaction(
 
 #[cfg(test)]
 mod tests {
-    use alloy::primitives::{Address, I256, U256, address, b256};
+    use alloy::{
+        dyn_abi::Word,
+        primitives::{Address, Function, I256, U256, address, b256},
+    };
     use num_bigint::BigInt;
     use serde_json::json;
 
     use super::*;
     use crate::test_helpers::{LogBuilder, ReceiptBuilder, TransactionBuilder};
 
+    // --- Tests for dyn_sol_value_to_rhai ---
+
     #[test]
-    fn test_dyn_sol_value_to_rhai_basic_types() {
+    fn test_dyn_sol_value_to_rhai_primitives() {
         // Address
         let addr = Address::repeat_byte(0x11);
         let result = dyn_sol_value_to_rhai(&DynSolValue::Address(addr));
@@ -303,41 +322,97 @@ mod tests {
 
         // Bool
         let result = dyn_sol_value_to_rhai(&DynSolValue::Bool(true));
+        assert!(result.is::<bool>());
         assert_eq!(result.cast::<bool>(), true);
 
         // String
         let result = dyn_sol_value_to_rhai(&DynSolValue::String("hello".to_string()));
         assert_eq!(result.cast::<String>(), "hello");
-
-        // Small Uint (should now become BigInt for consistency)
-        let result = dyn_sol_value_to_rhai(&DynSolValue::Uint(U256::from(123), 256));
-        assert_eq!(result.cast::<BigInt>(), BigInt::from(123));
     }
 
     #[test]
-    fn test_dyn_sol_value_to_rhai_large_numbers() {
-        // Large Uint (should become BigInt)
+    fn test_dyn_sol_value_to_rhai_numeric_types() {
+        // Small Uint becomes BigInt
+        let result = dyn_sol_value_to_rhai(&DynSolValue::Uint(U256::from(123), 256));
+        assert!(result.is::<BigInt>());
+        assert_eq!(result.cast::<BigInt>(), BigInt::from(123));
+
+        // Large Uint becomes BigInt
         let large_uint = U256::MAX;
         let result = dyn_sol_value_to_rhai(&DynSolValue::Uint(large_uint, 256));
-        let bigint_val = result.cast::<BigInt>();
-        assert_eq!(bigint_val.to_string(), large_uint.to_string());
+        assert!(result.is::<BigInt>());
+        assert_eq!(result.cast::<BigInt>().to_string(), large_uint.to_string());
+
+        // Negative Int becomes BigInt
+        let result = dyn_sol_value_to_rhai(&DynSolValue::Int(I256::try_from(-123).unwrap(), 256));
+        assert!(result.is::<BigInt>());
+        assert_eq!(result.cast::<BigInt>(), BigInt::from(-123));
     }
 
     #[test]
-    fn test_dyn_sol_value_to_rhai_arrays() {
-        let arr = vec![
-            DynSolValue::Uint(U256::from(1), 256),
-            DynSolValue::Bool(false),
-            DynSolValue::String("test".to_string()),
-        ];
+    fn test_dyn_sol_value_to_rhai_structured_types() {
+        // Bytes
+        let bytes = [0x01; 24];
+        let result = dyn_sol_value_to_rhai(&DynSolValue::Bytes(bytes.into()));
+        assert_eq!(result.cast::<String>(), "0x010101010101010101010101010101010101010101010101");
 
-        let result = dyn_sol_value_to_rhai(&DynSolValue::Array(arr));
+        // FixedBytes
+        let mut fixed_bytes_array = [0u8; 32];
+        fixed_bytes_array[0..3].copy_from_slice(&[0x04, 0x05, 0x06]);
+        let fixed_bytes = Word::new(fixed_bytes_array);
+        let result = dyn_sol_value_to_rhai(&DynSolValue::FixedBytes(fixed_bytes, 3));
+        assert_eq!(
+            result.cast::<String>(),
+            "0x0405060000000000000000000000000000000000000000000000000000000000"
+        );
+
+        // Tuple (becomes an Array in Rhai)
+        let tuple_values = vec![DynSolValue::Uint(U256::from(42), 256), DynSolValue::Bool(true)];
+        let result = dyn_sol_value_to_rhai(&DynSolValue::Tuple(tuple_values));
         let rhai_array = result.cast::<rhai::Array>();
+        assert_eq!(rhai_array.len(), 2);
+        assert_eq!(rhai_array[0].clone().cast::<BigInt>(), BigInt::from(42));
+        assert_eq!(rhai_array[1].clone().cast::<bool>(), true);
+    }
 
-        assert_eq!(rhai_array.len(), 3);
-        assert_eq!(rhai_array[0].clone().cast::<BigInt>(), BigInt::from(1));
-        assert_eq!(rhai_array[1].clone().cast::<bool>(), false);
-        assert_eq!(rhai_array[2].clone().cast::<String>(), "test");
+    #[test]
+    fn test_dyn_sol_value_to_rhai_unhandled_variant() {
+        // Function is not handled, should result in UNIT
+        let bytes = [0x01; 24];
+        let function = Function::new(bytes);
+        let result = dyn_sol_value_to_rhai(&DynSolValue::Function(function));
+        assert!(result.is_unit());
+    }
+
+    // --- Tests for dyn_sol_value_to_json ---
+
+    #[test]
+    fn test_dyn_sol_value_to_json_numeric_types() {
+        // Small Uint becomes JSON Number
+        let result = dyn_sol_value_to_json(&DynSolValue::Uint(U256::from(123), 256));
+        assert_eq!(result, json!(123));
+
+        // Large Uint becomes JSON String
+        let large_uint = U256::from(i64::MAX as u64) + U256::from(1);
+        let result = dyn_sol_value_to_json(&DynSolValue::Uint(large_uint, 256));
+        assert_eq!(result, json!(large_uint.to_string()));
+
+        // Negative Int becomes JSON Number
+        let result = dyn_sol_value_to_json(&DynSolValue::Int(I256::try_from(-123).unwrap(), 256));
+        assert_eq!(result, json!(-123));
+
+        // Large Int becomes JSON String
+        let large_int = I256::try_from(i64::MIN as i128 - 1).unwrap();
+        let result = dyn_sol_value_to_json(&DynSolValue::Int(large_int, 256));
+        assert_eq!(result, json!(large_int.to_string()));
+    }
+
+    #[test]
+    fn test_dyn_sol_value_to_json_unhandled_variant() {
+        let bytes = [0x01; 24];
+        let function = Function::new(bytes);
+        let result = dyn_sol_value_to_json(&DynSolValue::Function(function));
+        assert_eq!(result, json!(null));
     }
 
     #[test]
@@ -378,24 +453,6 @@ mod tests {
     }
 
     #[test]
-    fn test_dyn_sol_value_to_json_large_numbers() {
-        // Large Uint (should become string)
-        let large_uint = U256::MAX;
-        let result = dyn_sol_value_to_json(&DynSolValue::Uint(large_uint, 256));
-        assert_eq!(result, json!(large_uint.to_string()));
-
-        // Uint at i64::MAX boundary (should stay as number)
-        let max_i64_as_u256 = U256::from(i64::MAX as u64);
-        let result = dyn_sol_value_to_json(&DynSolValue::Uint(max_i64_as_u256, 256));
-        assert_eq!(result, json!(i64::MAX));
-
-        // Uint just beyond i64::MAX (should become string)
-        let beyond_i64_max = U256::from(i64::MAX as u64) + U256::from(1);
-        let result = dyn_sol_value_to_json(&DynSolValue::Uint(beyond_i64_max, 256));
-        assert_eq!(result, json!(beyond_i64_max.to_string()));
-    }
-
-    #[test]
     fn test_dyn_sol_value_to_rhai_signed_integers() {
         // Small Int (should become BigInt)
         let result = dyn_sol_value_to_rhai(&DynSolValue::Int(I256::try_from(123).unwrap(), 256));
@@ -420,6 +477,8 @@ mod tests {
         let bigint_val = result.cast::<BigInt>();
         assert_eq!(bigint_val.to_string(), beyond_i64_max.to_string());
     }
+
+    // --- Tests for build_transaction_map ---
 
     /// Confirms that fields that can be large are always BigInt, and bounded
     /// fields are i64.
@@ -478,6 +537,30 @@ mod tests {
     }
 
     #[test]
+    fn test_build_transaction_map_legacy_tx() {
+        let tx =
+            TransactionBuilder::new().gas_price(U256::from(150)).tx_type(TxType::Legacy).build();
+        let map = build_transaction_map(&tx, None);
+
+        assert!(!map.contains_key("max_fee_per_gas"));
+        assert!(map.contains_key("gas_price"));
+        let gas_price = map.get("gas_price").unwrap().clone();
+        assert!(gas_price.is::<BigInt>());
+        assert_eq!(gas_price.cast::<BigInt>(), BigInt::from(150u64));
+    }
+
+    #[test]
+    fn test_build_transaction_map_no_receipt_and_creation() {
+        let tx = TransactionBuilder::new().to(None).build(); // Contract creation
+        let map = build_transaction_map(&tx, None); // No receipt
+
+        assert!(!map.contains_key("to"));
+        assert!(map.get("gas_used").unwrap().is_unit());
+        assert!(map.get("status").unwrap().is_unit());
+        assert!(map.get("effective_gas_price").unwrap().is_unit());
+    }
+
+    #[test]
     fn test_build_log_map_all_fields() {
         let log_address = address!("0000000000000000000000000000000000000001");
         let tx_hash = b256!("0x1111111111111111111111111111111111111111111111111111111111111111");
@@ -531,5 +614,53 @@ mod tests {
             map.get("effective_gas_price").unwrap().clone().cast::<BigInt>(),
             BigInt::from(145u64)
         );
+    }
+
+    // --- Tests for build_trigger_data_from_transaction ---
+
+    #[test]
+    fn test_build_trigger_data_from_transaction_comprehensive() {
+        let tx = TransactionBuilder::new()
+            .value(U256::MAX) // Large value
+            .gas_limit(21000)
+            .tx_type(TxType::Eip1559)
+            .max_fee_per_gas(U256::from(u128::MAX)) // Large value
+            .build();
+        let receipt = ReceiptBuilder::new()
+            .gas_used(18500)
+            .status(false)
+            .effective_gas_price(u128::MAX) // Large value
+            .build();
+        let data = build_trigger_data_from_transaction(&tx, Some(&receipt));
+
+        // Assert strings for large number types
+        assert_eq!(data["value"], json!(U256::MAX.to_string()));
+        assert_eq!(data["max_fee_per_gas"], json!(u128::MAX.to_string()));
+        assert_eq!(data["gas_used"], json!("18500")); // Now a string
+        assert_eq!(data["effective_gas_price"], json!(u128::MAX.to_string()));
+
+        // Assert numbers for bounded types
+        assert_eq!(data["gas_limit"], json!(21000));
+        assert_eq!(data["status"], json!(0));
+    }
+
+    #[test]
+    fn test_build_trigger_data_from_transaction_legacy_and_creation() {
+        // Use a large value that is valid for gas_price (fits in u128)
+        let large_gas_price = U256::from(u128::MAX);
+
+        let tx = TransactionBuilder::new()
+            .to(None) // Contract creation
+            .gas_price(large_gas_price)
+            .tx_type(TxType::Legacy)
+            .build();
+
+        let data = build_trigger_data_from_transaction(&tx, None);
+
+        assert!(data.get("to").is_none());
+        assert!(data.get("max_fee_per_gas").is_none());
+        assert!(data.get("gas_used").is_none());
+        // The final JSON should now correctly be a string.
+        assert_eq!(data["gas_price"], json!(large_gas_price.to_string()));
     }
 }
