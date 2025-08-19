@@ -24,6 +24,7 @@ fn create_test_monitor(name: &str, network: &str) -> Monitor {
         Some("0x123".to_string()),
         Some("abis/test.json".to_string()),
         "log.name == \"Test\"".to_string(),
+        vec![],
     )
 }
 
