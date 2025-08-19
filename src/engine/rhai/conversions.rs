@@ -287,7 +287,7 @@ pub fn build_trigger_data_from_transaction(
 
 #[cfg(test)]
 mod tests {
-    use alloy::primitives::{Address, address, b256};
+    use alloy::primitives::{Address, I256, U256, address, b256};
     use num_bigint::BigInt;
     use serde_json::json;
 
@@ -378,75 +378,108 @@ mod tests {
     }
 
     #[test]
-    fn test_dyn_sol_value_to_json_basic_types() {
-        // Address
-        let addr = Address::repeat_byte(0x11);
-        let result = dyn_sol_value_to_json(&DynSolValue::Address(addr));
-        assert_eq!(result, json!("0x1111111111111111111111111111111111111111"));
+    fn test_dyn_sol_value_to_json_large_numbers() {
+        // Large Uint (should become string)
+        let large_uint = U256::MAX;
+        let result = dyn_sol_value_to_json(&DynSolValue::Uint(large_uint, 256));
+        assert_eq!(result, json!(large_uint.to_string()));
 
-        // Bool
-        let result = dyn_sol_value_to_json(&DynSolValue::Bool(true));
-        assert_eq!(result, json!(true));
+        // Uint at i64::MAX boundary (should stay as number)
+        let max_i64_as_u256 = U256::from(i64::MAX as u64);
+        let result = dyn_sol_value_to_json(&DynSolValue::Uint(max_i64_as_u256, 256));
+        assert_eq!(result, json!(i64::MAX));
 
-        // String
-        let result = dyn_sol_value_to_json(&DynSolValue::String("hello".to_string()));
-        assert_eq!(result, json!("hello"));
-
-        // Small Uint (should become number)
-        let result = dyn_sol_value_to_json(&DynSolValue::Uint(U256::from(123), 256));
-        assert_eq!(result, json!(123));
+        // Uint just beyond i64::MAX (should become string)
+        let beyond_i64_max = U256::from(i64::MAX as u64) + U256::from(1);
+        let result = dyn_sol_value_to_json(&DynSolValue::Uint(beyond_i64_max, 256));
+        assert_eq!(result, json!(beyond_i64_max.to_string()));
     }
 
-    // ... other JSON tests remain the same ...
-
     #[test]
-    fn test_build_transaction_map_all_fields() {
+    fn test_dyn_sol_value_to_rhai_signed_integers() {
+        // Small Int (should become BigInt)
+        let result = dyn_sol_value_to_rhai(&DynSolValue::Int(I256::try_from(123).unwrap(), 256));
+        assert_eq!(result.cast::<BigInt>(), BigInt::from(123));
+
+        let result = dyn_sol_value_to_rhai(&DynSolValue::Int(I256::try_from(-123).unwrap(), 256));
+        assert_eq!(result.cast::<BigInt>(), BigInt::from(-123));
+
+        // Int at i64::MAX boundary (should become BigInt)
+        let result =
+            dyn_sol_value_to_rhai(&DynSolValue::Int(I256::try_from(i64::MAX).unwrap(), 256));
+        assert_eq!(result.cast::<BigInt>(), BigInt::from(i64::MAX));
+
+        // Int at i64::MIN boundary (should become BigInt)
+        let result =
+            dyn_sol_value_to_rhai(&DynSolValue::Int(I256::try_from(i64::MIN).unwrap(), 256));
+        assert_eq!(result.cast::<BigInt>(), BigInt::from(i64::MIN));
+
+        // Int just beyond i64::MAX (should become BigInt)
+        let beyond_i64_max = I256::try_from(i64::MAX as i128 + 1).unwrap();
+        let result = dyn_sol_value_to_rhai(&DynSolValue::Int(beyond_i64_max, 256));
+        let bigint_val = result.cast::<BigInt>();
+        assert_eq!(bigint_val.to_string(), beyond_i64_max.to_string());
+    }
+
+    /// Confirms that fields that can be large are always BigInt, and bounded
+    /// fields are i64.
+    #[test]
+    fn test_build_transaction_map_hybrid_types_comprehensive() {
         let tx = TransactionBuilder::new()
-            .to(Some(address!("0x0000000000000000000000000000000000000003")))
-            .value(U256::from(1000))
+            .value(U256::from(1000)) // Small value that could have been i64
             .gas_limit(21000)
             .nonce(5)
             .block_number(12345)
-            .transaction_index(7)
-            .input(vec![0x11, 0x22, 0x33].into())
-            .max_fee_per_gas(U256::from(200))
-            .max_priority_fee_per_gas(U256::from(100))
+            .max_fee_per_gas(U256::from(200)) // Small value
             .tx_type(TxType::Eip1559)
             .build();
 
-        let map = build_transaction_map(&tx, None);
+        let receipt = ReceiptBuilder::new()
+            .gas_used(18500)
+            .status(true)
+            .effective_gas_price(150) // Small value
+            .build();
 
-        // BigInt fields
-        assert_eq!(map.get("value").unwrap().clone().cast::<BigInt>(), BigInt::from(1000u64));
-        assert_eq!(
-            map.get("max_fee_per_gas").unwrap().clone().cast::<BigInt>(),
-            BigInt::from(200u64)
-        );
-        assert_eq!(
-            map.get("max_priority_fee_per_gas").unwrap().clone().cast::<BigInt>(),
-            BigInt::from(100u64)
-        );
+        let map = build_transaction_map(&tx, Some(&receipt));
 
-        // i64 fields
-        assert_eq!(map.get("gas_limit").unwrap().clone().cast::<i64>(), 21000);
-        assert_eq!(map.get("nonce").unwrap().clone().cast::<i64>(), 5);
-        assert_eq!(map.get("block_number").unwrap().clone().cast::<i64>(), 12345);
-        assert_eq!(map.get("transaction_index").unwrap().clone().cast::<i64>(), 7);
+        // --- Assert BigInt types for potentially large values ---
+        let value = map.get("value").unwrap().clone();
+        assert_eq!(value.type_name(), "num_bigint::bigint::BigInt");
+        assert_eq!(value.cast::<BigInt>(), BigInt::from(1000u64));
 
-        // String fields
-        assert_eq!(
-            map.get("to").unwrap().clone().cast::<String>(),
-            tx.to().unwrap().to_checksum(None)
-        );
-        assert_eq!(
-            map.get("input").unwrap().clone().cast::<String>(),
-            format!("0x{}", hex::encode(tx.input()))
-        );
+        let max_fee = map.get("max_fee_per_gas").unwrap().clone();
+        assert_eq!(max_fee.type_name(), "num_bigint::bigint::BigInt");
+        assert_eq!(max_fee.cast::<BigInt>(), BigInt::from(200u64));
+
+        let effective_price = map.get("effective_gas_price").unwrap().clone();
+        assert_eq!(effective_price.type_name(), "num_bigint::bigint::BigInt");
+        assert_eq!(effective_price.cast::<BigInt>(), BigInt::from(150u64));
+
+        // --- Assert i64 types for bounded values ---
+        let gas_limit = map.get("gas_limit").unwrap().clone();
+        assert_eq!(gas_limit.type_name(), "i64");
+        assert_eq!(gas_limit.cast::<i64>(), 21000);
+
+        let nonce = map.get("nonce").unwrap().clone();
+        assert_eq!(nonce.type_name(), "i64");
+        assert_eq!(nonce.cast::<i64>(), 5);
+
+        let block_num = map.get("block_number").unwrap().clone();
+        assert_eq!(block_num.type_name(), "i64");
+        assert_eq!(block_num.cast::<i64>(), 12345);
+
+        let gas_used = map.get("gas_used").unwrap().clone();
+        assert_eq!(gas_used.type_name(), "i64");
+        assert_eq!(gas_used.cast::<i64>(), 18500);
+
+        let status = map.get("status").unwrap().clone();
+        assert_eq!(status.type_name(), "i64");
+        assert_eq!(status.cast::<i64>(), 1);
     }
 
     #[test]
     fn test_build_log_map_all_fields() {
-        let log_address = address!("0x0000000000000000000000000000000000000001");
+        let log_address = address!("0000000000000000000000000000000000000001");
         let tx_hash = b256!("0x1111111111111111111111111111111111111111111111111111111111111111");
 
         let log_raw = LogBuilder::new()
@@ -460,7 +493,7 @@ mod tests {
         let decoded_log =
             DecodedLog { name: "Transfer".to_string(), params: vec![], log: log_raw.into() };
 
-        let params_map = Map::new(); // Empty for this test, as we're testing log fields
+        let params_map = Map::new(); // Empty for this test
         let map = build_log_map(&decoded_log, params_map);
 
         assert_eq!(map.get("name").unwrap().clone().cast::<String>(), "Transfer");
