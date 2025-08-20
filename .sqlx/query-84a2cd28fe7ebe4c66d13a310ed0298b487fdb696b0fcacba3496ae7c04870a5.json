@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM notifiers WHERE network_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "84a2cd28fe7ebe4c66d13a310ed0298b487fdb696b0fcacba3496ae7c04870a5"
+}

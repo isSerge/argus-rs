@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO notifiers (name, network_id, config) VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "2ecde1d2625ca7ed57e438cf71fe8b8d6b0ee37afd55c37542806ab40850723c"
+}

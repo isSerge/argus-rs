@@ -4,53 +4,11 @@
 use std::str::FromStr;
 
 use async_trait::async_trait;
-use sqlx::{
-    Row, SqlitePool,
-    sqlite::{SqliteConnectOptions, SqliteRow},
-};
+use chrono::{DateTime, NaiveDateTime, Utc};
+use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 
 use super::traits::StateRepository;
 use crate::models::{monitor::Monitor, notifier::NotifierConfig};
-
-/// SQL query constants for monitor operations
-mod monitor_sql {
-    /// Select all monitors for a specific network
-    pub const SELECT_MONITORS_BY_NETWORK: &str = "SELECT monitor_id, name, network, address, abi, \
-                                                  filter_script, notifiers, created_at, \
-                                                  updated_at FROM monitors WHERE network = ?";
-
-    /// Insert a new monitor
-    pub const INSERT_MONITOR: &str = "INSERT INTO monitors (name, network, address, abi, \
-                                      filter_script, notifiers) VALUES (?, ?, ?, ?, ?, ?)";
-
-    /// Delete all monitors for a specific network
-    pub const DELETE_MONITORS_BY_NETWORK: &str = "DELETE FROM monitors WHERE network = ?";
-}
-
-/// SQL query constants for notifier operations
-mod notifier_sql {
-    /// Select all notifiers for a specific network
-    pub const SELECT_NOTIFIERS_BY_NETWORK: &str =
-        "SELECT name, config FROM notifiers WHERE network_id = ?";
-
-    /// Insert a new notifier
-    pub const INSERT_NOTIFIER: &str =
-        "INSERT INTO notifiers (name, network_id, config) VALUES (?, ?, ?)";
-
-    /// Delete all notifiers for a specific network
-    pub const DELETE_NOTIFIERS_BY_NETWORK: &str = "DELETE FROM notifiers WHERE network_id = ?";
-}
-
-/// SQL query constants for processed blocks operations
-mod block_sql {
-    /// Select last processed block for a network
-    pub const SELECT_LAST_PROCESSED_BLOCK: &str =
-        "SELECT block_number FROM processed_blocks WHERE network_id = ?";
-
-    /// Insert or replace last processed block
-    pub const UPSERT_LAST_PROCESSED_BLOCK: &str =
-        "INSERT OR REPLACE INTO processed_blocks (network_id, block_number) VALUES (?, ?)";
-}
 
 /// A concrete implementation of the StateRepository using SQLite.
 pub struct SqliteStateRepository {
@@ -151,18 +109,20 @@ impl StateRepository for SqliteStateRepository {
     async fn get_last_processed_block(&self, network_id: &str) -> Result<Option<u64>, sqlx::Error> {
         tracing::debug!(network_id, "Querying for last processed block.");
 
-        let result: Option<SqliteRow> = self
+        let result = self
             .execute_query_with_error_handling(
                 "query last processed block",
-                sqlx::query(block_sql::SELECT_LAST_PROCESSED_BLOCK)
-                    .bind(network_id)
-                    .fetch_optional(&self.pool),
+                sqlx::query!(
+                    "SELECT block_number FROM processed_blocks WHERE network_id = ?",
+                    network_id
+                )
+                .fetch_optional(&self.pool),
             )
             .await?;
 
         match result {
-            Some(row) => {
-                let block_number: i64 = row.get("block_number");
+            Some(record) => {
+                let block_number: i64 = record.block_number;
                 match block_number.try_into() {
                     Ok(block_number_u64) => {
                         tracing::debug!(
@@ -207,10 +167,12 @@ impl StateRepository for SqliteStateRepository {
 
         self.execute_query_with_error_handling(
             "set last processed block",
-            sqlx::query(block_sql::UPSERT_LAST_PROCESSED_BLOCK)
-                .bind(network_id)
-                .bind(block_number_i64)
-                .execute(&self.pool),
+            sqlx::query!(
+                "INSERT OR REPLACE INTO processed_blocks (network_id, block_number) VALUES (?, ?)",
+                network_id,
+                block_number_i64
+            )
+            .execute(&self.pool),
         )
         .await?;
 
@@ -286,32 +248,64 @@ impl StateRepository for SqliteStateRepository {
     async fn get_monitors(&self, network_id: &str) -> Result<Vec<Monitor>, sqlx::Error> {
         tracing::debug!(network_id, "Querying for monitors.");
 
-        let rows = self
-            .execute_query_with_error_handling(
-                "query monitors",
-                sqlx::query(monitor_sql::SELECT_MONITORS_BY_NETWORK)
-                    .bind(network_id)
-                    .fetch_all(&self.pool),
-            )
+        // Helper struct for mapping from the database row
+        #[derive(sqlx::FromRow)]
+        struct MonitorRow {
+            monitor_id: i64,
+            name: String,
+            network: String,
+            address: Option<String>,
+            abi: Option<String>,
+            filter_script: String,
+            notifiers: String,
+            created_at: NaiveDateTime,
+            updated_at: NaiveDateTime,
+        }
+
+        let monitor_rows = self
+            .execute_query_with_error_handling("query monitors", async {
+                sqlx::query_as!(
+                    MonitorRow,
+                    r#"
+                SELECT 
+                    monitor_id as "monitor_id!", 
+                    name, 
+                    network, 
+                    address, 
+                    abi, 
+                    filter_script, 
+                    notifiers, 
+                    created_at as "created_at!", 
+                    updated_at as "updated_at!"
+                FROM monitors 
+                WHERE network = ?
+                "#,
+                    network_id
+                )
+                .fetch_all(&self.pool)
+                .await
+            })
             .await?;
 
-        let monitors = rows
+        let monitors = monitor_rows
             .into_iter()
             .map(|row| {
-                let notifiers_str: String = row.get("notifiers");
-                let notifiers: Vec<String> = serde_json::from_str(&notifiers_str)
+                let notifiers: Vec<String> = serde_json::from_str(&row.notifiers)
                     .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
 
+                let created_at = DateTime::<Utc>::from_naive_utc_and_offset(row.created_at, Utc);
+                let updated_at = DateTime::<Utc>::from_naive_utc_and_offset(row.updated_at, Utc);
+
                 Ok(Monitor {
-                    id: row.get("monitor_id"),
-                    name: row.get("name"),
-                    network: row.get("network"),
-                    address: row.get("address"),
-                    abi: row.get("abi"),
-                    filter_script: row.get("filter_script"),
+                    id: row.monitor_id,
+                    name: row.name,
+                    network: row.network,
+                    address: row.address,
+                    abi: row.abi,
+                    filter_script: row.filter_script,
                     notifiers,
-                    created_at: row.get("created_at"),
-                    updated_at: row.get("updated_at"),
+                    created_at,
+                    updated_at,
                 })
             })
             .collect::<Result<Vec<_>, sqlx::Error>>()?;
@@ -356,15 +350,18 @@ impl StateRepository for SqliteStateRepository {
             let notifiers_str = serde_json::to_string(&monitor.notifiers)
                 .map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
 
-            sqlx::query(monitor_sql::INSERT_MONITOR)
-                .bind(&monitor.name)
-                .bind(&monitor.network)
-                .bind(&monitor.address)
-                .bind(&monitor.abi)
-                .bind(&monitor.filter_script)
-                .bind(&notifiers_str)
-                .execute(&mut *tx)
-                .await?;
+            sqlx::query!(
+                "INSERT INTO monitors (name, network, address, abi, filter_script, notifiers) \
+                 VALUES (?, ?, ?, ?, ?, ?)",
+                monitor.name,
+                monitor.network,
+                monitor.address,
+                monitor.abi,
+                monitor.filter_script,
+                notifiers_str
+            )
+            .execute(&mut *tx)
+            .await?;
         }
 
         tx.commit().await?;
@@ -381,8 +378,7 @@ impl StateRepository for SqliteStateRepository {
         let result = self
             .execute_query_with_error_handling(
                 "clear monitors",
-                sqlx::query(monitor_sql::DELETE_MONITORS_BY_NETWORK)
-                    .bind(network_id)
+                sqlx::query!("DELETE FROM monitors WHERE network = ?", network_id)
                     .execute(&self.pool),
             )
             .await?;
@@ -399,23 +395,31 @@ impl StateRepository for SqliteStateRepository {
     async fn get_notifiers(&self, network_id: &str) -> Result<Vec<NotifierConfig>, sqlx::Error> {
         tracing::debug!(network_id, "Querying for notifiers.");
 
-        let rows = self
+        // Helper struct for mapping from the database row
+        #[derive(sqlx::FromRow)]
+        struct NotifierRow {
+            name: String,
+            config: String,
+        }
+
+        let notifier_rows = self
             .execute_query_with_error_handling(
                 "query notifiers",
-                sqlx::query(notifier_sql::SELECT_NOTIFIERS_BY_NETWORK)
-                    .bind(network_id)
-                    .fetch_all(&self.pool),
+                sqlx::query_as!(
+                    NotifierRow,
+                    "SELECT name, config FROM notifiers WHERE network_id = ?",
+                    network_id
+                )
+                .fetch_all(&self.pool),
             )
             .await?;
 
-        let notifiers = rows
+        let notifiers = notifier_rows
             .into_iter()
             .map(|row| {
-                let name: String = row.get("name");
-                let config_str: String = row.get("config");
-                let config = serde_json::from_str(&config_str)
+                let config = serde_json::from_str(&row.config)
                     .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
-                Ok(NotifierConfig { name, config })
+                Ok(NotifierConfig { name: row.name, config })
             })
             .collect::<Result<Vec<_>, sqlx::Error>>()?;
 
@@ -447,12 +451,17 @@ impl StateRepository for SqliteStateRepository {
             let config_str = serde_json::to_string(&notifier.config)
                 .map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
 
-            sqlx::query(notifier_sql::INSERT_NOTIFIER)
-                .bind(&notifier.name)
-                .bind(network_id)
-                .bind(&config_str)
-                .execute(&mut *tx)
-                .await?;
+            let notifier_name = &notifier.name;
+            let config = &config_str;
+
+            sqlx::query!(
+                "INSERT INTO notifiers (name, network_id, config) VALUES (?, ?, ?)",
+                notifier_name,
+                network_id,
+                config
+            )
+            .execute(&mut *tx)
+            .await?;
         }
 
         tx.commit().await?;
@@ -469,8 +478,7 @@ impl StateRepository for SqliteStateRepository {
         let result = self
             .execute_query_with_error_handling(
                 "clear notifiers",
-                sqlx::query(notifier_sql::DELETE_NOTIFIERS_BY_NETWORK)
-                    .bind(network_id)
+                sqlx::query!("DELETE FROM notifiers WHERE network_id = ?", network_id)
                     .execute(&self.pool),
             )
             .await?;

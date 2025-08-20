@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT block_number FROM processed_blocks WHERE network_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "block_number",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a402bddc7423b8a1593f40b36a29d4d4adc75f96bfb755757daa22e84256284b"
+}
