@@ -28,11 +28,11 @@ jobs:
       - name: Build docs
         run: cargo doc --no-deps
 
-      - name: Create deployment directory
-        run: mkdir pages
+      - name: Create rust-docs deployment directory
+        run: mkdir -p pages/rust-docs
 
       - name: Move docs to deployment directory
-        run: mv ./target/doc ./pages/rust-docs
+        run: mv ./target/doc/* ./pages/rust-docs/
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
