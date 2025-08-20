@@ -169,6 +169,19 @@ mod tests {
     }
 
     #[test]
+    fn test_gwei_constructor() {
+        let dynamic_float = Dynamic::from(1.5);
+        let dynamic_integer = Dynamic::from(2);
+        let dynamic_string = Dynamic::from("3.0");
+        let gwei_float = gwei(dynamic_float).unwrap();
+        let gwei_integer = gwei(dynamic_integer).unwrap();
+        let gwei_string = gwei(dynamic_string).unwrap();
+        assert_eq!(gwei_float, BigInt::from(1500000000u64)); // 1.5 gwei should scale to 1.5 * 10^9 wei
+        assert_eq!(gwei_integer, BigInt::from(2000000000u64)); // 2 gwei should scale to 2 * 10^9 wei
+        assert_eq!(gwei_string, BigInt::from(3000000000u64)); // 3.0 gwei should scale to 3.0 * 10^9 wei
+    }
+
+    #[test]
     fn test_ether_constructor() {
         let dynamic_float = Dynamic::from(1.5);
         let dynamic_integer = Dynamic::from(2);
