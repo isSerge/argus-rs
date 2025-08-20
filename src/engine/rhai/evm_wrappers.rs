@@ -1,12 +1,51 @@
-//! This module provides wrappers for EVM-related functionality in Rhai scripts.
-//! It includes constructors for various token types and utility functions for
-//! scaling values.
+//! # Rhai EVM Wrappers
+//!
+//! This module provides essential wrappers for EVM-related functionalities
+//! to be used within Rhai scripts. It facilitates the handling of different
+//! token denominations by offering convenient constructors for common token
+//! types and utility functions for value scaling.
+//!
+//! ## Features:
+//!
+//! - **Token Constructors**: Functions like `ether`, `gwei`, `usdc`, etc.,
+//!   allow for easy conversion of numeric values into the appropriate `BigInt`
+//!   representation, scaled to the correct number of decimal places.
+//! - **Decimal Scaling**: A generic `decimals` function is available for tokens
+//!   with a variable number of decimal places.
+//!
+//! ## Usage Example:
+//!
+//! ```rhai
+//! // Example of using the wrappers in a Rhai script
+//! let price = ether(1.5); // Represents 1.5 ETH in wei
+//! let fee = gwei(100);   // Represents 100 Gwei in wei
+//!
+//! // Custom token with 12 decimals
+//! let custom_token_amount = decimals(50.25, 12);
+//! ```
 
 use num_bigint::BigInt;
 use rhai::Dynamic;
 use rust_decimal::prelude::*;
 
-/// Scale a value by a given number of decimal places and return a `BigInt`.
+/// Scales a `Dynamic` value by a specified number of decimal places.
+///
+/// This function is used to convert a human-readable number (like `1.23`)
+/// into its integer representation based on the token's decimals. For example,
+/// a token with 2 decimal places would convert `1.23` to `123`.
+///
+/// # Arguments
+///
+/// * `value` - The `Dynamic` value to scale. Can be an integer, float, or
+///   string.
+/// * `decimals` - The number of decimal places to scale by. Must be
+///   non-negative.
+///
+/// # Example
+///
+/// ```rhai
+/// let amount = decimals(1.23, 2); // returns 123
+/// ```
 fn decimals(value: Dynamic, decimals: i64) -> Result<BigInt, Box<rhai::EvalAltResult>> {
     if decimals >= 0 {
         scale_by_decimals(value, decimals as u32)
@@ -15,32 +54,98 @@ fn decimals(value: Dynamic, decimals: i64) -> Result<BigInt, Box<rhai::EvalAltRe
     }
 }
 
-/// Constructor for ether value (18 decimals)
+/// Converts a value to wei, assuming it is denominated in ether (18 decimals).
+///
+/// # Arguments
+///
+/// * `value` - The value in ether to convert.
+///
+/// # Example
+///
+/// ```rhai
+/// let one_ether_in_wei = ether(1); // returns 1000000000000000000
+/// ```
 fn ether(value: Dynamic) -> Result<BigInt, Box<rhai::EvalAltResult>> {
     scale_by_decimals(value, 18)
 }
 
-/// Constructor for gwei value (9 decimals)
+/// Converts a value to wei, assuming it is denominated in gwei (9 decimals).
+///
+/// # Arguments
+///
+/// * `value` - The value in gwei to convert.
+///
+/// # Example
+///
+/// ```rhai
+/// let one_gwei_in_wei = gwei(1); // returns 1000000000
+/// ```
 fn gwei(value: Dynamic) -> Result<BigInt, Box<rhai::EvalAltResult>> {
     scale_by_decimals(value, 9)
 }
 
-/// Constructor for wei value (0 decimals)
+/// Converts a value to wei (0 decimals).
+///
+/// Since wei is the base unit, this function effectively truncates any
+/// fractional part of the input value.
+///
+/// # Arguments
+///
+/// * `value` - The value in wei to convert.
+///
+/// # Example
+///
+/// ```rhai
+/// let amount = wei(1.9); // returns 1
+/// ```
 fn wei(value: Dynamic) -> Result<BigInt, Box<rhai::EvalAltResult>> {
     scale_by_decimals(value, 0)
 }
 
-/// Constructor for USDC value (6 decimals)
+/// Converts a value to its atomic unit, assuming it is denominated in USDC (6
+/// decimals).
+///
+/// # Arguments
+///
+/// * `value` - The value in USDC to convert.
+///
+/// # Example
+///
+/// ```rhai
+/// let one_usdc = usdc(1); // returns 1000000
+/// ```
 fn usdc(value: Dynamic) -> Result<BigInt, Box<rhai::EvalAltResult>> {
     scale_by_decimals(value, 6)
 }
 
-/// Constructor for USDT value (6 decimals)
+/// Converts a value to its atomic unit, assuming it is denominated in USDT (6
+/// decimals).
+///
+/// # Arguments
+///
+/// * `value` - The value in USDT to convert.
+///
+/// # Example
+///
+/// ```rhai
+/// let one_usdt = usdt(1); // returns 1000000
+/// ```
 fn usdt(value: Dynamic) -> Result<BigInt, Box<rhai::EvalAltResult>> {
-    usdc(value) // Also 6 decimals, same as USDC
+    scale_by_decimals(value, 6)
 }
 
-/// Constructor for WBTC value (8 decimals)
+/// Converts a value to its atomic unit, assuming it is denominated in WBTC (8
+/// decimals).
+///
+/// # Arguments
+///
+/// * `value` - The value in WBTC to convert.
+///
+/// # Example
+///
+/// ```rhai
+/// let one_wbtc = wbtc(1); // returns 100000000
+/// ```
 fn wbtc(value: Dynamic) -> Result<BigInt, Box<rhai::EvalAltResult>> {
     scale_by_decimals(value, 8)
 }
@@ -205,6 +310,19 @@ mod tests {
         assert_eq!(usdc_float, BigInt::from(1234500)); // 1.2345 USDC should scale to 1.2345 * 10^6
         assert_eq!(usdc_integer, BigInt::from(1000000000000000_i64)); // 1000000000 USDC should scale to 1000000000 * 10^6
         assert_eq!(usdc_string, BigInt::from(1234500)); // "1.2345" USDC should scale to 1.2345 * 10^6
+    }
+
+    #[test]
+    fn test_usdt_constructor() {
+        let dynamic_float = Dynamic::from(1.2345);
+        let dynamic_integer = Dynamic::from(1000000000); // one billion
+        let dynamic_string = Dynamic::from("1.2345");
+        let usdt_float = usdt(dynamic_float).unwrap();
+        let usdt_integer = usdt(dynamic_integer).unwrap();
+        let usdt_string = usdt(dynamic_string).unwrap();
+        assert_eq!(usdt_float, BigInt::from(1234500)); // 1.2345 USDT should scale to 1.2345 * 10^6
+        assert_eq!(usdt_integer, BigInt::from(1000000000000000_i64)); // 1000000000 USDT should scale to 1000000000 * 10^6
+        assert_eq!(usdt_string, BigInt::from(1234500)); // "1.2345" USDT should scale to 1.2345 * 10^6
     }
 
     #[test]
