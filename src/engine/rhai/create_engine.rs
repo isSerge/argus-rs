@@ -26,5 +26,8 @@ pub fn create_engine(rhai_config: RhaiConfig) -> Engine {
     // Register BigInt wrapper for transparent big number handling
     super::bigint::register_bigint_with_rhai(&mut engine);
 
+    // Register EVM wrappers for handling token values
+    super::evm_wrappers::register_evm_wrappers_with_rhai(&mut engine);
+
     engine
 }

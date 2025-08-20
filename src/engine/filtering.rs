@@ -692,4 +692,40 @@ mod tests {
             "Should require receipts even if other scripts are invalid"
         );
     }
+
+    #[tokio::test]
+    async fn test_evaluate_item_with_evm_wrappers() {
+        let monitor = create_test_monitor(
+            1,
+            None,
+            None,
+            "tx.value > ether(1.5)", // Use the ether() wrapper
+            vec!["notifier1".to_string()],
+        );
+        let config = RhaiConfig::default();
+        let compiler = Arc::new(RhaiCompiler::new(config.clone()));
+        let engine = RhaiFilteringEngine::new(vec![monitor], compiler, config);
+
+        // This transaction's value is 2 ETH, which should trigger the monitor
+        let tx_match = TransactionBuilder::new()
+            .value(U256::from(2) * U256::from(10).pow(U256::from(18)))
+            .build();
+        let item_match = CorrelatedBlockItem::new(tx_match.clone(), vec![], None);
+
+        // This transaction's value is 1 ETH, which should NOT trigger the monitor
+        let tx_no_match = TransactionBuilder::new()
+            .value(U256::from(1) * U256::from(10).pow(U256::from(18)))
+            .build();
+        let item_no_match = CorrelatedBlockItem::new(tx_no_match.clone(), vec![], None);
+
+        // Test matching case
+        let matches = engine.evaluate_item(&item_match).await.unwrap();
+        assert_eq!(matches.len(), 1, "Should find one match for value > 1.5 ether");
+        assert_eq!(matches[0].monitor_id, 1);
+        assert_eq!(matches[0].transaction_hash, tx_match.hash());
+
+        // Test non-matching case
+        let no_matches = engine.evaluate_item(&item_no_match).await.unwrap();
+        assert!(no_matches.is_empty(), "Should find no matches for value <= 1.5 ether");
+    }
 }
