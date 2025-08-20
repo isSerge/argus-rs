@@ -4,7 +4,7 @@
 use std::str::FromStr;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 
 use super::traits::StateRepository;
@@ -248,42 +248,61 @@ impl StateRepository for SqliteStateRepository {
     async fn get_monitors(&self, network_id: &str) -> Result<Vec<Monitor>, sqlx::Error> {
         tracing::debug!(network_id, "Querying for monitors.");
 
-        let records = self
-            .execute_query_with_error_handling(
-                "query monitors",
-                sqlx::query!(
-                    "SELECT monitor_id, name, network, address, abi, filter_script, notifiers, \
-                     created_at, updated_at FROM monitors WHERE network = ?",
+        // Helper struct for mapping from the database row
+        #[derive(sqlx::FromRow)]
+        struct MonitorRow {
+            monitor_id: i64,
+            name: String,
+            network: String,
+            address: Option<String>,
+            abi: Option<String>,
+            filter_script: String,
+            notifiers: String,
+            created_at: NaiveDateTime,
+            updated_at: NaiveDateTime,
+        }
+
+        let monitor_rows = self
+            .execute_query_with_error_handling("query monitors", async {
+                sqlx::query_as!(
+                    MonitorRow,
+                    r#"
+                SELECT 
+                    monitor_id as "monitor_id!", 
+                    name, 
+                    network, 
+                    address, 
+                    abi, 
+                    filter_script, 
+                    notifiers, 
+                    created_at as "created_at!", 
+                    updated_at as "updated_at!"
+                FROM monitors 
+                WHERE network = ?
+                "#,
                     network_id
                 )
-                .fetch_all(&self.pool),
-            )
+                .fetch_all(&self.pool)
+                .await
+            })
             .await?;
 
-        let monitors = records
+        let monitors = monitor_rows
             .into_iter()
-            .map(|record| {
-                let notifiers_str: String = record.notifiers;
-                let notifiers: Vec<String> = serde_json::from_str(&notifiers_str)
+            .map(|row| {
+                let notifiers: Vec<String> = serde_json::from_str(&row.notifiers)
                     .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
 
-                let created_at = DateTime::<Utc>::from_naive_utc_and_offset(
-                    record.created_at.expect("created_at should not be null"),
-                    Utc,
-                );
-
-                let updated_at = DateTime::<Utc>::from_naive_utc_and_offset(
-                    record.updated_at.expect("updated_at should not be null"),
-                    Utc,
-                );
+                let created_at = DateTime::<Utc>::from_naive_utc_and_offset(row.created_at, Utc);
+                let updated_at = DateTime::<Utc>::from_naive_utc_and_offset(row.updated_at, Utc);
 
                 Ok(Monitor {
-                    id: record.monitor_id.expect("monitor_id missing"),
-                    name: record.name,
-                    network: record.network,
-                    address: record.address,
-                    abi: record.abi,
-                    filter_script: record.filter_script,
+                    id: row.monitor_id,
+                    name: row.name,
+                    network: row.network,
+                    address: row.address,
+                    abi: row.abi,
+                    filter_script: row.filter_script,
                     notifiers,
                     created_at,
                     updated_at,
@@ -376,22 +395,31 @@ impl StateRepository for SqliteStateRepository {
     async fn get_notifiers(&self, network_id: &str) -> Result<Vec<NotifierConfig>, sqlx::Error> {
         tracing::debug!(network_id, "Querying for notifiers.");
 
-        let records = self
+        // Helper struct for mapping from the database row
+        #[derive(sqlx::FromRow)]
+        struct NotifierRow {
+            name: String,
+            config: String,
+        }
+
+        let notifier_rows = self
             .execute_query_with_error_handling(
                 "query notifiers",
-                sqlx::query!("SELECT name, config FROM notifiers WHERE network_id = ?", network_id)
-                    .fetch_all(&self.pool),
+                sqlx::query_as!(
+                    NotifierRow,
+                    "SELECT name, config FROM notifiers WHERE network_id = ?",
+                    network_id
+                )
+                .fetch_all(&self.pool),
             )
             .await?;
 
-        let notifiers = records
+        let notifiers = notifier_rows
             .into_iter()
-            .map(|record| {
-                let name: String = record.name;
-                let config_str: String = record.config;
-                let config = serde_json::from_str(&config_str)
+            .map(|row| {
+                let config = serde_json::from_str(&row.config)
                     .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
-                Ok(NotifierConfig { name, config })
+                Ok(NotifierConfig { name: row.name, config })
             })
             .collect::<Result<Vec<_>, sqlx::Error>>()?;
 
