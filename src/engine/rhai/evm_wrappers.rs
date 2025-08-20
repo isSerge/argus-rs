@@ -59,29 +59,31 @@ fn scale_by_decimals(value: Dynamic, decimals: u32) -> Result<BigInt, Box<rhai::
 
 /// Convert a Rhai Dynamic value to a Decimal.
 fn dynamic_to_decimal(value: Dynamic) -> Result<Decimal, Box<rhai::EvalAltResult>> {
-    let value_type = value.type_name();
-
+    // Value is Decimal
     if value.is::<Decimal>() {
         return Ok(value.clone_cast::<Decimal>());
     }
-    if let Some(int_value) = value.as_int().ok() {
-        return Ok(Decimal::from(int_value));
-    }
-    if let Some(float_value) = value.as_float().ok() {
-        return Decimal::from_f64(float_value).ok_or_else(|| "Invalid float value".into());
-    }
-    // Handle BigInt by converting it to a string for parsing.
+
+    // To convert other types use their string representation:
+
+    // Handle BigInt specifically
     if value.is::<BigInt>() {
         let bigint_value = value.clone_cast::<BigInt>();
-        return Decimal::from_str(&bigint_value.to_string())
-            .map_err(|_| "Invalid BigInt string".into());
-    }
-    // Handle string values as a fallback.
-    if let Some(string_value) = value.into_string().ok() {
-        return Decimal::from_str(&string_value).map_err(|_| "Invalid number string".into());
+        return Decimal::from_str(&bigint_value.to_string()).map_err(|_| {
+            format!("Failed to convert BigInt value '{}' to Decimal", bigint_value).into()
+        });
     }
 
-    Err(format!("Cannot convert value of type {:?} to Decimal", value_type).into())
+    // Rest numeric type (i32, i64, f64) or string
+    let string_repr = value.to_string();
+    Decimal::from_str(&string_repr).map_err(|_| {
+        format!(
+            "Cannot convert value of type {:?} ('{}') to Decimal",
+            value.type_name(),
+            string_repr
+        )
+        .into()
+    })
 }
 
 /// Register EVM wrapper types and operations with Rhai engine
@@ -108,19 +110,24 @@ mod tests {
 
     #[test]
     fn test_dynamic_to_decimal() {
+        let decimal = Decimal::new(123456789, 6);
+        let dynamic_decimal = Dynamic::from(decimal);
         let dynamic_int = Dynamic::from(42);
         let dynamic_float = Dynamic::from(3.14);
-        let dynamic_bigint_string = u256_to_bigint_dynamic(U256::MAX);
+        let large_bigint_str = "1234567890123456789012345"; // large, but can fit in a Decimal
+        let dynamic_bigint = Dynamic::from(BigInt::from_str(large_bigint_str).unwrap());
         let dynamic_wrong_type = Dynamic::from("not a number");
 
+        let decimal_decimal = dynamic_to_decimal(dynamic_decimal).unwrap();
         let decimal_int = dynamic_to_decimal(dynamic_int).unwrap();
         let decimal_float = dynamic_to_decimal(dynamic_float).unwrap();
-        let decimal_bigint = dynamic_to_decimal(dynamic_bigint_string).unwrap();
+        let decimal_bigint = dynamic_to_decimal(dynamic_bigint).unwrap();
         let decimal_wrong_type = dynamic_to_decimal(dynamic_wrong_type);
 
+        assert_eq!(decimal_decimal, decimal);
         assert_eq!(decimal_int, Decimal::from(42));
         assert_eq!(decimal_float, Decimal::from_f64(3.14).unwrap());
-        assert_eq!(decimal_bigint, Decimal::from_str(&U256::MAX.to_string()).unwrap());
+        assert_eq!(decimal_bigint, Decimal::from_str(&large_bigint_str).unwrap());
         assert!(decimal_wrong_type.is_err());
     }
 
@@ -136,6 +143,67 @@ mod tests {
 
         let dynamic_value_bigint = u256_to_bigint_dynamic(U256::from(1000));
         let scaled_value_bigint = scale_by_decimals(dynamic_value_bigint, 3).unwrap();
-        assert_eq!(scaled_value_bigint, BigInt::from(1000000)); 
+        assert_eq!(scaled_value_bigint, BigInt::from(1000000));
+    }
+
+    #[test]
+    fn test_scale_by_decimals_truncation() {
+        let dynamic_value = Dynamic::from(3.141592653589793);
+        let scaled_value = scale_by_decimals(dynamic_value, 2).unwrap();
+        assert_eq!(scaled_value, BigInt::from(314)); // Should truncate to 3.14
+    }
+
+    #[test]
+    fn test_decimals_constructor_decimals_should_be_positive() {
+        let dynamic_value = Dynamic::from(42);
+        let neg_decimals = -6; // should be positive
+        let result = decimals(dynamic_value, neg_decimals);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_wei_constructor() {
+        let dynamic_value = Dynamic::from(1.2);
+        let wei_value = wei(dynamic_value).unwrap();
+        assert_eq!(wei_value, BigInt::from(1)); // 1.2 wei should scale to 1 wei
+    }
+
+    #[test]
+    fn test_ether_constructor() {
+        let dynamic_float = Dynamic::from(1.5);
+        let dynamic_integer = Dynamic::from(2);
+        let dynamic_string = Dynamic::from("3.0");
+        let ether_float = ether(dynamic_float).unwrap();
+        let ether_integer = ether(dynamic_integer).unwrap();
+        let ether_string = ether(dynamic_string).unwrap();
+        assert_eq!(ether_float, BigInt::from(1500000000000000000u64)); // 1.5 ether should scale to 1.5 * 10^18 wei
+        assert_eq!(ether_integer, BigInt::from(2000000000000000000u64)); // 2 ether should scale to 2 * 10^18 wei
+        assert_eq!(ether_string, BigInt::from(3000000000000000000u64)); // 3.0 ether should scale to 3.0 * 10^18 wei
+    }
+
+    #[test]
+    fn test_usdc_constructor() {
+        let dynamic_float = Dynamic::from(1.2345);
+        let dynamic_integer = Dynamic::from(1000000000); // one billion
+        let dynamic_string = Dynamic::from("1.2345");
+        let usdc_float = usdc(dynamic_float).unwrap();
+        let usdc_integer = usdc(dynamic_integer).unwrap();
+        let usdc_string = usdc(dynamic_string).unwrap();
+        assert_eq!(usdc_float, BigInt::from(1234500)); // 1.2345 USDC should scale to 1.2345 * 10^6
+        assert_eq!(usdc_integer, BigInt::from(1000000000000000_i64)); // 1000000000 USDC should scale to 1000000000 * 10^6
+        assert_eq!(usdc_string, BigInt::from(1234500)); // "1.2345" USDC should scale to 1.2345 * 10^6
+    }
+
+    #[test]
+    fn test_wbtc_constructor() {
+        let dynamic_float = Dynamic::from(0.12345678);
+        let dynamic_integer = Dynamic::from(100000000); // one hundred million
+        let dynamic_string = Dynamic::from("0.12345678");
+        let wbtc_float = wbtc(dynamic_float).unwrap();
+        let wbtc_integer = wbtc(dynamic_integer).unwrap();
+        let wbtc_string = wbtc(dynamic_string).unwrap();
+        assert_eq!(wbtc_float, BigInt::from(12345678)); // 0.12345678 WBTC should scale to 0.12345678 * 10^8
+        assert_eq!(wbtc_integer, BigInt::from(10000000000000000_i64)); // 100000000 WBTC should scale to 100000000 * 10^8
+        assert_eq!(wbtc_string, BigInt::from(12345678)); // "0.12345678" WBTC should scale to 0.12345678 * 10^8
     }
 }
