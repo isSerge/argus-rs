@@ -10,6 +10,7 @@ Argus is a next-generation, open-source, self-hosted monitoring tool for EVM cha
 
 -   **Real-Time EVM Monitoring**: Connects to an EVM RPC endpoint to monitor new blocks in real time, processing transactions and logs as they occur.
 -   **Flexible Filtering with Rhai**: Uses the embedded [Rhai](https://rhai.rs) scripting language to create highly specific and powerful filters for any on-chain event, from simple balance changes to complex DeFi interactions.
+-   **EVM Value Wrappers**: Convenient functions like `ether`, `gwei`, and `usdc` for handling common token denominations, plus a generic `decimals` function for custom tokens. This makes filter scripts more readable and less error-prone.
 -   **Basic Notifications**: Supports webhook notifications, allowing for easy integration with services like Slack, Discord, or custom automation workflows.
 -   **Stateful Processing**: Tracks its progress in a local SQLite database, allowing it to stop and resume from where it left off without missing any blocks.
 -   **CLI Dry-Run Mode**: A `dry-run` command allows you to test your monitor against a range of historical blocks to ensure it works as expected before deploying it live.
@@ -78,7 +79,7 @@ monitors:
     # No address means it runs on every transaction.
     # This type of monitor inspects transaction data directly.
     filter_script: |
-      tx.value > bigint("10000000000000000000") # 10 ETH
+      tx.value > ether(10) # 10 ETH
     # Notifiers are used to send notifications when the monitor triggers.
     notifiers:
       # This monitor will use the "my-generic-webhook" notifier defined in `notifiers.yaml`.
@@ -91,7 +92,7 @@ monitors:
     # The ABI file is needed to decode event logs.
     abi: "abis/usdc.json"
     filter_script: |
-      log.name == "Transfer" && log.params.value > bigint("1000000000000") # 1M USDC
+      log.name == "Transfer" && log.params.value > usdc(1_000_000) # 1M USDC
     # Notifiers are used to send notifications when the monitor triggers.
     notifiers:
       # This monitor will use the "slack-notifications" notifier defined in `notifiers.yaml`.

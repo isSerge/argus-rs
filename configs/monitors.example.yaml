@@ -33,10 +33,11 @@ monitors:
     #
     # This script checks for the "Transfer" event and ensures the transfer value is
     # greater than 1,000,000 USDC.
-    # Note: We use `bigint` because token amounts are very large numbers.
-    # The value "1000000000000" represents 1,000,000 USDC, as USDC has 6 decimal places.
+    # The `usdc` function is a wrapper that correctly scales the value by the
+    # token's 6 decimal places. `usdc(1_000_000)` is equivalent to
+    # `bigint("1000000000000")`.
     filter_script: |
-      log.name == "Transfer" && log.params.value > bigint("1000000000000")
+      log.name == "Transfer" && log.params.value > usdc(1_000_000)
     # Notifiers are used to send notifications when the monitor triggers.
     notifiers:
       # This monitor will use the "discord-alerts" notifier defined in `notifiers.yaml`.
@@ -81,10 +82,11 @@ monitors:
     # The filter script will check the transaction's `value` field.
     #
     # This script checks for transactions where the value is greater than 10 ETH.
-    # Note: We use `bigint` because `tx.value` is a very large number.
-    # The value "10000000000000000000" is 10 ETH in Wei (10 * 10^18).
+    # The `ether` function is a wrapper that correctly scales the value to Wei
+    # (18 decimal places). `ether(10)` is equivalent to
+    # `bigint("10000000000000000000")`.
     filter_script: |
-      tx.value > bigint("10000000000000000000")
+      tx.value > ether(10)
     # Notifiers are used to send notifications when the monitor triggers.
     notifiers:
       # This monitor will use the "discord-alerts" notifier defined in `notifiers.yaml`.
