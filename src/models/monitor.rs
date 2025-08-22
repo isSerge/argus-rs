@@ -5,13 +5,38 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
-/// Represents a blockchain monitor that tracks specific addresses and networks.
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+/// Configuration for a monitor, used to create new monitors from config files before
+/// they are persisted to the database.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MonitorConfig {
+    /// Name of the monitor
+    pub name: String,
+
+    /// Blockchain network the monitor is associated with
+    pub network: String,
+
+    /// Address of the monitor (optional)
+    #[serde(default)]
+    pub address: Option<String>,
+
+    /// ABI of the monitor (optional)
+    #[serde(default)]
+    pub abi: Option<String>,
+
+    /// Filter script for the monitor
+    pub filter_script: String,
+
+    /// Notifiers for the monitor (optional)
+    #[serde(default)]
+    pub notifiers: Vec<String>,
+}
+
+/// Represents a blockchain monitor retrieved from the database.
+#[derive(Debug, Clone, FromRow)]
 pub struct Monitor {
     /// Unique identifier for the monitor (auto-generated when loading from
     /// config)
     #[sqlx(rename = "monitor_id")]
-    #[serde(default)]
     pub id: i64,
 
     /// Name of the monitor
@@ -23,37 +48,27 @@ pub struct Monitor {
     /// The specific address this monitor is tracking.
     /// If `None`, the monitor will be applied to all transactions (e.g., for
     /// native token transfers).
-    #[serde(default)]
     pub address: Option<String>,
 
     /// The ABI (Application Binary Interface) for the contract being monitored.
     /// This is used to decode event logs and call contract methods.
     /// If `None`, the monitor will not decode logs.
-    #[serde(default)]
     pub abi: Option<String>,
 
     /// The filter script used to determine relevant blockchain events
     pub filter_script: String,
 
     /// The notifiers to execute when the filter script matches
-    #[serde(default)]
     pub notifiers: Vec<String>,
 
     /// Timestamp when the monitor was created
-    #[serde(default = "default_timestamp")]
     pub created_at: DateTime<Utc>,
 
     /// Timestamp when the monitor was last updated
-    #[serde(default = "default_timestamp")]
     pub updated_at: DateTime<Utc>,
 }
 
-/// Provides a default timestamp for serde deserialization
-fn default_timestamp() -> DateTime<Utc> {
-    Utc::now()
-}
-
-impl Monitor {
+impl MonitorConfig {
     /// Creates a new monitor from configuration data (without an ID)
     pub fn from_config(
         name: String,
@@ -63,17 +78,13 @@ impl Monitor {
         filter_script: String,
         notifiers: Vec<String>,
     ) -> Self {
-        let now = Utc::now();
         Self {
-            id: 0, // Will be assigned by database
             name,
             network,
             address,
             abi,
             filter_script,
             notifiers,
-            created_at: now,
-            updated_at: now,
         }
     }
 }
@@ -84,7 +95,7 @@ mod tests {
 
     #[test]
     fn test_monitor_from_config_with_address() {
-        let monitor = Monitor::from_config(
+        let monitor = MonitorConfig::from_config(
             "Test Monitor".to_string(),
             "ethereum".to_string(),
             Some("0x123".to_string()),
@@ -93,7 +104,6 @@ mod tests {
             vec!["test-notifier".to_string()],
         );
 
-        assert_eq!(monitor.id, 0);
         assert_eq!(monitor.name, "Test Monitor");
         assert_eq!(monitor.network, "ethereum");
         assert_eq!(monitor.address, Some("0x123".to_string()));
@@ -103,7 +113,7 @@ mod tests {
 
     #[test]
     fn test_monitor_from_config_without_address() {
-        let monitor = Monitor::from_config(
+        let monitor = MonitorConfig::from_config(
             "Native Transfer Monitor".to_string(),
             "ethereum".to_string(),
             None,
@@ -112,7 +122,6 @@ mod tests {
             vec![],
         );
 
-        assert_eq!(monitor.id, 0);
         assert_eq!(monitor.name, "Native Transfer Monitor");
         assert_eq!(monitor.network, "ethereum");
         assert_eq!(monitor.address, None);
