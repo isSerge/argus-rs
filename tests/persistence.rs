@@ -2,7 +2,7 @@
 
 use argus::{
     models::{
-        monitor::Monitor,
+        monitor::MonitorConfig,
         notification::NotificationMessage,
         notifier::{DiscordConfig, NotifierConfig, NotifierTypeConfig},
     },
@@ -17,8 +17,8 @@ async fn setup_db() -> SqliteStateRepository {
     repo
 }
 
-fn create_test_monitor(name: &str, network: &str) -> Monitor {
-    Monitor::from_config(
+fn create_test_monitor(name: &str, network: &str) -> MonitorConfig {
+    MonitorConfig::from_config(
         name.to_string(),
         network.to_string(),
         Some("0x123".to_string()),

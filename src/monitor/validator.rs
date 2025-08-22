@@ -3,7 +3,7 @@
 use alloy::primitives::Address;
 use thiserror::Error;
 
-use crate::models::{monitor::Monitor, notifier::NotifierConfig};
+use crate::models::{monitor::MonitorConfig, notifier::NotifierConfig};
 
 /// A validator for monitor configurations.
 pub struct MonitorValidator<'a> {
@@ -76,7 +76,7 @@ impl<'a> MonitorValidator<'a> {
     }
 
     /// Validates the given monitor configuration.
-    pub fn validate(&self, monitor: &Monitor) -> Result<(), MonitorValidationError> {
+    pub fn validate(&self, monitor: &MonitorConfig) -> Result<(), MonitorValidationError> {
         // Check if network id matches the monitor's network.
         if monitor.network != self.network_id {
             return Err(MonitorValidationError::InvalidNetwork {
@@ -134,7 +134,7 @@ mod tests {
     use crate::{
         models::{
             NotificationMessage,
-            monitor::Monitor,
+            monitor::MonitorConfig,
             notifier::{NotifierConfig, NotifierTypeConfig, WebhookConfig},
         },
         monitor::{MonitorValidationError, MonitorValidator},
@@ -146,8 +146,8 @@ mod tests {
         abi: Option<&str>,
         script: &str,
         notifiers: Vec<String>,
-    ) -> Monitor {
-        Monitor::from_config(
+    ) -> MonitorConfig {
+        MonitorConfig::from_config(
             format!("Test Monitor {id}"),
             "testnet".to_string(),
             address.map(String::from),

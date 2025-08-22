@@ -5,8 +5,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
-/// Configuration for a monitor, used to create new monitors from config files before
-/// they are persisted to the database.
+/// Configuration for a monitor, used to create new monitors from config files
+/// before they are persisted to the database.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MonitorConfig {
     /// Name of the monitor
@@ -78,14 +78,7 @@ impl MonitorConfig {
         filter_script: String,
         notifiers: Vec<String>,
     ) -> Self {
-        Self {
-            name,
-            network,
-            address,
-            abi,
-            filter_script,
-            notifiers,
-        }
+        Self { name, network, address, abi, filter_script, notifiers }
     }
 }
 

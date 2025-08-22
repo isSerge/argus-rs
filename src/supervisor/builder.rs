@@ -103,20 +103,9 @@ mod tests {
 
     use super::*;
     use crate::{
-        models::monitor::Monitor, persistence::traits::MockStateRepository,
-        providers::traits::MockDataSource,
+        persistence::traits::MockStateRepository, providers::traits::MockDataSource,
+        test_helpers::MonitorBuilder,
     };
-
-    fn create_test_monitor(name: &str, address: Option<&str>, abi_path: Option<&str>) -> Monitor {
-        Monitor::from_config(
-            name.to_string(),
-            "testnet".to_string(),
-            address.map(String::from),
-            abi_path.map(String::from),
-            "true".to_string(),
-            vec![],
-        )
-    }
 
     #[tokio::test]
     async fn build_succeeds_with_valid_monitors() {
@@ -125,11 +114,11 @@ mod tests {
         let mut file = File::create(&abi_path).unwrap();
         file.write_all(b"[]").unwrap();
 
-        let monitor = create_test_monitor(
-            "Valid Monitor",
-            Some("0x0000000000000000000000000000000000000001"),
-            Some(abi_path.to_str().unwrap()),
-        );
+        let monitor = MonitorBuilder::new()
+            .name("Valid Monitor")
+            .address("0x0000000000000000000000000000000000000001")
+            .abi(abi_path.to_str().unwrap())
+            .build();
 
         let mut mock_state_repo = MockStateRepository::new();
         mock_state_repo.expect_get_monitors().returning(move |_| Ok(vec![monitor.clone()]));

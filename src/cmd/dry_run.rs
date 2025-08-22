@@ -22,6 +22,7 @@ use crate::{
         rpc::{EvmRpcSource, ProviderError, create_provider},
         traits::{DataSource, DataSourceError},
     },
+    test_helpers::MonitorBuilder,
 };
 
 /// Errors that can occur during the execution of a dry run.
@@ -120,6 +121,22 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
         monitor_validator.validate(monitor)?;
     }
     tracing::info!("Monitor validation successful.");
+
+    // Convert monitor configs to monitor instances using `MonitorBuilder`.
+    // This is done to avoid unnecessary database writes during dry runs.
+    let monitors: Vec<_> = monitors
+        .into_iter()
+        .map(|m| {
+            MonitorBuilder::new()
+                .name(&m.name)
+                .network(&m.network)
+                .address(&m.address.unwrap_or_default())
+                .abi(&m.abi.unwrap_or_default())
+                .filter_script(&m.filter_script)
+                .notifiers(m.notifiers)
+                .build()
+        })
+        .collect::<Vec<_>>();
 
     // Init services for notifications and filtering logic.
     let client_pool = Arc::new(HttpClientPool::new());
@@ -231,7 +248,6 @@ mod tests {
             block_processor::BlockProcessor, filtering::RhaiFilteringEngine, rhai::RhaiCompiler,
         },
         http_client::HttpClientPool,
-        models::monitor::Monitor,
         notification::NotificationService,
         providers::traits::MockDataSource,
         test_helpers::{BlockBuilder, TransactionBuilder},
@@ -255,14 +271,10 @@ mod tests {
         );
 
         // Create a monitor that will match the transaction
-        let monitor = Monitor::from_config(
-            "Test Monitor".to_string(),
-            "testnet".to_string(),
-            None,
-            None,
-            monitor_script.to_string(),
-            vec!["test-notifier".to_string()],
-        );
+        let monitor = MonitorBuilder::new()
+            .filter_script(monitor_script)
+            .notifiers(vec!["test-notifier".to_string()])
+            .build();
 
         // Initialize other services
         let abi_service = Arc::new(AbiService::new());
@@ -311,14 +323,7 @@ mod tests {
             },
         );
 
-        let monitor = Monitor::from_config(
-            "Test Monitor".to_string(),
-            "testnet".to_string(),
-            None,
-            None,
-            monitor_script.to_string(),
-            vec![],
-        );
+        let monitor = MonitorBuilder::new().filter_script(monitor_script).build();
 
         // Initialize other services
         let abi_service = Arc::new(AbiService::new());
@@ -366,14 +371,7 @@ mod tests {
         // This is the key assertion for this test: fetch_receipts must be called.
         mock_data_source.expect_fetch_receipts().times(1).returning(|_| Ok(Default::default()));
 
-        let monitor = Monitor::from_config(
-            "Test Monitor".to_string(),
-            "testnet".to_string(),
-            None,
-            None,
-            monitor_script.to_string(),
-            vec![],
-        );
+        let monitor = MonitorBuilder::new().filter_script(monitor_script).build();
 
         // Initialize other services
         let abi_service = Arc::new(AbiService::new());

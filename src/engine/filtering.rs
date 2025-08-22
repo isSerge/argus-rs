@@ -382,27 +382,8 @@ mod tests {
         abi::DecodedLog,
         config::RhaiConfig,
         models::transaction::Transaction,
-        test_helpers::{LogBuilder, TransactionBuilder},
+        test_helpers::{LogBuilder, MonitorBuilder, TransactionBuilder},
     };
-
-    fn create_test_monitor(
-        id: i64,
-        address: Option<&str>,
-        abi: Option<&str>,
-        script: &str,
-        notifiers: Vec<String>,
-    ) -> Monitor {
-        let mut monitor = Monitor::from_config(
-            format!("Test Monitor {id}"),
-            "testnet".to_string(),
-            address.map(String::from),
-            abi.map(String::from),
-            script.to_string(),
-            notifiers,
-        );
-        monitor.id = id;
-        monitor
-    }
 
     fn create_test_log_and_tx(
         log_address: Address,
@@ -423,10 +404,18 @@ mod tests {
         let addr2_lower = "0x0000000000000000000000000000000000000002";
         let addr2_checksum = "0x0000000000000000000000000000000000000002";
 
-        let monitor1 = create_test_monitor(1, Some(addr1_lower), Some("abi.json"), "true", vec![]);
-        let monitor2 = create_test_monitor(2, Some(addr2_lower), Some("abi.json"), "true", vec![]);
-        let monitor3 = create_test_monitor(3, Some(addr1_lower), Some("abi.json"), "true", vec![]);
-        let monitor4 = create_test_monitor(4, None, None, "tx.value > bigint(\"0\")", vec![]); // Tx monitor
+        // let monitor1 = create_test_monitor(1, Some(addr1_lower), Some("abi.json"),
+        // "true", vec![]); let monitor2 = create_test_monitor(2,
+        // Some(addr2_lower), Some("abi.json"), "true", vec![]); let monitor3 =
+        // create_test_monitor(3, Some(addr1_lower), Some("abi.json"), "true", vec![]);
+        // let monitor4 = create_test_monitor(4, None, None, "tx.value > bigint(\"0\")",
+        // vec![]); // Tx monitor
+
+        let monitor1 = MonitorBuilder::new().id(1).address(addr1_lower).abi("abi.json").build();
+        let monitor2 = MonitorBuilder::new().id(2).address(addr2_lower).abi("abi.json").build();
+        let monitor3 = MonitorBuilder::new().id(3).address(addr1_lower).abi("abi.json").build();
+        let monitor4 =
+            MonitorBuilder::new().id(4).filter_script("tx.value > bigint(\"0\")").build();
 
         // Test `new()`
         let config = RhaiConfig::default();
@@ -449,8 +438,8 @@ mod tests {
         drop(transaction_monitors_read);
 
         // Test `update_monitors()`
-        let monitor5 = create_test_monitor(5, Some(addr2_lower), Some("abi.json"), "true", vec![]);
-        let monitor6 = create_test_monitor(6, None, None, "true", vec![]);
+        let monitor5 = MonitorBuilder::new().id(5).address(addr2_lower).build();
+        let monitor6 = MonitorBuilder::new().id(6).build();
         engine.update_monitors(vec![monitor1.clone(), monitor5.clone(), monitor6.clone()]).await;
 
         let monitors_by_address_read = engine.monitors_by_address.read().await;
@@ -468,13 +457,13 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_item_log_based_match() {
         let addr = address!("0000000000000000000000000000000000000001");
-        let monitor = create_test_monitor(
-            1,
-            Some(&addr.to_checksum(None)),
-            Some("abi.json"),
-            "log.name == \"Transfer\"",
-            vec!["notifier1".to_string(), "notifier2".to_string()],
-        );
+        let monitor = MonitorBuilder::new()
+            .id(1)
+            .address(&addr.to_checksum(None))
+            .abi("abi.json")
+            .filter_script("log.name == \"Transfer\"")
+            .notifiers(vec!["notifier1".to_string(), "notifier2".to_string()])
+            .build();
         let config = RhaiConfig::default();
         let compiler = Arc::new(RhaiCompiler::new(config.clone()));
         let engine = RhaiFilteringEngine::new(vec![monitor], compiler, config);
@@ -492,13 +481,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_item_transaction_based_match() {
-        let monitor = create_test_monitor(
-            1,
-            None,
-            None,
-            "tx.value > bigint(\"100\")",
-            vec!["notifier1".to_string()],
-        );
+        let monitor = MonitorBuilder::new()
+            .id(1)
+            .filter_script("tx.value > bigint(\"100\")")
+            .notifiers(vec!["notifier1".to_string()])
+            .build();
         let config = RhaiConfig::default();
         let compiler = Arc::new(RhaiCompiler::new(config.clone()));
         let engine = RhaiFilteringEngine::new(vec![monitor], compiler, config);
@@ -515,13 +502,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_item_no_match_for_tx_monitor() {
-        let monitor = create_test_monitor(
-            1,
-            None,
-            None,
-            "tx.value > bigint(\"200\")",
-            vec!["notifier1".to_string()],
-        );
+        let monitor = MonitorBuilder::new()
+            .id(1)
+            .filter_script("tx.value > bigint(\"200\")")
+            .notifiers(vec!["notifier1".to_string()])
+            .build();
         let config = RhaiConfig::default();
         let compiler = Arc::new(RhaiCompiler::new(config.clone()));
         let engine = RhaiFilteringEngine::new(vec![monitor], compiler, config);
@@ -536,20 +521,18 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_item_mixed_monitors_both_match() {
         let addr = address!("0000000000000000000000000000000000000001");
-        let log_monitor = create_test_monitor(
-            1,
-            Some(&addr.to_checksum(None)),
-            Some("abi.json"),
-            "log.name == \"Transfer\"",
-            vec!["log_notifier".to_string()],
-        );
-        let tx_monitor = create_test_monitor(
-            2,
-            None,
-            None,
-            "tx.value > bigint(\"100\")",
-            vec!["tx_notifier".to_string()],
-        );
+        let log_monitor = MonitorBuilder::new()
+            .id(1)
+            .address(&addr.to_checksum(None))
+            .abi("abi.json")
+            .filter_script("log.name == \"Transfer\"")
+            .notifiers(vec!["log_notifier".to_string()])
+            .build();
+        let tx_monitor = MonitorBuilder::new()
+            .id(2)
+            .filter_script("tx.value > bigint(\"100\")")
+            .notifiers(vec!["tx_notifier".to_string()])
+            .build();
         let config = RhaiConfig::default();
         let compiler = Arc::new(RhaiCompiler::new(config.clone()));
         let engine = RhaiFilteringEngine::new(vec![log_monitor, tx_monitor], compiler, config);
@@ -574,13 +557,13 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_item_filter_by_log_param() {
         let addr = address!("0000000000000000000000000000000000000001");
-        let monitor = create_test_monitor(
-            1,
-            Some(&addr.to_checksum(None)),
-            Some("abi.json"),
-            "log.name == \"ValueTransfered\" && log.params.value > bigint(\"100\")",
-            vec!["notifier1".to_string()],
-        );
+        let monitor = MonitorBuilder::new()
+            .id(1)
+            .address(&addr.to_checksum(None))
+            .abi("abi.json")
+            .filter_script("log.name == \"ValueTransfered\" && log.params.value > bigint(\"100\")")
+            .notifiers(vec!["notifier1".to_string()])
+            .build();
         let config = RhaiConfig::default();
         let compiler = Arc::new(RhaiCompiler::new(config.clone()));
         let engine = RhaiFilteringEngine::new(vec![monitor], compiler, config);
@@ -602,7 +585,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_item_no_decoded_logs_still_triggers_tx_monitor() {
-        let monitor = create_test_monitor(1, None, None, "true", vec!["notifier1".to_string()]); // Always matches
+        let monitor = MonitorBuilder::new().id(1).notifiers(vec!["notifier1".to_string()]).build();
         let config = RhaiConfig::default();
         let compiler = Arc::new(RhaiCompiler::new(config.clone()));
         let engine = RhaiFilteringEngine::new(vec![monitor], compiler, config);
@@ -621,10 +604,15 @@ mod tests {
         let compiler = Arc::new(RhaiCompiler::new(config.clone()));
 
         // --- Scenario 1: A monitor explicitly uses a receipt field ---
-        let monitors_with_receipt_field = vec![
-            create_test_monitor(1, None, None, "tx.value > bigint(\"100\")", vec![]), /* No receipt needed */
-            create_test_monitor(2, None, None, "tx.status == 1", vec![]), // Receipt needed!
-        ];
+        let monitor_no_receipt = MonitorBuilder::new()
+            .id(1)
+            .filter_script("tx.value > bigint(\"100\")") // No receipt needed
+            .build();
+        let monitor_requires_receipt = MonitorBuilder::new()
+            .id(2)
+            .filter_script("tx.status == 1") // This requires receipt data
+            .build();
+        let monitors_with_receipt_field = vec![monitor_no_receipt, monitor_requires_receipt];
         let engine_needs_receipts = RhaiFilteringEngine::new(
             monitors_with_receipt_field,
             Arc::clone(&compiler),
@@ -637,10 +625,15 @@ mod tests {
         );
 
         // --- Scenario 2: No monitors use any receipt fields ---
-        let monitors_without_receipt_field = vec![
-            create_test_monitor(1, None, None, "tx.value > bigint(\"100\")", vec![]),
-            create_test_monitor(2, None, None, "log.name == \"Transfer\"", vec![]),
-        ];
+        let monitor_no_receipt = MonitorBuilder::new()
+            .id(1)
+            .filter_script("tx.value > bigint(\"100\")") // No receipt needed
+            .build();
+        let monitor_no_receipt_too = MonitorBuilder::new()
+            .id(2)
+            .filter_script("log.name == \"Transfer\"") // No receipt needed
+            .build();
+        let monitors_without_receipt_field = vec![monitor_no_receipt, monitor_no_receipt_too];
         let engine_no_receipts = RhaiFilteringEngine::new(
             monitors_without_receipt_field,
             Arc::clone(&compiler),
@@ -654,16 +647,13 @@ mod tests {
 
         // --- Scenario 3: A receipt field appears in a comment or string (proves AST
         // analysis works) ---
-        let monitors_with_receipt_field_in_comment = vec![
-            create_test_monitor(1, None, None, "// This script checks tx.status", vec![]),
-            create_test_monitor(
-                2,
-                None,
-                None,
-                "tx.value > bigint(\"100\") && log.name == \"tx.gas_used\"",
-                vec![],
-            ),
-        ];
+        let monitor_commented_field =
+            MonitorBuilder::new().id(1).filter_script("// This script checks tx.status").build();
+        let monitor = MonitorBuilder::new()
+            .id(2)
+            .filter_script("tx.value > bigint(\"100\") && log.name == \"tx.gas_used\"")
+            .build();
+        let monitors_with_receipt_field_in_comment = vec![monitor_commented_field, monitor];
         let engine_ast_check = RhaiFilteringEngine::new(
             monitors_with_receipt_field_in_comment,
             Arc::clone(&compiler),
@@ -676,11 +666,20 @@ mod tests {
         );
 
         // --- Scenario 4: A mix of valid and invalid scripts ---
-        let monitors_mixed_validity = vec![
-            create_test_monitor(1, None, None, "tx.value > bigint(\"100\")", vec![]), /* Valid, no receipt */
-            create_test_monitor(2, None, None, "tx.gas_used > bigint(\"50000\")", vec![]), /* Valid, needs receipt */
-            create_test_monitor(3, None, None, "tx.value >", vec![]), // Invalid syntax
-        ];
+        let monitor_valid_no_receipt = MonitorBuilder::new()
+            .id(1)
+            .filter_script("tx.value > bigint(\"100\")") // Valid, no receipt
+            .build();
+        let monitor_valid_requires_receipt = MonitorBuilder::new()
+            .id(2)
+            .filter_script("tx.gas_used > bigint(\"50000\")") // Valid, needs receipt
+            .build();
+        let monitor_invalid = MonitorBuilder::new()
+            .id(3)
+            .filter_script("tx.value >") // Invalid syntax
+            .build();
+        let monitors_mixed_validity =
+            vec![monitor_valid_no_receipt, monitor_valid_requires_receipt, monitor_invalid];
         let engine_mixed = RhaiFilteringEngine::new(
             monitors_mixed_validity,
             Arc::clone(&compiler),
@@ -695,13 +694,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_item_with_evm_wrappers() {
-        let monitor = create_test_monitor(
-            1,
-            None,
-            None,
-            "tx.value > ether(1.5)", // Use the ether() wrapper
-            vec!["notifier1".to_string()],
-        );
+        let monitor = MonitorBuilder::new()
+            .id(1)
+            .filter_script("tx.value > ether(1.5)")
+            .notifiers(vec!["notifier1".to_string()])
+            .build();
         let config = RhaiConfig::default();
         let compiler = Arc::new(RhaiCompiler::new(config.clone()));
         let engine = RhaiFilteringEngine::new(vec![monitor], compiler, config);
