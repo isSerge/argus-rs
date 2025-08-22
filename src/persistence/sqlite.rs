@@ -8,7 +8,10 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 
 use super::traits::StateRepository;
-use crate::models::{monitor::Monitor, notifier::NotifierConfig};
+use crate::models::{
+    monitor::{Monitor, MonitorConfig},
+    notifier::NotifierConfig,
+};
 
 /// A concrete implementation of the StateRepository using SQLite.
 pub struct SqliteStateRepository {
@@ -323,7 +326,7 @@ impl StateRepository for SqliteStateRepository {
     async fn add_monitors(
         &self,
         network_id: &str,
-        monitors: Vec<Monitor>,
+        monitors: Vec<MonitorConfig>,
     ) -> Result<(), sqlx::Error> {
         tracing::debug!(network_id, monitor_count = monitors.len(), "Adding monitors.");
 
@@ -493,6 +496,7 @@ impl StateRepository for SqliteStateRepository {
 mod tests {
     use super::*;
     use crate::models::{
+        monitor::MonitorConfig,
         notification::NotificationMessage,
         notifier::{DiscordConfig, NotifierTypeConfig, SlackConfig},
     };
@@ -605,7 +609,7 @@ mod tests {
 
         // Create test monitors
         let test_monitors = vec![
-            Monitor::from_config(
+            MonitorConfig::from_config(
                 "USDC Transfer Monitor".to_string(),
                 network_id.to_string(),
                 Some("0xa0b86a33e6441b38d4b5e5bfa1bf7a5eb70c5b1e".to_string()),
@@ -614,7 +618,7 @@ mod tests {
                     .to_string(),
                 vec!["test-notifier".to_string()],
             ),
-            Monitor::from_config(
+            MonitorConfig::from_config(
                 "Simple Transfer Monitor".to_string(),
                 network_id.to_string(),
                 Some("0x7a250d5630b4cf539739df2c5dacb4c659f2488d".to_string()),
@@ -622,7 +626,7 @@ mod tests {
                 r#"log.name == "Transfer""#.to_string(),
                 vec![],
             ),
-            Monitor::from_config(
+            MonitorConfig::from_config(
                 "Native ETH Monitor".to_string(),
                 network_id.to_string(),
                 None, // No address for transaction-level monitor
@@ -675,7 +679,7 @@ mod tests {
         let network2 = "polygon";
 
         // Create monitors for different networks
-        let ethereum_monitors = vec![Monitor::from_config(
+        let ethereum_monitors = vec![MonitorConfig::from_config(
             "Ethereum Monitor".to_string(),
             network1.to_string(),
             Some("0x1111111111111111111111111111111111111111".to_string()),
@@ -684,7 +688,7 @@ mod tests {
             vec![],
         )];
 
-        let polygon_monitors = vec![Monitor::from_config(
+        let polygon_monitors = vec![MonitorConfig::from_config(
             "Polygon Monitor".to_string(),
             network2.to_string(),
             Some("0x2222222222222222222222222222222222222222".to_string()),
@@ -722,7 +726,7 @@ mod tests {
         let network_id = "ethereum";
 
         // Create monitor with wrong network
-        let wrong_network_monitors = vec![Monitor::from_config(
+        let wrong_network_monitors = vec![MonitorConfig::from_config(
             "Wrong Network Monitor".to_string(),
             "polygon".to_string(), // Different from network_id
             Some("0x1111111111111111111111111111111111111111".to_string()),
@@ -774,7 +778,7 @@ mod tests {
 
         // Create a mix of valid and invalid monitors (invalid due to network mismatch)
         let mixed_monitors = vec![
-            Monitor::from_config(
+            MonitorConfig::from_config(
                 "Valid Monitor".to_string(),
                 network_id.to_string(),
                 Some("0x1111111111111111111111111111111111111111".to_string()),
@@ -782,7 +786,7 @@ mod tests {
                 "true".to_string(),
                 vec![],
             ),
-            Monitor::from_config(
+            MonitorConfig::from_config(
                 "Invalid Monitor".to_string(),
                 "wrong_network".to_string(), // This will cause failure
                 Some("0x2222222222222222222222222222222222222222".to_string()),
@@ -808,7 +812,7 @@ mod tests {
 
         // Create monitor with large filter script
         let large_script = "a".repeat(10000); // 10KB script
-        let monitor_with_large_script = vec![Monitor::from_config(
+        let monitor_with_large_script = vec![MonitorConfig::from_config(
             "Large Script Monitor".to_string(),
             network_id.to_string(),
             Some("0x1111111111111111111111111111111111111111".to_string()),

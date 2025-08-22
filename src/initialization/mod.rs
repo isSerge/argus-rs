@@ -202,11 +202,12 @@ mod tests {
     use crate::{
         config::{AppConfig, HttpRetryConfig},
         models::{
-            monitor::Monitor,
+            monitor::MonitorConfig,
             notification::NotificationMessage,
             notifier::{NotifierConfig, NotifierTypeConfig, SlackConfig},
         },
         persistence::traits::MockStateRepository,
+        test_helpers::MonitorBuilder,
     };
 
     // Helper to create a dummy config file
@@ -321,14 +322,9 @@ monitors:
     #[tokio::test]
     async fn test_run_skips_loading_if_db_not_empty() {
         let network_id = "testnet";
-        let monitor = Monitor::from_config(
-            "Existing Monitor".to_string(),
-            network_id.to_string(),
-            None,
-            None,
-            "true".to_string(),
-            vec![],
-        );
+
+        let monitor = MonitorBuilder::new().network(network_id).name("Existing Monitor").build();
+
         let trigger = NotifierConfig {
             name: "Existing Trigger".to_string(),
             config: NotifierTypeConfig::Webhook(Default::default()),
@@ -394,14 +390,13 @@ monitors:
     #[tokio::test]
     async fn test_load_abis_from_monitors_invalid_address() {
         let network_id = "testnet";
-        let monitor = Monitor::from_config(
-            "ABI Monitor".to_string(),
-            network_id.to_string(),
-            Some("not-a-valid-address".to_string()),
-            Some("abi.json".to_string()),
-            "true".to_string(),
-            vec![],
-        );
+
+        let monitor = MonitorBuilder::new()
+            .network(network_id)
+            .name("ABI Monitor")
+            .address("not-a-valid-address")
+            .abi("abi.json")
+            .build();
 
         let mut mock_repo = MockStateRepository::new();
         mock_repo
@@ -428,14 +423,12 @@ monitors:
         let temp_dir = tempdir().unwrap();
         let non_existent_abi_path = temp_dir.path().join("non_existent_abi.json");
         let network_id = "testnet";
-        let monitor = Monitor::from_config(
-            "ABI Monitor".to_string(),
-            network_id.to_string(),
-            Some("0x0000000000000000000000000000000000000001".to_string()),
-            Some(non_existent_abi_path.to_str().unwrap().to_string()),
-            "true".to_string(),
-            vec![],
-        );
+        let monitor = MonitorBuilder::new()
+            .name("ABI Monitor")
+            .network(network_id)
+            .address("0x0000000000000000000000000000000000000001")
+            .abi(non_existent_abi_path.to_str().unwrap())
+            .build();
 
         let mut mock_repo = MockStateRepository::new();
         mock_repo
@@ -474,7 +467,7 @@ monitors:
         mock_repo.expect_clear_monitors().with(eq(network_id)).once().returning(|_| Ok(()));
         mock_repo
             .expect_add_monitors()
-            .with(eq(network_id), function(|monitors: &Vec<Monitor>| monitors.len() == 1))
+            .with(eq(network_id), function(|monitors: &Vec<MonitorConfig>| monitors.len() == 1))
             .once()
             .returning(|_, _| Ok(()));
 
@@ -538,15 +531,8 @@ monitors:
         let temp_dir = tempdir().unwrap();
         let config_path =
             create_dummy_config_file(&temp_dir, "monitors.yaml", create_test_monitor_config_str());
-        let monitor = Monitor::from_config(
-            "Dummy Monitor".to_string(),
-            "testnet".to_string(),
-            None,
-            None,
-            "true".to_string(),
-            vec![],
-        );
         let network_id = "testnet";
+        let monitor = MonitorBuilder::new().network(network_id).name("Dummy Monitor").build();
 
         let mut mock_repo = MockStateRepository::new();
         // Expect get_monitors to be called and return non-empty
@@ -657,14 +643,12 @@ monitors:
             r#"[{"type":"function","name":"testFunc","inputs":[],"outputs":[]}]"#,
         );
         let network_id = "testnet";
-        let monitor = Monitor::from_config(
-            "ABI Monitor".to_string(),
-            network_id.to_string(),
-            Some("0x0000000000000000000000000000000000000001".to_string()),
-            Some(abi_path.to_str().unwrap().to_string()),
-            "true".to_string(),
-            vec![],
-        );
+        let monitor = MonitorBuilder::new()
+            .name("ABI Monitor")
+            .network(network_id)
+            .address("0x0000000000000000000000000000000000000001")
+            .abi(abi_path.to_str().unwrap())
+            .build();
 
         let mut mock_repo = MockStateRepository::new();
         // Expect get_monitors to return a monitor with an ABI path

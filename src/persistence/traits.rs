@@ -4,7 +4,10 @@ use async_trait::async_trait;
 #[cfg(test)]
 use mockall::automock;
 
-use crate::models::{monitor::Monitor, notifier::NotifierConfig};
+use crate::models::{
+    monitor::{Monitor, MonitorConfig},
+    notifier::NotifierConfig,
+};
 
 /// Represents the state management interface for the Argus application.
 #[cfg_attr(test, automock)]
@@ -41,7 +44,7 @@ pub trait StateRepository: Send + Sync {
     async fn add_monitors(
         &self,
         network_id: &str,
-        monitors: Vec<Monitor>,
+        monitors: Vec<MonitorConfig>,
     ) -> Result<(), sqlx::Error>;
 
     /// Clears all monitors for a specific network.

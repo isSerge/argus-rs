@@ -4,7 +4,7 @@ use thiserror::Error;
 
 use crate::{
     config::{ConfigLoader, LoaderError},
-    models::monitor::Monitor,
+    models::monitor::MonitorConfig,
 };
 
 /// Loads monitor configurations from a file.
@@ -31,9 +31,9 @@ impl MonitorLoader {
     }
 
     /// Loads the monitor configuration from the specified file.
-    pub fn load(&self) -> Result<Vec<Monitor>, MonitorLoaderError> {
+    pub fn load(&self) -> Result<Vec<MonitorConfig>, MonitorLoaderError> {
         let loader = ConfigLoader::new(self.path.clone());
-        let mut monitors: Vec<Monitor> = loader.load("monitors")?;
+        let mut monitors: Vec<MonitorConfig> = loader.load("monitors")?;
 
         // Resolve ABI paths to be absolute
         let base_dir = self.path.parent().unwrap_or_else(|| std::path::Path::new(""));
@@ -203,6 +203,8 @@ monitors:
         let loader = MonitorLoader::new(file_path);
         let result = loader.load();
 
+        println!("Result: {:?}", result);
+
         assert!(result.is_ok());
         let monitors = result.unwrap();
         assert_eq!(monitors.len(), 3);
@@ -215,7 +217,6 @@ monitors:
             Some("0xa0b86a33e6441b38d4b5e5bfa1bf7a5eb70c5b1e".to_string())
         );
         assert!(monitors[0].filter_script.contains("Transfer"));
-        assert_eq!(monitors[0].id, 0); // Default value from serde
         assert_eq!(monitors[0].notifiers, vec!["test-notifier".to_string()]);
 
         // Check second monitor (with address)
