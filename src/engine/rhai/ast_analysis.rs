@@ -5,84 +5,93 @@ use std::collections::HashSet;
 
 use rhai::{AST, Expr, Stmt};
 
-/// Traverses a compiled `AST` and returns a set of all unique, fully-qualified
-/// variable paths accessed in the script.
+/// The result of a script analysis.
+#[derive(Debug, Default)]
+pub struct ScriptAnalysisResult {
+    /// A set of all unique, fully-qualified variable paths accessed in the script.
+    pub accessed_variables: HashSet<String>,
+    /// True if the script accesses the `log` variable.
+    pub accesses_log_variable: bool,
+}
+
+/// Traverses a compiled `AST` and returns a `ScriptAnalysisResult` containing
+/// accessed variables and other metadata.
 ///
 /// This is the primary entry point for the analyzer.
-pub fn get_accessed_variables(ast: &AST) -> HashSet<String> {
-    let mut variables = HashSet::new();
+pub fn analyze_ast(ast: &AST) -> ScriptAnalysisResult {
+    let mut result = ScriptAnalysisResult::default();
     for stmt in ast.statements() {
-        walk_stmt(stmt, &mut variables);
+        walk_stmt(stmt, &mut result);
     }
-    variables
+    result
 }
 
 /// Recursively walks a statement (`Stmt`) to find expressions.
-fn walk_stmt(stmt: &Stmt, variables: &mut HashSet<String>) {
+fn walk_stmt(stmt: &Stmt, result: &mut ScriptAnalysisResult) {
     match stmt {
-        Stmt::Expr(expr) => walk_expr(expr, variables),
+        Stmt::Expr(expr) => walk_expr(expr, result),
         Stmt::Block(stmt_block) =>
             for s in stmt_block.statements() {
-                walk_stmt(s, variables);
+                walk_stmt(s, result);
             },
         Stmt::If(flow_control, _) => {
-            walk_expr(&flow_control.expr, variables);
+            walk_expr(&flow_control.expr, result);
             for s in flow_control.body.statements() {
-                walk_stmt(s, variables);
+                walk_stmt(s, result);
             }
             for s in flow_control.branch.statements() {
-                walk_stmt(s, variables);
+                walk_stmt(s, result);
             }
         }
         Stmt::While(flow_control, _) => {
-            walk_expr(&flow_control.expr, variables);
+            walk_expr(&flow_control.expr, result);
             for s in flow_control.body.statements() {
-                walk_stmt(s, variables);
+                walk_stmt(s, result);
             }
         }
         Stmt::Do(flow_control, _, _) => {
             for s in flow_control.body.statements() {
-                walk_stmt(s, variables);
+                walk_stmt(s, result);
             }
-            walk_expr(&flow_control.expr, variables);
+            walk_expr(&flow_control.expr, result);
         }
         Stmt::For(for_loop, _) => {
-            walk_expr(&for_loop.2.expr, variables);
+            walk_expr(&for_loop.2.expr, result);
             for s in for_loop.2.body.statements() {
-                walk_stmt(s, variables);
+                walk_stmt(s, result);
             }
         }
         Stmt::Var(var_definition, _, _) => {
-            walk_expr(&var_definition.1, variables);
+            walk_expr(&var_definition.1, result);
         }
         Stmt::Assignment(assignment) => {
-            walk_expr(&assignment.1.lhs, variables);
-            walk_expr(&assignment.1.rhs, variables);
+            walk_expr(&assignment.1.lhs, result);
+            walk_expr(&assignment.1.rhs, result);
         }
         Stmt::FnCall(fn_call_expr, _) =>
             for arg in &fn_call_expr.args {
-                walk_expr(arg, variables);
+                walk_expr(arg, result);
             },
         Stmt::Switch(switch_data, _) => {
             let (expr, cases_collection) = &**switch_data;
-            walk_expr(expr, variables);
+            walk_expr(expr, result);
             for case_expr in &cases_collection.expressions {
-                walk_expr(&case_expr.lhs, variables);
-                walk_expr(&case_expr.rhs, variables);
+                walk_expr(&case_expr.lhs, result);
+                walk_expr(&case_expr.rhs, result);
             }
         }
         Stmt::TryCatch(flow_control, _) => {
             for s in flow_control.body.statements() {
-                walk_stmt(s, variables);
+                walk_stmt(s, result);
             }
             for s in flow_control.branch.statements() {
-                walk_stmt(s, variables);
+                walk_stmt(s, result);
             }
         }
         Stmt::Return(Some(expr), _, _) | Stmt::BreakLoop(Some(expr), _, _) =>
-            walk_expr(expr, variables),
+            walk_expr(expr, result),
         Stmt::Import(import_data, _) => {
-            walk_expr(&import_data.0, variables);
+            walk_expr(&import_data.0, result);
         }
         Stmt::Noop(_)
         | Stmt::Return(None, _, _)
@@ -101,60 +110,69 @@ fn walk_stmt(stmt: &Stmt, variables: &mut HashSet<String>) {
 
 /// Recursively walks an expression (`Expr`) to find and record variable access
 /// paths.
-fn walk_expr(expr: &Expr, variables: &mut HashSet<String>) {
+fn walk_expr(expr: &Expr, result: &mut ScriptAnalysisResult) {
     if let Some(path) = get_full_variable_path(expr) {
-        variables.insert(path);
+        if !result.accesses_log_variable && path.starts_with("log") {
+            result.accesses_log_variable = true;
+        }
+        result.accessed_variables.insert(path);
         // For Index, also collect index variable if present
         if let Expr::Index(binary_expr, _, _) = expr
             && let Some(index_path) = get_full_variable_path(&binary_expr.rhs)
         {
-            variables.insert(index_path);
+            if !result.accesses_log_variable && index_path.starts_with("log") {
+                result.accesses_log_variable = true;
+            }
+            result.accessed_variables.insert(index_path);
         }
         return;
     }
 
     match expr {
         Expr::Dot(binary_expr, _, _) => {
-            walk_expr(&binary_expr.lhs, variables);
-            walk_expr(&binary_expr.rhs, variables);
+            walk_expr(&binary_expr.lhs, result);
+            walk_expr(&binary_expr.rhs, result);
         }
         Expr::Index(binary_expr, _, _) => {
-            walk_expr(&binary_expr.lhs, variables);
+            walk_expr(&binary_expr.lhs, result);
             // For index, collect index variable if present
             if let Some(index_path) = get_full_variable_path(&binary_expr.rhs) {
-                variables.insert(index_path);
+                if !result.accesses_log_variable && index_path.starts_with("log") {
+                    result.accesses_log_variable = true;
+                }
+                result.accessed_variables.insert(index_path);
             } else {
-                walk_expr(&binary_expr.rhs, variables);
+                walk_expr(&binary_expr.rhs, result);
             }
         }
         Expr::MethodCall(method_call_expr, _) =>
             for arg in &method_call_expr.args {
-                walk_expr(arg, variables);
+                walk_expr(arg, result);
             },
         Expr::FnCall(fn_call_expr, _) =>
             for arg in &fn_call_expr.args {
-                walk_expr(arg, variables);
+                walk_expr(arg, result);
             },
         Expr::And(expr_vec, _) | Expr::Or(expr_vec, _) | Expr::Coalesce(expr_vec, _) => {
             for e in &**expr_vec {
-                walk_expr(e, variables);
+                walk_expr(e, result);
             }
         }
         Expr::Array(expr_vec, _) | Expr::InterpolatedString(expr_vec, _) =>
             for e in expr_vec {
-                walk_expr(e, variables);
+                walk_expr(e, result);
             },
         Expr::Map(map_data, _) =>
             for (_, value_expr) in &map_data.0 {
-                walk_expr(value_expr, variables);
+                walk_expr(value_expr, result);
             },
         Expr::Stmt(stmt_block) =>
             for s in stmt_block.statements() {
-                walk_stmt(s, variables);
+                walk_stmt(s, result);
             },
         Expr::Custom(custom_expr, _) =>
             for e in &custom_expr.inputs {
-                walk_expr(e, variables);
+                walk_expr(e, result);
             },
         Expr::Variable(_, _, _) | Expr::Property(_, _) => {}
         Expr::DynamicConstant(_, _)
@@ -207,24 +225,25 @@ mod tests {
 
     use super::*;
 
-    fn get_vars(script: &str) -> Result<HashSet<String>, ParseError> {
+    fn analyze_script(script: &str) -> Result<ScriptAnalysisResult, ParseError> {
         let engine = Engine::new();
         let ast = engine.compile(script)?;
-        Ok(get_accessed_variables(&ast))
+        Ok(analyze_ast(&ast))
     }
 
     #[test]
     fn test_simple_binary_op() {
-        let vars = get_vars("tx.value > 100").unwrap();
-        assert_eq!(vars, HashSet::from(["tx.value".to_string()]));
+        let result = analyze_script("tx.value > 100").unwrap();
+        assert_eq!(result.accessed_variables, HashSet::from(["tx.value".to_string()]));
+        assert!(!result.accesses_log_variable);
     }
 
     #[test]
     fn test_logical_operators() {
         let script = r#"tx.from == owner && log.name != "Transfer" || block.number > 1000"#;
-        let vars = get_vars(script).unwrap();
+        let result = analyze_script(script).unwrap();
         assert_eq!(
-            vars,
+            result.accessed_variables,
             HashSet::from([
                 "tx.from".to_string(),
                 "owner".to_string(),
@@ -232,28 +251,38 @@ mod tests {
                 "block.number".to_string(),
             ])
         );
+        assert!(result.accesses_log_variable);
     }
 
     #[test]
     fn test_multiple_variables_and_coalesce() {
-        let vars = get_vars("tx.from ?? fallback_addr.address").unwrap();
+        let result = analyze_script("tx.from ?? fallback_addr.address").unwrap();
         assert_eq!(
-            vars,
+            result.accessed_variables,
             HashSet::from(["tx.from".to_string(), "fallback_addr.address".to_string(),])
         );
+        assert!(!result.accesses_log_variable);
     }
 
     #[test]
     fn test_deeply_nested_variable() {
         let script = r#"log.params.level_one.level_two.user == "admin""#;
-        let vars = get_vars(script).unwrap();
-        assert_eq!(vars, HashSet::from(["log.params.level_one.level_two.user".to_string()]));
+        let result = analyze_script(script).unwrap();
+        assert_eq!(
+            result.accessed_variables,
+            HashSet::from(["log.params.level_one.level_two.user".to_string()])
+        );
+        assert!(result.accesses_log_variable);
     }
 
     #[test]
     fn test_variables_in_function_calls() {
-        let vars = get_vars("my_func(tx.value, log.params.user, 42)").unwrap();
-        assert_eq!(vars, HashSet::from(["tx.value".to_string(), "log.params.user".to_string()]));
+        let result = analyze_script("my_func(tx.value, log.params.user, 42)").unwrap();
+        assert_eq!(
+            result.accessed_variables,
+            HashSet::from(["tx.value".to_string(), "log.params.user".to_string()])
+        );
+        assert!(result.accesses_log_variable);
     }
 
     #[test]
@@ -266,9 +295,9 @@ mod tests {
                 false
             }
         "#;
-        let vars = get_vars(script).unwrap();
+        let result = analyze_script(script).unwrap();
         assert_eq!(
-            vars,
+            result.accessed_variables,
             HashSet::from([
                 "config.min_value".to_string(),
                 "tx.value".to_string(),
@@ -277,6 +306,7 @@ mod tests {
                 "blacklist.address".to_string()
             ])
         );
+        assert!(!result.accesses_log_variable);
     }
 
     #[test]
@@ -291,9 +321,9 @@ mod tests {
                 x = x + 1;
             }
         "#;
-        let vars = get_vars(script).unwrap();
+        let result = analyze_script(script).unwrap();
         assert_eq!(
-            vars,
+            result.accessed_variables,
             HashSet::from([
                 "tx.items".to_string(),
                 "item.cost".to_string(),
@@ -302,6 +332,7 @@ mod tests {
                 "limit".to_string(),
             ])
         );
+        assert!(!result.accesses_log_variable);
     }
 
     #[test]
@@ -311,36 +342,39 @@ mod tests {
             let x = "this string mentions log.name";
             tx.from == "0x123"
         "#;
-        let vars = get_vars(script).unwrap();
-        assert_eq!(vars, HashSet::from(["tx.from".to_string()]));
+        let result = analyze_script(script).unwrap();
+        assert_eq!(result.accessed_variables, HashSet::from(["tx.from".to_string()]));
+        assert!(!result.accesses_log_variable);
     }
 
     #[test]
     fn test_indexing_expression() {
         let script = r#"tx.logs[0].name == "Transfer" && some_array[tx.index] > 100"#;
-        let vars = get_vars(script).unwrap();
+        let result = analyze_script(script).unwrap();
         assert_eq!(
-            vars,
+            result.accessed_variables,
             HashSet::from([
                 "tx.logs".to_string(),
                 "some_array".to_string(),
                 "tx.index".to_string(),
             ])
         );
+        assert!(!result.accesses_log_variable);
     }
 
     #[test]
     fn test_method_calls() {
         let script = r#"my_array.contains(tx.value) && other_var.to_string() == "hello""#;
-        let vars = get_vars(script).unwrap();
+        let result = analyze_script(script).unwrap();
         assert_eq!(
-            vars,
+            result.accessed_variables,
             HashSet::from([
                 "my_array".to_string(),
                 "tx.value".to_string(),
                 "other_var".to_string(),
             ])
         );
+        assert!(!result.accesses_log_variable);
     }
 
     #[test]
@@ -352,9 +386,9 @@ mod tests {
                 _ => do_nothing(contract.address)
             }
         "#;
-        let vars = get_vars(script).unwrap();
+        let result = analyze_script(script).unwrap();
         assert_eq!(
-            vars,
+            result.accessed_variables,
             HashSet::from([
                 "tx.action".to_string(),
                 "log.params.amount".to_string(),
@@ -362,13 +396,15 @@ mod tests {
                 "contract.address".to_string(),
             ])
         );
+        assert!(result.accesses_log_variable);
     }
 
     #[test]
     fn test_no_variables() {
         let script = "1 + 1 == 2";
-        let vars = get_vars(script).unwrap();
-        assert!(vars.is_empty());
+        let result = analyze_script(script).unwrap();
+        assert!(result.accessed_variables.is_empty());
+        assert!(!result.accesses_log_variable);
     }
 
     #[test]
@@ -378,9 +414,9 @@ mod tests {
             let my_map = #{ a: some.value, b: 42 };
             my_array[0] > my_map.a
         "#;
-        let vars = get_vars(script).unwrap();
+        let result = analyze_script(script).unwrap();
         assert_eq!(
-            vars,
+            result.accessed_variables,
             HashSet::from([
                 "tx.value".to_string(),
                 "log.topic".to_string(),
@@ -389,5 +425,14 @@ mod tests {
                 "my_map.a".to_string(),
             ])
         );
+        assert!(result.accesses_log_variable);
+    }
+
+    #[test]
+    fn test_log_variable_only() {
+        let script = "log.name == \"Transfer\"";
+        let result = analyze_script(script).unwrap();
+        assert_eq!(result.accessed_variables, HashSet::from(["log.name".to_string()]));
+        assert!(result.accesses_log_variable);
     }
 }
