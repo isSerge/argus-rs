@@ -1,4 +1,9 @@
-//! This module defines the `FilteringEngine` and its implementations.
+//! This module defines the `FilteringEngine`, which is responsible for
+//! evaluating incoming blockchain data (transactions and logs) against a set of
+//! user-defined Rhai scripts. It implements a script-driven filtering logic,
+//! where the behavior of a monitor (transaction-only, global log-aware, or
+//! address-specific log-aware) is determined by the static analysis of its
+//! `filter_script`.
 
 use std::{
     collections::HashSet,
@@ -30,6 +35,7 @@ use super::rhai::{
     create_engine,
 };
 use crate::{
+    abi::DecodedLog,
     config::RhaiConfig,
     engine::rhai::compiler::{RhaiCompiler, RhaiCompilerError},
     models::{
@@ -62,7 +68,12 @@ pub enum RhaiError {
 #[async_trait]
 pub trait FilteringEngine: Send + Sync {
     /// Evaluates the provided correlated block item against configured monitor
-    /// rules. Returns a vector of `MonitorMatch` if any conditions are met.
+    /// rules. The evaluation proceeds in two phases:
+    /// 1. Transaction-only monitors are evaluated once per transaction.
+    /// 2. Log-aware monitors (both global and address-specific) are evaluated
+    ///    for each decoded log within the transaction, with access to both
+    ///    transaction and log data.
+    /// Returns a vector of `MonitorMatch` if any conditions are met.
     async fn evaluate_item(
         &self,
         item: &CorrelatedBlockItem,
@@ -85,17 +96,30 @@ pub trait FilteringEngine: Send + Sync {
     );
 }
 
+/// A container for monitors that have been organized for efficient execution.
+#[derive(Debug, Default)]
+struct OrganizedMonitors {
+    /// Monitors that only access transaction data.
+    transaction_only_monitors: Vec<Monitor>,
+    /// Log-aware monitors that are not tied to a specific address.
+    global_log_aware_monitors: Vec<Monitor>,
+    /// Log-aware monitors that are tied to a specific contract address.
+    log_aware_monitors_by_address: DashMap<String, Vec<Monitor>>,
+}
+
 /// A Rhai-based implementation of the `FilteringEngine` with integrated
 /// security controls.
 #[derive(Debug)]
 pub struct RhaiFilteringEngine {
-    /// Monitors that are tied to a specific contract address.
-    monitors_by_address: Arc<RwLock<DashMap<String, Vec<Monitor>>>>,
-    /// Monitors that apply to all transactions.
-    transaction_monitors: Arc<RwLock<Vec<Monitor>>>,
+    /// The organized collection of monitors for filtering.
+    monitors: Arc<RwLock<OrganizedMonitors>>,
+    /// The Rhai script compiler.
     compiler: Arc<RhaiCompiler>,
+    /// Indicates if any monitor requires transaction receipt data.
     requires_receipts: AtomicBool,
+    /// The Rhai script execution configuration.
     config: RhaiConfig,
+    /// The Rhai script execution engine.
     engine: Engine,
 }
 
@@ -107,12 +131,10 @@ impl RhaiFilteringEngine {
         // adding more customizations later
         let engine = create_engine(config.clone());
 
-        let (monitors_by_address, transaction_monitors, needs_receipts) =
-            Self::organize_monitors(monitors, &compiler);
+        let (organized_monitors, needs_receipts) = Self::organize_monitors(monitors, &compiler);
 
         Self {
-            monitors_by_address: Arc::new(RwLock::new(monitors_by_address)),
-            transaction_monitors: Arc::new(RwLock::new(transaction_monitors)),
+            monitors: Arc::new(RwLock::new(organized_monitors)),
             compiler,
             requires_receipts: AtomicBool::new(needs_receipts),
             config,
@@ -120,14 +142,13 @@ impl RhaiFilteringEngine {
         }
     }
 
-    /// Organizes monitors into address-specific and transaction-level
-    /// collections, and validates them.
+    /// Organizes monitors into optimized collections based on their script
+    /// analysis.
     fn organize_monitors(
         monitors: Vec<Monitor>,
         compiler: &RhaiCompiler,
-    ) -> (DashMap<String, Vec<Monitor>>, Vec<Monitor>, bool) {
-        let monitors_by_address: DashMap<String, Vec<Monitor>> = DashMap::new();
-        let mut transaction_monitors = Vec::new();
+    ) -> (OrganizedMonitors, bool) {
+        let mut organized = OrganizedMonitors::default();
         let mut needs_receipts = false;
 
         // Receipt-specific fields that are only available from transaction receipts
@@ -140,36 +161,39 @@ impl RhaiFilteringEngine {
         .collect();
 
         for monitor in monitors {
-            if let Some(address_str) = &monitor.address {
-                let address: Address =
-                    address_str.parse().expect("Address should be valid at this stage");
+            match compiler.analyze_script(&monitor.filter_script) {
+                Ok(analysis) => {
+                    // Check if this monitor's script needs receipt data
+                    if !needs_receipts && !analysis.accessed_variables.is_disjoint(&receipt_fields)
+                    {
+                        needs_receipts = true;
+                    }
 
-                let checksummed_address = address.to_checksum(None);
-
-                monitors_by_address.entry(checksummed_address).or_default().push(monitor.clone());
-            } else {
-                transaction_monitors.push(monitor.clone());
-            }
-
-            // Check if this monitor's script needs receipt data
-            if !needs_receipts {
-                match compiler.analyze_script(&monitor.filter_script) {
-                    Ok(analysis) => {
-                        // Check for intersection between accessed variables and receipt fields.
-                        if !analysis.accessed_variables.is_disjoint(&receipt_fields) {
-                            needs_receipts = true;
+                    if analysis.accesses_log_variable {
+                        if let Some(address_str) = &monitor.address {
+                            let address: Address =
+                                address_str.parse().expect("Address should be valid at this stage");
+                            let checksummed_address = address.to_checksum(None);
+                            organized
+                                .log_aware_monitors_by_address
+                                .entry(checksummed_address)
+                                .or_default()
+                                .push(monitor);
+                        } else {
+                            organized.global_log_aware_monitors.push(monitor);
                         }
+                    } else {
+                        organized.transaction_only_monitors.push(monitor);
                     }
-                    Err(e) => {
-                        // If a script fails to compile, we can't analyze it. Log an error.
-                        // It won't match anyway, but this highlights a problem.
-                        tracing::error!(monitor_id = monitor.id, error = ?e, "Failed to compile and analyze script during monitor organization");
-                    }
+                }
+                Err(e) => {
+                    // If a script fails to compile, we can't analyze it. Log an error.
+                    tracing::error!(monitor_id = monitor.id, error = ?e, "Failed to compile and analyze script during monitor organization");
                 }
             }
         }
 
-        (monitors_by_address, transaction_monitors, needs_receipts)
+        (organized, needs_receipts)
     }
 
     /// Execute a pre-compiled AST with security controls including timeout
@@ -185,6 +209,45 @@ impl RhaiFilteringEngine {
             Ok(result) => result.map_err(RhaiError::RuntimeError),
             Err(_) => Err(RhaiError::ExecutionTimeout { timeout: self.config.execution_timeout }),
         }
+    }
+
+    /// Evaluates a single log-aware monitor against a decoded log and its
+    /// parent transaction.
+    #[tracing::instrument(skip(self, monitor, tx_map, log_map, trigger_data, decoded_log))]
+    async fn evaluate_single_log_monitor(
+        &self,
+        monitor: Monitor,
+        tx_map: rhai::Map,
+        log_map: rhai::Map,
+        trigger_data: serde_json::Value,
+        decoded_log: &DecodedLog,
+    ) -> Result<Vec<MonitorMatch>, RhaiError> {
+        let mut scope = Scope::new();
+        scope.push("tx", tx_map);
+        scope.push("log", log_map);
+
+        let ast = self.compiler.get_ast(&monitor.filter_script)?;
+
+        let block_number = decoded_log.log.block_number().unwrap_or(0);
+        let transaction_hash = decoded_log.log.transaction_hash().unwrap_or_default();
+        let contract_address = decoded_log.log.address();
+        let log_index = decoded_log.log.log_index();
+
+        let mut monitor_matches = Vec::new();
+        if let Ok(true) = self.eval_ast_bool_secure(&ast, &mut scope).await {
+            for notifier_name in &monitor.notifiers {
+                monitor_matches.push(MonitorMatch {
+                    monitor_id: monitor.id,
+                    block_number,
+                    transaction_hash,
+                    contract_address,
+                    notifier_name: notifier_name.clone(),
+                    trigger_data: trigger_data.clone(),
+                    log_index,
+                });
+            }
+        }
+        Ok(monitor_matches)
     }
 }
 
@@ -240,107 +303,102 @@ impl FilteringEngine for RhaiFilteringEngine {
         item: &CorrelatedBlockItem,
     ) -> Result<Vec<MonitorMatch>, RhaiError> {
         let mut matches = Vec::new();
-
         let tx_map = build_transaction_map(&item.transaction, item.receipt.as_ref());
 
-        // --- Handle transaction-level monitors ---
-        let transaction_monitors_guard = self.transaction_monitors.read().await;
-        for monitor in transaction_monitors_guard.iter() {
+        let monitors_guard = self.monitors.read().await;
+
+        // --- 1. Handle transaction-only monitors ---
+        for monitor in &monitors_guard.transaction_only_monitors {
             let mut scope = Scope::new();
             scope.push("tx", tx_map.clone());
 
             let ast = self.compiler.get_ast(&monitor.filter_script)?;
 
-            match self.eval_ast_bool_secure(&ast, &mut scope).await {
-                Ok(true) => {
-                    tracing::debug!(
-                        monitor_id = monitor.id,
-                        tx_hash = %item.transaction.hash(),
-                        "Transaction monitor condition met."
-                    );
-                    let trigger_data = build_trigger_data_from_transaction(
-                        &item.transaction,
-                        item.receipt.as_ref(),
-                    );
-                    for notifier_name in &monitor.notifiers {
-                        let monitor_match = MonitorMatch {
-                            monitor_id: monitor.id,
-                            block_number: item.transaction.block_number().unwrap_or(0),
-                            transaction_hash: item.transaction.hash(),
-                            contract_address: Default::default(),
-                            notifier_name: notifier_name.clone(),
-                            trigger_data: trigger_data.clone(),
-                            log_index: None,
-                        };
-                        matches.push(monitor_match);
-                    }
-                }
-                Ok(false) => {
-                    tracing::debug!(
-                        monitor_id = monitor.id,
-                        tx_hash = %item.transaction.hash(),
-                        "Transaction monitor condition NOT met."
-                    );
-                }
-                Err(e) => {
-                    tracing::error!(monitor_id = monitor.id, "Script execution failed: {}", e);
+            if let Ok(true) = self.eval_ast_bool_secure(&ast, &mut scope).await {
+                tracing::debug!(
+                    monitor_id = monitor.id,
+                    tx_hash = %item.transaction.hash(),
+                    "Transaction-only monitor condition met."
+                );
+                let trigger_data =
+                    build_trigger_data_from_transaction(&item.transaction, item.receipt.as_ref());
+                for notifier_name in &monitor.notifiers {
+                    matches.push(MonitorMatch {
+                        monitor_id: monitor.id,
+                        block_number: item.transaction.block_number().unwrap_or(0),
+                        transaction_hash: item.transaction.hash(),
+                        contract_address: Default::default(),
+                        notifier_name: notifier_name.clone(),
+                        trigger_data: trigger_data.clone(),
+                        log_index: None,
+                    });
                 }
             }
         }
-        drop(transaction_monitors_guard);
 
-        // --- Handle log-based monitors ---
-        let monitors_by_address_guard = self.monitors_by_address.read().await;
-        if !monitors_by_address_guard.is_empty() {
-            for log in &item.decoded_logs {
-                let log_address_str = log.log.address().to_checksum(None);
+        // --- 2. Handle all log-aware monitors ---
+        if monitors_guard.global_log_aware_monitors.is_empty()
+            && monitors_guard.log_aware_monitors_by_address.is_empty()
+        {
+            return Ok(matches);
+        }
 
-                if let Some(monitors) = monitors_by_address_guard.get(&log_address_str) {
-                    let params_map = build_log_params_map(&log.params);
-                    let log_map = build_log_map(log, params_map);
-                    let trigger_data = build_trigger_data_from_params(&log.params);
+        for log in &item.decoded_logs {
+            let log_address_str = log.log.address().to_checksum(None);
+            let params_map = build_log_params_map(&log.params);
+            let log_map = build_log_map(log, params_map);
+            let trigger_data = build_trigger_data_from_params(&log.params);
 
-                    for monitor in monitors.iter() {
-                        let mut scope = Scope::new();
-                        scope.push("tx", tx_map.clone());
-                        scope.push("log", log_map.clone());
+            // 2a. Evaluate global log-aware monitors
+            for monitor in &monitors_guard.global_log_aware_monitors {
+                match self
+                    .evaluate_single_log_monitor(
+                        monitor.clone(),
+                        tx_map.clone(),
+                        log_map.clone(),
+                        trigger_data.clone(),
+                        log,
+                    )
+                    .await
+                {
+                    Ok(new_matches) => matches.extend(new_matches),
+                    Err(e) => {
+                        tracing::error!(
+                            monitor_id = monitor.id,
+                            error = ?e,
+                            "Error evaluating global log-aware monitor"
+                        );
+                        // Continue processing other monitors even if one fails
+                    }
+                }
+            }
 
-                        let ast = self.compiler.get_ast(&monitor.filter_script)?;
-
-                        match self.eval_ast_bool_secure(&ast, &mut scope).await {
-                            Ok(true) =>
-                                for notifier_name in &monitor.notifiers {
-                                    let monitor_match = MonitorMatch {
-                                        monitor_id: monitor.id,
-                                        block_number: log.log.block_number().unwrap_or(0),
-                                        transaction_hash: log
-                                            .log
-                                            .transaction_hash()
-                                            .unwrap_or_default(),
-                                        contract_address: log.log.address(),
-                                        notifier_name: notifier_name.clone(),
-                                        trigger_data: trigger_data.clone(),
-                                        log_index: log.log.log_index(),
-                                    };
-                                    matches.push(monitor_match);
-                                },
-                            Ok(false) => {
-                                tracing::debug!(
-                                    monitor_id = monitor.id,
-                                    "Log monitor condition not met."
-                                );
-                            }
-                            Err(e) => {
-                                tracing::error!(
-                                    monitor_id = monitor.id,
-                                    "Script execution failed: {}",
-                                    e
-                                );
-                            }
+            // 2b. Evaluate address-specific log-aware monitors
+            if let Some(monitors) =
+                monitors_guard.log_aware_monitors_by_address.get(&log_address_str)
+            {
+                for monitor in monitors.iter() {
+                    match self
+                        .evaluate_single_log_monitor(
+                            monitor.clone(),
+                            tx_map.clone(),
+                            log_map.clone(),
+                            trigger_data.clone(),
+                            log,
+                        )
+                        .await
+                    {
+                        Ok(new_matches) => matches.extend(new_matches),
+                        Err(e) => {
+                            tracing::error!(
+                                monitor_id = monitor.id,
+                                error = ?e,
+                                "Error evaluating address-specific log-aware monitor"
+                            );
+                            // Continue processing other monitors even if one
+                            // fails
                         }
                     }
-                } else {
-                    tracing::debug!("No monitors found for log address: {}", log_address_str);
                 }
             }
         }
@@ -350,16 +408,12 @@ impl FilteringEngine for RhaiFilteringEngine {
 
     /// Updates the set of monitors used by the engine.
     async fn update_monitors(&self, monitors: Vec<Monitor>) {
-        let (new_monitors_by_address, new_transaction_monitors, needs_receipts) =
+        let (new_organized_monitors, needs_receipts) =
             Self::organize_monitors(monitors, self.compiler.as_ref());
 
-        let mut monitors_by_address_guard = self.monitors_by_address.write().await;
-        *monitors_by_address_guard = new_monitors_by_address;
-        drop(monitors_by_address_guard);
-
-        let mut transaction_monitors_guard = self.transaction_monitors.write().await;
-        *transaction_monitors_guard = new_transaction_monitors;
-        drop(transaction_monitors_guard);
+        let mut monitors_guard = self.monitors.write().await;
+        *monitors_guard = new_organized_monitors;
+        drop(monitors_guard);
 
         self.requires_receipts.store(needs_receipts, Ordering::Relaxed);
     }
@@ -404,18 +458,26 @@ mod tests {
         let addr2_lower = "0x0000000000000000000000000000000000000002";
         let addr2_checksum = "0x0000000000000000000000000000000000000002";
 
-        // let monitor1 = create_test_monitor(1, Some(addr1_lower), Some("abi.json"),
-        // "true", vec![]); let monitor2 = create_test_monitor(2,
-        // Some(addr2_lower), Some("abi.json"), "true", vec![]); let monitor3 =
-        // create_test_monitor(3, Some(addr1_lower), Some("abi.json"), "true", vec![]);
-        // let monitor4 = create_test_monitor(4, None, None, "tx.value > bigint(\"0\")",
-        // vec![]); // Tx monitor
-
-        let monitor1 = MonitorBuilder::new().id(1).address(addr1_lower).abi("abi.json").build();
-        let monitor2 = MonitorBuilder::new().id(2).address(addr2_lower).abi("abi.json").build();
-        let monitor3 = MonitorBuilder::new().id(3).address(addr1_lower).abi("abi.json").build();
+        let monitor1 = MonitorBuilder::new()
+            .id(1)
+            .address(addr1_lower)
+            .abi("abi.json")
+            .filter_script(r#"log.name == "Transfer""#)
+            .build();
+        let monitor2 = MonitorBuilder::new()
+            .id(2)
+            .address(addr2_lower)
+            .abi("abi.json")
+            .filter_script(r#"log.params.value > 100"#)
+            .build();
+        let monitor3 = MonitorBuilder::new()
+            .id(3)
+            .address(addr1_lower)
+            .abi("abi.json")
+            .filter_script(r#"log.name == "Approval""#)
+            .build();
         let monitor4 =
-            MonitorBuilder::new().id(4).filter_script("tx.value > bigint(\"0\")").build();
+            MonitorBuilder::new().id(4).filter_script(r#"tx.value > bigint("0")"#).build();
 
         // Test `new()`
         let config = RhaiConfig::default();
@@ -426,32 +488,46 @@ mod tests {
             config,
         );
 
-        let monitors_by_address_read = engine.monitors_by_address.read().await;
-        assert_eq!(monitors_by_address_read.len(), 2);
-        assert_eq!(monitors_by_address_read.get(addr1_checksum).unwrap().len(), 2);
-        assert_eq!(monitors_by_address_read.get(addr2_checksum).unwrap().len(), 1);
-        drop(monitors_by_address_read);
-
-        let transaction_monitors_read = engine.transaction_monitors.read().await;
-        assert_eq!(transaction_monitors_read.len(), 1);
-        assert_eq!(transaction_monitors_read[0].id, 4);
-        drop(transaction_monitors_read);
+        let monitors_guard = engine.monitors.read().await;
+        assert_eq!(monitors_guard.log_aware_monitors_by_address.len(), 2);
+        assert_eq!(
+            monitors_guard.log_aware_monitors_by_address.get(addr1_checksum).unwrap().len(),
+            2
+        );
+        assert_eq!(
+            monitors_guard.log_aware_monitors_by_address.get(addr2_checksum).unwrap().len(),
+            1
+        );
+        assert_eq!(monitors_guard.transaction_only_monitors.len(), 1);
+        assert_eq!(monitors_guard.transaction_only_monitors[0].id, 4);
+        drop(monitors_guard);
 
         // Test `update_monitors()`
-        let monitor5 = MonitorBuilder::new().id(5).address(addr2_lower).build();
-        let monitor6 = MonitorBuilder::new().id(6).build();
+        let monitor5 = MonitorBuilder::new()
+            .id(5)
+            .address(addr2_lower)
+            .filter_script(r#"log.name == "Deposit""#)
+            .build();
+        let monitor6 = MonitorBuilder::new().id(6).filter_script(r#"tx.gas_price > 100"#).build();
         engine.update_monitors(vec![monitor1.clone(), monitor5.clone(), monitor6.clone()]).await;
 
-        let monitors_by_address_read = engine.monitors_by_address.read().await;
-        assert_eq!(monitors_by_address_read.len(), 2);
-        assert_eq!(monitors_by_address_read.get(addr1_checksum).unwrap().len(), 1);
-        assert_eq!(monitors_by_address_read.get(addr2_checksum).unwrap().len(), 1);
-        assert_eq!(monitors_by_address_read.get(addr2_checksum).unwrap()[0].id, 5);
-        drop(monitors_by_address_read);
-
-        let transaction_monitors_read = engine.transaction_monitors.read().await;
-        assert_eq!(transaction_monitors_read.len(), 1);
-        assert_eq!(transaction_monitors_read[0].id, 6);
+        let monitors_guard = engine.monitors.read().await;
+        assert_eq!(monitors_guard.log_aware_monitors_by_address.len(), 2);
+        assert_eq!(
+            monitors_guard.log_aware_monitors_by_address.get(addr1_checksum).unwrap().len(),
+            1
+        );
+        assert_eq!(
+            monitors_guard.log_aware_monitors_by_address.get(addr2_checksum).unwrap().len(),
+            1
+        );
+        assert_eq!(
+            monitors_guard.log_aware_monitors_by_address.get(addr2_checksum).unwrap()[0].id,
+            5
+        );
+        assert_eq!(monitors_guard.transaction_only_monitors.len(), 1);
+        assert_eq!(monitors_guard.transaction_only_monitors[0].id, 6);
+        drop(monitors_guard);
     }
 
     #[tokio::test]
@@ -724,5 +800,69 @@ mod tests {
         // Test non-matching case
         let no_matches = engine.evaluate_item(&item_no_match).await.unwrap();
         assert!(no_matches.is_empty(), "Should find no matches for value <= 1.5 ether");
+    }
+
+    #[test]
+    fn test_organize_monitors_categorization() {
+        let config = RhaiConfig::default();
+        let compiler = Arc::new(RhaiCompiler::new(config.clone()));
+
+        let tx_monitor = MonitorBuilder::new().id(1).filter_script("tx.value > 100").build();
+        let log_monitor_address = MonitorBuilder::new()
+            .id(2)
+            .address("0x0000000000000000000000000000000000000001")
+            .filter_script("log.name == \"Transfer\"")
+            .build();
+        let log_monitor_global =
+            MonitorBuilder::new().id(3).filter_script("log.name == \"Approval\"").build();
+
+        let monitors =
+            vec![tx_monitor.clone(), log_monitor_address.clone(), log_monitor_global.clone()];
+
+        let (organized, _) = RhaiFilteringEngine::organize_monitors(monitors, &compiler);
+
+        assert_eq!(organized.transaction_only_monitors.len(), 1);
+        assert_eq!(organized.transaction_only_monitors[0].id, 1);
+
+        assert_eq!(organized.global_log_aware_monitors.len(), 1);
+        assert_eq!(organized.global_log_aware_monitors[0].id, 3);
+
+        assert_eq!(organized.log_aware_monitors_by_address.len(), 1);
+        let addr_checksum = "0x0000000000000000000000000000000000000001".to_string();
+        assert_eq!(organized.log_aware_monitors_by_address.get(&addr_checksum).unwrap().len(), 1);
+        assert_eq!(organized.log_aware_monitors_by_address.get(&addr_checksum).unwrap()[0].id, 2);
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_item_global_log_monitor_match() {
+        // This monitor has no address, so it should run on logs from ANY address.
+        let global_monitor = MonitorBuilder::new()
+            .id(100)
+            .filter_script("log.name == \"GlobalTransfer\"")
+            .notifiers(vec!["global_notifier".to_string()])
+            .build();
+
+        let config = RhaiConfig::default();
+        let compiler = Arc::new(RhaiCompiler::new(config.clone()));
+        let engine = RhaiFilteringEngine::new(vec![global_monitor], compiler, config);
+
+        let addr1 = address!("1111111111111111111111111111111111111111");
+        let addr2 = address!("2222222222222222222222222222222222222222");
+
+        let (tx, log1) = create_test_log_and_tx(addr1, "GlobalTransfer", vec![]);
+        let (_, log2) = create_test_log_and_tx(addr2, "GlobalTransfer", vec![]);
+        // This log should be ignored by the monitor
+        let (_, log3) = create_test_log_and_tx(addr1, "OtherEvent", vec![]);
+
+        let item = CorrelatedBlockItem::new(tx, vec![log1, log2, log3], None);
+
+        let matches = engine.evaluate_item(&item).await.unwrap();
+
+        // We expect two matches, one for each "GlobalTransfer" log.
+        assert_eq!(matches.len(), 2);
+        assert_eq!(matches[0].monitor_id, 100);
+        assert_eq!(matches[0].contract_address, addr1);
+        assert_eq!(matches[1].monitor_id, 100);
+        assert_eq!(matches[1].contract_address, addr2);
     }
 }
