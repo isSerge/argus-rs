@@ -20,6 +20,8 @@ pub struct ScriptAnalysis {
     /// A set of variable paths accessed in the script.
     /// This is used to determine which variables are read or written to.
     pub accessed_variables: Arc<HashSet<String>>,
+    /// True if the script accesses the `log` variable.
+    pub accesses_log_variable: bool,
 }
 
 /// A type alias for the hash of a Rhai script.
@@ -73,11 +75,14 @@ impl RhaiCompiler {
         // Compile the script
         let ast = self.engine.compile(script)?;
         // Analyze the AST to extract accessed variables
-        let accessed_variables = ast_analysis::get_accessed_variables(&ast);
+        let analysis_result = ast_analysis::analyze_ast(&ast);
 
         // Create the ScriptAnalysis struct
-        let analysis =
-            ScriptAnalysis { ast: Arc::new(ast), accessed_variables: Arc::new(accessed_variables) };
+        let analysis = ScriptAnalysis {
+            ast: Arc::new(ast),
+            accessed_variables: Arc::new(analysis_result.accessed_variables),
+            accesses_log_variable: analysis_result.accesses_log_variable,
+        };
 
         // Store the analysis in the cache
         self.cache.insert(key, analysis.clone());
@@ -98,7 +103,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_analyze_valid_script() {
+    fn test_analyze_valid_script_tx_only() {
         let config = RhaiConfig::default();
         let compiler = RhaiCompiler::new(config);
         let script = "tx.value > 100";
@@ -111,9 +116,28 @@ mod tests {
         // Check that the accessed variables are correct.
         let expected_vars: HashSet<String> = HashSet::from(["tx.value".to_string()]);
         assert_eq!(*analysis.accessed_variables, expected_vars);
+        assert!(!analysis.accesses_log_variable);
 
         // Check that the AST is present.
         assert!(Arc::strong_count(&analysis.ast) >= 1);
+    }
+
+    #[test]
+    fn test_analyze_valid_script_with_log() {
+        let config = RhaiConfig::default();
+        let compiler = RhaiCompiler::new(config);
+        let script = "tx.value > 100 && log.name == \"Transfer\"";
+
+        let result = compiler.analyze_script(script);
+        assert!(result.is_ok());
+
+        let analysis = result.unwrap();
+
+        // Check that the accessed variables are correct.
+        let expected_vars: HashSet<String> =
+            HashSet::from(["tx.value".to_string(), "log.name".to_string()]);
+        assert_eq!(*analysis.accessed_variables, expected_vars);
+        assert!(analysis.accesses_log_variable);
     }
 
     #[test]
@@ -152,6 +176,7 @@ mod tests {
         // location.
         assert!(Arc::ptr_eq(&first_result.ast, &second_result.ast));
         assert!(Arc::ptr_eq(&first_result.accessed_variables, &second_result.accessed_variables));
+        assert_eq!(first_result.accesses_log_variable, second_result.accesses_log_variable);
     }
 
     #[test]
@@ -178,8 +203,8 @@ mod tests {
         let script2 = "log.name == \"Transfer\"";
 
         // Analyze both scripts.
-        let _ = compiler.analyze_script(script1).unwrap();
-        let _ = compiler.analyze_script(script2).unwrap();
+        let analysis1 = compiler.analyze_script(script1).unwrap();
+        let analysis2 = compiler.analyze_script(script2).unwrap();
 
         let key1 = RhaiCompiler::hash_script(script1);
         let key2 = RhaiCompiler::hash_script(script2);
@@ -188,6 +213,9 @@ mod tests {
         assert_eq!(compiler.cache.len(), 2);
         assert!(compiler.cache.contains_key(&key1));
         assert!(compiler.cache.contains_key(&key2));
+
+        assert!(!analysis1.accesses_log_variable);
+        assert!(analysis2.accesses_log_variable);
     }
 
     #[test]
@@ -202,6 +230,7 @@ mod tests {
         let analysis = result.unwrap();
         // An empty script should access no variables.
         assert!(analysis.accessed_variables.is_empty());
+        assert!(!analysis.accesses_log_variable);
     }
 
     #[test]
@@ -219,5 +248,6 @@ mod tests {
         let analysis = result.unwrap();
         // A script with only comments should access no variables.
         assert!(analysis.accessed_variables.is_empty());
+        assert!(!analysis.accesses_log_variable);
     }
 }
