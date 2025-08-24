@@ -70,6 +70,8 @@ notification_channel_capacity: 1024
 
 This file is where you define *what* you want to monitor on the blockchain. Each monitor specifies a network, an optional contract address, and a Rhai filter script. If your script needs to inspect event logs (i.e., access the `log` variable), you must also provide a path to the contract's ABI file.
 
+See [`configs/monitors.example.yaml`](./configs/monitors.example.yaml) for more detailed examples.
+
 **Example `monitors.yaml`**
 ```yaml
 monitors:
@@ -102,6 +104,8 @@ monitors:
 ### `notifiers.yaml`
 
 This file defines *how* you want to be notified when a monitor finds a match. You can configure various notification channels like webhooks, Slack, or Discord.
+
+See [`configs/notifiers.example.yaml`](./configs/notifiers.example.yaml) for more detailed examples.
 
 **Example `notifiers.yaml`**
 ```yaml
