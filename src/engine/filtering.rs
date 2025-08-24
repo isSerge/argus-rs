@@ -832,4 +832,37 @@ mod tests {
         assert_eq!(organized.log_aware_monitors_by_address.get(&addr_checksum).unwrap().len(), 1);
         assert_eq!(organized.log_aware_monitors_by_address.get(&addr_checksum).unwrap()[0].id, 2);
     }
+
+    #[tokio::test]
+    async fn test_evaluate_item_global_log_monitor_match() {
+        // This monitor has no address, so it should run on logs from ANY address.
+        let global_monitor = MonitorBuilder::new()
+            .id(100)
+            .filter_script("log.name == \"GlobalTransfer\"")
+            .notifiers(vec!["global_notifier".to_string()])
+            .build();
+
+        let config = RhaiConfig::default();
+        let compiler = Arc::new(RhaiCompiler::new(config.clone()));
+        let engine = RhaiFilteringEngine::new(vec![global_monitor], compiler, config);
+
+        let addr1 = address!("1111111111111111111111111111111111111111");
+        let addr2 = address!("2222222222222222222222222222222222222222");
+
+        let (tx, log1) = create_test_log_and_tx(addr1, "GlobalTransfer", vec![]);
+        let (_, log2) = create_test_log_and_tx(addr2, "GlobalTransfer", vec![]);
+        // This log should be ignored by the monitor
+        let (_, log3) = create_test_log_and_tx(addr1, "OtherEvent", vec![]);
+
+        let item = CorrelatedBlockItem::new(tx, vec![log1, log2, log3], None);
+
+        let matches = engine.evaluate_item(&item).await.unwrap();
+
+        // We expect two matches, one for each "GlobalTransfer" log.
+        assert_eq!(matches.len(), 2);
+        assert_eq!(matches[0].monitor_id, 100);
+        assert_eq!(matches[0].contract_address, addr1);
+        assert_eq!(matches[1].monitor_id, 100);
+        assert_eq!(matches[1].contract_address, addr2);
+    }
 }
