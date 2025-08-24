@@ -8,7 +8,8 @@ use rhai::{AST, Expr, Stmt};
 /// The result of a script analysis.
 #[derive(Debug, Default)]
 pub struct ScriptAnalysisResult {
-    /// A set of all unique, fully-qualified variable paths accessed in the script.
+    /// A set of all unique, fully-qualified variable paths accessed in the
+    /// script.
     pub accessed_variables: HashSet<String>,
     /// True if the script accesses the `log` variable.
     pub accesses_log_variable: bool,
