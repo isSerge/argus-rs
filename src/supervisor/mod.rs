@@ -85,6 +85,10 @@ pub enum SupervisorError {
     /// An error occurred due to an invalid configuration.
     #[error("Invalid configuration: {0}")]
     InvalidConfiguration(String),
+
+    /// A script compiler was not provided to the `SupervisorBuilder`.
+    #[error("Missing script compiler for Supervisor")]
+    MissingScriptCompiler,
 }
 
 /// The primary runtime manager for the application.

@@ -32,7 +32,7 @@ type ScriptHash = [u8; 32];
 #[derive(Debug)]
 pub struct RhaiCompiler {
     /// The Rhai engine used for compiling scripts.
-    engine: Arc<Engine>,
+    pub engine: Arc<Engine>,
     /// A cache that stores the analysis results of scripts.
     cache: DashMap<ScriptHash, ScriptAnalysis>,
 }

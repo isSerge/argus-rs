@@ -12,7 +12,7 @@ use crate::{
     engine::{
         block_processor::{BlockProcessor, BlockProcessorError},
         filtering::{FilteringEngine, RhaiError, RhaiFilteringEngine},
-        rhai::RhaiCompiler,
+        rhai::{RhaiCompiler, RhaiScriptValidator},
     },
     http_client::HttpClientPool,
     models::{BlockData, monitor_match::MonitorMatch},
@@ -108,14 +108,22 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let abi_service = Arc::new(AbiService::new());
     let block_processor = BlockProcessor::new(Arc::clone(&abi_service));
 
-    // Load and validate monitor and notifier configurations from files.
+    // Init Rhai scripting engine and validator
+    let rhai_compiler = Arc::new(RhaiCompiler::new(config.rhai.clone()));
+    let script_validator = RhaiScriptValidator::new(rhai_compiler.clone());
 
+    // Load and validate monitor and notifier configurations from files.
     let monitor_loader = MonitorLoader::new(config.monitor_config_path.into());
     let monitors = monitor_loader.load()?;
     let notifier_loader = NotifierLoader::new(config.notifier_config_path.into());
     let notifiers = notifier_loader.load()?;
 
-    let monitor_validator = MonitorValidator::new(&config.network_id, &notifiers);
+    let monitor_validator = MonitorValidator::new(
+        script_validator,
+        abi_service.clone(),
+        &config.network_id,
+        &notifiers,
+    );
     for monitor in monitors.iter() {
         tracing::debug!(monitor = %monitor.name, "Validating monitor...");
         monitor_validator.validate(monitor)?;
@@ -141,7 +149,6 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     // Init services for notifications and filtering logic.
     let client_pool = Arc::new(HttpClientPool::new());
     let notification_service = NotificationService::new(notifiers, client_pool);
-    let rhai_compiler = Arc::new(RhaiCompiler::new(config.rhai.clone()));
     let filtering_engine = RhaiFilteringEngine::new(monitors, rhai_compiler, config.rhai.clone());
 
     // Execute the core processing loop.

@@ -4,6 +4,7 @@ use argus::{
     abi::AbiService,
     cmd::{DryRunArgs, dry_run},
     config::AppConfig,
+    engine::rhai::{RhaiCompiler, RhaiScriptValidator},
     initialization::InitializationService,
     persistence::{sqlite::SqliteStateRepository, traits::StateRepository},
     providers::rpc::{EvmRpcSource, create_provider},
@@ -59,6 +60,10 @@ async fn run_supervisor() -> Result<(), Box<dyn std::error::Error>> {
     tracing::debug!("Initializing ABI service");
     let abi_service = Arc::new(AbiService::new());
 
+    // Initialize script validator
+    let script_compiler = Arc::new(RhaiCompiler::new(config.rhai.clone()));
+    let script_validator = RhaiScriptValidator::new(script_compiler.clone());
+
     // Initialize application state (monitors, triggers, ABIs) from files into
     // DB/ABI service
     tracing::debug!("Initializing application state...");
@@ -66,6 +71,7 @@ async fn run_supervisor() -> Result<(), Box<dyn std::error::Error>> {
         config.clone(),
         Arc::clone(&repo) as Arc<dyn StateRepository>,
         Arc::clone(&abi_service),
+        script_validator,
     );
     initialization_service.run().await?;
     tracing::info!("Application state initialized.");
@@ -79,6 +85,7 @@ async fn run_supervisor() -> Result<(), Box<dyn std::error::Error>> {
         .config(config)
         .abi_service(abi_service)
         .data_source(Box::new(evm_data_source))
+        .script_compiler(script_compiler)
         .state(repo)
         .build()
         .await?;
