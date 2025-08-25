@@ -141,14 +141,10 @@ pub fn get_valid_tx_rhai_paths() -> HashSet<String> {
 
 /// Returns a set of valid Rhai paths for receipt fields.
 pub fn get_valid_receipt_rhai_paths() -> HashSet<String> {
-    [
-        KEY_TX_GAS_USED,
-        KEY_TX_STATUS,
-        KEY_TX_EFFECTIVE_GAS_PRICE,
-    ]
-    .iter()
-    .map(|s| format!("tx.{}", s))
-    .collect()
+    [KEY_TX_GAS_USED, KEY_TX_STATUS, KEY_TX_EFFECTIVE_GAS_PRICE]
+        .iter()
+        .map(|s| format!("tx.{}", s))
+        .collect()
 }
 
 /// Builds a Rhai `Map` from a transaction and optional receipt.
@@ -241,8 +237,8 @@ const KEY_LOG_TRANSACTION_INDEX: &str = "transaction_index";
 
 /// Returns a set of valid Rhai paths for log fields.
 /// Used for validating Rhai scripts.
-/// This includes all standard log fields, prefixed with "log.", does not include
-/// any dynamic fields.
+/// This includes all standard log fields, prefixed with "log.", does not
+/// include any dynamic fields.
 pub fn get_valid_log_rhai_paths() -> HashSet<String> {
     [
         KEY_LOG_NAME,
@@ -776,14 +772,11 @@ mod tests {
     #[test]
     fn test_get_valid_receipt_rhai_paths() {
         let valid_paths = get_valid_receipt_rhai_paths();
-        let expected_paths: HashSet<String> = [
-            "tx.gas_used",
-            "tx.status",
-            "tx.effective_gas_price",
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+        let expected_paths: HashSet<String> =
+            ["tx.gas_used", "tx.status", "tx.effective_gas_price"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
 
         assert_eq!(valid_paths, expected_paths);
     }

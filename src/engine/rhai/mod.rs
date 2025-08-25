@@ -8,8 +8,9 @@ mod create_engine;
 pub mod evm_wrappers;
 mod validator;
 
-pub use compiler::{RhaiCompiler, ScriptAnalysis, RhaiCompilerError};
+pub use compiler::{RhaiCompiler, RhaiCompilerError, ScriptAnalysis};
 pub use conversions::{
     get_valid_log_rhai_paths, get_valid_receipt_rhai_paths, get_valid_tx_rhai_paths,
 };
 pub use create_engine::create_engine;
+pub use validator::{RhaiScriptValidationError, RhaiScriptValidator};
