@@ -739,4 +739,49 @@ mod tests {
         // The final JSON should now correctly be a string.
         assert_eq!(data["gas_price"], json!(large_gas_price.to_string()));
     }
+
+    #[test]
+    fn test_get_valid_tx_rhai_paths() {
+        let valid_paths = get_valid_tx_rhai_paths();
+        let expected_paths: HashSet<String> = [
+            "tx.to",
+            "tx.from",
+            "tx.hash",
+            "tx.value",
+            "tx.gas_limit",
+            "tx.nonce",
+            "tx.input",
+            "tx.block_number",
+            "tx.transaction_index",
+            "tx.gas_price",
+            "tx.max_fee_per_gas",
+            "tx.max_priority_fee_per_gas",
+            "tx.gas_used",
+            "tx.status",
+            "tx.effective_gas_price",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+        assert_eq!(valid_paths, expected_paths);
+    }
+
+    #[test]
+    fn test_get_valid_log_rhai_paths() {
+        let valid_paths = get_valid_log_rhai_paths();
+        let expected_paths: HashSet<String> = [
+            "log.address",
+            "log.block_number",
+            "log.transaction_hash",
+            "log.transaction_index",
+            "log.name",
+            "log.log_index",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+        assert_eq!(valid_paths, expected_paths);
+    }
 }
