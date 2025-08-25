@@ -116,6 +116,7 @@ const KEY_TX_EFFECTIVE_GAS_PRICE: &str = "effective_gas_price";
 /// Returns a set of valid Rhai paths for transaction fields.
 /// Used for validating Rhai scripts.
 /// This includes all standard transaction fields, prefixed with "tx."
+/// Does not include receipt fields (see separate method below)
 pub fn get_valid_tx_rhai_paths() -> HashSet<String> {
     [
         KEY_TX_FROM,
@@ -132,7 +133,15 @@ pub fn get_valid_tx_rhai_paths() -> HashSet<String> {
         // EIP-1559 fields
         KEY_TX_MAX_FEE_PER_GAS,
         KEY_TX_MAX_PRIORITY_FEE_PER_GAS,
-        // Receipt fields
+    ]
+    .iter()
+    .map(|s| format!("tx.{}", s))
+    .collect()
+}
+
+/// Returns a set of valid Rhai paths for receipt fields.
+pub fn get_valid_receipt_rhai_paths() -> HashSet<String> {
+    [
         KEY_TX_GAS_USED,
         KEY_TX_STATUS,
         KEY_TX_EFFECTIVE_GAS_PRICE,
@@ -756,6 +765,18 @@ mod tests {
             "tx.gas_price",
             "tx.max_fee_per_gas",
             "tx.max_priority_fee_per_gas",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+        assert_eq!(valid_paths, expected_paths);
+    }
+
+    #[test]
+    fn test_get_valid_receipt_rhai_paths() {
+        let valid_paths = get_valid_receipt_rhai_paths();
+        let expected_paths: HashSet<String> = [
             "tx.gas_used",
             "tx.status",
             "tx.effective_gas_price",
