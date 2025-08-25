@@ -252,6 +252,11 @@ impl AbiService {
 
         Ok(DecodedCall { name: function.name.clone(), params, tx })
     }
+
+    /// Retrieves the cached ABI for a given contract address, if it exists.
+    pub fn get_abi(&self, address: &Option<Address>) -> Option<Arc<CachedContract>> {
+        address.and_then(|addr| self.cache.get(&addr).map(|entry| Arc::clone(&entry)))
+    }
 }
 
 #[cfg(test)]

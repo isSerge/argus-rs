@@ -118,8 +118,12 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let notifier_loader = NotifierLoader::new(config.notifier_config_path.into());
     let notifiers = notifier_loader.load()?;
 
-    let monitor_validator =
-        MonitorValidator::new(&script_validator, &config.network_id, &notifiers);
+    let monitor_validator = MonitorValidator::new(
+        script_validator,
+        abi_service.clone(),
+        &config.network_id,
+        &notifiers,
+    );
     for monitor in monitors.iter() {
         tracing::debug!(monitor = %monitor.name, "Validating monitor...");
         monitor_validator.validate(monitor)?;

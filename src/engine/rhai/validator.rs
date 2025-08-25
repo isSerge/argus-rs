@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::Arc};
 
 use alloy::json_abi::JsonAbi;
 use thiserror::Error;
@@ -8,9 +8,10 @@ use super::{
     get_valid_receipt_rhai_paths, get_valid_tx_rhai_paths,
 };
 
+#[derive(Clone)]
 /// Validates Rhai scripts against allowed fields and ABI.
 pub struct RhaiScriptValidator {
-    compiler: RhaiCompiler,
+    compiler: Arc<RhaiCompiler>,
 }
 
 /// Errors that can occur during Rhai script validation.
@@ -50,7 +51,7 @@ pub struct RhaiScriptValidationResult {
 
 impl RhaiScriptValidator {
     /// Creates a new Rhai script validator with the given compiler.
-    pub fn new(compiler: RhaiCompiler) -> Self {
+    pub fn new(compiler: Arc<RhaiCompiler>) -> Self {
         Self { compiler }
     }
 
@@ -177,7 +178,7 @@ mod tests {
 
     fn create_validator() -> RhaiScriptValidator {
         let config = RhaiConfig::default();
-        let compiler = RhaiCompiler::new(config);
+        let compiler = Arc::new(RhaiCompiler::new(config));
         RhaiScriptValidator::new(compiler)
     }
 

@@ -96,7 +96,12 @@ impl InitializationService {
             ))
         })?;
 
-        let validator = MonitorValidator::new(&self.script_validator, network_id, &notifiers);
+        let validator = MonitorValidator::new(
+            self.script_validator.clone(),
+            self.abi_service.clone(),
+            network_id,
+            &notifiers,
+        );
         for monitor in &monitors {
             validator.validate(monitor).map_err(|e| {
                 InitializationError::MonitorLoadError(format!(
