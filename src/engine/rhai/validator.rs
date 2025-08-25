@@ -110,11 +110,6 @@ impl RhaiScriptValidator {
             }
         }
 
-        // Validate log fields against ABI if provided
-        if ast_analysis.accesses_log_variable && abi.is_none() {
-            return Err(RhaiScriptValidationError::MissingAbi);
-        }
-
         // Check if return type is boolean
         self.validate_return_type(&ast_analysis)?;
 
@@ -306,16 +301,6 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_analysis_missing_abi() {
-        let validator = create_validator();
-        let script = "log.name == \"Transfer\""; // Accessing log without ABI
-        let analysis = validator.compiler.analyze_script(script).unwrap();
-        let result = validator.validate_analysis(analysis, None);
-        assert!(result.is_err());
-        assert!(matches!(result.err().unwrap(), RhaiScriptValidationError::MissingAbi));
-    }
-
-    #[test]
     fn test_validate_analysis_sets_requires_receipt() {
         let validator = create_validator();
         let script = "tx.gas_used > gwei(\"21000\")"; // Accessing receipt field
@@ -348,6 +333,16 @@ mod tests {
             "Expected InvalidReturnType, got {:?}",
             err
         );
+    }
+
+    #[test]
+    fn test_validate_analysis_log_params_access_without_abi() {
+        let validator = create_validator();
+        let script = "log.params.amount > bigint(100)"; // Accessing log.params without ABI
+        let analysis = validator.compiler.analyze_script(script).unwrap();
+        let result = validator.validate_analysis(analysis, None);
+        assert!(result.is_err());
+        assert!(matches!(result.err().unwrap(), RhaiScriptValidationError::InvalidAbiField(_)));
     }
 
     #[test]

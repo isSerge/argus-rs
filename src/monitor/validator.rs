@@ -131,13 +131,25 @@ impl<'a> MonitorValidator<'a> {
             }
         }
 
-        // Get ABI from ABI service if an address and ABI path are provided.
-        let abi_json = if let (Some(address_str), Some(_)) = (&monitor.address, &monitor.abi) {
-            if let Ok(address) = address_str.parse::<Address>() {
-                self.abi_service.get_abi(&Some(address)).map(|c| c.abi.clone())
-            } else {
-                None
+        // Parse and validate the contract address if provided.
+        let mut parsed_address: Option<Address> = None;
+        if let Some(address_str) = &monitor.address {
+            match address_str.parse::<Address>() {
+                Ok(addr) => parsed_address = Some(addr),
+                Err(_) => {
+                    return Err(MonitorValidationError::InvalidAddress {
+                        monitor_name: monitor.name.clone(),
+                        address: address_str.clone(),
+                    });
+                }
             }
+        }
+
+        // Determine the ABI to pass to the script validator.
+        // It should only be Some if both address and abi path are provided and address
+        // is valid.
+        let abi_json = if let (Some(address), Some(_)) = (parsed_address, &monitor.abi) {
+            self.abi_service.get_abi(&Some(address)).map(|c| c.abi.clone())
         } else {
             None
         };
@@ -163,14 +175,6 @@ impl<'a> MonitorValidator<'a> {
                     monitor_name: monitor.name.clone(),
                 });
             }
-
-            // Parse the address to ensure it's valid.
-            if let Some(address) = &monitor.address {
-                address.parse::<Address>().map_err(|_| MonitorValidationError::InvalidAddress {
-                    monitor_name: monitor.name.clone(),
-                    address: address.clone(),
-                })?;
-            }
         }
 
         Ok(())
@@ -186,7 +190,7 @@ mod tests {
     use crate::{
         abi::AbiService,
         config::RhaiConfig,
-        engine::rhai::{RhaiCompiler, RhaiScriptValidator},
+        engine::rhai::{RhaiCompiler, RhaiScriptValidationError, RhaiScriptValidator},
         models::{
             NotificationMessage,
             monitor::MonitorConfig,
@@ -303,16 +307,11 @@ mod tests {
     #[tokio::test]
     async fn test_monitor_validation_failure_requires_address_for_log_access() {
         let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
-        let validator = create_monitor_validator(
-            &[],
-            Some((contract_address, simple_abi())),
-        );
-        // let validator = create_monitor_validator(&[], None);
+        let validator = create_monitor_validator(&[], Some((contract_address, simple_abi())));
         // Invalid: accesses log data but has no address
         let invalid_monitor =
             create_test_monitor(1, None, Some("abi.json"), "log.name == \"A\"", vec![]);
         let result = validator.validate(&invalid_monitor);
-        println!("{:?}", result);
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
@@ -343,14 +342,16 @@ mod tests {
     #[tokio::test]
     async fn test_monitor_validation_failure_invalid_address_for_log_access() {
         let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
-        let validator = create_monitor_validator(
-            &[],
-            Some((contract_address, simple_abi())),
-        );
+        let validator = create_monitor_validator(&[], Some((contract_address, simple_abi())));
         // Invalid: address is not a valid hex string, and log data is accessed
         let invalid_addr = "not-a-valid-address";
-        let invalid_monitor =
-            create_test_monitor(1, Some(invalid_addr), Some("abi.json"), "log.name == \"A\"", vec![]);
+        let invalid_monitor = create_test_monitor(
+            1,
+            Some(invalid_addr),
+            Some("abi.json"),
+            "log.name == \"A\"",
+            vec![],
+        );
         let result = validator.validate(&invalid_monitor);
 
         assert!(result.is_err());
@@ -363,14 +364,16 @@ mod tests {
     #[tokio::test]
     async fn test_monitor_validation_failure_invalid_network() {
         let validator = create_monitor_validator(&[], None);
-        // Invalid: monitor is on a different network ("testnet")
-        let invalid_monitor = create_test_monitor(
+        // Invalid: monitor is on a different network ("other_network")
+        let mut invalid_monitor = create_test_monitor(
             1,
             Some("0x0000000000000000000000000000000000000123"),
             Some("abi.json"),
             "log.name == \"A\"",
             vec![],
         );
+        invalid_monitor.network = "other_network".to_string(); // Set to a different network
+
         let result = validator.validate(&invalid_monitor);
 
         assert!(result.is_err());
@@ -488,5 +491,82 @@ mod tests {
             vec![],
         );
         assert!(validator.validate(&monitor).is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_monitor_validation_failure_requires_abi_for_log_access_no_abi_file() {
+        let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
+        let validator = create_monitor_validator(&[], Some((contract_address, simple_abi())));
+        // Invalid: accesses log data, has address, but no abi file specified
+        let invalid_monitor = create_test_monitor(
+            1,
+            Some("0x0000000000000000000000000000000000000123"),
+            None, // No ABI file
+            "log.name == \"A\"",
+            vec![],
+        );
+        let result = validator.validate(&invalid_monitor);
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            MonitorValidationError::MonitorRequiresAbi { monitor_name: _ }
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_monitor_validation_failure_requires_address_for_log_access_no_address() {
+        let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
+        let validator = create_monitor_validator(&[], Some((contract_address, simple_abi())));
+        // Invalid: accesses log data, has abi file, but no address specified
+        let invalid_monitor =
+            create_test_monitor(1, None, Some("abi.json"), "log.name == \"A\"", vec![]);
+        let result = validator.validate(&invalid_monitor);
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            MonitorValidationError::MonitorRequiresAddress { monitor_name: _ }
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_monitor_validation_failure_invalid_address_no_log_access() {
+        let validator = create_monitor_validator(&[], None);
+        // Invalid: address is not a valid hex string, but no log data is accessed
+        let invalid_addr = "not-a-valid-address";
+        let invalid_monitor =
+            create_test_monitor(1, Some(invalid_addr), None, "tx.value > 0", vec![]);
+        let result = validator.validate(&invalid_monitor);
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            MonitorValidationError::InvalidAddress { monitor_name: _, address: _ }
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_monitor_validation_failure_script_invalid_abi_field_access() {
+        let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
+        let validator = create_monitor_validator(&[], Some((contract_address, simple_abi())));
+        // Invalid script: accesses a log.params field not in the ABI
+        let invalid_monitor = create_test_monitor(
+            1,
+            Some("0x0000000000000000000000000000000000000123"),
+            Some("abi.json"),
+            "log.params.non_existent_param == 1",
+            vec![],
+        );
+        let result = validator.validate(&invalid_monitor);
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            MonitorValidationError::ScriptError {
+                monitor_name: _,
+                error: RhaiScriptValidationError::InvalidAbiField(_)
+            }
+        ));
     }
 }
