@@ -3,6 +3,8 @@
 //! This module handles conversion between blockchain data types and
 //! Rhai-compatible types
 
+use std::collections::HashSet;
+
 use alloy::{
     consensus::TxType,
     dyn_abi::DynSolValue,
@@ -93,60 +95,107 @@ pub fn build_log_params_map(params: &[(String, DynSolValue)]) -> Map {
     map
 }
 
+/// --- Transaction Fields ---
+const KEY_TX_TO: &str = "to";
+const KEY_TX_FROM: &str = "from";
+const KEY_TX_HASH: &str = "hash";
+const KEY_TX_VALUE: &str = "value";
+const KEY_TX_GAS_LIMIT: &str = "gas_limit";
+const KEY_TX_NONCE: &str = "nonce";
+const KEY_TX_INPUT: &str = "input";
+const KEY_TX_BLOCK_NUMBER: &str = "block_number";
+const KEY_TX_TRANSACTION_INDEX: &str = "transaction_index";
+const KEY_TX_GAS_PRICE: &str = "gas_price";
+const KEY_TX_MAX_FEE_PER_GAS: &str = "max_fee_per_gas";
+const KEY_TX_MAX_PRIORITY_FEE_PER_GAS: &str = "max_priority_fee_per_gas";
+/// --- Receipt Fields ---
+const KEY_TX_GAS_USED: &str = "gas_used";
+const KEY_TX_STATUS: &str = "status";
+const KEY_TX_EFFECTIVE_GAS_PRICE: &str = "effective_gas_price";
+
+/// Returns a set of valid Rhai paths for transaction fields.
+/// Used for validating Rhai scripts.
+/// This includes all standard transaction fields, prefixed with "tx."
+pub fn get_valid_tx_rhai_paths() -> HashSet<String> {
+    [
+        KEY_TX_FROM,
+        KEY_TX_TO,
+        KEY_TX_HASH,
+        KEY_TX_VALUE,
+        KEY_TX_GAS_LIMIT,
+        KEY_TX_NONCE,
+        KEY_TX_INPUT,
+        KEY_TX_BLOCK_NUMBER,
+        KEY_TX_TRANSACTION_INDEX,
+        // Legacy fields
+        KEY_TX_GAS_PRICE,
+        // EIP-1559 fields
+        KEY_TX_MAX_FEE_PER_GAS,
+        KEY_TX_MAX_PRIORITY_FEE_PER_GAS,
+        // Receipt fields
+        KEY_TX_GAS_USED,
+        KEY_TX_STATUS,
+        KEY_TX_EFFECTIVE_GAS_PRICE,
+    ]
+    .iter()
+    .map(|s| format!("tx.{}", s))
+    .collect()
+}
+
 /// Builds a Rhai `Map` from a transaction and optional receipt.
 pub fn build_transaction_map(
     transaction: &Transaction,
-    receipt: Option<&alloy::rpc::types::TransactionReceipt>,
+    receipt: Option<&TransactionReceipt>,
 ) -> Map {
     let mut map = Map::new();
 
     if let Some(to) = transaction.to() {
-        map.insert("to".into(), to.to_checksum(None).into());
+        map.insert(KEY_TX_TO.into(), to.to_checksum(None).into());
     }
 
-    map.insert("from".into(), transaction.from().to_checksum(None).into());
-    map.insert("hash".into(), transaction.hash().to_string().into());
+    map.insert(KEY_TX_FROM.into(), transaction.from().to_checksum(None).into());
+    map.insert(KEY_TX_HASH.into(), transaction.hash().to_string().into());
 
     // --- Selective Conversion ---
     // Values that can exceed i64::MAX are always converted to BigInt.
-    map.insert("value".into(), u256_to_bigint_dynamic(transaction.value()));
+    map.insert(KEY_TX_VALUE.into(), u256_to_bigint_dynamic(transaction.value()));
 
     // Values that are bounded (typically u64) are converted to i64.
-    map.insert("gas_limit".into(), (transaction.gas() as i64).into());
-    map.insert("nonce".into(), (transaction.nonce() as i64).into());
-    map.insert("input".into(), format!("0x{}", hex::encode(transaction.input())).into());
+    map.insert(KEY_TX_GAS_LIMIT.into(), (transaction.gas() as i64).into());
+    map.insert(KEY_TX_NONCE.into(), (transaction.nonce() as i64).into());
+    map.insert(KEY_TX_INPUT.into(), format!("0x{}", hex::encode(transaction.input())).into());
 
     if let Some(block_number) = transaction.block_number() {
-        map.insert("block_number".into(), (block_number as i64).into());
+        map.insert(KEY_TX_BLOCK_NUMBER.into(), (block_number as i64).into());
     } else {
-        map.insert("block_number".into(), Dynamic::UNIT);
+        map.insert(KEY_TX_BLOCK_NUMBER.into(), Dynamic::UNIT);
     }
 
     if let Some(transaction_index) = transaction.transaction_index() {
-        map.insert("transaction_index".into(), (transaction_index as i64).into());
+        map.insert(KEY_TX_TRANSACTION_INDEX.into(), (transaction_index as i64).into());
     } else {
-        map.insert("transaction_index".into(), Dynamic::UNIT);
+        map.insert(KEY_TX_TRANSACTION_INDEX.into(), Dynamic::UNIT);
     }
 
     match transaction.transaction_type() {
         TxType::Legacy =>
             if let Some(gas_price) = transaction.gas_price() {
-                map.insert("gas_price".into(), u256_to_bigint_dynamic(U256::from(gas_price)));
+                map.insert(KEY_TX_GAS_PRICE.into(), u256_to_bigint_dynamic(U256::from(gas_price)));
             } else {
-                map.insert("gas_price".into(), Dynamic::UNIT);
+                map.insert(KEY_TX_GAS_PRICE.into(), Dynamic::UNIT);
             },
         TxType::Eip1559 => {
             map.insert(
-                "max_fee_per_gas".into(),
+                KEY_TX_MAX_FEE_PER_GAS.into(),
                 u256_to_bigint_dynamic(U256::from(transaction.max_fee_per_gas())),
             );
             if let Some(max_priority_fee_per_gas) = transaction.max_priority_fee_per_gas() {
                 map.insert(
-                    "max_priority_fee_per_gas".into(),
+                    KEY_TX_MAX_PRIORITY_FEE_PER_GAS.into(),
                     u256_to_bigint_dynamic(U256::from(max_priority_fee_per_gas)),
                 );
             } else {
-                map.insert("max_priority_fee_per_gas".into(), Dynamic::UNIT);
+                map.insert(KEY_TX_MAX_PRIORITY_FEE_PER_GAS.into(), Dynamic::UNIT);
             }
         }
         _ => { /* Other transaction types are not explicitly handled for gas fields */ }
@@ -154,50 +203,77 @@ pub fn build_transaction_map(
 
     // Add receipt fields if available
     if let Some(receipt) = receipt {
-        map.insert("gas_used".into(), (receipt.gas_used as i64).into());
+        map.insert(KEY_TX_GAS_USED.into(), (receipt.gas_used as i64).into());
         // status is 0 or 1, fits in i64.
-        map.insert("status".into(), (receipt.inner.status() as i64).into());
+        map.insert(KEY_TX_STATUS.into(), (receipt.inner.status() as i64).into());
         // effective_gas_price can be large.
         map.insert(
-            "effective_gas_price".into(),
+            KEY_TX_EFFECTIVE_GAS_PRICE.into(),
             u256_to_bigint_dynamic(U256::from(receipt.effective_gas_price)),
         );
     } else {
         // When no receipt is available, set receipt fields to UNIT (null)
-        map.insert("gas_used".into(), Dynamic::UNIT);
-        map.insert("status".into(), Dynamic::UNIT);
-        map.insert("effective_gas_price".into(), Dynamic::UNIT);
+        map.insert(KEY_TX_GAS_USED.into(), Dynamic::UNIT);
+        map.insert(KEY_TX_STATUS.into(), Dynamic::UNIT);
+        map.insert(KEY_TX_EFFECTIVE_GAS_PRICE.into(), Dynamic::UNIT);
     }
 
     map
 }
 
+/// --- Log Fields (static) ---
+const KEY_LOG_NAME: &str = "name";
+const KEY_LOG_PARAMS: &str = "params";
+const KEY_LOG_ADDRESS: &str = "address";
+const KEY_LOG_INDEX: &str = "log_index";
+const KEY_LOG_BLOCK_NUMBER: &str = "block_number";
+const KEY_LOG_TRANSACTION_HASH: &str = "transaction_hash";
+const KEY_LOG_TRANSACTION_INDEX: &str = "transaction_index";
+
+/// Returns a set of valid Rhai paths for log fields.
+/// Used for validating Rhai scripts.
+/// This includes all standard log fields, prefixed with "log.", does not include
+/// any dynamic fields.
+pub fn get_valid_log_rhai_paths() -> HashSet<String> {
+    [
+        KEY_LOG_NAME,
+        KEY_LOG_ADDRESS,
+        KEY_LOG_INDEX,
+        KEY_LOG_BLOCK_NUMBER,
+        KEY_LOG_TRANSACTION_HASH,
+        KEY_LOG_TRANSACTION_INDEX,
+    ]
+    .iter()
+    .map(|s| format!("log.{}", s))
+    .collect()
+}
+
 /// Builds a Rhai `Map` from a decoded log.
 pub fn build_log_map(log: &DecodedLog, params_map: Map) -> Map {
     let mut log_map = Map::new();
-    log_map.insert("name".into(), log.name.clone().into());
-    log_map.insert("params".into(), params_map.into());
-    log_map.insert("address".into(), log.log.address().to_checksum(None).into());
+    log_map.insert(KEY_LOG_NAME.into(), log.name.clone().into());
+    log_map.insert(KEY_LOG_PARAMS.into(), params_map.into());
+    log_map.insert(KEY_LOG_ADDRESS.into(), log.log.address().to_checksum(None).into());
 
     // Bounded u64 values become i64
     if let Some(block_number) = log.log.block_number() {
-        log_map.insert("block_number".into(), (block_number as i64).into());
+        log_map.insert(KEY_LOG_BLOCK_NUMBER.into(), (block_number as i64).into());
     } else {
-        log_map.insert("block_number".into(), Dynamic::UNIT);
+        log_map.insert(KEY_LOG_BLOCK_NUMBER.into(), Dynamic::UNIT);
     }
     log_map.insert(
-        "transaction_hash".into(),
+        KEY_LOG_TRANSACTION_HASH.into(),
         log.log.transaction_hash().unwrap_or_default().to_string().into(),
     );
     if let Some(log_index) = log.log.log_index() {
-        log_map.insert("log_index".into(), (log_index as i64).into());
+        log_map.insert(KEY_LOG_INDEX.into(), (log_index as i64).into());
     } else {
-        log_map.insert("log_index".into(), Dynamic::UNIT);
+        log_map.insert(KEY_LOG_INDEX.into(), Dynamic::UNIT);
     }
     if let Some(transaction_index) = log.log.transaction_index() {
-        log_map.insert("transaction_index".into(), (transaction_index as i64).into());
+        log_map.insert(KEY_LOG_TRANSACTION_INDEX.into(), (transaction_index as i64).into());
     } else {
-        log_map.insert("transaction_index".into(), Dynamic::UNIT);
+        log_map.insert(KEY_LOG_TRANSACTION_INDEX.into(), Dynamic::UNIT);
     }
 
     log_map
@@ -246,39 +322,39 @@ pub fn build_trigger_data_from_transaction(
     let mut map = serde_json::Map::new();
 
     if let Some(to) = transaction.to() {
-        map.insert("to".to_string(), json!(to.to_checksum(None)));
+        map.insert(KEY_TX_TO.to_string(), json!(to.to_checksum(None)));
     }
-    map.insert("from".to_string(), json!(transaction.from().to_checksum(None)));
-    map.insert("hash".to_string(), json!(transaction.hash().to_string()));
+    map.insert(KEY_TX_FROM.to_string(), json!(transaction.from().to_checksum(None)));
+    map.insert(KEY_TX_HASH.to_string(), json!(transaction.hash().to_string()));
 
     // Potentially large values are stringified to prevent overflow
-    map.insert("value".to_string(), json!(transaction.value().to_string()));
+    map.insert(KEY_TX_VALUE.to_string(), json!(transaction.value().to_string()));
 
     // Bounded values are kept as JSON numbers
-    map.insert("gas_limit".to_string(), json!(transaction.gas()));
-    map.insert("nonce".to_string(), json!(transaction.nonce()));
-    map.insert("input".to_string(), json!(format!("0x{}", hex::encode(transaction.input()))));
+    map.insert(KEY_TX_GAS_LIMIT.to_string(), json!(transaction.gas()));
+    map.insert(KEY_TX_NONCE.to_string(), json!(transaction.nonce()));
+    map.insert(KEY_TX_INPUT.to_string(), json!(format!("0x{}", hex::encode(transaction.input()))));
 
     if let Some(block_number) = transaction.block_number() {
-        map.insert("block_number".to_string(), json!(block_number));
+        map.insert(KEY_TX_BLOCK_NUMBER.to_string(), json!(block_number));
     }
     if let Some(transaction_index) = transaction.transaction_index() {
-        map.insert("transaction_index".to_string(), json!(transaction_index));
+        map.insert(KEY_TX_TRANSACTION_INDEX.to_string(), json!(transaction_index));
     }
 
     match transaction.transaction_type() {
         TxType::Legacy =>
             if let Some(gas_price) = transaction.gas_price() {
-                map.insert("gas_price".to_string(), json!(gas_price.to_string()));
+                map.insert(KEY_TX_GAS_PRICE.to_string(), json!(gas_price.to_string()));
             },
         TxType::Eip1559 => {
             map.insert(
-                "max_fee_per_gas".to_string(),
+                KEY_TX_MAX_FEE_PER_GAS.to_string(),
                 json!(transaction.max_fee_per_gas().to_string()),
             );
             if let Some(max_priority_fee_per_gas) = transaction.max_priority_fee_per_gas() {
                 map.insert(
-                    "max_priority_fee_per_gas".to_string(),
+                    KEY_TX_MAX_PRIORITY_FEE_PER_GAS.to_string(),
                     json!(max_priority_fee_per_gas.to_string()),
                 );
             }
@@ -288,10 +364,10 @@ pub fn build_trigger_data_from_transaction(
 
     if let Some(receipt) = receipt {
         // gas_used and effective_gas_price are u128 and must be stringified
-        map.insert("gas_used".to_string(), json!(receipt.gas_used.to_string()));
-        map.insert("status".to_string(), json!(receipt.inner.status() as u64));
+        map.insert(KEY_TX_GAS_USED.to_string(), json!(receipt.gas_used.to_string()));
+        map.insert(KEY_TX_STATUS.to_string(), json!(receipt.inner.status() as u64));
         map.insert(
-            "effective_gas_price".to_string(),
+            KEY_TX_EFFECTIVE_GAS_PRICE.to_string(),
             json!(receipt.effective_gas_price.to_string()),
         );
     }
