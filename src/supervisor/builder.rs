@@ -21,6 +21,7 @@ pub struct SupervisorBuilder {
     state: Option<Arc<dyn StateRepository>>,
     abi_service: Option<Arc<AbiService>>,
     data_source: Option<Box<dyn DataSource>>,
+    script_compiler: Option<Arc<RhaiCompiler>>,
 }
 
 impl SupervisorBuilder {
@@ -53,6 +54,12 @@ impl SupervisorBuilder {
         self
     }
 
+    /// Sets the Rhai script compiler for the `Supervisor`.
+    pub fn script_compiler(mut self, script_compiler: Arc<RhaiCompiler>) -> Self {
+        self.script_compiler = Some(script_compiler);
+        self
+    }
+
     /// Assembles and validates the components to build a `Supervisor`.
     ///
     /// This method performs the final "wiring" of the application's services.
@@ -64,6 +71,7 @@ impl SupervisorBuilder {
         let state = self.state.ok_or(SupervisorError::MissingStateRepository)?;
         let abi_service = self.abi_service.ok_or(SupervisorError::MissingAbiService)?;
         let data_source = self.data_source.ok_or(SupervisorError::MissingDataSource)?;
+        let script_compiler = self.script_compiler.ok_or(SupervisorError::MissingScriptCompiler)?;
 
         // The FilteringEngine is created here, loading its initial set of monitors
         // from the database. This makes the database the single source of truth.
@@ -78,8 +86,8 @@ impl SupervisorBuilder {
 
         // Construct the internal services.
         let block_processor = BlockProcessor::new(Arc::clone(&abi_service));
-        let compiler = Arc::new(RhaiCompiler::new(config.rhai.clone()));
-        let filtering_engine = RhaiFilteringEngine::new(monitors, compiler, config.rhai.clone());
+        let filtering_engine =
+            RhaiFilteringEngine::new(monitors, script_compiler, config.rhai.clone());
         let http_client_pool = Arc::new(HttpClientPool::new());
         let notification_service = NotificationService::new(notifiers, http_client_pool);
 
@@ -103,8 +111,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        persistence::traits::MockStateRepository, providers::traits::MockDataSource,
-        test_helpers::MonitorBuilder,
+        config::RhaiConfig, persistence::traits::MockStateRepository,
+        providers::traits::MockDataSource, test_helpers::MonitorBuilder,
     };
 
     #[tokio::test]
@@ -128,6 +136,7 @@ mod tests {
             .config(AppConfig::default())
             .state(Arc::new(mock_state_repo))
             .abi_service(Arc::new(AbiService::new()))
+            .script_compiler(Arc::new(RhaiCompiler::new(RhaiConfig::default())))
             .data_source(Box::new(MockDataSource::new()));
 
         let result = builder.build().await;
@@ -190,7 +199,8 @@ mod tests {
             .config(AppConfig::default())
             .state(Arc::new(mock_state_repo))
             .abi_service(Arc::new(AbiService::new()))
-            .data_source(Box::new(MockDataSource::new()));
+            .data_source(Box::new(MockDataSource::new()))
+            .script_compiler(Arc::new(RhaiCompiler::new(RhaiConfig::default())));
 
         let result = builder.build().await;
         assert!(result.is_err());

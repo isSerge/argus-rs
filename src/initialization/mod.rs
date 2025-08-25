@@ -9,6 +9,7 @@ use thiserror::Error;
 use crate::{
     abi::{AbiService, loader::AbiLoader},
     config::{AppConfig, NotifierLoader},
+    engine::rhai::RhaiScriptValidator,
     monitor::{MonitorLoader, MonitorValidator},
     persistence::traits::StateRepository,
 };
@@ -34,6 +35,7 @@ pub struct InitializationService {
     config: AppConfig,
     repo: Arc<dyn StateRepository>,
     abi_service: Arc<AbiService>,
+    script_validator: RhaiScriptValidator,
 }
 
 impl InitializationService {
@@ -42,8 +44,9 @@ impl InitializationService {
         config: AppConfig,
         repo: Arc<dyn StateRepository>,
         abi_service: Arc<AbiService>,
+        script_validator: RhaiScriptValidator,
     ) -> Self {
-        Self { config, repo, abi_service }
+        Self { config, repo, abi_service, script_validator }
     }
 
     /// Runs the initialization process, loading monitors, notifiers, and ABIs.
@@ -92,7 +95,8 @@ impl InitializationService {
                 "Failed to fetch notifiers for monitor validation: {e}"
             ))
         })?;
-        let validator = MonitorValidator::new(network_id, &notifiers);
+
+        let validator = MonitorValidator::new(&self.script_validator, network_id, &notifiers);
         for monitor in &monitors {
             validator.validate(monitor).map_err(|e| {
                 InitializationError::MonitorLoadError(format!(
@@ -200,7 +204,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        config::{AppConfig, HttpRetryConfig},
+        config::{AppConfig, HttpRetryConfig, RhaiConfig},
+        engine::rhai::RhaiCompiler,
         models::{
             monitor::MonitorConfig,
             notification::NotificationMessage,
@@ -264,6 +269,12 @@ monitors:
 "#
     }
 
+    fn create_script_validator() -> RhaiScriptValidator {
+        let config = RhaiConfig::default();
+        let compiler = Arc::new(RhaiCompiler::new(config));
+        RhaiScriptValidator::new(compiler)
+    }
+
     #[tokio::test]
     async fn test_run_happy_path_db_empty() {
         let temp_dir = tempdir().unwrap();
@@ -310,8 +321,9 @@ monitors:
             .build();
 
         let abi_service = Arc::new(AbiService::new());
+        let script_validator = create_script_validator();
         let initialization_service =
-            InitializationService::new(config, Arc::new(mock_repo), abi_service);
+            InitializationService::new(config, Arc::new(mock_repo), abi_service, script_validator);
 
         let result = initialization_service.run().await;
 
@@ -350,8 +362,9 @@ monitors:
 
         let config = AppConfig::builder().network_id(network_id).build();
         let abi_service = Arc::new(AbiService::new());
+        let script_validator = create_script_validator();
         let initialization_service =
-            InitializationService::new(config, Arc::new(mock_repo), abi_service);
+            InitializationService::new(config, Arc::new(mock_repo), abi_service, script_validator);
 
         let result = initialization_service.run().await;
         assert!(result.is_ok());
@@ -376,8 +389,9 @@ monitors:
             .build();
 
         let abi_service = Arc::new(AbiService::new());
+        let script_validator = create_script_validator();
         let initialization_service =
-            InitializationService::new(config, Arc::new(mock_repo), abi_service);
+            InitializationService::new(config, Arc::new(mock_repo), abi_service, script_validator);
 
         let result = initialization_service.load_monitors_from_file().await;
         assert!(result.is_err());
@@ -407,8 +421,9 @@ monitors:
 
         let config = AppConfig::builder().network_id(network_id).build();
         let abi_service = Arc::new(AbiService::new());
+        let script_validator = create_script_validator();
         let initialization_service =
-            InitializationService::new(config, Arc::new(mock_repo), abi_service);
+            InitializationService::new(config, Arc::new(mock_repo), abi_service, script_validator);
 
         let result = initialization_service.load_abis_from_monitors().await;
         assert!(result.is_err());
@@ -439,8 +454,9 @@ monitors:
 
         let config = AppConfig::builder().network_id(network_id).build();
         let abi_service = Arc::new(AbiService::new());
+        let script_validator = create_script_validator();
         let initialization_service =
-            InitializationService::new(config, Arc::new(mock_repo), abi_service);
+            InitializationService::new(config, Arc::new(mock_repo), abi_service, script_validator);
 
         let result = initialization_service.load_abis_from_monitors().await;
         assert!(result.is_err());
@@ -478,8 +494,9 @@ monitors:
             .build();
 
         let abi_service = Arc::new(AbiService::new());
+        let script_validator = create_script_validator();
         let initialization_service =
-            InitializationService::new(config, Arc::new(mock_repo), abi_service);
+            InitializationService::new(config, Arc::new(mock_repo), abi_service, script_validator);
 
         let result = initialization_service.load_monitors_from_file().await;
         assert!(result.is_ok());
@@ -514,8 +531,9 @@ monitors:
             .build();
 
         let abi_service = Arc::new(AbiService::new());
+        let script_validator = create_script_validator();
         let initialization_service =
-            InitializationService::new(config, Arc::new(mock_repo), abi_service);
+            InitializationService::new(config, Arc::new(mock_repo), abi_service, script_validator);
 
         let result = initialization_service.load_monitors_from_file().await;
 
@@ -552,8 +570,9 @@ monitors:
             .build();
 
         let abi_service = Arc::new(AbiService::new());
+        let script_validator = create_script_validator();
         let initialization_service =
-            InitializationService::new(config, Arc::new(mock_repo), abi_service);
+            InitializationService::new(config, Arc::new(mock_repo), abi_service, script_validator);
 
         let result = initialization_service.load_monitors_from_file().await;
         assert!(result.is_ok());
@@ -587,8 +606,9 @@ monitors:
             .build();
 
         let abi_service = Arc::new(AbiService::new());
+        let script_validator = create_script_validator();
         let initialization_service =
-            InitializationService::new(config, Arc::new(mock_repo), abi_service);
+            InitializationService::new(config, Arc::new(mock_repo), abi_service, script_validator);
 
         let result = initialization_service.load_notifiers_from_file().await;
         assert!(result.is_ok());
@@ -627,8 +647,9 @@ monitors:
             .build();
 
         let abi_service = Arc::new(AbiService::new());
+        let script_validator = create_script_validator();
         let initialization_service =
-            InitializationService::new(config, Arc::new(mock_repo), abi_service);
+            InitializationService::new(config, Arc::new(mock_repo), abi_service, script_validator);
 
         let result = initialization_service.load_notifiers_from_file().await;
         assert!(result.is_ok());
@@ -663,9 +684,13 @@ monitors:
 
         // Dummy config for AppConfig
         let config = AppConfig::builder().network_id(network_id).build();
-
-        let initialization_service =
-            InitializationService::new(config, Arc::new(mock_repo), Arc::clone(&abi_service));
+        let script_validator = create_script_validator();
+        let initialization_service = InitializationService::new(
+            config,
+            Arc::new(mock_repo),
+            Arc::clone(&abi_service),
+            script_validator,
+        );
 
         let result = initialization_service.load_abis_from_monitors().await;
         assert!(result.is_ok());
