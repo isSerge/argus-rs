@@ -8,8 +8,7 @@ mod create_engine;
 pub mod evm_wrappers;
 mod validator;
 
-pub use ast_analysis::ScriptAnalysisResult;
-pub use compiler::RhaiCompiler;
+pub use compiler::{RhaiCompiler, ScriptAnalysis, RhaiCompilerError};
 pub use conversions::{
     get_valid_log_rhai_paths, get_valid_receipt_rhai_paths, get_valid_tx_rhai_paths,
 };
