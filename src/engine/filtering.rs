@@ -664,7 +664,7 @@ mod tests {
         assert_eq!(matches[0].monitor_id, 1);
         assert_eq!(matches[0].notifier_name, "notifier1");
         assert!(
-            matches!(matches[0].match_data, MatchData::Log(LogDetails { ref details, .. }) if details.name == "ValueTransfered")
+            matches!(matches[0].match_data, MatchData::Log(LogDetails { ref log_name, .. }) if log_name == "ValueTransfered")
         );
     }
 
@@ -804,9 +804,8 @@ mod tests {
         let matches = engine.evaluate_item(&item_match).await.unwrap();
         assert_eq!(matches.len(), 1, "Should find one match for value > 1.5 ether");
         assert_eq!(matches[0].monitor_id, 1);
-        assert!(
-            matches!(matches[0].match_data, MatchData::Transaction(TransactionDetails { transaction_hash, .. }) if transaction_hash == tx_match.hash())
-        );
+        assert_eq!(matches[0].transaction_hash, tx_match.hash());
+        assert!(matches!(matches[0].match_data, MatchData::Transaction(TransactionDetails { .. })));
 
         // Test non-matching case
         let no_matches = engine.evaluate_item(&item_no_match).await.unwrap();
@@ -873,9 +872,11 @@ mod tests {
         assert_eq!(matches.len(), 2);
         assert_eq!(matches[0].monitor_id, 100);
         assert_eq!(matches[1].monitor_id, 100);
+        assert_eq!(matches[0].block_number, item.transaction.block_number().unwrap_or_default());
         assert!(
             matches!(matches[0].match_data, MatchData::Log(LogDetails { contract_address, .. }) if contract_address == addr1)
         );
+        assert_eq!(matches[1].block_number, item.transaction.block_number().unwrap_or_default());
         assert!(
             matches!(matches[1].match_data, MatchData::Log(LogDetails { contract_address, .. }) if contract_address == addr2)
         );

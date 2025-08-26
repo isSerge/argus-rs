@@ -308,9 +308,8 @@ mod tests {
         assert!(result.is_ok());
         let matches = result.unwrap();
         assert_eq!(matches.len(), 1);
-        assert!(
-            matches!(matches[0].match_data, MatchData::Transaction(TransactionDetails { block_number, .. }) if block_number == from_block)
-        );
+        assert_eq!(matches[0].block_number, from_block);
+        assert!(matches!(matches[0].match_data, MatchData::Transaction(TransactionDetails { .. })));
     }
 
     #[tokio::test]
