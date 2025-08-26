@@ -1,13 +1,13 @@
 //! This module provides functionality to execute a dry run of the monitoring
 //! process over a specified block range.
 
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use clap::Parser;
 use thiserror::Error;
 
 use crate::{
-    abi::AbiService,
+    abi::{AbiRepository, AbiService, repository::AbiRepositoryError},
     config::{AppConfig, NotifierLoader, NotifierLoaderError},
     engine::{
         block_processor::{BlockProcessor, BlockProcessorError},
@@ -64,6 +64,10 @@ pub enum DryRunError {
     /// An error occurred while serializing the final report to JSON.
     #[error("JSON serialization error: {0}")]
     Json(#[from] serde_json::Error),
+
+    /// An error occurred while interacting with the ABI repository.
+    #[error("ABI repository error: {0}")]
+    AbiRepository(#[from] AbiRepositoryError),
 }
 
 /// A command to perform a dry run of monitors over a specified block range.
@@ -105,7 +109,9 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let evm_source = EvmRpcSource::new(provider);
 
     // Init services for processing and decoding data.
-    let abi_service = Arc::new(AbiService::new());
+    let abi_path = PathBuf::from(config.abi_config_path.clone());
+    let abi_repository = Arc::new(AbiRepository::new(&abi_path)?);
+    let abi_service = Arc::new(AbiService::new(abi_repository));
     let block_processor = BlockProcessor::new(Arc::clone(&abi_service));
 
     // Init Rhai scripting engine and validator
@@ -246,10 +252,11 @@ mod tests {
 
     use alloy::primitives::U256;
     use mockall::predicate::eq;
+    use tempfile::tempdir;
 
     use super::*;
     use crate::{
-        abi::AbiService,
+        abi::{AbiRepository, AbiService},
         config::RhaiConfig,
         engine::{
             block_processor::BlockProcessor, filtering::RhaiFilteringEngine, rhai::RhaiCompiler,
@@ -285,8 +292,10 @@ mod tests {
             .build();
 
         // Initialize other services
-        let abi_service = Arc::new(AbiService::new());
-        let block_processor = BlockProcessor::new(abi_service);
+        let temp_dir = tempdir().unwrap();
+        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
+        let abi_service = Arc::new(AbiService::new(abi_repo));
+        let block_processor = BlockProcessor::new(abi_service.clone());
         let rhai_config = RhaiConfig::default();
         let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));
         let filtering_engine = RhaiFilteringEngine::new(vec![monitor], rhai_compiler, rhai_config);
@@ -335,8 +344,10 @@ mod tests {
         let monitor = MonitorBuilder::new().filter_script(monitor_script).build();
 
         // Initialize other services
-        let abi_service = Arc::new(AbiService::new());
-        let block_processor = BlockProcessor::new(abi_service);
+        let temp_dir = tempdir().unwrap();
+        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
+        let abi_service = Arc::new(AbiService::new(abi_repo));
+        let block_processor = BlockProcessor::new(abi_service.clone());
         let rhai_config = RhaiConfig::default();
         let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));
         let filtering_engine = RhaiFilteringEngine::new(vec![monitor], rhai_compiler, rhai_config);
@@ -383,8 +394,10 @@ mod tests {
         let monitor = MonitorBuilder::new().filter_script(monitor_script).build();
 
         // Initialize other services
-        let abi_service = Arc::new(AbiService::new());
-        let block_processor = BlockProcessor::new(abi_service);
+        let temp_dir = tempdir().unwrap();
+        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
+        let abi_service = Arc::new(AbiService::new(abi_repo));
+        let block_processor = BlockProcessor::new(abi_service.clone());
         let rhai_config = RhaiConfig::default();
         let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));
         let filtering_engine = RhaiFilteringEngine::new(vec![monitor], rhai_compiler, rhai_config);

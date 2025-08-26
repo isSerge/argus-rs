@@ -391,10 +391,11 @@ mod tests {
 
     use alloy::primitives::B256;
     use mockall::predicate::eq;
+    use tempfile::tempdir;
 
     use super::*;
     use crate::{
-        abi::AbiService,
+        abi::{AbiRepository, AbiService},
         engine::filtering::MockFilteringEngine,
         http_client::HttpClientPool,
         persistence::traits::MockStateRepository,
@@ -416,7 +417,9 @@ mod tests {
         fn new() -> Self {
             let config = AppConfig::builder().confirmation_blocks(1).build();
 
-            let abi_service = Arc::new(AbiService::new());
+            let dir = tempdir().unwrap();
+            let abi_repository = Arc::new(AbiRepository::new(dir.path()).unwrap());
+            let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
             let block_processor = BlockProcessor::new(abi_service);
             let http_client_pool = Arc::new(HttpClientPool::new());
             let notification_service = Arc::new(NotificationService::new(vec![], http_client_pool));

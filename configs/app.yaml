@@ -8,6 +8,7 @@ block_chunk_size: 5
 polling_interval_ms: 10000
 confirmation_blocks: 12
 notification_channel_capacity: 1024
+abi_config_path: abis/
 
 # Optional: Configuration for the RPC retry policy.
 # If this section is omitted, default values will be used.

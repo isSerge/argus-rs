@@ -1,7 +1,7 @@
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use argus::{
-    abi::AbiService,
+    abi::{AbiService, repository::AbiRepository},
     cmd::{DryRunArgs, dry_run},
     config::AppConfig,
     engine::rhai::{RhaiCompiler, RhaiScriptValidator},
@@ -56,9 +56,15 @@ async fn run_supervisor() -> Result<(), Box<dyn std::error::Error>> {
     repo.run_migrations().await?;
     tracing::info!("Database migrations completed.");
 
+    // Initialize ABI repository
+    tracing::debug!("Initializing ABI repository...");
+    let abi_repository =
+        Arc::new(AbiRepository::new(&PathBuf::from(config.abi_config_path.clone()))?);
+    tracing::info!("ABI repository initialized with {} ABIs.", abi_repository.len());
+
     // Initialize ABI service
     tracing::debug!("Initializing ABI service");
-    let abi_service = Arc::new(AbiService::new());
+    let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
 
     // Initialize script validator
     let script_compiler = Arc::new(RhaiCompiler::new(config.rhai.clone()));
