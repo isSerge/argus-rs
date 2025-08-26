@@ -28,15 +28,20 @@ notifiers:
       # The message to send. Both `title` and `body` support templating.
       message:
         title: "New Transaction Alert: {{ monitor_name }}"
-        # The body can use any data from the monitor match.
-        # - monitor_id, block_number, transaction_hash, contract_address, trigger_name
-        # - trigger_data: The data returned by the monitor's `filter_script`.
+        # The body can use any data from the monitor match:
+        # monitor_id, block_number, transaction_hash, contract_address, notifier_name,
+        # log_index, log_name, log_params (for log matches),
         body: |
-          A new event was detected on contract {{ contract_address }}.
+          A new match was detected for monitor {{ monitor_name }}.
           - **Block Number**: {{ block_number }}
           - **Transaction Hash**: {{ transaction_hash }}
-          - **Monitor ID**: {{ monitor_id }}
-          - **Details**: {{ trigger_data }}
+          {% if type == "log" %}
+          - **Type**: Log
+          - **Contract Address**: {{ contract_address }}
+          - **Log Index**: {{ log_index }}
+          - **Log Name**: {{ log_name }}
+          - **Log Params**: {{ log_params }}
+          {% endif %}
 
   # ------------------------------------------------------------------------------------
   # EXAMPLE 2: Slack Notification
@@ -53,10 +58,10 @@ notifiers:
         # The `trigger_data` here would come from the "Large USDC Transfers" monitor.
         # For example, if the filter script returns a map like `#{ from: log.params.from, to: log.params.to, value: log.params.value }`
         body: |
-          A transfer of over 1,000,000 USDC was detected.
-          - *From*: `{{ trigger_data.from }}`
-          - *To*: `{{ trigger_data.to }}`
-          - *Value*: `{{ trigger_data.value }}`
+          A transfer of over 1,000,000 USDC was detected by monitor {{ monitor_name }}.
+          - *From*: `{{ from }}`
+          - *To*: `{{ to }}`
+          - *Value*: `{{ value }}`
           <https://etherscan.io/tx/{{ transaction_hash }}|View on Etherscan>
 
   # ------------------------------------------------------------------------------------
@@ -71,9 +76,11 @@ notifiers:
       message:
         title: "WETH Deposit Event"
         body: |
-          A new WETH deposit was detected on Ethereum.
+          A new WETH deposit was detected on Ethereum by monitor {{ monitor_name }}.
           - **Transaction**: `{{ transaction_hash }}`
           - **Block**: {{ block_number }}
+          - **Contract Address**: {{ contract_address }}
+          - **Log Name**: {{ name }}
 
   # ------------------------------------------------------------------------------------
   # EXAMPLE 4: Telegram Notification
@@ -93,10 +100,10 @@ notifiers:
         # Telegram uses a specific version of Markdown (MarkdownV2).
         # Argus will automatically escape special characters for you.
         body: |
-          A transfer of over 10 ETH was detected.
-          - *Value*: {{ trigger_data.value }} ETH
-          - *From*: `{{ trigger_data.from }}`
-          - *To*: `{{ trigger_data.to }}`
+          A transfer of over 10 ETH was detected by monitor {{ monitor_name }}.
+          - *Value*: {{ value }} ETH
+          - *From*: `{{ from }}`
+          - *To*: `{{ to }}`
           [View on Etherscan](https://etherscan.io/tx/{{ transaction_hash }})
 
   # ------------------------------------------------------------------------------------
@@ -104,12 +111,15 @@ notifiers:
   #
   # All triggers support a custom retry policy.
   # ------------------------------------------------------------------------------------
-  - name: "webhook-with-retries"
+  - name: "webhook-with-custom-retry-policy"
     webhook:
       url: "https://my-flaky-service.com/webhook"
       message:
-        title: "Notification with Retries"
-        body: "This notification will be retried on failure."
+        title: "Notification with Custom Retry Policy for monitor {{ monitor_name }}"
+        body: |
+          This notification for monitor {{ monitor_name }}
+          Block: {{ block_number }}
+          Transaction: {{ transaction_hash }}
       # (Optional) Custom retry policy.
       retry_policy:
         # Maximum number of retries.
