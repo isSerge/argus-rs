@@ -15,8 +15,13 @@ use crate::{
         rhai::{RhaiCompiler, RhaiScriptValidator},
     },
     http_client::HttpClientPool,
-    loader::{load_config, LoaderError},
-    models::{BlockData, monitor_match::MonitorMatch, monitor::MonitorConfig, notifier::{NotifierConfig, NotifierError}},
+    loader::{LoaderError, load_config},
+    models::{
+        BlockData,
+        monitor::MonitorConfig,
+        monitor_match::MonitorMatch,
+        notifier::{NotifierConfig, NotifierError},
+    },
     monitor::{MonitorValidationError, MonitorValidator},
     notification::NotificationService,
     providers::{
