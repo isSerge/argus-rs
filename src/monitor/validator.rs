@@ -152,7 +152,7 @@ impl<'a> MonitorValidator<'a> {
             // If an ABI name is provided in the monitor config, we expect an ABI to be linked
             // to this address in the AbiService.
             if monitor.abi.is_some() {
-                self.abi_service.get_abi(&Some(address)).map(|c| c.abi.clone())
+                self.abi_service.get_abi(address).map(|c| c.abi.clone())
             } else {
                 None // No ABI name provided, so no ABI expected to be linked for script validation
             }

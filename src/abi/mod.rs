@@ -16,9 +16,8 @@ use alloy::{
 use dashmap::DashMap;
 use thiserror::Error;
 
-use crate::models::{Log, transaction::Transaction};
-
 pub use self::repository::AbiRepository;
+use crate::models::{Log, transaction::Transaction};
 
 /// A pre-processed, cached representation of a contract's ABI.
 ///
@@ -191,7 +190,7 @@ impl AbiService {
     /// This method extracts the function selector from the transaction input
     /// data, looks up the corresponding function definition, and decodes
     /// the parameters.
-    pub fn decode_function_input(&self, tx: Transaction) -> Result<DecodedCall, AbiError> {
+    pub fn decode_function_input(&self, tx: &Transaction) -> Result<DecodedCall, AbiError> {
         // Get the target contract address from the transaction
 
         let to = tx.to().ok_or_else(|| {
@@ -247,12 +246,12 @@ impl AbiService {
             params.len()
         );
 
-        Ok(DecodedCall { name: function.name.clone(), params, tx })
+        Ok(DecodedCall { name: function.name.clone(), params, tx: tx.clone() })
     }
 
     /// Retrieves the cached ABI for a given contract address, if it exists.
-    pub fn get_abi(&self, address: &Option<Address>) -> Option<Arc<CachedContract>> {
-        address.and_then(|addr| self.cache.get(&addr).map(|entry| Arc::clone(&entry)))
+    pub fn get_abi(&self, address: Address) -> Option<Arc<CachedContract>> {
+        self.cache.get(&address).map(|entry| Arc::clone(&entry))
     }
 }
 
@@ -261,7 +260,7 @@ mod tests {
     use std::path::PathBuf;
 
     use alloy::{
-        primitives::{address, b256, bytes, Address, Bytes, U256},
+        primitives::{Address, Bytes, U256, address, b256, bytes},
         rpc::types::Log as AlloyLog,
     };
     use tempfile::tempdir;
@@ -399,7 +398,7 @@ mod tests {
             .input(Bytes::from(input_data))
             .build();
 
-        let decoded = service.decode_function_input(tx).unwrap();
+        let decoded = service.decode_function_input(&tx).unwrap();
         assert_eq!(decoded.name, "transfer");
         assert_eq!(decoded.params.len(), 2);
         assert_eq!(decoded.params[0].0, "to");
@@ -430,7 +429,7 @@ mod tests {
             .input(Bytes::from(vec![0u8; 32]))
             .to(Some(Address::default()))
             .build();
-        let err = service.decode_function_input(tx).unwrap_err();
+        let err = service.decode_function_input(&tx).unwrap_err();
         assert!(matches!(err, AbiError::AbiNotFound(_)));
     }
 
@@ -443,7 +442,7 @@ mod tests {
             .input(Bytes::from(vec![0x12, 0x34, 0x56, 0x78])) // Unknown selector
             .build();
 
-        let err = service.decode_function_input(tx).unwrap_err();
+        let err = service.decode_function_input(&tx).unwrap_err();
         assert!(matches!(err, AbiError::FunctionNotFound(_)));
     }
 
@@ -454,7 +453,7 @@ mod tests {
         // Default transaction has no input data
         let tx = TransactionBuilder::new().to(Some(contract_address)).build();
 
-        let err = service.decode_function_input(tx).unwrap_err();
+        let err = service.decode_function_input(&tx).unwrap_err();
         assert!(matches!(err, AbiError::InputTooShort));
     }
 
@@ -488,7 +487,7 @@ mod tests {
         // Contract creation transactions have `to` as None.
         let tx = TransactionBuilder::new().to(None).build();
 
-        let err = service.decode_function_input(tx).unwrap_err();
+        let err = service.decode_function_input(&tx).unwrap_err();
         assert!(matches!(err, AbiError::ContractCreation));
     }
 
@@ -504,7 +503,7 @@ mod tests {
             .input(Bytes::from(input_data))
             .build();
 
-        let err = service.decode_function_input(tx).unwrap_err();
+        let err = service.decode_function_input(&tx).unwrap_err();
         assert!(matches!(err, AbiError::DecodingError(_)));
     }
 
@@ -531,7 +530,7 @@ mod tests {
     fn test_get_abi() {
         let (service, contract_address) = setup_abi_service_with_abi("simple", simple_abi_json());
 
-        let cached_contract = service.get_abi(&Some(contract_address)).unwrap();
+        let cached_contract = service.get_abi(contract_address).unwrap();
         assert_eq!(cached_contract.abi.functions().next().unwrap().name, "transfer");
     }
 }
