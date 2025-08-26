@@ -76,6 +76,9 @@ pub struct AppConfig {
     /// The capacity of the channel used for sending notifications.
     #[serde(default = "default_notification_channel_capacity")]
     pub notification_channel_capacity: u32,
+
+    /// Path to ABI configuration directory.
+    pub abi_config_path: String,
 }
 
 impl AppConfig {
@@ -150,6 +153,11 @@ impl AppConfigBuilder {
     pub fn build(self) -> AppConfig {
         self.config
     }
+
+    pub fn abi_config_path(mut self, path: &str) -> Self {
+        self.config.abi_config_path = path.to_string();
+        self
+    }
 }
 
 #[cfg(test)]
@@ -166,6 +174,7 @@ mod tests {
             .notifier_config_path("test_notifier.yaml")
             .database_url("sqlite::memory:")
             .confirmation_blocks(12)
+            .abi_config_path("abis/")
             .build();
 
         assert_eq!(config.rpc_urls.len(), 1);
@@ -187,6 +196,7 @@ mod tests {
         confirmation_blocks: 12
         block_chunk_size: 0
         polling_interval_ms: 10000
+        abi_config_path: abis/
         "#;
         let temp_dir = tempfile::tempdir().unwrap();
         let app_yaml_path = temp_dir.path().join("app.yaml");

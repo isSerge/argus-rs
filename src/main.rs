@@ -58,7 +58,8 @@ async fn run_supervisor() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize ABI repository
     tracing::debug!("Initializing ABI repository...");
-    let abi_repository = Arc::new(AbiRepository::new(&PathBuf::from("abis"))?);
+    let abi_repository =
+        Arc::new(AbiRepository::new(&PathBuf::from(config.abi_config_path.clone()))?);
     tracing::info!("ABI repository initialized with {} ABIs.", abi_repository.len());
 
     // Initialize ABI service

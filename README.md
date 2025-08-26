@@ -64,11 +64,12 @@ block_chunk_size: 5
 polling_interval_ms: 10000
 confirmation_blocks: 12
 notification_channel_capacity: 1024
+abi_config_path: abis/
 ```
 
 ### `monitors.yaml`
 
-This file is where you define *what* you want to monitor on the blockchain. Each monitor specifies a network, an optional contract address, and a Rhai filter script. If your script needs to inspect event logs (i.e., access the `log` variable), you must also provide a path to the contract's ABI file.
+This file is where you define *what* you want to monitor on the blockchain. Each monitor specifies a network, an optional contract address, and a Rhai filter script. If your script needs to inspect event logs (i.e., access the `log` variable), you must also provide the **name** of the contract's ABI. This name should correspond to a `.json` file (without the `.json` extension) located in the `abis/` directory (or the directory configured for ABIs in `app.yaml`).
 
 See [`configs/monitors.example.yaml`](./configs/monitors.example.yaml) for more detailed examples.
 
@@ -91,8 +92,8 @@ monitors:
   - name: "Large USDC Transfers"
     network: "mainnet"
     address: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
-    # The ABI file is needed to decode event logs.
-    abi: "abis/usdc.json"
+    # The name of the ABI (Application Binary Interface) for the contract being monitored
+    abi: "usdc"
     filter_script: |
       log.name == "Transfer" && log.params.value > usdc(1_000_000) # 1M USDC
     # Notifiers are used to send notifications when the monitor triggers.
@@ -141,6 +142,7 @@ notifiers:
 | `polling_interval_ms` | The interval in milliseconds to poll for new blocks. | `10000` |
 | `confirmation_blocks` | Number of blocks to wait for before processing to protect against reorgs. | `12` |
 | `notification_channel_capacity` | The capacity of the internal channel for sending notifications. | `1024` |
+| `abi_config_path` | The directory where contract ABI JSON files are located. | `abis/` |
 | `shutdown_timeout_secs` | The maximum time in seconds to wait for a graceful shutdown. | `30` |
 | `retry_config.max_retry` | The maximum number of retries for a failing RPC request. | `10` |
 | `retry_config.backoff_ms` | The initial backoff delay in milliseconds for RPC retries. | `1000` |

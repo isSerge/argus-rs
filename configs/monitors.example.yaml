@@ -11,16 +11,14 @@ monitors:
   #      that users interact with and where the event logs are emitted.
   #   2. The ABI required to decode the events is from the IMPLEMENTATION contract.
   #
-  # When the `issue_abi_loading.md` feature is implemented, you would provide the ABI
-  # for the implementation contract, even while monitoring the proxy address.
   # ------------------------------------------------------------------------------------
   - name: "Large USDC Transfers (Ethereum)"
     # The network ID must match the `network_id` specified in your main `config.yaml`.
     network: "ethereum"
     # This is the PROXY contract address for USDC on Ethereum mainnet.
     address: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
-    # The ABI for the USDC contract.
-    abi: "abis/usdc.json"
+    # The name of the ABI (Application Binary Interface) for the contract being monitored
+    abi: "usdc"
     # The Rhai script to filter events.
     # This script will be executed for every log emitted by the specified contract address.
     #
@@ -52,8 +50,8 @@ monitors:
     network: "ethereum"
     # This is the canonical address for Wrapped Ether (WETH) on Ethereum.
     address: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"
-    # The ABI for the WETH contract.
-    abi: "abis/weth.json"
+    # The name of the ABI (Application Binary Interface) for the contract being monitored
+    abi: "weth"
     # This script triggers for any "Deposit" event on the WETH contract.
     filter_script: 'log.name == "Deposit"'
     # Notifiers are used to send notifications when the monitor triggers.
@@ -108,7 +106,7 @@ monitors:
     # The ABI should be a generic one that matches the event you're looking for.
     # For example, a standard ERC20 ABI can decode "Transfer" events from any
     # ERC20-compliant token contract.
-    abi: "abis/usdc.json" # A generic ERC20 ABI
+    abi: "usdc" # A generic ERC20 ABI
     # The engine detects that this script accesses `log`, so it knows to run it
     # against logs. Since `address` is missing, it runs it against ALL logs.
     #

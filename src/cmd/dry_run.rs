@@ -109,7 +109,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let evm_source = EvmRpcSource::new(provider);
 
     // Init services for processing and decoding data.
-    let abi_path = PathBuf::from("abis");
+    let abi_path = PathBuf::from(config.abi_config_path.clone());
     let abi_repository = Arc::new(AbiRepository::new(&abi_path)?);
     let abi_service = Arc::new(AbiService::new(abi_repository));
     let block_processor = BlockProcessor::new(Arc::clone(&abi_service));
