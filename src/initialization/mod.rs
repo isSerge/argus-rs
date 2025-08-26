@@ -8,9 +8,11 @@ use thiserror::Error;
 
 use crate::{
     abi::AbiService,
-    config::{AppConfig, NotifierLoader},
+    config::AppConfig,
     engine::rhai::RhaiScriptValidator,
-    monitor::{MonitorLoader, MonitorValidator},
+    loader::load_config,
+    models::{monitor::MonitorConfig, notifier::NotifierConfig},
+    monitor::MonitorValidator,
     persistence::traits::StateRepository,
 };
 
@@ -84,8 +86,7 @@ impl InitializationService {
         }
 
         tracing::info!(config_path = %config_path, "No monitors found in database. Loading from configuration file...");
-        let monitor_loader = MonitorLoader::new(PathBuf::from(config_path));
-        let monitors = monitor_loader.load().map_err(|e| {
+        let monitors = load_config::<MonitorConfig>(PathBuf::from(config_path)).map_err(|e| {
             InitializationError::MonitorLoadError(format!("Failed to load monitors from file: {e}"))
         })?;
 
@@ -146,8 +147,7 @@ impl InitializationService {
         }
 
         tracing::info!(config_path = %config_path, "No notifiers found in database. Loading from configuration file...");
-        let notifier_loader = NotifierLoader::new(PathBuf::from(config_path));
-        let notifiers = notifier_loader.load().map_err(|e| {
+        let notifiers = load_config::<NotifierConfig>(PathBuf::from(config_path)).map_err(|e| {
             InitializationError::NotifierLoadError(format!(
                 "Failed to load notifiers from file: {e}"
             ))
