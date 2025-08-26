@@ -4,7 +4,7 @@
 //! It is designed to work with ABIs that are loaded at runtime, and therefore
 //! does not use the `sol!` macro, which requires compile-time knowledge of the
 //! ABI.
-pub mod loader;
+pub mod repository;
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -18,22 +18,24 @@ use thiserror::Error;
 
 use crate::models::{Log, transaction::Transaction};
 
+pub use self::repository::AbiRepository;
+
 /// A pre-processed, cached representation of a contract's ABI.
 ///
 /// This struct stores function and event definitions in hashmaps for fast,
 /// O(1) lookups.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct CachedContract {
     /// A map from a function's 4-byte selector to its `Function` definition.
     pub functions: HashMap<[u8; 4], Function>,
     /// A map from an event's 32-byte topic hash to its `Event` definition.
     pub events: HashMap<B256, Event>,
-    /// The original parsed ABI.
-    pub abi: JsonAbi,
+    /// The original parsed ABI, shared via `Arc`.
+    pub abi: Arc<JsonAbi>,
 }
 
-impl From<&JsonAbi> for CachedContract {
-    fn from(abi: &JsonAbi) -> Self {
+impl From<Arc<JsonAbi>> for CachedContract {
+    fn from(abi: Arc<JsonAbi>) -> Self {
         let functions = abi
             .functions()
             .map(|func| (func.selector().into(), func.clone()))
@@ -44,7 +46,7 @@ impl From<&JsonAbi> for CachedContract {
             .map(|event| (event.selector(), event.clone()))
             .collect::<HashMap<B256, Event>>();
 
-        Self { functions, events, abi: abi.clone() }
+        Self { functions, events, abi }
     }
 }
 
@@ -54,6 +56,10 @@ pub enum AbiError {
     /// Returned when no ABI is found for the given contract address
     #[error("Contract ABI not found for address: {0}")]
     AbiNotFound(Address),
+
+    /// Returned when the specified ABI name is not found in the repository.
+    #[error("ABI with name '{0}' not found in repository")]
+    AbiNotFoundInRepository(String),
 
     /// Returned when an event signature (topic hash) is not found in the
     /// contract ABI
@@ -82,10 +88,6 @@ pub enum AbiError {
     /// Wrapper for decoding errors from the underlying ABI decoding library
     #[error("Failed to decode data: {0}")]
     DecodingError(#[from] dyn_abi::Error),
-
-    /// Wrapper for JSON parsing errors
-    #[error("Failed to parse ABI JSON: {0}")]
-    JsonParseError(#[from] serde_json::Error),
 }
 
 /// Represents a decoded event log.
@@ -115,33 +117,28 @@ pub struct DecodedCall {
 /// This service caches parsed ABIs and provides methods for decoding
 /// transaction data and event logs. Uses `DashMap` for thread-safe
 /// concurrent access without explicit locking.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct AbiService {
     cache: DashMap<Address, Arc<CachedContract>>,
+    abi_repository: Arc<AbiRepository>,
 }
 
 impl AbiService {
     /// Creates a new `AbiService`.
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(abi_repository: Arc<AbiRepository>) -> Self {
+        Self { cache: DashMap::new(), abi_repository }
     }
 
-    /// Adds a contract's ABI to the service cache.
-    ///
-    /// The ABI is parsed and pre-processed for fast lookups.
-    pub fn add_abi(&self, address: Address, abi: &JsonAbi) {
+    /// Links a contract address to an ABI by its name from the `AbiRepository`.
+    /// The ABI is then parsed and pre-processed for fast lookups and cached.
+    pub fn link_abi(&self, address: Address, abi_name: &str) -> Result<(), AbiError> {
+        let abi = self
+            .abi_repository
+            .get_abi(abi_name)
+            .ok_or_else(|| AbiError::AbiNotFoundInRepository(abi_name.to_string()))?;
+
         let cached_contract = Arc::new(CachedContract::from(abi));
         self.cache.insert(address, cached_contract);
-    }
-
-    /// Parses a JSON string into a `JsonAbi` and adds it to the cache.
-    pub fn add_abi_from_json_string(
-        &self,
-        address: Address,
-        json_string: &str,
-    ) -> Result<(), AbiError> {
-        let abi: JsonAbi = serde_json::from_str(json_string)?;
-        self.add_abi(address, &abi);
         Ok(())
     }
 
@@ -175,7 +172,7 @@ impl AbiService {
             .get(event_signature)
             .ok_or_else(|| AbiError::EventNotFound(*event_signature))?;
 
-        let decoded = event.decode_log_parts(log.topics().iter().copied(), log.data().as_ref())?;
+        let decoded = event.decode_log_parts(log.topics().iter().copied(), log.data().as_ref())?; // Use contract.abi directly
 
         let params: Vec<(String, DynSolValue)> = event
             .inputs
@@ -261,10 +258,13 @@ impl AbiService {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use alloy::{
-        primitives::{Address, Bytes, U256, address, b256, bytes},
+        primitives::{address, b256, bytes, Address, Bytes, U256},
         rpc::types::Log as AlloyLog,
     };
+    use tempfile::tempdir;
 
     use super::*;
     use crate::test_helpers::{LogBuilder, TransactionBuilder};
@@ -293,20 +293,57 @@ mod tests {
         ]"#
     }
 
-    fn simple_abi() -> JsonAbi {
-        serde_json::from_str(simple_abi_json()).unwrap()
+    fn create_test_abi_file(dir: &tempfile::TempDir, filename: &str, content: &str) -> PathBuf {
+        let file_path = dir.path().join(filename);
+        std::fs::write(&file_path, content).unwrap();
+        file_path
+    }
+
+    fn setup_abi_service_with_abi(abi_name: &str, abi_content: &str) -> (AbiService, Address) {
+        let temp_dir = tempdir().unwrap();
+        create_test_abi_file(&temp_dir, &format!("{}.json", abi_name), abi_content);
+        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
+        let service = AbiService::new(abi_repo);
+        let address = address!("0000000000000000000000000000000000000001");
+        service.link_abi(address, abi_name).unwrap();
+        (service, address)
     }
 
     #[test]
-    fn test_add_and_remove_abi() {
-        let service = AbiService::new();
-        let abi = simple_abi();
+    fn test_link_abi_success() {
+        let temp_dir = tempdir().unwrap();
+        create_test_abi_file(&temp_dir, "simple.json", simple_abi_json());
+        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
+        let service = AbiService::new(abi_repo);
         let address = Address::default();
 
         assert!(!service.is_monitored(&address));
         assert_eq!(service.cache_size(), 0);
 
-        service.add_abi(address, &abi);
+        let result = service.link_abi(address, "simple");
+        assert!(result.is_ok());
+        assert!(service.is_monitored(&address));
+        assert_eq!(service.cache_size(), 1);
+    }
+
+    #[test]
+    fn test_link_abi_not_found_in_repository() {
+        let temp_dir = tempdir().unwrap();
+        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap()); // Empty repo
+        let service = AbiService::new(abi_repo);
+        let address = Address::default();
+
+        let result = service.link_abi(address, "nonexistent");
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), AbiError::AbiNotFoundInRepository(_)));
+        assert!(!service.is_monitored(&address));
+        assert_eq!(service.cache_size(), 0);
+    }
+
+    #[test]
+    fn test_remove_abi() {
+        let (service, address) = setup_abi_service_with_abi("simple", simple_abi_json());
+
         assert!(service.is_monitored(&address));
         assert_eq!(service.cache_size(), 1);
 
@@ -316,34 +353,8 @@ mod tests {
     }
 
     #[test]
-    fn test_add_abi_from_json_string_success() {
-        let service = AbiService::new();
-        let address = Address::default();
-        let result = service.add_abi_from_json_string(address, simple_abi_json());
-
-        assert!(result.is_ok());
-        assert!(service.is_monitored(&address));
-        assert_eq!(service.cache_size(), 1);
-    }
-
-    #[test]
-    fn test_add_abi_from_json_string_failure() {
-        let service = AbiService::new();
-        let address = Address::default();
-        let result = service.add_abi_from_json_string(address, "not a valid json");
-
-        assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), AbiError::JsonParseError(_)));
-        assert!(!service.is_monitored(&address));
-        assert_eq!(service.cache_size(), 0);
-    }
-
-    #[test]
     fn test_decode_known_event() {
-        let service = AbiService::new();
-        let abi = simple_abi();
-        let contract_address = address!("0000000000000000000000000000000000000001");
-        service.add_abi(contract_address, &abi);
+        let (service, contract_address) = setup_abi_service_with_abi("simple", simple_abi_json());
 
         let from = address!("1111111111111111111111111111111111111111");
         let to = address!("2222222222222222222222222222222222222222");
@@ -371,10 +382,7 @@ mod tests {
 
     #[test]
     fn test_decode_known_function() {
-        let service = AbiService::new();
-        let abi = simple_abi();
-        let contract_address = address!("0000000000000000000000000000000000000001");
-        service.add_abi(contract_address, &abi);
+        let (service, contract_address) = setup_abi_service_with_abi("simple", simple_abi_json());
 
         let to_addr = address!("2222222222222222222222222222222222222222");
         let amount = U256::from(100);
@@ -402,16 +410,22 @@ mod tests {
 
     #[test]
     fn test_decode_log_not_found() {
-        let service = AbiService::new();
+        let temp_dir = tempdir().unwrap();
+        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
+        let service = AbiService::new(abi_repo);
+
         let log = AlloyLog::default();
-        let log = log.into();
+        let log: Log = log.into();
         let err = service.decode_log(&log).unwrap_err();
         assert!(matches!(err, AbiError::AbiNotFound(_)));
     }
 
     #[test]
     fn test_decode_function_not_found() {
-        let service = AbiService::new();
+        let temp_dir = tempdir().unwrap();
+        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
+        let service = AbiService::new(abi_repo);
+
         let tx = TransactionBuilder::new()
             .input(Bytes::from(vec![0u8; 32]))
             .to(Some(Address::default()))
@@ -422,10 +436,7 @@ mod tests {
 
     #[test]
     fn test_decode_function_for_unknown_selector() {
-        let service = AbiService::new();
-        let abi = simple_abi();
-        let contract_address = address!("0000000000000000000000000000000000000001");
-        service.add_abi(contract_address, &abi);
+        let (service, contract_address) = setup_abi_service_with_abi("simple", simple_abi_json());
 
         let tx = TransactionBuilder::new()
             .to(Some(contract_address))
@@ -438,10 +449,7 @@ mod tests {
 
     #[test]
     fn test_decode_function_input_too_short() {
-        let service = AbiService::new();
-        let abi = simple_abi();
-        let contract_address = address!("0000000000000000000000000000000000000001");
-        service.add_abi(contract_address, &abi);
+        let (service, contract_address) = setup_abi_service_with_abi("simple", simple_abi_json());
 
         // Default transaction has no input data
         let tx = TransactionBuilder::new().to(Some(contract_address)).build();
@@ -452,10 +460,7 @@ mod tests {
 
     #[test]
     fn test_decode_log_for_unknown_event() {
-        let service = AbiService::new();
-        let abi = simple_abi();
-        let contract_address = address!("0000000000000000000000000000000000000001");
-        service.add_abi(contract_address, &abi);
+        let (service, contract_address) = setup_abi_service_with_abi("simple", simple_abi_json());
 
         let log = LogBuilder::new()
             .address(contract_address)
@@ -467,10 +472,7 @@ mod tests {
 
     #[test]
     fn test_decode_log_with_no_topics() {
-        let service = AbiService::new();
-        let abi = simple_abi();
-        let contract_address = address!("0000000000000000000000000000000000000001");
-        service.add_abi(contract_address, &abi);
+        let (service, contract_address) = setup_abi_service_with_abi("simple", simple_abi_json());
         let log = LogBuilder::new().address(contract_address).build();
         let err = service.decode_log(&log).unwrap_err();
         assert!(matches!(err, AbiError::LogHasNoTopics));
@@ -478,7 +480,11 @@ mod tests {
 
     #[test]
     fn test_decode_contract_creation() {
-        let service = AbiService::new();
+        let temp_dir = tempdir().unwrap();
+        create_test_abi_file(&temp_dir, "simple.json", simple_abi_json());
+        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
+        let service = AbiService::new(abi_repo);
+
         // Contract creation transactions have `to` as None.
         let tx = TransactionBuilder::new().to(None).build();
 
@@ -488,10 +494,7 @@ mod tests {
 
     #[test]
     fn test_decode_function_with_malformed_input() {
-        let service = AbiService::new();
-        let abi = simple_abi();
-        let contract_address = address!("0000000000000000000000000000000000000001");
-        service.add_abi(contract_address, &abi);
+        let (service, contract_address) = setup_abi_service_with_abi("simple", simple_abi_json());
 
         // `transfer` selector, but the data is just a single byte.
         let input_data = bytes!("a9059cbb00").to_vec();
@@ -507,10 +510,7 @@ mod tests {
 
     #[test]
     fn test_decode_log_with_malformed_data() {
-        let service = AbiService::new();
-        let abi = simple_abi();
-        let contract_address = address!("0000000000000000000000000000000000000001");
-        service.add_abi(contract_address, &abi);
+        let (service, contract_address) = setup_abi_service_with_abi("simple", simple_abi_json());
 
         let from = address!("1111111111111111111111111111111111111111");
         let to = address!("2222222222222222222222222222222222222222");
@@ -525,5 +525,13 @@ mod tests {
 
         let err = service.decode_log(&log).unwrap_err();
         assert!(matches!(err, AbiError::DecodingError(_)));
+    }
+
+    #[test]
+    fn test_get_abi() {
+        let (service, contract_address) = setup_abi_service_with_abi("simple", simple_abi_json());
+
+        let cached_contract = service.get_abi(&Some(contract_address)).unwrap();
+        assert_eq!(cached_contract.abi.functions().next().unwrap().name, "transfer");
     }
 }
