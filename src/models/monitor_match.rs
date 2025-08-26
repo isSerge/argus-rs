@@ -62,10 +62,7 @@ impl MonitorMatch {
         notifier_name: String,
         block_number: u64,
         transaction_hash: TxHash,
-        contract_address: Address,
-        log_index: u64,
-        log_name: String,
-        log_params: serde_json::Value,
+        log_details: LogDetails,
     ) -> Self {
         Self {
             monitor_id,
@@ -73,12 +70,7 @@ impl MonitorMatch {
             notifier_name,
             block_number,
             transaction_hash,
-            match_data: MatchData::Log(LogDetails {
-                contract_address,
-                log_index,
-                log_name,
-                log_params,
-            }),
+            match_data: MatchData::Log(log_details),
         }
     }
 }
@@ -151,16 +143,19 @@ mod tests {
 
     #[test]
     fn test_monitor_match_construction_from_log() {
+        let log_details = LogDetails {
+            contract_address: Address::default(),
+            log_index: 15,
+            log_name: "TestLog".to_string(),
+            log_params: serde_json::json!({"param1": "value1", "param2": 42}),
+        };
         let monitor_match = MonitorMatch::new_log_match(
             2,
             "Log Monitor".to_string(),
             "Log Notifier".to_string(),
             456,
             TxHash::default(),
-            Address::default(),
-            15,
-            "TestLog".to_string(),
-            serde_json::json!({"param1": "value1", "param2": 42}),
+            log_details,
         );
 
         assert_eq!(monitor_match.monitor_id, 2);
@@ -173,7 +168,10 @@ mod tests {
             assert_eq!(log_details.contract_address, Address::default());
             assert_eq!(log_details.log_index, 15);
             assert_eq!(log_details.log_name, "TestLog");
-            assert_eq!(log_details.log_params, serde_json::json!({"param1": "value1", "param2": 42}));
+            assert_eq!(
+                log_details.log_params,
+                serde_json::json!({"param1": "value1", "param2": 42})
+            );
         } else {
             panic!("Expected MatchData::Log variant");
         }
@@ -217,20 +215,23 @@ mod tests {
     #[test]
     fn test_monitor_match_log_json_serialization() {
         let contract_address = address!("0x0000000000000000000000000000000000000011");
+        let log_details = LogDetails {
+            contract_address,
+            log_index: 15,
+            log_name: "Transfer".to_string(),
+            log_params: serde_json::json!({
+                "from": "0x4976...",
+                "to": "0xA76B...",
+                "value": "22545..."
+            }),
+        };
         let monitor_match = MonitorMatch::new_log_match(
             2,
             "Log Monitor".to_string(),
             "Log Notifier".to_string(),
             456,
             TxHash::default(),
-            contract_address,
-            15,
-            "Transfer".to_string(),
-            serde_json::json!({
-                "from": "0x4976...",
-                "to": "0xA76B...",
-                "value": "22545..."
-            }),
+            log_details,
         );
 
         let expected_json = serde_json::json!({

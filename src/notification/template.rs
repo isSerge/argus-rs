@@ -18,12 +18,12 @@ pub enum TemplateServiceError {
 
 impl TemplateService {
     /// Creates a new instance of `TemplateService` with a default environment.
-    /// The environment is configured with a custom missing value callback to log
-    /// warnings when template variables are not found in the context.
+    /// The environment is configured with a custom missing value callback to
+    /// log warnings when template variables are not found in the context.
     pub fn new() -> Self {
         let mut env = Environment::new();
         env.set_undefined_behavior(minijinja::UndefinedBehavior::Strict);
-        
+
         Self { env }
     }
 

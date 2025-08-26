@@ -39,8 +39,10 @@ use crate::{
     config::RhaiConfig,
     engine::rhai::compiler::{RhaiCompiler, RhaiCompilerError},
     models::{
-        correlated_data::CorrelatedBlockItem, decoded_block::DecodedBlockData, monitor::Monitor,
-        monitor_match::MonitorMatch,
+        correlated_data::CorrelatedBlockItem,
+        decoded_block::DecodedBlockData,
+        monitor::Monitor,
+        monitor_match::{LogDetails, MonitorMatch},
     },
 };
 
@@ -236,16 +238,20 @@ impl RhaiFilteringEngine {
         let mut monitor_matches = Vec::new();
         if let Ok(true) = self.eval_ast_bool_secure(&ast, &mut scope).await {
             for notifier_name in &monitor.notifiers {
+                let log_details = LogDetails {
+                    contract_address,
+                    log_index,
+                    log_name: decoded_log.name.clone(),
+                    log_params: log_match_payload.clone(),
+                };
+
                 monitor_matches.push(MonitorMatch::new_log_match(
                     monitor.id,
                     monitor.name.clone(),
                     notifier_name.clone(),
                     block_number,
                     transaction_hash,
-                    contract_address,
-                    log_index,
-                    decoded_log.name.clone(),
-                    log_match_payload.clone(),
+                    log_details,
                 ));
             }
         }

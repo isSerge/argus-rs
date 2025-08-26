@@ -270,22 +270,26 @@ mod tests {
     use crate::{
         config::HttpRetryConfig,
         models::{
+            monitor_match::LogDetails,
             notification::NotificationMessage,
             notifier::{DiscordConfig, SlackConfig, TelegramConfig, WebhookConfig},
         },
     };
 
     fn create_mock_monitor_match(notifier_name: &str) -> MonitorMatch {
+        let log_details = LogDetails {
+            contract_address: address!("0x1234567890abcdef1234567890abcdef12345678"),
+            log_index: 15,
+            log_name: "TestLog".to_string(),
+            log_params: json!({"param1": "value1", "param2": 42}),
+        };
         MonitorMatch::new_log_match(
             1,
             "test monitor".to_string(),
             notifier_name.to_string(),
             123,
             TxHash::default(),
-            address!("0x1234567890abcdef1234567890abcdef12345678"),
-            15,
-            "TestLog".to_string(),
-            json!({"param1": "value1", "param2": 42}),
+            log_details,
         )
     }
 
