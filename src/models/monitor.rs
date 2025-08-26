@@ -94,7 +94,7 @@ mod tests {
             "Test Monitor".to_string(),
             "ethereum".to_string(),
             Some("0x123".to_string()),
-            Some("abis/test.json".to_string()),
+            Some("test".to_string()),
             "log.name == \"Test\"".to_string(),
             vec!["test-notifier".to_string()],
         );

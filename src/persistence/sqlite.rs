@@ -613,7 +613,7 @@ mod tests {
                 "USDC Transfer Monitor".to_string(),
                 network_id.to_string(),
                 Some("0xa0b86a33e6441b38d4b5e5bfa1bf7a5eb70c5b1e".to_string()),
-                Some("abis/usdc.json".to_string()),
+                Some("usdc".to_string()),
                 r#"log.name == "Transfer" && bigint(log.params.value) > bigint("1000000000")"#
                     .to_string(),
                 vec!["test-notifier".to_string()],
@@ -622,7 +622,7 @@ mod tests {
                 "Simple Transfer Monitor".to_string(),
                 network_id.to_string(),
                 Some("0x7a250d5630b4cf539739df2c5dacb4c659f2488d".to_string()),
-                Some("abis/test.json".to_string()),
+                Some("test".to_string()),
                 r#"log.name == "Transfer""#.to_string(),
                 vec![],
             ),
@@ -683,7 +683,7 @@ mod tests {
             "Ethereum Monitor".to_string(),
             network1.to_string(),
             Some("0x1111111111111111111111111111111111111111".to_string()),
-            Some("abis/test.json".to_string()),
+            Some("test".to_string()),
             "true".to_string(),
             vec![],
         )];
@@ -692,7 +692,7 @@ mod tests {
             "Polygon Monitor".to_string(),
             network2.to_string(),
             Some("0x2222222222222222222222222222222222222222".to_string()),
-            Some("abis/test.json".to_string()),
+            Some("test".to_string()),
             "true".to_string(),
             vec![],
         )];
@@ -730,7 +730,7 @@ mod tests {
             "Wrong Network Monitor".to_string(),
             "polygon".to_string(), // Different from network_id
             Some("0x1111111111111111111111111111111111111111".to_string()),
-            Some("abis/test.json".to_string()),
+            Some("test".to_string()),
             "true".to_string(),
             vec![],
         )];
@@ -782,7 +782,7 @@ mod tests {
                 "Valid Monitor".to_string(),
                 network_id.to_string(),
                 Some("0x1111111111111111111111111111111111111111".to_string()),
-                Some("abis/test.json".to_string()),
+                Some("test".to_string()),
                 "true".to_string(),
                 vec![],
             ),
@@ -790,7 +790,7 @@ mod tests {
                 "Invalid Monitor".to_string(),
                 "wrong_network".to_string(), // This will cause failure
                 Some("0x2222222222222222222222222222222222222222".to_string()),
-                Some("abis/test.json".to_string()),
+                Some("test".to_string()),
                 "true".to_string(),
                 vec![],
             ),
@@ -816,7 +816,7 @@ mod tests {
             "Large Script Monitor".to_string(),
             network_id.to_string(),
             Some("0x1111111111111111111111111111111111111111".to_string()),
-            Some("abis/test.json".to_string()),
+            Some("test".to_string()),
             large_script.clone(),
             vec![],
         )];
