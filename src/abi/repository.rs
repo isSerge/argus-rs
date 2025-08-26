@@ -46,7 +46,8 @@ pub enum AbiRepositoryError {
 /// A repository for contract ABIs, loading them all once from a directory.
 #[derive(Debug, Default, Clone)]
 pub struct AbiRepository {
-    /// A map from ABI name (filename without extension) to its parsed `JsonAbi`.
+    /// A map from ABI name (filename without extension) to its parsed
+    /// `JsonAbi`.
     abis: HashMap<String, Arc<JsonAbi>>,
 }
 
@@ -74,21 +75,20 @@ impl AbiRepository {
             })?;
             let path = entry.path();
 
-            if path.is_file() && path.extension().map_or(false, |ext| ext == "json") {
+            if path.is_file() && path.extension().is_some_and(|ext| ext == "json") {
                 let abi_name = path
                     .file_stem()
                     .and_then(|s| s.to_str())
                     .map(ToOwned::to_owned)
                     .unwrap_or_else(|| {
                         tracing::warn!("Could not get file stem for ABI file: {}", path.display());
+                        // This unwrap is safe because `path.is_file()` ensures it has a file name.
                         path.file_name().unwrap().to_string_lossy().into_owned()
                     });
 
                 tracing::debug!("Loading ABI: {}", path.display());
-                let content = fs::read_to_string(&path).map_err(|e| AbiRepositoryError::IoError {
-                    path: path.clone(),
-                    source: e,
-                })?;
+                let content = fs::read_to_string(&path)
+                    .map_err(|e| AbiRepositoryError::IoError { path: path.clone(), source: e })?;
 
                 let abi: JsonAbi = serde_json::from_str(&content).map_err(|e| {
                     AbiRepositoryError::ParseError { path: path.clone(), source: e }

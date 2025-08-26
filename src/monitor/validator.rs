@@ -149,8 +149,8 @@ impl<'a> MonitorValidator<'a> {
         // It should only be Some if both address and abi path are provided and address
         // is valid.
         let abi_json = if let Some(address) = parsed_address {
-            // If an ABI name is provided in the monitor config, we expect an ABI to be linked
-            // to this address in the AbiService.
+            // If an ABI name is provided in the monitor config, we expect an ABI to be
+            // linked to this address in the AbiService.
             if monitor.abi.is_some() {
                 self.abi_service.get_abi(address).map(|c| c.abi.clone())
             } else {
@@ -162,7 +162,7 @@ impl<'a> MonitorValidator<'a> {
 
         let validation_result = self
             .script_validator
-            .validate_script(&monitor.filter_script, abi_json.as_ref().map(|abi| &**abi))
+            .validate_script(&monitor.filter_script, abi_json.as_deref())
             .map_err(|e| MonitorValidationError::ScriptError {
                 monitor_name: monitor.name.clone(),
                 error: e,

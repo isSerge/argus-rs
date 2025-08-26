@@ -91,7 +91,7 @@ monitors:
     #[test]
     fn test_load_valid_yaml_file() {
         let content = create_test_yaml_content();
-        let (_temp_dir, file_path) = 
+        let (_temp_dir, file_path) =
             create_test_dir_with_files("monitors.yaml", &content, None, None);
 
         let loader = MonitorLoader::new(file_path);
@@ -132,7 +132,7 @@ monitors:
     #[test]
     fn test_load_valid_yml_extension() {
         let content = create_test_yaml_content();
-        let (_temp_dir, file_path) = 
+        let (_temp_dir, file_path) =
             create_test_dir_with_files("monitors.yml", &content, None, None);
 
         let loader = MonitorLoader::new(file_path);
@@ -172,7 +172,7 @@ monitors:
     #[test]
     fn test_load_unsupported_extension() {
         let content = create_test_yaml_content();
-        let (_temp_dir, file_path) = 
+        let (_temp_dir, file_path) =
             create_test_dir_with_files("monitors.json", &content, None, None);
 
         let loader = MonitorLoader::new(file_path);
@@ -208,7 +208,7 @@ monitors:
     unclosed_bracket: [
 invalid_yaml: {key without value
 "#;
-        let (_temp_dir, file_path) = 
+        let (_temp_dir, file_path) =
             create_test_dir_with_files("invalid.yaml", invalid_content, None, None);
 
         let loader = MonitorLoader::new(file_path);
@@ -227,7 +227,7 @@ monitors:
     network: "ethereum"
     # Missing address and filter_script
 "#;
-        let (_temp_dir, file_path) = 
+        let (_temp_dir, file_path) =
             create_test_dir_with_files("incomplete.yaml", invalid_content, None, None);
 
         let loader = MonitorLoader::new(file_path);

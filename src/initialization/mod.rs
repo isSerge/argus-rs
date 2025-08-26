@@ -327,10 +327,7 @@ monitors:
         let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
         // Link the ABI for the test monitor
         abi_service
-            .link_abi(
-                "0x0000000000000000000000000000000000000123".parse().unwrap(),
-                "test_abi",
-            )
+            .link_abi("0x0000000000000000000000000000000000000123".parse().unwrap(), "test_abi")
             .unwrap();
         let script_validator = create_script_validator();
         let initialization_service =
@@ -513,10 +510,7 @@ monitors:
         let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
         // Link the ABI for the test monitor
         abi_service
-            .link_abi(
-                "0x0000000000000000000000000000000000000123".parse().unwrap(),
-                "test_abi",
-            )
+            .link_abi("0x0000000000000000000000000000000000000123".parse().unwrap(), "test_abi")
             .unwrap();
         let script_validator = create_script_validator();
         let initialization_service =

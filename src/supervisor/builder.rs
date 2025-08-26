@@ -111,7 +111,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        abi::AbiRepository, config::RhaiConfig, persistence::traits::MockStateRepository, providers::traits::MockDataSource, test_helpers::MonitorBuilder
+        abi::AbiRepository, config::RhaiConfig, persistence::traits::MockStateRepository,
+        providers::traits::MockDataSource, test_helpers::MonitorBuilder,
     };
 
     #[tokio::test]

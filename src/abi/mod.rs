@@ -35,6 +35,8 @@ pub struct CachedContract {
 
 impl From<Arc<JsonAbi>> for CachedContract {
     fn from(abi: Arc<JsonAbi>) -> Self {
+        // Clone Function and Event definitions to store owned copies in the HashMaps
+        // for O(1) lookups.
         let functions = abi
             .functions()
             .map(|func| (func.selector().into(), func.clone()))
@@ -118,7 +120,9 @@ pub struct DecodedCall {
 /// concurrent access without explicit locking.
 #[derive(Debug)]
 pub struct AbiService {
+    /// Cache for pre-processed contract ABIs, mapped by contract address.
     cache: DashMap<Address, Arc<CachedContract>>,
+    /// Repository for loading raw ABI definitions by name.
     abi_repository: Arc<AbiRepository>,
 }
 

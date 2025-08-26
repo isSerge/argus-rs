@@ -7,7 +7,7 @@ use clap::Parser;
 use thiserror::Error;
 
 use crate::{
-    abi::{repository::AbiRepositoryError, AbiRepository, AbiService},
+    abi::{AbiRepository, AbiService, repository::AbiRepositoryError},
     config::{AppConfig, NotifierLoader, NotifierLoaderError},
     engine::{
         block_processor::{BlockProcessor, BlockProcessorError},
@@ -15,11 +15,11 @@ use crate::{
         rhai::{RhaiCompiler, RhaiScriptValidator},
     },
     http_client::HttpClientPool,
-    models::{monitor_match::MonitorMatch, BlockData},
+    models::{BlockData, monitor_match::MonitorMatch},
     monitor::{MonitorLoader, MonitorLoaderError, MonitorValidationError, MonitorValidator},
     notification::NotificationService,
     providers::{
-        rpc::{create_provider, EvmRpcSource, ProviderError},
+        rpc::{EvmRpcSource, ProviderError, create_provider},
         traits::{DataSource, DataSourceError},
     },
     test_helpers::MonitorBuilder,
@@ -67,7 +67,7 @@ pub enum DryRunError {
 
     /// An error occurred while interacting with the ABI repository.
     #[error("ABI repository error: {0}")]
-    AbiRepository(#[from] AbiRepositoryError)
+    AbiRepository(#[from] AbiRepositoryError),
 }
 
 /// A command to perform a dry run of monitors over a specified block range.
@@ -252,6 +252,7 @@ mod tests {
 
     use alloy::primitives::U256;
     use mockall::predicate::eq;
+    use tempfile::tempdir;
 
     use super::*;
     use crate::{
@@ -266,7 +267,6 @@ mod tests {
         providers::traits::MockDataSource,
         test_helpers::{BlockBuilder, TransactionBuilder},
     };
-    use tempfile::tempdir;
 
     #[tokio::test]
     async fn test_run_dry_run_loop_succeeds() {

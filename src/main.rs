@@ -1,7 +1,7 @@
 use std::{path::PathBuf, sync::Arc};
 
 use argus::{
-    abi::{repository::AbiRepository, AbiService},
+    abi::{AbiService, repository::AbiRepository},
     cmd::{DryRunArgs, dry_run},
     config::AppConfig,
     engine::rhai::{RhaiCompiler, RhaiScriptValidator},
