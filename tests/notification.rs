@@ -43,15 +43,14 @@ async fn test_success() {
     let notification_service =
         NotificationService::new(vec![mock_discord_notifier], http_client_pool);
 
-    let monitor_match = MonitorMatch {
-        monitor_id: 1,
-        block_number: 123,
-        transaction_hash: Default::default(),
-        contract_address: Default::default(),
-        notifier_name: "test_discord".to_string(),
-        trigger_data: json!({}),
-        log_index: None,
-    };
+    let monitor_match = MonitorMatch::new_tx_match(
+        1,
+        "Test Monitor".to_string(),
+        "test_discord".to_string(),
+        123,
+        Default::default(),
+        json!({"key": "value"}),
+    );
 
     let result = notification_service.execute(&monitor_match).await;
 
@@ -90,15 +89,14 @@ async fn test_failure_with_retryable_error() {
     let notification_service =
         NotificationService::new(vec![mock_discord_notifier], http_client_pool);
 
-    let monitor_match = MonitorMatch {
-        monitor_id: 2,
-        block_number: 456,
-        notifier_name: "test_discord_retry".to_string(),
-        transaction_hash: Default::default(),
-        contract_address: Default::default(),
-        trigger_data: json!({}),
-        log_index: None,
-    };
+    let monitor_match = MonitorMatch::new_tx_match(
+        2,
+        "Test Monitor".to_string(),
+        "test_discord_retry".to_string(),
+        456,
+        Default::default(),
+        json!({"key": "value"}),
+    );
 
     let result = notification_service.execute(&monitor_match).await;
 
@@ -139,15 +137,14 @@ async fn test_failure_with_non_retryable_error() {
     let notification_service =
         NotificationService::new(vec![mock_discord_notifier], http_client_pool);
 
-    let monitor_match = MonitorMatch {
-        monitor_id: 3,
-        block_number: 789,
-        notifier_name: "test_discord_no_retry".to_string(),
-        transaction_hash: Default::default(),
-        contract_address: Default::default(),
-        trigger_data: json!({}),
-        log_index: None,
-    };
+    let monitor_match = MonitorMatch::new_tx_match(
+        3,
+        "Test Monitor".to_string(),
+        "test_discord_no_retry".to_string(),
+        789,
+        Default::default(),
+        json!({"key": "value"}),
+    );
 
     let result = notification_service.execute(&monitor_match).await;
 
@@ -177,15 +174,14 @@ async fn test_failure_with_invalid_url() {
     let notification_service =
         NotificationService::new(vec![mock_discord_notifier], http_client_pool);
 
-    let monitor_match = MonitorMatch {
-        monitor_id: 4,
-        block_number: 101,
-        notifier_name: "test_invalid_url".to_string(),
-        transaction_hash: Default::default(),
-        contract_address: Default::default(),
-        trigger_data: json!({}),
-        log_index: None,
-    };
+    let monitor_match = MonitorMatch::new_tx_match(
+        4,
+        "Test Monitor".to_string(),
+        "test_invalid_url".to_string(),
+        101,
+        Default::default(),
+        json!({"key": "value"}),
+    );
 
     let result = notification_service.execute(&monitor_match).await;
 
