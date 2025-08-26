@@ -8,15 +8,21 @@ use thiserror::Error;
 
 use crate::{
     abi::{AbiRepository, AbiService, repository::AbiRepositoryError},
-    config::{AppConfig, NotifierLoader, NotifierLoaderError},
+    config::AppConfig,
     engine::{
         block_processor::{BlockProcessor, BlockProcessorError},
         filtering::{FilteringEngine, RhaiError, RhaiFilteringEngine},
         rhai::{RhaiCompiler, RhaiScriptValidator},
     },
     http_client::HttpClientPool,
-    models::{BlockData, monitor_match::MonitorMatch},
-    monitor::{MonitorLoader, MonitorLoaderError, MonitorValidationError, MonitorValidator},
+    loader::{LoaderError, load_config},
+    models::{
+        BlockData,
+        monitor::MonitorConfig,
+        monitor_match::MonitorMatch,
+        notifier::{NotifierConfig, NotifierError},
+    },
+    monitor::{MonitorValidationError, MonitorValidator},
     notification::NotificationService,
     providers::{
         rpc::{EvmRpcSource, ProviderError, create_provider},
@@ -34,11 +40,11 @@ pub enum DryRunError {
 
     /// An error occurred while loading monitor definitions.
     #[error("Monitor loading error: {0}")]
-    MonitorLoading(#[from] MonitorLoaderError),
+    MonitorLoading(#[from] LoaderError),
 
     /// An error occurred while loading notifier definitions.
     #[error("Notifier loading error: {0}")]
-    NotifierLoading(#[from] NotifierLoaderError),
+    NotifierLoading(#[from] NotifierError),
 
     /// A monitor failed validation against the defined rules.
     #[error("Monitor validation error: {0}")]
@@ -119,10 +125,8 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let script_validator = RhaiScriptValidator::new(rhai_compiler.clone());
 
     // Load and validate monitor and notifier configurations from files.
-    let monitor_loader = MonitorLoader::new(config.monitor_config_path.into());
-    let monitors = monitor_loader.load()?;
-    let notifier_loader = NotifierLoader::new(config.notifier_config_path.into());
-    let notifiers = notifier_loader.load()?;
+    let monitors = load_config::<MonitorConfig>(config.monitor_config_path.into())?;
+    let notifiers = load_config::<NotifierConfig>(config.notifier_config_path.into())?;
 
     let monitor_validator = MonitorValidator::new(
         script_validator,

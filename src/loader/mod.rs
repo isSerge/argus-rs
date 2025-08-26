@@ -1,15 +1,10 @@
-//! Generic configuration loader for loading items from a YAML file.
+//! Generic configuration loading utilities.
 
 use std::{fs, path::PathBuf};
 
 use config::{Config, File, FileFormat};
 use serde::de::DeserializeOwned;
 use thiserror::Error;
-
-/// A generic loader for YAML files.
-pub struct ConfigLoader {
-    path: PathBuf,
-}
 
 /// Errors that can occur during configuration loading.
 #[derive(Debug, Error)]
@@ -25,6 +20,11 @@ pub enum LoaderError {
     /// Error when the configuration format is unsupported.
     #[error("Unsupported configuration format")]
     UnsupportedFormat,
+}
+
+/// A generic loader for YAML files.
+pub struct ConfigLoader {
+    path: PathBuf,
 }
 
 impl ConfigLoader {
@@ -56,6 +56,35 @@ impl ConfigLoader {
     fn is_yaml_file(&self) -> bool {
         matches!(self.path.extension().and_then(|ext| ext.to_str()), Some("yaml") | Some("yml"))
     }
+}
+
+/// A trait for types that can be loaded from a configuration file.
+pub trait Loadable: Sized + DeserializeOwned {
+    /// The top-level key in the YAML file (e.g., "monitors").
+    const KEY: &'static str;
+
+    /// The specific error type for this loadable item.
+    type Error: From<LoaderError>;
+
+    /// A method for post-deserialization logic, such as validation.
+    ///
+    /// This method has a default no-op implementation, making it optional
+    /// for types that don't require specific processing.
+    fn validate(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+/// Loads a vector of `Loadable` items from a configuration file.
+pub fn load_config<T: Loadable>(path: PathBuf) -> Result<Vec<T>, T::Error> {
+    let loader = ConfigLoader::new(path.clone());
+    let mut items: Vec<T> = loader.load(T::KEY)?;
+
+    for item in &mut items {
+        item.validate()?;
+    }
+
+    Ok(items)
 }
 
 #[cfg(test)]
@@ -149,5 +178,94 @@ wrong_key:
 
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), LoaderError::ParseError(_)));
+    }
+
+    #[derive(Debug, Deserialize, PartialEq)]
+    struct ItemWithDefaultValidate {
+        name: String,
+    }
+
+    impl Loadable for ItemWithDefaultValidate {
+        type Error = LoaderError;
+
+        const KEY: &'static str = "default_items";
+        // Uses default validate, which is a no-op
+    }
+
+    #[test]
+    fn test_load_config_with_default_validate() {
+        let dir = TempDir::new().unwrap();
+        let content = r#"
+default_items:
+  - name: "Item1"
+  - name: "Item2"
+"#;
+        let path = create_test_file(&dir, "default_validate.yaml", content);
+        let result = load_config::<ItemWithDefaultValidate>(path);
+
+        assert!(result.is_ok());
+        let items = result.unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].name, "Item1");
+    }
+
+    #[derive(Debug, Deserialize, PartialEq)]
+    struct ItemWithCustomValidate {
+        name: String,
+    }
+
+    #[derive(Debug, Error)]
+    enum CustomItemError {
+        #[error("Custom validation failed: {0}")]
+        Validation(String),
+        #[error(transparent)]
+        Loader(#[from] LoaderError),
+    }
+
+    impl Loadable for ItemWithCustomValidate {
+        type Error = CustomItemError;
+
+        const KEY: &'static str = "custom_items";
+
+        fn validate(&mut self) -> Result<(), Self::Error> {
+            if self.name.is_empty() {
+                Err(CustomItemError::Validation("Name cannot be empty".to_string()))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[test]
+    fn test_load_config_with_custom_validate_success() {
+        let dir = TempDir::new().unwrap();
+        let content = r#"
+custom_items:
+  - name: "Valid Item"
+"#;
+        let path = create_test_file(&dir, "custom_validate_success.yaml", content);
+        let result = load_config::<ItemWithCustomValidate>(path);
+
+        assert!(result.is_ok());
+        let items = result.unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].name, "Valid Item");
+    }
+
+    #[test]
+    fn test_load_config_with_custom_validate_failure() {
+        let dir = TempDir::new().unwrap();
+        let content = r#"
+custom_items:
+  - name: "" # Empty name, should fail validation
+"#;
+        let path = create_test_file(&dir, "custom_validate_failure.yaml", content);
+        let result = load_config::<ItemWithCustomValidate>(path);
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            CustomItemError::Validation(msg) if msg.contains("Name cannot be empty")
+        ));
     }
 }

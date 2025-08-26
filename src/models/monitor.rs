@@ -5,6 +5,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
+use crate::loader::{Loadable, LoaderError};
+
 /// Configuration for a monitor, used to create new monitors from config files
 /// before they are persisted to the database.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,6 +33,12 @@ pub struct MonitorConfig {
     /// Notifiers for the monitor (optional)
     #[serde(default)]
     pub notifiers: Vec<String>,
+}
+
+impl Loadable for MonitorConfig {
+    type Error = LoaderError;
+
+    const KEY: &'static str = "monitors";
 }
 
 /// Represents a blockchain monitor retrieved from the database.
@@ -94,7 +102,7 @@ mod tests {
             "Test Monitor".to_string(),
             "ethereum".to_string(),
             Some("0x123".to_string()),
-            Some("abis/test.json".to_string()),
+            Some("test".to_string()),
             "log.name == \"Test\"".to_string(),
             vec!["test-notifier".to_string()],
         );

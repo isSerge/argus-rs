@@ -6,7 +6,11 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
 
-use crate::{config::HttpRetryConfig, models::notification::NotificationMessage};
+use crate::{
+    config::HttpRetryConfig,
+    loader::{Loadable, LoaderError},
+    models::notification::NotificationMessage,
+};
 
 /// Configuration for a generic webhook.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Default)]
@@ -149,6 +153,28 @@ pub struct NotifierConfig {
     /// The specific configuration for the notifier type.
     #[serde(flatten)]
     pub config: NotifierTypeConfig,
+}
+
+/// Errors that can occur during notifier processing.
+#[derive(Debug, Error)]
+pub enum NotifierError {
+    /// An error occurred during the loading process.
+    #[error("Failed to load notifier configuration.")]
+    Loader(#[from] LoaderError),
+
+    /// An error occurred during validation.
+    #[error("Failed to validate notifier configuration.")]
+    Validation(#[from] NotifierTypeConfigError),
+}
+
+impl Loadable for NotifierConfig {
+    type Error = NotifierError;
+
+    const KEY: &'static str = "notifiers";
+
+    fn validate(&mut self) -> Result<(), Self::Error> {
+        self.config.validate().map_err(NotifierError::Validation)
+    }
 }
 
 #[cfg(test)]

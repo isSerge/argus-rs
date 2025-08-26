@@ -8,6 +8,7 @@ pub mod config;
 pub mod engine;
 pub mod http_client;
 pub mod initialization;
+pub mod loader;
 pub mod models;
 pub mod monitor;
 pub mod notification;
