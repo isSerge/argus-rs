@@ -19,7 +19,9 @@ pub struct MonitorConfig {
     #[serde(default)]
     pub address: Option<String>,
 
-    /// ABI of the monitor (optional)
+    /// The name of the ABI for the contract being monitored (e.g., "erc20").
+    /// This name corresponds to a JSON file in the `abis/` directory (e.g., `abis/erc20.json`).
+    /// If `None`, the monitor will not decode logs.
     #[serde(default)]
     pub abi: Option<String>,
 
@@ -50,7 +52,7 @@ pub struct Monitor {
     /// native token transfers).
     pub address: Option<String>,
 
-    /// The ABI (Application Binary Interface) for the contract being monitored.
+    /// The name of the ABI (Application Binary Interface) for the contract being monitored.
     /// This is used to decode event logs and call contract methods.
     /// If `None`, the monitor will not decode logs.
     pub abi: Option<String>,
