@@ -111,8 +111,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        config::RhaiConfig, persistence::traits::MockStateRepository,
-        providers::traits::MockDataSource, test_helpers::MonitorBuilder,
+        abi::AbiRepository, config::RhaiConfig, persistence::traits::MockStateRepository, providers::traits::MockDataSource, test_helpers::MonitorBuilder
     };
 
     #[tokio::test]
@@ -132,10 +131,13 @@ mod tests {
         mock_state_repo.expect_get_monitors().returning(move |_| Ok(vec![monitor.clone()]));
         mock_state_repo.expect_get_notifiers().returning(|_| Ok(vec![]));
 
+        let abi_repository = Arc::new(AbiRepository::new(dir.path()).unwrap());
+        let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
+
         let builder = SupervisorBuilder::new()
             .config(AppConfig::default())
             .state(Arc::new(mock_state_repo))
-            .abi_service(Arc::new(AbiService::new()))
+            .abi_service(abi_service)
             .script_compiler(Arc::new(RhaiCompiler::new(RhaiConfig::default())))
             .data_source(Box::new(MockDataSource::new()));
 
@@ -145,9 +147,12 @@ mod tests {
 
     #[tokio::test]
     async fn build_fails_if_config_is_missing() {
+        let dir = tempdir().unwrap();
+        let abi_repository = Arc::new(AbiRepository::new(dir.path()).unwrap());
+        let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
         let builder = SupervisorBuilder::new()
             .state(Arc::new(MockStateRepository::new()))
-            .abi_service(Arc::new(AbiService::new()))
+            .abi_service(abi_service)
             .data_source(Box::new(MockDataSource::new()));
 
         let result = builder.build().await;
@@ -156,9 +161,12 @@ mod tests {
 
     #[tokio::test]
     async fn build_fails_if_state_repository_is_missing() {
+        let dir = tempdir().unwrap();
+        let abi_repository = Arc::new(AbiRepository::new(dir.path()).unwrap());
+        let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
         let builder = SupervisorBuilder::new()
             .config(AppConfig::default())
-            .abi_service(Arc::new(AbiService::new()))
+            .abi_service(abi_service)
             .data_source(Box::new(MockDataSource::new()));
 
         let result = builder.build().await;
@@ -178,10 +186,13 @@ mod tests {
 
     #[tokio::test]
     async fn build_fails_if_data_source_is_missing() {
+        let dir = tempdir().unwrap();
+        let abi_repository = Arc::new(AbiRepository::new(dir.path()).unwrap());
+        let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
         let builder = SupervisorBuilder::new()
             .config(AppConfig::default())
             .state(Arc::new(MockStateRepository::new()))
-            .abi_service(Arc::new(AbiService::new()));
+            .abi_service(abi_service);
 
         let result = builder.build().await;
         assert!(matches!(result, Err(SupervisorError::MissingDataSource)));
@@ -195,10 +206,14 @@ mod tests {
         });
         // Do NOT expect get_triggers, as the function should exit early.
 
+        let dir = tempdir().unwrap();
+        let abi_repository = Arc::new(AbiRepository::new(dir.path()).unwrap());
+        let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
+
         let builder = SupervisorBuilder::new()
             .config(AppConfig::default())
             .state(Arc::new(mock_state_repo))
-            .abi_service(Arc::new(AbiService::new()))
+            .abi_service(abi_service)
             .data_source(Box::new(MockDataSource::new()))
             .script_compiler(Arc::new(RhaiCompiler::new(RhaiConfig::default())));
 
