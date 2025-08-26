@@ -29,8 +29,8 @@ use tokio::{
 
 use super::rhai::{
     conversions::{
-        build_log_map, build_log_params_map, build_transaction_map, build_trigger_data_from_params,
-        build_trigger_data_from_transaction,
+        build_log_map, build_log_params_map, build_log_params_payload,
+        build_transaction_details_payload, build_transaction_map,
     },
     create_engine,
 };
@@ -39,8 +39,10 @@ use crate::{
     config::RhaiConfig,
     engine::rhai::compiler::{RhaiCompiler, RhaiCompilerError},
     models::{
-        correlated_data::CorrelatedBlockItem, decoded_block::DecodedBlockData, monitor::Monitor,
-        monitor_match::MonitorMatch,
+        correlated_data::CorrelatedBlockItem,
+        decoded_block::DecodedBlockData,
+        monitor::Monitor,
+        monitor_match::{LogDetails, MonitorMatch},
     },
 };
 
@@ -213,13 +215,13 @@ impl RhaiFilteringEngine {
 
     /// Evaluates a single log-aware monitor against a decoded log and its
     /// parent transaction.
-    #[tracing::instrument(skip(self, monitor, tx_map, log_map, trigger_data, decoded_log))]
+    #[tracing::instrument(skip(self, monitor, tx_map, log_map, log_match_payload, decoded_log))]
     async fn evaluate_single_log_monitor(
         &self,
         monitor: Monitor,
         tx_map: rhai::Map,
         log_map: rhai::Map,
-        trigger_data: serde_json::Value,
+        log_match_payload: serde_json::Value,
         decoded_log: &DecodedLog,
     ) -> Result<Vec<MonitorMatch>, RhaiError> {
         let mut scope = Scope::new();
@@ -228,23 +230,29 @@ impl RhaiFilteringEngine {
 
         let ast = self.compiler.get_ast(&monitor.filter_script)?;
 
-        let block_number = decoded_log.log.block_number().unwrap_or(0);
+        let block_number = decoded_log.log.block_number().unwrap_or_default();
         let transaction_hash = decoded_log.log.transaction_hash().unwrap_or_default();
         let contract_address = decoded_log.log.address();
-        let log_index = decoded_log.log.log_index();
+        let log_index = decoded_log.log.log_index().unwrap_or_default();
 
         let mut monitor_matches = Vec::new();
         if let Ok(true) = self.eval_ast_bool_secure(&ast, &mut scope).await {
             for notifier_name in &monitor.notifiers {
-                monitor_matches.push(MonitorMatch {
-                    monitor_id: monitor.id,
+                let log_details = LogDetails {
+                    contract_address,
+                    log_index,
+                    log_name: decoded_log.name.clone(),
+                    log_params: log_match_payload.clone(),
+                };
+
+                monitor_matches.push(MonitorMatch::new_log_match(
+                    monitor.id,
+                    monitor.name.clone(),
+                    notifier_name.clone(),
                     block_number,
                     transaction_hash,
-                    contract_address,
-                    notifier_name: notifier_name.clone(),
-                    trigger_data: trigger_data.clone(),
-                    log_index,
-                });
+                    log_details,
+                ));
             }
         }
         Ok(monitor_matches)
@@ -320,18 +328,20 @@ impl FilteringEngine for RhaiFilteringEngine {
                     tx_hash = %item.transaction.hash(),
                     "Transaction-only monitor condition met."
                 );
-                let trigger_data =
-                    build_trigger_data_from_transaction(&item.transaction, item.receipt.as_ref());
+
+                // Build transaction data payload for the match
+                let tx_match_payload =
+                    build_transaction_details_payload(&item.transaction, item.receipt.as_ref());
+
                 for notifier_name in &monitor.notifiers {
-                    matches.push(MonitorMatch {
-                        monitor_id: monitor.id,
-                        block_number: item.transaction.block_number().unwrap_or(0),
-                        transaction_hash: item.transaction.hash(),
-                        contract_address: Default::default(),
-                        notifier_name: notifier_name.clone(),
-                        trigger_data: trigger_data.clone(),
-                        log_index: None,
-                    });
+                    matches.push(MonitorMatch::new_tx_match(
+                        monitor.id,
+                        monitor.name.clone(),
+                        notifier_name.clone(),
+                        item.transaction.block_number().unwrap_or(0),
+                        item.transaction.hash(),
+                        tx_match_payload.clone(),
+                    ));
                 }
             }
         }
@@ -344,10 +354,11 @@ impl FilteringEngine for RhaiFilteringEngine {
         }
 
         for log in &item.decoded_logs {
+            // Build log data payload for the match
             let log_address_str = log.log.address().to_checksum(None);
             let params_map = build_log_params_map(&log.params);
             let log_map = build_log_map(log, params_map);
-            let trigger_data = build_trigger_data_from_params(&log.params);
+            let log_match_payload = build_log_params_payload(&log.params);
 
             // 2a. Evaluate global log-aware monitors
             for monitor in &monitors_guard.global_log_aware_monitors {
@@ -356,7 +367,7 @@ impl FilteringEngine for RhaiFilteringEngine {
                         monitor.clone(),
                         tx_map.clone(),
                         log_map.clone(),
-                        trigger_data.clone(),
+                        log_match_payload.clone(),
                         log,
                     )
                     .await
@@ -383,7 +394,7 @@ impl FilteringEngine for RhaiFilteringEngine {
                             monitor.clone(),
                             tx_map.clone(),
                             log_map.clone(),
-                            trigger_data.clone(),
+                            log_match_payload.clone(),
                             log,
                         )
                         .await
@@ -429,13 +440,15 @@ mod tests {
         dyn_abi::DynSolValue,
         primitives::{Address, U256, address},
     };
-    use serde_json::json;
 
     use super::*;
     use crate::{
         abi::DecodedLog,
         config::RhaiConfig,
-        models::transaction::Transaction,
+        models::{
+            monitor_match::{LogDetails, MatchData, TransactionDetails},
+            transaction::Transaction,
+        },
         test_helpers::{LogBuilder, MonitorBuilder, TransactionBuilder},
     };
 
@@ -656,7 +669,9 @@ mod tests {
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].monitor_id, 1);
         assert_eq!(matches[0].notifier_name, "notifier1");
-        assert_eq!(matches[0].trigger_data["value"], json!(value));
+        assert!(
+            matches!(matches[0].match_data, MatchData::Log(LogDetails { ref log_name, .. }) if log_name == "ValueTransfered")
+        );
     }
 
     #[tokio::test]
@@ -796,6 +811,7 @@ mod tests {
         assert_eq!(matches.len(), 1, "Should find one match for value > 1.5 ether");
         assert_eq!(matches[0].monitor_id, 1);
         assert_eq!(matches[0].transaction_hash, tx_match.hash());
+        assert!(matches!(matches[0].match_data, MatchData::Transaction(TransactionDetails { .. })));
 
         // Test non-matching case
         let no_matches = engine.evaluate_item(&item_no_match).await.unwrap();
@@ -861,8 +877,14 @@ mod tests {
         // We expect two matches, one for each "GlobalTransfer" log.
         assert_eq!(matches.len(), 2);
         assert_eq!(matches[0].monitor_id, 100);
-        assert_eq!(matches[0].contract_address, addr1);
         assert_eq!(matches[1].monitor_id, 100);
-        assert_eq!(matches[1].contract_address, addr2);
+        assert_eq!(matches[0].block_number, item.transaction.block_number().unwrap_or_default());
+        assert!(
+            matches!(matches[0].match_data, MatchData::Log(LogDetails { contract_address, .. }) if contract_address == addr1)
+        );
+        assert_eq!(matches[1].block_number, item.transaction.block_number().unwrap_or_default());
+        assert!(
+            matches!(matches[1].match_data, MatchData::Log(LogDetails { contract_address, .. }) if contract_address == addr2)
+        );
     }
 }

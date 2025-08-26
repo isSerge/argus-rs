@@ -18,9 +18,12 @@ pub enum TemplateServiceError {
 
 impl TemplateService {
     /// Creates a new instance of `TemplateService` with a default environment.
+    /// The environment is configured with a custom missing value callback to
+    /// log warnings when template variables are not found in the context.
     pub fn new() -> Self {
-        let env = Environment::new();
-        // Add templates here
+        let mut env = Environment::new();
+        env.set_undefined_behavior(minijinja::UndefinedBehavior::Strict);
+
         Self { env }
     }
 
@@ -30,7 +33,13 @@ impl TemplateService {
         template_str: &str,
         context: serde_json::Value,
     ) -> Result<String, TemplateServiceError> {
-        self.env.render_str(template_str, context).map_err(TemplateServiceError::RenderError)
+        match self.env.render_str(template_str, context) {
+            Ok(rendered_string) => Ok(rendered_string),
+            Err(e) => {
+                tracing::warn!("Failed to render template '{}': {}", template_str, e);
+                Err(TemplateServiceError::RenderError(e))
+            }
+        }
     }
 }
 

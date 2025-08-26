@@ -263,27 +263,34 @@ impl NotificationService {
 
 #[cfg(test)]
 mod tests {
+    use alloy::primitives::{TxHash, address};
     use serde_json::json;
 
     use super::*;
     use crate::{
         config::HttpRetryConfig,
         models::{
+            monitor_match::LogDetails,
             notification::NotificationMessage,
             notifier::{DiscordConfig, SlackConfig, TelegramConfig, WebhookConfig},
         },
     };
 
     fn create_mock_monitor_match(notifier_name: &str) -> MonitorMatch {
-        MonitorMatch {
-            monitor_id: 1,
-            block_number: 123,
-            transaction_hash: Default::default(),
-            contract_address: Default::default(),
-            notifier_name: notifier_name.to_string(),
-            trigger_data: json!({ "foo": "bar" }),
-            log_index: None,
-        }
+        let log_details = LogDetails {
+            contract_address: address!("0x1234567890abcdef1234567890abcdef12345678"),
+            log_index: 15,
+            log_name: "TestLog".to_string(),
+            log_params: json!({"param1": "value1", "param2": 42}),
+        };
+        MonitorMatch::new_log_match(
+            1,
+            "test monitor".to_string(),
+            notifier_name.to_string(),
+            123,
+            TxHash::default(),
+            log_details,
+        )
     }
 
     #[tokio::test]
