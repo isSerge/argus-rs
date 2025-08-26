@@ -2,6 +2,55 @@
 # Notifiers define what happens when a monitor's filter script returns true.
 # You can copy this file to `notifiers.yaml` and update `config.yaml` to point to it.
 
+# ------------------------------------------------------------------------------------
+# TEMPLATING CONTEXT
+#
+# All notification templates have access to the following top-level fields from
+# the MonitorMatch object:
+#
+# - `monitor_id`: The unique ID of the monitor that triggered the match (integer).
+# - `monitor_name`: The human-readable name of the monitor (string).
+# - `notifier_name`: The name of the notifier handling this match (string).
+# - `block_number`: The block number where the match occurred (integer).
+# - `transaction_hash`: The hash of the transaction associated with the match (string).
+# - `type`: The type of match, either "transaction" or "log" (string).
+#
+# Depending on the `type` field ("transaction" or "log"), additional fields
+# related to that specific match type become available for templating:
+#
+# If `type` is "transaction":
+# - `from`: The sender address of the transaction (string).
+# - `to`: The recipient address of the transaction (string, can be null for contract creations).
+# - `hash`: The transaction hash (string).
+# - `value`: The value transferred in the transaction (string, as a large number).
+# - `gas_limit`: The gas limit for the transaction (integer).
+# - `nonce`: The transaction nonce (integer).
+# - `input`: The transaction input data (string).
+# - `block_number`: The block number where the transaction was included (integer).
+# - `transaction_index`: The index of the transaction within its block (integer).
+# - `gas_price`: (Legacy transactions) The gas price (string, as a large number).
+# - `max_fee_per_gas`: (EIP-1559 transactions) The maximum fee per gas (string, as a large number).
+# - `max_priority_fee_per_gas`: (EIP-1559 transactions) The maximum priority fee per gas (string, as a large number).
+# - `gas_used`: (From receipt) The gas used by the transaction (string, as a large number).
+# - `status`: (From receipt) The transaction status (integer, 1 for success, 0 for failure).
+# - `effective_gas_price`: (From receipt) The effective gas price (string, as a large number).
+#
+# If `type` is "log":
+# - `contract_address`: The address of the contract that emitted the log (string).
+# - `log_index`: The index of the log within its block (integer).
+# - `log_name`: The name of the decoded event (string, e.g., "Transfer").
+# - `from`: (Example) The 'from' address from a Transfer event (string).
+# - `to`: (Example) The 'to' address from a Transfer event (string).
+# - `value`: (Example) The 'value' from a Transfer event (string).
+# - ... any other decoded event parameters.
+#
+# You can use conditional logic in your templates, for example:
+# {% if type == "log" %}
+#   Log-specific content here.
+# {% elif type == "transaction" %}
+#   Transaction-specific content here.
+# {% endif %}
+# ------------------------------------------------------------------------------------
 notifiers:
   # ------------------------------------------------------------------------------------
   # EXAMPLE 1: Generic Webhook
@@ -80,7 +129,7 @@ notifiers:
           - **Transaction**: `{{ transaction_hash }}`
           - **Block**: {{ block_number }}
           - **Contract Address**: {{ contract_address }}
-          - **Log Name**: {{ name }}
+          - **Log Name**: {{ log_name }}
 
   # ------------------------------------------------------------------------------------
   # EXAMPLE 4: Telegram Notification
