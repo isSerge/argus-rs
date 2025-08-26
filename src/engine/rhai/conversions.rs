@@ -310,7 +310,7 @@ fn i256_to_bigint_dynamic(value: I256) -> Dynamic {
 ///
 /// This ensures consistency between the data seen by Rhai scripts and the data
 /// in trigger_data.
-pub fn build_trigger_data_from_params(params: &[(String, DynSolValue)]) -> Value {
+pub fn build_log_params_payload(params: &[(String, DynSolValue)]) -> Value {
     let mut json_map = serde_json::Map::new();
     for (name, value) in params {
         json_map.insert(name.clone(), dyn_sol_value_to_json(value));
@@ -320,7 +320,7 @@ pub fn build_trigger_data_from_params(params: &[(String, DynSolValue)]) -> Value
 
 /// Builds trigger data JSON from a transaction, ensuring consistency with Rhai
 /// script data.
-pub fn build_trigger_data_from_transaction(
+pub fn build_transaction_details_payload(
     transaction: &Transaction,
     receipt: Option<&TransactionReceipt>,
 ) -> Value {
@@ -697,10 +697,10 @@ mod tests {
         );
     }
 
-    // --- Tests for build_trigger_data_from_transaction ---
+    // --- Tests for build_transaction_details_payload ---
 
     #[test]
-    fn test_build_trigger_data_from_transaction_comprehensive() {
+    fn test_build_transaction_details_payload_comprehensive() {
         let tx = TransactionBuilder::new()
             .value(U256::MAX) // Large value
             .gas_limit(21000)
@@ -712,7 +712,7 @@ mod tests {
             .status(false)
             .effective_gas_price(u128::MAX) // Large value
             .build();
-        let data = build_trigger_data_from_transaction(&tx, Some(&receipt));
+        let data = build_transaction_details_payload(&tx, Some(&receipt));
 
         // Assert strings for large number types
         assert_eq!(data["value"], json!(U256::MAX.to_string()));
@@ -726,7 +726,7 @@ mod tests {
     }
 
     #[test]
-    fn test_build_trigger_data_from_transaction_legacy_and_creation() {
+    fn test_build_transaction_details_payload_legacy_and_creation() {
         // Use a large value that is valid for gas_price (fits in u128)
         let large_gas_price = U256::from(u128::MAX);
 
@@ -736,13 +736,32 @@ mod tests {
             .tx_type(TxType::Legacy)
             .build();
 
-        let data = build_trigger_data_from_transaction(&tx, None);
+        let data = build_transaction_details_payload(&tx, None);
 
         assert!(data.get("to").is_none());
         assert!(data.get("max_fee_per_gas").is_none());
         assert!(data.get("gas_used").is_none());
         // The final JSON should now correctly be a string.
         assert_eq!(data["gas_price"], json!(large_gas_price.to_string()));
+    }
+
+    #[test]
+    fn test_build_log_params_payload() {
+        let address = address!("0x1234567890abcdef1234567890abcdef12345678");
+        let params = vec![
+            ("amount".to_string(), DynSolValue::Uint(U256::from(5000), 256)),
+            (
+                "recipient".to_string(),
+                DynSolValue::Address(address),
+            ),
+        ];
+
+        let data = build_log_params_payload(&params);
+
+        println!("Log params payload: {}", data);
+
+        assert_eq!(data["amount"], 5000);
+        assert_eq!(data["recipient"], json!(address.to_checksum(None)));
     }
 
     #[test]

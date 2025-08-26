@@ -29,8 +29,8 @@ use tokio::{
 
 use super::rhai::{
     conversions::{
-        build_log_map, build_log_params_map, build_transaction_map, build_trigger_data_from_params,
-        build_trigger_data_from_transaction,
+        build_log_map, build_log_params_map, build_transaction_details_payload,
+        build_transaction_map, build_log_params_payload,
     },
     create_engine,
 };
@@ -322,8 +322,11 @@ impl FilteringEngine for RhaiFilteringEngine {
                     tx_hash = %item.transaction.hash(),
                     "Transaction-only monitor condition met."
                 );
-                let trigger_data =
-                    build_trigger_data_from_transaction(&item.transaction, item.receipt.as_ref());
+
+                // Build transaction data payload for the match
+                let tx_match_payload =
+                    build_transaction_details_payload(&item.transaction, item.receipt.as_ref());
+
                 for notifier_name in &monitor.notifiers {
                     matches.push(MonitorMatch::new_tx_match(
                         monitor.id,
@@ -331,7 +334,7 @@ impl FilteringEngine for RhaiFilteringEngine {
                         notifier_name.clone(),
                         item.transaction.block_number().unwrap_or(0),
                         item.transaction.hash(),
-                        trigger_data.clone(),
+                        tx_match_payload.clone(),
                     ));
                 }
             }
@@ -345,10 +348,11 @@ impl FilteringEngine for RhaiFilteringEngine {
         }
 
         for log in &item.decoded_logs {
+            // Build log data payload for the match
             let log_address_str = log.log.address().to_checksum(None);
             let params_map = build_log_params_map(&log.params);
             let log_map = build_log_map(log, params_map);
-            let trigger_data = build_trigger_data_from_params(&log.params);
+            let log_match_payload = build_log_params_payload(&log.params);
 
             // 2a. Evaluate global log-aware monitors
             for monitor in &monitors_guard.global_log_aware_monitors {
@@ -357,7 +361,7 @@ impl FilteringEngine for RhaiFilteringEngine {
                         monitor.clone(),
                         tx_map.clone(),
                         log_map.clone(),
-                        trigger_data.clone(),
+                        log_match_payload.clone(),
                         log,
                     )
                     .await
@@ -384,7 +388,7 @@ impl FilteringEngine for RhaiFilteringEngine {
                             monitor.clone(),
                             tx_map.clone(),
                             log_map.clone(),
-                            trigger_data.clone(),
+                            log_match_payload.clone(),
                             log,
                         )
                         .await
@@ -869,7 +873,11 @@ mod tests {
         assert_eq!(matches.len(), 2);
         assert_eq!(matches[0].monitor_id, 100);
         assert_eq!(matches[1].monitor_id, 100);
-        assert!(matches!(matches[0].match_data, MatchData::Log(LogDetails { contract_address, .. }) if contract_address == addr1));
-        assert!(matches!(matches[1].match_data, MatchData::Log(LogDetails { contract_address, .. }) if contract_address == addr2));
+        assert!(
+            matches!(matches[0].match_data, MatchData::Log(LogDetails { contract_address, .. }) if contract_address == addr1)
+        );
+        assert!(
+            matches!(matches[1].match_data, MatchData::Log(LogDetails { contract_address, .. }) if contract_address == addr2)
+        );
     }
 }
