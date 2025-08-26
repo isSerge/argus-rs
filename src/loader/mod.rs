@@ -1,15 +1,10 @@
-//! Generic configuration loader for loading items from a YAML file.
+//! Generic configuration loading utilities.
 
 use std::{fs, path::PathBuf};
 
 use config::{Config, File, FileFormat};
 use serde::de::DeserializeOwned;
 use thiserror::Error;
-
-/// A generic loader for YAML files.
-pub struct ConfigLoader {
-    path: PathBuf,
-}
 
 /// Errors that can occur during configuration loading.
 #[derive(Debug, Error)]
@@ -25,6 +20,11 @@ pub enum LoaderError {
     /// Error when the configuration format is unsupported.
     #[error("Unsupported configuration format")]
     UnsupportedFormat,
+}
+
+/// A generic loader for YAML files.
+pub struct ConfigLoader {
+    path: PathBuf,
 }
 
 impl ConfigLoader {
@@ -56,6 +56,35 @@ impl ConfigLoader {
     fn is_yaml_file(&self) -> bool {
         matches!(self.path.extension().and_then(|ext| ext.to_str()), Some("yaml") | Some("yml"))
     }
+}
+
+/// A trait for types that can be loaded from a configuration file.
+pub trait Loadable: Sized + DeserializeOwned {
+    /// The top-level key in the YAML file (e.g., "monitors").
+    const KEY: &'static str;
+
+    /// The specific error type for this loadable item.
+    type Error: From<LoaderError>;
+
+    /// A method for post-deserialization logic, such as validation.
+    ///
+    /// This method has a default no-op implementation, making it optional
+    /// for types that don't require specific processing.
+    fn validate(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+/// Loads a vector of `Loadable` items from a configuration file.
+pub fn load_config<T: Loadable>(path: PathBuf) -> Result<Vec<T>, T::Error> {
+    let loader = ConfigLoader::new(path.clone());
+    let mut items: Vec<T> = loader.load(T::KEY)?;
+
+    for item in &mut items {
+        item.validate()?;
+    }
+
+    Ok(items)
 }
 
 #[cfg(test)]
