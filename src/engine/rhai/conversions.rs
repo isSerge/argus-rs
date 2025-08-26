@@ -305,11 +305,8 @@ fn i256_to_bigint_dynamic(value: I256) -> Dynamic {
     Dynamic::from(BigInt::from_bytes_be(rhai_sign, &bytes))
 }
 
-/// Builds trigger data JSON from log parameters using the same conversion logic
+/// Builds payload data JSON from log parameters using the same conversion logic
 /// as Rhai.
-///
-/// This ensures consistency between the data seen by Rhai scripts and the data
-/// in trigger_data.
 pub fn build_log_params_payload(params: &[(String, DynSolValue)]) -> Value {
     let mut json_map = serde_json::Map::new();
     for (name, value) in params {
@@ -318,7 +315,7 @@ pub fn build_log_params_payload(params: &[(String, DynSolValue)]) -> Value {
     Value::Object(json_map)
 }
 
-/// Builds trigger data JSON from a transaction, ensuring consistency with Rhai
+/// Builds payload data JSON from a transaction, ensuring consistency with Rhai
 /// script data.
 pub fn build_transaction_details_payload(
     transaction: &Transaction,
@@ -750,10 +747,7 @@ mod tests {
         let address = address!("0x1234567890abcdef1234567890abcdef12345678");
         let params = vec![
             ("amount".to_string(), DynSolValue::Uint(U256::from(5000), 256)),
-            (
-                "recipient".to_string(),
-                DynSolValue::Address(address),
-            ),
+            ("recipient".to_string(), DynSolValue::Address(address)),
         ];
 
         let data = build_log_params_payload(&params);

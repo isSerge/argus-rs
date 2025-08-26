@@ -29,8 +29,8 @@ use tokio::{
 
 use super::rhai::{
     conversions::{
-        build_log_map, build_log_params_map, build_transaction_details_payload,
-        build_transaction_map, build_log_params_payload,
+        build_log_map, build_log_params_map, build_log_params_payload,
+        build_transaction_details_payload, build_transaction_map,
     },
     create_engine,
 };
@@ -213,13 +213,13 @@ impl RhaiFilteringEngine {
 
     /// Evaluates a single log-aware monitor against a decoded log and its
     /// parent transaction.
-    #[tracing::instrument(skip(self, monitor, tx_map, log_map, trigger_data, decoded_log))]
+    #[tracing::instrument(skip(self, monitor, tx_map, log_map, log_match_payload, decoded_log))]
     async fn evaluate_single_log_monitor(
         &self,
         monitor: Monitor,
         tx_map: rhai::Map,
         log_map: rhai::Map,
-        trigger_data: serde_json::Value,
+        log_match_payload: serde_json::Value,
         decoded_log: &DecodedLog,
     ) -> Result<Vec<MonitorMatch>, RhaiError> {
         let mut scope = Scope::new();
@@ -245,7 +245,7 @@ impl RhaiFilteringEngine {
                     contract_address,
                     log_index,
                     decoded_log.name.clone(),
-                    trigger_data.clone(),
+                    log_match_payload.clone(),
                 ));
             }
         }

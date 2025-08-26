@@ -64,10 +64,7 @@ impl MonitorMatch {
                 transaction_hash,
                 contract_address,
                 log_index,
-                details: LogMatch {
-                    name: log_name,
-                    params: log_params,
-                },
+                details: LogMatch { name: log_name, params: log_params },
             }),
         }
     }
