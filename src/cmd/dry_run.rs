@@ -255,6 +255,7 @@ mod tests {
             block_processor::BlockProcessor, filtering::RhaiFilteringEngine, rhai::RhaiCompiler,
         },
         http_client::HttpClientPool,
+        models::monitor_match::{MatchData, TransactionDetails},
         notification::NotificationService,
         providers::traits::MockDataSource,
         test_helpers::{BlockBuilder, TransactionBuilder},
@@ -307,7 +308,9 @@ mod tests {
         assert!(result.is_ok());
         let matches = result.unwrap();
         assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].block_number, from_block);
+        assert!(
+            matches!(matches[0].match_data, MatchData::Transaction(TransactionDetails { block_number, .. }) if block_number == from_block)
+        );
     }
 
     #[tokio::test]
