@@ -130,8 +130,59 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_monitor_match_construction_from_tx() {}
+    fn test_monitor_match_construction_from_tx() {
+        let monitor_match = MonitorMatch::new_tx_match(
+            1,
+            "Test Monitor".to_string(),
+            "Test Notifier".to_string(),
+            123,
+            TxHash::default(),
+            serde_json::json!({"key": "value"}),
+        );
+
+        assert_eq!(monitor_match.monitor_id, 1);
+        assert_eq!(monitor_match.monitor_name, "Test Monitor");
+        assert_eq!(monitor_match.notifier_name, "Test Notifier");
+
+        if let MatchData::Transaction(tx_details) = monitor_match.match_data {
+            assert_eq!(tx_details.block_number, 123);
+            assert_eq!(tx_details.transaction_hash, TxHash::default());
+            assert_eq!(tx_details.details, serde_json::json!({"key": "value"}));
+        } else {
+            panic!("Expected MatchData::Transaction variant");
+        }
+    }
 
     #[test]
-    fn test_monitor_match_construction_from_log() {}
+    fn test_monitor_match_construction_from_log() {
+        let monitor_match = MonitorMatch::new_log_match(
+            2,
+            "Log Monitor".to_string(),
+            "Log Notifier".to_string(),
+            456,
+            TxHash::default(),
+            Address::default(),
+            15,
+            "TestLog".to_string(),
+            serde_json::json!({"param1": "value1", "param2": 42}),
+        );
+
+        assert_eq!(monitor_match.monitor_id, 2);
+        assert_eq!(monitor_match.monitor_name, "Log Monitor");
+        assert_eq!(monitor_match.notifier_name, "Log Notifier");
+
+        if let MatchData::Log(log_details) = monitor_match.match_data {
+            assert_eq!(log_details.block_number, 456);
+            assert_eq!(log_details.transaction_hash, TxHash::default());
+            assert_eq!(log_details.contract_address, Address::default());
+            assert_eq!(log_details.log_index, 15);
+            assert_eq!(log_details.details.name, "TestLog");
+            assert_eq!(
+                log_details.details.params,
+                serde_json::json!({"param1": "value1", "param2": 42})
+            );
+        } else {
+            panic!("Expected MatchData::Log variant");
+        }
+    }
 }
