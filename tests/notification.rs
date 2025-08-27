@@ -29,6 +29,7 @@ async fn test_success() {
             },
             retry_policy: Default::default(),
         }),
+        policy: None,
     };
 
     let mock = server
@@ -74,6 +75,7 @@ async fn test_failure_with_retryable_error() {
             },
             retry_policy: retry_policy.clone(),
         }),
+        policy: None,
     };
 
     // Mock a server that fails twice with a retryable error, then succeeds.
@@ -122,6 +124,7 @@ async fn test_failure_with_non_retryable_error() {
             },
             retry_policy: retry_policy.clone(),
         }),
+        policy: None,
     };
 
     // Mock a server that returns a 400 Bad Request, which is a non-retryable error.
@@ -168,6 +171,7 @@ async fn test_failure_with_invalid_url() {
                 ..Default::default()
             },
         }),
+        policy: None
     };
 
     let http_client_pool = Arc::new(HttpClientPool::new());

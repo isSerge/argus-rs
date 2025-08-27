@@ -422,7 +422,8 @@ impl StateRepository for SqliteStateRepository {
             .map(|row| {
                 let config = serde_json::from_str(&row.config)
                     .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
-                Ok(NotifierConfig { name: row.name, config })
+                // TODO: Load policy from DB
+                Ok(NotifierConfig { name: row.name, config, policy: None })
             })
             .collect::<Result<Vec<_>, sqlx::Error>>()?;
 
@@ -852,6 +853,7 @@ mod tests {
                 },
                 retry_policy: Default::default(),
             }),
+            policy: None,
         }];
 
         // Add notifiers
@@ -884,6 +886,7 @@ mod tests {
                 message: Default::default(),
                 retry_policy: Default::default(),
             }),
+            policy: None,
         }];
         let polygon_notifiers = vec![NotifierConfig {
             name: "Polygon Discord".to_string(),
@@ -892,6 +895,7 @@ mod tests {
                 message: Default::default(),
                 retry_policy: Default::default(),
             }),
+            policy: None,
         }];
 
         // Add notifiers to different networks
@@ -929,20 +933,24 @@ mod tests {
             NotifierConfig {
                 name: "Unique Notifier".to_string(),
                 config: NotifierTypeConfig::Slack(SlackConfig::default()),
+                policy: None,
             },
             NotifierConfig {
                 name: "Another Unique Notifier".to_string(),
                 config: NotifierTypeConfig::Slack(SlackConfig::default()),
+                policy: None,
             },
         ];
         let notifiers2 = vec![
             NotifierConfig {
                 name: "Third Notifier".to_string(),
                 config: NotifierTypeConfig::Slack(SlackConfig::default()),
+                policy: None,
             },
             NotifierConfig {
                 name: "Unique Notifier".to_string(), // Duplicate name, will cause failure
                 config: NotifierTypeConfig::Slack(SlackConfig::default()),
+                policy: None,
             },
         ];
 
