@@ -171,7 +171,7 @@ async fn test_failure_with_invalid_url() {
                 ..Default::default()
             },
         }),
-        policy: None
+        policy: None,
     };
 
     let http_client_pool = Arc::new(HttpClientPool::new());

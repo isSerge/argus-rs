@@ -401,7 +401,6 @@ impl StateRepository for SqliteStateRepository {
         // Helper struct for mapping from the database row
         #[derive(sqlx::FromRow)]
         struct NotifierRow {
-            name: String,
             config: String,
         }
 
@@ -410,7 +409,7 @@ impl StateRepository for SqliteStateRepository {
                 "query notifiers",
                 sqlx::query_as!(
                     NotifierRow,
-                    "SELECT name, config FROM notifiers WHERE network_id = ?",
+                    "SELECT config FROM notifiers WHERE network_id = ?",
                     network_id
                 )
                 .fetch_all(&self.pool),
@@ -420,12 +419,9 @@ impl StateRepository for SqliteStateRepository {
         let notifiers = notifier_rows
             .into_iter()
             .map(|row| {
-                let config = serde_json::from_str(&row.config)
-                    .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
-                // TODO: Load policy from DB
-                Ok(NotifierConfig { name: row.name, config, policy: None })
+                serde_json::from_str(&row.config).map_err(|e| sqlx::Error::Decode(Box::new(e)))
             })
-            .collect::<Result<Vec<_>, sqlx::Error>>()?;
+            .collect::<Result<Vec<NotifierConfig>, sqlx::Error>>()?;
 
         tracing::debug!(
             network_id,
@@ -452,15 +448,12 @@ impl StateRepository for SqliteStateRepository {
         let mut tx = self.pool.begin().await?;
 
         for notifier in notifiers {
-            let config_str = serde_json::to_string(&notifier.config)
-                .map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
-
-            let notifier_name = &notifier.name;
-            let config = &config_str;
+            let config =
+                serde_json::to_string(&notifier).map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
 
             sqlx::query!(
                 "INSERT INTO notifiers (name, network_id, config) VALUES (?, ?, ?)",
-                notifier_name,
+                notifier.name,
                 network_id,
                 config
             )
@@ -499,7 +492,10 @@ mod tests {
     use crate::models::{
         monitor::MonitorConfig,
         notification::NotificationMessage,
-        notifier::{DiscordConfig, NotifierTypeConfig, SlackConfig},
+        notifier::{
+            AggregationPolicy, DiscordConfig, NotifierPolicy, NotifierTypeConfig, SlackConfig,
+            ThrottlePolicy,
+        },
     };
 
     async fn setup_test_db() -> SqliteStateRepository {
@@ -965,5 +961,76 @@ mod tests {
         // Verify no new notifiers were added (transaction rolled back)
         // The count should still be 2 from the first successful insert.
         assert_eq!(repo.get_notifiers(network_id).await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_notifier_policy_persistence() {
+        let repo = setup_test_db().await;
+        let network_id = "testnet_policy";
+
+        let aggregation_policy = NotifierPolicy::Aggregation(AggregationPolicy {
+            key: "{{ monitor_name }}".to_string(),
+            window_secs: chrono::Duration::seconds(60),
+            template: "Summary: {{ matches | length }} events".to_string(),
+        });
+
+        let test_notifier = NotifierConfig {
+            name: "Policy Notifier".to_string(),
+            config: NotifierTypeConfig::Slack(SlackConfig {
+                slack_url: "https://hooks.slack.com/services/policy".to_string(),
+                message: NotificationMessage {
+                    title: "Policy Test".to_string(),
+                    body: "Body".to_string(),
+                    ..Default::default()
+                },
+                retry_policy: Default::default(),
+            }),
+            policy: Some(aggregation_policy.clone()),
+        };
+
+        // Add notifier with policy
+        repo.add_notifiers(network_id, vec![test_notifier.clone()]).await.unwrap();
+
+        // Retrieve and verify
+        let stored_notifiers = repo.get_notifiers(network_id).await.unwrap();
+        assert_eq!(stored_notifiers.len(), 1);
+        let retrieved_notifier = &stored_notifiers[0];
+
+        assert_eq!(retrieved_notifier.name, test_notifier.name);
+        assert!(retrieved_notifier.policy.is_some());
+        assert_eq!(retrieved_notifier.policy.as_ref().unwrap(), &aggregation_policy);
+
+        // Test with a throttle policy as well
+        let throttle_policy = NotifierPolicy::Throttle(ThrottlePolicy {
+            max_count: 5,
+            time_window_secs: chrono::Duration::minutes(10),
+        });
+
+        let throttled_notifier = NotifierConfig {
+            name: "Throttled Notifier".to_string(),
+            config: NotifierTypeConfig::Discord(DiscordConfig {
+                discord_url: "https://discord.com/api/webhooks/throttle".to_string(),
+                message: NotificationMessage {
+                    title: "Throttle Test".to_string(),
+                    body: "Body".to_string(),
+                    ..Default::default()
+                },
+                retry_policy: Default::default(),
+            }),
+            policy: Some(throttle_policy.clone()),
+        };
+
+        repo.add_notifiers(network_id, vec![throttled_notifier.clone()]).await.unwrap();
+
+        let stored_notifiers_after_throttle = repo.get_notifiers(network_id).await.unwrap();
+        assert_eq!(stored_notifiers_after_throttle.len(), 2);
+
+        let retrieved_throttled_notifier = stored_notifiers_after_throttle
+            .into_iter()
+            .find(|n| n.name == "Throttled Notifier")
+            .unwrap();
+
+        assert!(retrieved_throttled_notifier.policy.is_some());
+        assert_eq!(retrieved_throttled_notifier.policy.unwrap(), throttle_policy);
     }
 }

@@ -156,13 +156,14 @@ pub struct NotifierConfig {
     #[serde(flatten)]
     pub config: NotifierTypeConfig,
 
-    /// Optional policy for handling notifications (e.g., aggregation, throttling).
+    /// Optional policy for handling notifications (e.g., aggregation,
+    /// throttling).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy: Option<NotifierPolicy>,
 }
 
 /// Notification policies for handling notifications
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, Eq, PartialEq)]
 pub enum NotifierPolicy {
     /// Policy for aggregating multiple notifications into a single one.
     Aggregation(AggregationPolicy),
@@ -172,26 +173,28 @@ pub enum NotifierPolicy {
 }
 
 /// Policy for aggregating multiple notifications into a single one.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct AggregationPolicy {
-    /// The key to use for aggregating notifications (monitor name, event type, address, etc.).
-    key: String,
+    /// The key to use for aggregating notifications (monitor name, event type,
+    /// address, etc.).
+    pub key: String,
 
     /// The time window in seconds for the aggregation policy.
-    window_secs: Duration,
+    pub window_secs: Duration,
 
     /// The template to use for the aggregated notification message.
-    template: String,
+    pub template: String,
 }
 
 /// Policy for throttling notifications to avoid spamming.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ThrottlePolicy {
-    /// The maximum number of notifications to send within the specified time window.
-    max_count: u32,
+    /// The maximum number of notifications to send within the specified time
+    /// window.
+    pub max_count: u32,
 
     /// The time window in seconds for the throttling policy.
-    time_window_secs: Duration,
+    pub time_window_secs: Duration,
 }
 
 /// Errors that can occur during notifier processing.
