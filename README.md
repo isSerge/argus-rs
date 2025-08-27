@@ -1,8 +1,10 @@
 # Argus EVM Monitor
 
+Argus Panoptes (“the All-Seeing”) was the sleepless giant of Greek mythology. With a hundred eyes, he could watch without rest, making him a perfect guardian.
+
 > **Note:** This project is under active development and is not yet ready for production use. The API and architecture are subject to change.
 
-Argus is a next-generation, open-source, self-hosted monitoring tool for EVM chains. It's designed to be API-first, highly reliable, and deeply flexible, serving as a foundational piece of infrastructure for any serious EVM project.
+Argus is a next-generation, open-source, self-hosted monitoring tool for EVM chains. It's designed to be API-first, highly reliable, and deeply flexible, serving as a foundational piece of infrastructure for any EVM project.
 
 ## Features
 
