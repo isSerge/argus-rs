@@ -106,23 +106,19 @@ mod tests {
     use super::*;
     use crate::{
         http_client::HttpClientPool,
-        models::monitor_match::{LogDetails, MatchData},
+        models::{
+            NotificationMessage,
+            monitor_match::{LogDetails, MatchData},
+            notifier::{DiscordConfig, NotifierTypeConfig},
+        },
+        persistence::traits::MockGenericStateRepository,
     };
 
-    #[tokio::test]
-    async fn test_process_match_notifier_config_missing() {
-        // Arrange
-        let mock_state_repo =
-            Arc::new(crate::persistence::traits::MockGenericStateRepository::new());
-        let notifiers = Arc::new(HashMap::new()); // Empty notifiers map
-        let notification_service =
-            Arc::new(NotificationService::new(notifiers.clone(), Arc::new(HttpClientPool::new())));
-        let alert_manager = AlertManager::new(notification_service, mock_state_repo, notifiers);
-
-        let monitor_match = MonitorMatch {
+    fn create_monitor_match(notifier_name: String) -> MonitorMatch {
+        MonitorMatch {
             monitor_id: 0,
             monitor_name: "Test Monitor".to_string(),
-            notifier_name: "Missing Notifier".to_string(),
+            notifier_name,
             block_number: 123,
             transaction_hash: TxHash::default(),
             match_data: MatchData::Log(LogDetails {
@@ -134,7 +130,27 @@ mod tests {
                     "param2": 42,
                 }),
             }),
-        };
+        }
+    }
+
+    fn create_alert_manager(
+        notifiers: HashMap<String, NotifierConfig>,
+    ) -> AlertManager<MockGenericStateRepository> {
+        let state_repo = Arc::new(MockGenericStateRepository::new());
+        let notifiers_arc = Arc::new(notifiers);
+        let notification_service = Arc::new(NotificationService::new(
+            notifiers_arc.clone(),
+            Arc::new(HttpClientPool::new()),
+        ));
+        AlertManager::new(notification_service, state_repo, notifiers_arc)
+    }
+
+    #[tokio::test]
+    async fn test_process_match_notifier_config_missing() {
+        // Arrange
+        let notifiers = HashMap::new(); // Empty notifiers map
+        let alert_manager = create_alert_manager(notifiers);
+        let monitor_match = create_monitor_match("NonExistentNotifier".to_string());
 
         // Act
         let result = alert_manager.process_match(&monitor_match).await;
@@ -146,8 +162,35 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn test_process_match_notifier_no_policy() {}
+    #[tokio::test]
+    async fn test_process_match_notifier_no_policy_send_immediately() {
+        let notifier_name = "Test Notifier".to_string();
+        let notifier_config = NotifierConfig {
+            name: notifier_name.clone(),
+            config: NotifierTypeConfig::Discord(DiscordConfig {
+                discord_url: "http://example.com".to_string(),
+                message: NotificationMessage {
+                    title: "Test".to_string(),
+                    body: "This is a test".to_string(),
+                },
+                retry_policy: Default::default(),
+            }),
+            policy: None,
+        };
+        let mut notifiers = HashMap::new();
+        notifiers.insert(notifier_name.to_string(), notifier_config);
+
+        let alert_manager = create_alert_manager(notifiers);
+        let monitor_match = create_monitor_match(notifier_name);
+
+        // Act
+        let result = alert_manager.process_match(&monitor_match).await;
+
+        // Assert
+        // Just verify that it completes without error, actual notification is tested in
+        // integration tests
+        assert!(result.is_ok());
+    }
 
     #[test]
     fn test_process_match_notifier_throttle_new_state() {}
