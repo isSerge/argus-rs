@@ -174,7 +174,7 @@ pub struct NotificationService {
     /// retry policies.
     client_pool: Arc<HttpClientPool>,
     /// A map of notifier names to their loaded and validated configurations.
-    notifiers: HashMap<String, NotifierTypeConfig>,
+    notifiers: HashMap<String, NotifierConfig>,
     /// The service for rendering notification templates.
     template_service: TemplateService,
 }
@@ -188,7 +188,7 @@ impl NotificationService {
     ///   application startup.
     /// * `client_pool` - A shared pool of HTTP clients.
     pub fn new(notifiers: Vec<NotifierConfig>, client_pool: Arc<HttpClientPool>) -> Self {
-        let notifiers = notifiers.into_iter().map(|t| (t.name, t.config)).collect();
+        let notifiers = notifiers.into_iter().map(|t| (t.name.clone(), t)).collect();
         NotificationService { client_pool, notifiers, template_service: TemplateService::new() }
     }
 
@@ -218,7 +218,7 @@ impl NotificationService {
 
         // Use the AsWebhookComponents trait to get config, retry policy and payload
         // builder
-        let components = notifier_config.as_webhook_components()?;
+        let components = notifier_config.config.as_webhook_components()?;
 
         // Get or create the HTTP client from the pool based on the retry policy
         let http_client = self.client_pool.get_or_create(&components.retry_policy).await?;
