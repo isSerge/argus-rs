@@ -74,7 +74,79 @@ impl<T: GenericStateRepository> AlertManager<T> {
             Some(policy) => {
                 match policy {
                     NotifierPolicy::Throttle(throttle_policy) => {
-                        // TODO: handle throttle
+                        let throttle_state_key = format!("throttle_state:{}", notifier_name);
+                        let current_time = chrono::Utc::now();
+
+                        // Retrieve existing throttle state or initialize a new one
+                        let mut throttle_state = match self
+                            .state_repository
+                            .get_json_state::<ThrottleState>(&throttle_state_key)
+                            .await
+                        {
+                            Ok(Some(state)) => state,
+                            Ok(None) => {
+                                // No state found, initialize new state
+                                ThrottleState { count: 0, window_start_time: current_time }
+                            }
+                            Err(e) => {
+                                // Error retrieving state, log and initialize new state
+                                tracing::error!(
+                                    "Failed to retrieve throttle state for {}: {}",
+                                    notifier_name,
+                                    e
+                                );
+                                ThrottleState { count: 0, window_start_time: current_time }
+                            }
+                        };
+
+                        // Check if the throttling window has expired
+                        if current_time
+                            > throttle_state.window_start_time + throttle_policy.time_window_secs
+                        {
+                            // Reset the window
+                            throttle_state.count = 0;
+                            throttle_state.window_start_time = current_time;
+                        }
+
+                        // Check if the notification should be sent
+                        if throttle_state.count < throttle_policy.max_count {
+                            tracing::info!(
+                                "Sending throttled notification for {}. Count: {}/{}",
+                                notifier_name,
+                                throttle_state.count + 1,
+                                throttle_policy.max_count
+                            );
+                            if let Err(e) = self.notification_service.execute(monitor_match).await {
+                                tracing::error!(
+                                    "Failed to execute notification for throttled notifier '{}': \
+                                     {}",
+                                    notifier_name,
+                                    e
+                                );
+                            }
+                            throttle_state.count += 1;
+                        } else {
+                            tracing::debug!(
+                                "Throttling notification for {}. Limit {}/{}",
+                                notifier_name,
+                                throttle_state.count,
+                                throttle_policy.max_count
+                            );
+                            // Silently drop the notification
+                        }
+
+                        // Save the updated throttle state
+                        if let Err(e) = self
+                            .state_repository
+                            .set_json_state(&throttle_state_key, &throttle_state)
+                            .await
+                        {
+                            tracing::error!(
+                                "Failed to save throttle state for {}: {}",
+                                notifier_name,
+                                e
+                            );
+                        }
                     }
                     NotifierPolicy::Aggregation(aggregation_policy) => {
                         // TODO: handle aggregation
@@ -101,6 +173,7 @@ impl<T: GenericStateRepository> AlertManager<T> {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::TxHash;
+    use mockall::predicate::eq;
     use serde_json::json;
 
     use super::*;
@@ -109,7 +182,7 @@ mod tests {
         models::{
             NotificationMessage,
             monitor_match::{LogDetails, MatchData},
-            notifier::{DiscordConfig, NotifierTypeConfig},
+            notifier::{DiscordConfig, NotifierTypeConfig, ThrottlePolicy},
         },
         persistence::traits::MockGenericStateRepository,
     };
@@ -135,8 +208,9 @@ mod tests {
 
     fn create_alert_manager(
         notifiers: HashMap<String, NotifierConfig>,
+        state_repo: MockGenericStateRepository,
     ) -> AlertManager<MockGenericStateRepository> {
-        let state_repo = Arc::new(MockGenericStateRepository::new());
+        let state_repo = Arc::new(state_repo);
         let notifiers_arc = Arc::new(notifiers);
         let notification_service = Arc::new(NotificationService::new(
             notifiers_arc.clone(),
@@ -149,7 +223,8 @@ mod tests {
     async fn test_process_match_notifier_config_missing() {
         // Arrange
         let notifiers = HashMap::new(); // Empty notifiers map
-        let alert_manager = create_alert_manager(notifiers);
+        let state_repo = MockGenericStateRepository::new();
+        let alert_manager = create_alert_manager(notifiers, state_repo);
         let monitor_match = create_monitor_match("NonExistentNotifier".to_string());
 
         // Act
@@ -179,8 +254,8 @@ mod tests {
         };
         let mut notifiers = HashMap::new();
         notifiers.insert(notifier_name.to_string(), notifier_config);
-
-        let alert_manager = create_alert_manager(notifiers);
+        let state_repo = MockGenericStateRepository::new();
+        let alert_manager = create_alert_manager(notifiers, state_repo);
         let monitor_match = create_monitor_match(notifier_name);
 
         // Act
@@ -192,8 +267,53 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    #[test]
-    fn test_process_match_notifier_throttle_new_state() {}
+    #[tokio::test]
+    async fn test_process_match_notifier_throttle_new_state() {
+        let notifier_name = "Throttle Notifier".to_string();
+        let throttle_policy =
+            ThrottlePolicy { max_count: 5, time_window_secs: chrono::Duration::seconds(60) };
+
+        let notifier_config = NotifierConfig {
+            name: notifier_name.clone(),
+            config: NotifierTypeConfig::Discord(DiscordConfig {
+                discord_url: "http://example.com".to_string(),
+                message: NotificationMessage {
+                    title: "Test".to_string(),
+                    body: "This is a test".to_string(),
+                },
+                retry_policy: Default::default(),
+            }),
+            policy: Some(NotifierPolicy::Throttle(throttle_policy)),
+        };
+        let mut notifiers = HashMap::new();
+        notifiers.insert(notifier_name.to_string(), notifier_config);
+
+        let mut state_repo = MockGenericStateRepository::new();
+
+        // Should attempt to get existing state and find none
+        state_repo
+            .expect_get_json_state::<ThrottleState>()
+            .with(eq(format!("throttle_state:{}", notifier_name.clone())))
+            .times(1)
+            .returning(|_| Ok(None)); // Simulate no existing state
+
+        // Should attempt to save new throttle state with count = 1
+        let notifier_name_for_withf = notifier_name.clone();
+        state_repo
+            .expect_set_json_state::<ThrottleState>()
+            .withf(move |key, state| {
+                key == &format!("throttle_state:{}", notifier_name_for_withf) && state.count == 1
+            })
+            .times(1)
+            .returning(|_, _| Ok(())); // Simulate successful state save
+
+        let alert_manager = create_alert_manager(notifiers, state_repo);
+        let monitor_match = create_monitor_match(notifier_name);
+
+        let result = alert_manager.process_match(&monitor_match).await;
+
+        assert!(result.is_ok());
+    }
 
     #[test]
     fn test_process_match_notifier_throttle_existing_state() {}
