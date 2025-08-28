@@ -5,9 +5,10 @@ use std::str::FromStr;
 
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDateTime, Utc};
+use serde::{Serialize, de::DeserializeOwned};
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 
-use super::traits::StateRepository;
+use super::traits::{GenericStateRepository, StateRepository};
 use crate::models::{
     monitor::{Monitor, MonitorConfig},
     notifier::NotifierConfig,
@@ -486,8 +487,66 @@ impl StateRepository for SqliteStateRepository {
     }
 }
 
+#[async_trait]
+impl GenericStateRepository for SqliteStateRepository {
+    /// Retrieves a JSON-serializable state object by its key.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn get_json_state<T: DeserializeOwned + Send + Sync + 'static>(
+        &self,
+        key: &str,
+    ) -> Result<Option<T>, sqlx::Error> {
+        tracing::debug!(key, "Attempting to retrieve JSON state.");
+
+        let result = self
+            .execute_query_with_error_handling(
+                "get JSON state",
+                sqlx::query!("SELECT value FROM application_state WHERE key = ?", key)
+                    .fetch_optional(&self.pool),
+            )
+            .await?;
+
+        match result {
+            Some(record) => {
+                let value_str: String = record.value;
+                serde_json::from_str(&value_str)
+                    .map(Some)
+                    .map_err(|e| sqlx::Error::Decode(Box::new(e)))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Sets or updates a JSON-serializable state object by its key.
+    #[tracing::instrument(skip(self, value), level = "debug")]
+    async fn set_json_state<T: Serialize + Send + Sync + 'static>(
+        &self,
+        key: &str,
+        value: &T,
+    ) -> Result<(), sqlx::Error> {
+        tracing::debug!(key, "Attempting to set JSON state.");
+
+        let value_str =
+            serde_json::to_string(value).map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
+
+        self.execute_query_with_error_handling(
+            "set JSON state",
+            sqlx::query!(
+                "INSERT OR REPLACE INTO application_state (key, value) VALUES (?, ?)",
+                key,
+                value_str
+            )
+            .execute(&self.pool),
+        )
+        .await?;
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use serde::Deserialize;
+
     use super::*;
     use crate::models::{
         monitor::MonitorConfig,
@@ -1032,5 +1091,46 @@ mod tests {
 
         assert!(retrieved_throttled_notifier.policy.is_some());
         assert_eq!(retrieved_throttled_notifier.policy.unwrap(), throttle_policy);
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+    struct TestJsonState {
+        id: u32,
+        message: String,
+        is_active: bool,
+    }
+
+    #[tokio::test]
+    async fn test_json_state_persistence() {
+        let repo = setup_test_db().await;
+        let key = "test_generic_state";
+
+        // Initially, should be None
+        let retrieved: Option<TestJsonState> = repo.get_json_state(key).await.unwrap();
+        assert!(retrieved.is_none());
+
+        // Set a state
+        let original_state =
+            TestJsonState { id: 1, message: "Hello, World!".to_string(), is_active: true };
+        repo.set_json_state(key, &original_state).await.unwrap();
+
+        // Retrieve it again
+        let retrieved_state: Option<TestJsonState> = repo.get_json_state(key).await.unwrap();
+        assert_eq!(retrieved_state, Some(original_state.clone()));
+
+        // Update it
+        let updated_state =
+            TestJsonState { id: 1, message: "Updated message.".to_string(), is_active: false };
+        repo.set_json_state(key, &updated_state).await.unwrap();
+
+        // Retrieve the updated value
+        let retrieved_updated_state: Option<TestJsonState> =
+            repo.get_json_state(key).await.unwrap();
+        assert_eq!(retrieved_updated_state, Some(updated_state.clone()));
+
+        // Test a different key, should be None
+        let non_existent: Option<TestJsonState> =
+            repo.get_json_state("non_existent_key").await.unwrap();
+        assert!(non_existent.is_none());
     }
 }
