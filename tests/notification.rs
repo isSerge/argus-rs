@@ -41,8 +41,9 @@ async fn test_success() {
         .await;
 
     let http_client_pool = Arc::new(HttpClientPool::new());
-    let notification_service =
-        NotificationService::new(vec![mock_discord_notifier], http_client_pool);
+    let notifiers =
+        Arc::new(vec![mock_discord_notifier].into_iter().map(|n| (n.name.clone(), n)).collect());
+    let notification_service = NotificationService::new(notifiers, http_client_pool);
 
     let monitor_match = MonitorMatch::new_tx_match(
         1,
@@ -88,8 +89,9 @@ async fn test_failure_with_retryable_error() {
         .await;
 
     let http_client_pool = Arc::new(HttpClientPool::new());
-    let notification_service =
-        NotificationService::new(vec![mock_discord_notifier], http_client_pool);
+    let notifiers =
+        Arc::new(vec![mock_discord_notifier].into_iter().map(|n| (n.name.clone(), n)).collect());
+    let notification_service = NotificationService::new(notifiers, http_client_pool);
 
     let monitor_match = MonitorMatch::new_tx_match(
         2,
@@ -137,8 +139,9 @@ async fn test_failure_with_non_retryable_error() {
         .await;
 
     let http_client_pool = Arc::new(HttpClientPool::new());
-    let notification_service =
-        NotificationService::new(vec![mock_discord_notifier], http_client_pool);
+    let notifiers =
+        Arc::new(vec![mock_discord_notifier].into_iter().map(|n| (n.name.clone(), n)).collect());
+    let notification_service = NotificationService::new(notifiers, http_client_pool);
 
     let monitor_match = MonitorMatch::new_tx_match(
         3,
@@ -175,8 +178,9 @@ async fn test_failure_with_invalid_url() {
     };
 
     let http_client_pool = Arc::new(HttpClientPool::new());
-    let notification_service =
-        NotificationService::new(vec![mock_discord_notifier], http_client_pool);
+    let notifiers =
+        Arc::new(vec![mock_discord_notifier].into_iter().map(|t| (t.name.clone(), t)).collect());
+    let notification_service = NotificationService::new(notifiers, http_client_pool);
 
     let monitor_match = MonitorMatch::new_tx_match(
         4,
