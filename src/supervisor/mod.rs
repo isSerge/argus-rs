@@ -422,7 +422,8 @@ mod tests {
             let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
             let block_processor = BlockProcessor::new(abi_service);
             let http_client_pool = Arc::new(HttpClientPool::new());
-            let notification_service = Arc::new(NotificationService::new(vec![], http_client_pool));
+            let notification_service =
+                Arc::new(NotificationService::new(Arc::new(HashMap::new()), http_client_pool));
 
             Self {
                 config,

@@ -89,6 +89,8 @@ impl SupervisorBuilder {
         let filtering_engine =
             RhaiFilteringEngine::new(monitors, script_compiler, config.rhai.clone());
         let http_client_pool = Arc::new(HttpClientPool::new());
+
+        let notifiers = Arc::new(notifiers.into_iter().map(|t| (t.name.clone(), t)).collect());
         let notification_service = NotificationService::new(notifiers, http_client_pool);
 
         // Finally, construct the Supervisor with all its components.

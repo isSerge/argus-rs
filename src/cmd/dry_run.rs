@@ -158,6 +158,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
 
     // Init services for notifications and filtering logic.
     let client_pool = Arc::new(HttpClientPool::new());
+    let notifiers = Arc::new(notifiers.into_iter().map(|t| (t.name.clone(), t)).collect());
     let notification_service = NotificationService::new(notifiers, client_pool);
     let filtering_engine = RhaiFilteringEngine::new(monitors, rhai_compiler, config.rhai.clone());
 
@@ -252,7 +253,7 @@ async fn run_dry_run_loop(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{collections::HashMap, sync::Arc};
 
     use alloy::primitives::U256;
     use mockall::predicate::eq;
@@ -304,7 +305,7 @@ mod tests {
         let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));
         let filtering_engine = RhaiFilteringEngine::new(vec![monitor], rhai_compiler, rhai_config);
         let client_pool = Arc::new(HttpClientPool::new());
-        let notification_service = NotificationService::new(vec![], client_pool);
+        let notification_service = NotificationService::new(Arc::new(HashMap::new()), client_pool);
 
         // Act
         let result = run_dry_run_loop(
@@ -356,7 +357,7 @@ mod tests {
         let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));
         let filtering_engine = RhaiFilteringEngine::new(vec![monitor], rhai_compiler, rhai_config);
         let client_pool = Arc::new(HttpClientPool::new());
-        let notification_service = NotificationService::new(vec![], client_pool);
+        let notification_service = NotificationService::new(Arc::new(HashMap::new()), client_pool);
 
         // Act
         let result = run_dry_run_loop(
@@ -406,7 +407,7 @@ mod tests {
         let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));
         let filtering_engine = RhaiFilteringEngine::new(vec![monitor], rhai_compiler, rhai_config);
         let client_pool = Arc::new(HttpClientPool::new());
-        let notification_service = NotificationService::new(vec![], client_pool);
+        let notification_service = NotificationService::new(Arc::new(HashMap::new()), client_pool);
 
         // Act
         let result = run_dry_run_loop(

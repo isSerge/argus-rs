@@ -174,7 +174,7 @@ pub struct NotificationService {
     /// retry policies.
     client_pool: Arc<HttpClientPool>,
     /// A map of notifier names to their loaded and validated configurations.
-    pub notifiers: HashMap<String, NotifierConfig>,
+    notifiers: Arc<HashMap<String, NotifierConfig>>,
     /// The service for rendering notification templates.
     template_service: TemplateService,
 }
@@ -187,8 +187,10 @@ impl NotificationService {
     /// * `notifiers` - A vector of `NotifierConfig` loaded and validated at
     ///   application startup.
     /// * `client_pool` - A shared pool of HTTP clients.
-    pub fn new(notifiers: Vec<NotifierConfig>, client_pool: Arc<HttpClientPool>) -> Self {
-        let notifiers = notifiers.into_iter().map(|t| (t.name.clone(), t)).collect();
+    pub fn new(
+        notifiers: Arc<HashMap<String, NotifierConfig>>,
+        client_pool: Arc<HttpClientPool>,
+    ) -> Self {
         NotificationService { client_pool, notifiers, template_service: TemplateService::new() }
     }
 
@@ -296,7 +298,7 @@ mod tests {
     #[tokio::test]
     async fn test_missing_notifier_error() {
         let http_client_pool = Arc::new(HttpClientPool::new());
-        let service = NotificationService::new(vec![], http_client_pool);
+        let service = NotificationService::new(Arc::new(HashMap::new()), http_client_pool);
         let monitor_match = create_mock_monitor_match("nonexistent");
 
         let result = service.execute(&monitor_match).await;
