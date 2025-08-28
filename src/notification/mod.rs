@@ -174,7 +174,7 @@ pub struct NotificationService {
     /// retry policies.
     client_pool: Arc<HttpClientPool>,
     /// A map of notifier names to their loaded and validated configurations.
-    notifiers: HashMap<String, NotifierConfig>,
+    pub notifiers: HashMap<String, NotifierConfig>,
     /// The service for rendering notification templates.
     template_service: TemplateService,
 }
