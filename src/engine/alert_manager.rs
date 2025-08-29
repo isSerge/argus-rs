@@ -64,9 +64,9 @@ impl<T: GenericStateRepository> AlertManager<T> {
                     notifier = %monitor_match.notifier_name,
                     "Notifier configuration not found for monitor match."
                 );
-            return Err(AlertManagerError::NotificationError(NotificationError::ConfigError(
-                format!("Notifier '{}' not found", monitor_match.notifier_name),
-            )));
+                return Err(AlertManagerError::NotificationError(NotificationError::ConfigError(
+                    format!("Notifier '{}' not found", monitor_match.notifier_name),
+                )));
             }
         };
 
@@ -315,9 +315,101 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    #[test]
-    fn test_process_match_notifier_throttle_existing_state() {}
+    #[tokio::test]
+    async fn test_process_match_notifier_throttle_existing_state() {
+        let notifier_name = "Throttle Notifier".to_string();
+        let throttle_policy =
+            ThrottlePolicy { max_count: 5, time_window_secs: chrono::Duration::seconds(60) };
 
-    #[test]
-    fn test_process_match_notifier_throttle_failed_to_retrieve_state() {}
+        let notifier_config = NotifierConfig {
+            name: notifier_name.clone(),
+            config: NotifierTypeConfig::Discord(DiscordConfig {
+                discord_url: "http://example.com".to_string(),
+                message: NotificationMessage {
+                    title: "Test".to_string(),
+                    body: "This is a test".to_string(),
+                },
+                retry_policy: Default::default(),
+            }),
+            policy: Some(NotifierPolicy::Throttle(throttle_policy)),
+        };
+        let mut notifiers = HashMap::new();
+        notifiers.insert(notifier_name.to_string(), notifier_config);
+
+        let mut state_repo = MockGenericStateRepository::new();
+
+        // Get state for existing throttle
+        state_repo
+            .expect_get_json_state::<ThrottleState>()
+            .with(eq(format!("throttle_state:{}", notifier_name.clone())))
+            .times(1)
+            .returning(|_| {
+                Ok(Some(ThrottleState { count: 1, window_start_time: chrono::Utc::now() }))
+            }); // Simulate existing state
+
+        // Should attempt to save new throttle state with count = 2
+        let notifier_name_for_withf = notifier_name.clone();
+        state_repo
+            .expect_set_json_state::<ThrottleState>()
+            .withf(move |key, state| {
+                key == &format!("throttle_state:{}", notifier_name_for_withf) && state.count == 2
+            })
+            .times(1)
+            .returning(|_, _| Ok(())); // Simulate successful state save
+
+        let alert_manager = create_alert_manager(notifiers, state_repo);
+        let monitor_match = create_monitor_match(notifier_name);
+
+        let result = alert_manager.process_match(&monitor_match).await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_process_match_notifier_throttle_failed_to_retrieve_state() {
+        let notifier_name = "Throttle Notifier".to_string();
+        let throttle_policy =
+            ThrottlePolicy { max_count: 5, time_window_secs: chrono::Duration::seconds(60) };
+
+        let notifier_config = NotifierConfig {
+            name: notifier_name.clone(),
+            config: NotifierTypeConfig::Discord(DiscordConfig {
+                discord_url: "http://example.com".to_string(),
+                message: NotificationMessage {
+                    title: "Test".to_string(),
+                    body: "This is a test".to_string(),
+                },
+                retry_policy: Default::default(),
+            }),
+            policy: Some(NotifierPolicy::Throttle(throttle_policy)),
+        };
+        let mut notifiers = HashMap::new();
+        notifiers.insert(notifier_name.to_string(), notifier_config);
+
+        let mut state_repo = MockGenericStateRepository::new();
+
+        // Fails to retrieve state
+        state_repo
+            .expect_get_json_state::<ThrottleState>()
+            .with(eq(format!("throttle_state:{}", notifier_name.clone())))
+            .times(1)
+            .returning(|_| Err(sqlx::Error::RowNotFound)); // Simulate retrieval error
+
+        // Should attempt to save new throttle state with count = 1
+        let notifier_name_for_withf = notifier_name.clone();
+        state_repo
+            .expect_set_json_state::<ThrottleState>()
+            .withf(move |key, state| {
+                key == &format!("throttle_state:{}", notifier_name_for_withf) && state.count == 1
+            })
+            .times(1)
+            .returning(|_, _| Ok(())); // Simulate successful state save
+
+        let alert_manager = create_alert_manager(notifiers, state_repo);
+        let monitor_match = create_monitor_match(notifier_name);
+
+        let result = alert_manager.process_match(&monitor_match).await;
+
+        assert!(result.is_ok());
+    }
 }
