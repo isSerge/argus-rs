@@ -183,7 +183,7 @@ pub struct AggregationPolicy {
     pub window_secs: Duration,
 
     /// The template to use for the aggregated notification message.
-    pub template: String,
+    pub template: NotificationMessage,
 }
 
 /// Policy for throttling notifications to avoid spamming.

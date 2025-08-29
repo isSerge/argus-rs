@@ -23,7 +23,7 @@ use crate::{
         notifier::{NotifierConfig, NotifierError},
     },
     monitor::{MonitorValidationError, MonitorValidator},
-    notification::NotificationService,
+    notification::{NotificationPayload, NotificationService},
     providers::{
         rpc::{EvmRpcSource, ProviderError, create_provider},
         traits::{DataSource, DataSourceError},
@@ -239,7 +239,8 @@ async fn run_dry_run_loop(
                 let item_matches = filtering_engine.evaluate_item(&item).await?;
                 for m in item_matches {
                     // For every match, dispatch a notification and collect the result.
-                    let _ = notification_service.execute(&m).await;
+                    let payload = NotificationPayload::Single(m.clone());
+                    let _ = notification_service.execute(payload).await;
                     matches.push(m.clone());
                 }
             }

@@ -6,11 +6,9 @@ use argus::{
     config::HttpRetryConfig,
     http_client::HttpClientPool,
     models::{
-        NotificationMessage,
-        monitor_match::MonitorMatch,
-        notifier::{DiscordConfig, NotifierConfig, NotifierTypeConfig},
+        monitor_match::MonitorMatch, notifier::{DiscordConfig, NotifierConfig, NotifierTypeConfig}, NotificationMessage
     },
-    notification::NotificationService,
+    notification::{NotificationPayload, NotificationService},
 };
 use mockito;
 use serde_json::json;
@@ -54,7 +52,8 @@ async fn test_success() {
         json!({"key": "value"}),
     );
 
-    let result = notification_service.execute(&monitor_match).await;
+    let payload = NotificationPayload::Single(monitor_match.clone());
+    let result = notification_service.execute(payload).await;
 
     assert!(result.is_ok());
     mock.assert();
@@ -102,7 +101,8 @@ async fn test_failure_with_retryable_error() {
         json!({"key": "value"}),
     );
 
-    let result = notification_service.execute(&monitor_match).await;
+    let payload = NotificationPayload::Single(monitor_match.clone());
+    let result = notification_service.execute(payload).await;
 
     // The final result should be an error because the mock never returns a success
     // status.
@@ -152,7 +152,8 @@ async fn test_failure_with_non_retryable_error() {
         json!({"key": "value"}),
     );
 
-    let result = notification_service.execute(&monitor_match).await;
+    let payload = NotificationPayload::Single(monitor_match.clone());
+    let result = notification_service.execute(payload).await;
 
     assert!(result.is_err());
     mock.assert();
@@ -191,7 +192,8 @@ async fn test_failure_with_invalid_url() {
         json!({"key": "value"}),
     );
 
-    let result = notification_service.execute(&monitor_match).await;
+    let payload = NotificationPayload::Single(monitor_match.clone());
+    let result = notification_service.execute(payload).await;
 
     assert!(result.is_err());
 }

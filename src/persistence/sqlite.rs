@@ -1030,7 +1030,10 @@ mod tests {
         let aggregation_policy = NotifierPolicy::Aggregation(AggregationPolicy {
             key: "{{ monitor_name }}".to_string(),
             window_secs: chrono::Duration::seconds(60),
-            template: "Summary: {{ matches | length }} events".to_string(),
+            template: NotificationMessage {
+                title: "Aggregated Alert".to_string(),
+                body: "Multiple events occurred.".to_string(),
+            },
         });
 
         let test_notifier = NotifierConfig {

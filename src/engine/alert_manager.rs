@@ -10,8 +10,8 @@ use crate::{
         monitor_match::MonitorMatch,
         notifier::{NotifierConfig, NotifierPolicy},
     },
-    notification::{NotificationService, error::NotificationError},
-    persistence::traits::{GenericStateRepository, StateRepository},
+    notification::{NotificationPayload, NotificationService, error::NotificationError},
+    persistence::traits::GenericStateRepository,
 };
 
 /// The AlertManager is responsible for processing monitor matches, applying
@@ -116,7 +116,8 @@ impl<T: GenericStateRepository> AlertManager<T> {
                                 throttle_state.count + 1,
                                 throttle_policy.max_count
                             );
-                            if let Err(e) = self.notification_service.execute(monitor_match).await {
+                            let payload = NotificationPayload::Single(monitor_match.clone());
+                            if let Err(e) = self.notification_service.execute(payload).await {
                                 tracing::error!(
                                     "Failed to execute notification for throttled notifier '{}': \
                                      {}",
@@ -156,7 +157,8 @@ impl<T: GenericStateRepository> AlertManager<T> {
             None => {
                 // No policy, send immediately
                 tracing::debug!("No policy for notifier {}, sending immediately.", notifier_name);
-                if let Err(e) = self.notification_service.execute(monitor_match).await {
+                let payload = NotificationPayload::Single(monitor_match.clone());
+                if let Err(e) = self.notification_service.execute(payload).await {
                     tracing::error!(
                         "Failed to execute notification for notifier '{}': {}",
                         notifier_name,
