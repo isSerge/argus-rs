@@ -1,8 +1,7 @@
 //! Alert management module
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use chrono::Duration;
 use thiserror::Error;
 
 use crate::{
@@ -289,8 +288,7 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
     /// Runs a background task to dispatch expired aggregation windows.
     /// This should be spawned as a long-running task by the Supervisor.
     pub async fn run_aggregation_dispatcher(&self, check_interval: Duration) {
-        let mut interval =
-            tokio::time::interval(check_interval.to_std().expect("Interval must be positive"));
+        let mut interval = tokio::time::interval(check_interval);
 
         loop {
             interval.tick().await;

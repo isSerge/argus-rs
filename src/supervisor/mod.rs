@@ -24,7 +24,6 @@ mod builder;
 use std::{collections::HashMap, sync::Arc};
 
 use builder::SupervisorBuilder;
-use chrono::Duration;
 use thiserror::Error;
 use tokio::{signal, sync::mpsc};
 
@@ -225,7 +224,7 @@ impl Supervisor {
         let dispatcher_alert_manager = Arc::clone(&self.alert_manager);
         self.join_set.spawn(async move {
             // TODO: make this interval configurable in `AppConfig` later.
-            let check_interval = Duration::seconds(5);
+            let check_interval = self.config.aggregation_check_interval_secs;
             dispatcher_alert_manager.run_aggregation_dispatcher(check_interval).await;
         });
 

@@ -19,6 +19,11 @@ fn default_notification_channel_capacity() -> u32 {
     1024
 }
 
+/// Provides the default value for aggregation_check_interval_secs.
+fn default_aggregation_check_interval_secs() -> Duration {
+    Duration::from_secs(5)
+}
+
 /// Application configuration for Argus.
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct AppConfig {
@@ -79,6 +84,14 @@ pub struct AppConfig {
 
     /// Path to ABI configuration directory.
     pub abi_config_path: String,
+
+    /// The interval in seconds to check for aggregated matches.
+    #[serde(
+        deserialize_with = "deserialize_duration_from_seconds",
+        serialize_with = "serialize_duration_to_seconds",
+        default = "default_aggregation_check_interval_secs"
+    )]
+    pub aggregation_check_interval_secs: Duration,
 }
 
 impl AppConfig {
