@@ -7,7 +7,7 @@ use thiserror::Error;
 use url::Url;
 
 use crate::{
-    config::HttpRetryConfig,
+    config::{HttpRetryConfig, deserialize_duration_from_seconds, serialize_duration_to_seconds},
     loader::{Loadable, LoaderError},
     models::notification::NotificationMessage,
 };
@@ -163,6 +163,7 @@ pub struct NotifierConfig {
 
 /// Notification policies for handling notifications
 #[derive(Debug, Clone, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
 pub enum NotifierPolicy {
     /// Policy for aggregating multiple notifications into a single one.
     Aggregation(AggregationPolicy),
@@ -175,6 +176,10 @@ pub enum NotifierPolicy {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct AggregationPolicy {
     /// The time window in seconds for the aggregation policy.
+    #[serde(
+        deserialize_with = "deserialize_duration_from_seconds",
+        serialize_with = "serialize_duration_to_seconds"
+    )]
     pub window_secs: Duration,
 
     /// The template to use for the aggregated notification message.
@@ -189,6 +194,10 @@ pub struct ThrottlePolicy {
     pub max_count: u32,
 
     /// The time window in seconds for the throttling policy.
+    #[serde(
+        deserialize_with = "deserialize_duration_from_seconds",
+        serialize_with = "serialize_duration_to_seconds"
+    )]
     pub time_window_secs: Duration,
 }
 
