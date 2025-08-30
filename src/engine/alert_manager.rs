@@ -72,21 +72,21 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
         };
 
         match &notifier_config.policy {
-            Some(policy) => {
-                match policy {
-                    NotifierPolicy::Throttle(throttle_policy) => {
-                        self.handle_throttle(monitor_match, throttle_policy).await?;
-                    }
-                    NotifierPolicy::Aggregation(aggregation_policy) => {
-                        self.handle_aggregation(monitor_match, aggregation_policy).await?;
-                    }
+            Some(policy) => match policy {
+                NotifierPolicy::Throttle(throttle_policy) => {
+                    self.handle_throttle(monitor_match, throttle_policy).await?;
                 }
-            }
+                NotifierPolicy::Aggregation(aggregation_policy) => {
+                    self.handle_aggregation(monitor_match, aggregation_policy).await?;
+                }
+            },
             None => {
                 // No policy, send immediately
                 tracing::debug!("No policy for notifier {}, sending immediately.", notifier_name);
-                if let Err(e) =
-                    self.notification_service.execute(NotificationPayload::Single(monitor_match.clone())).await
+                if let Err(e) = self
+                    .notification_service
+                    .execute(NotificationPayload::Single(monitor_match.clone()))
+                    .await
                 {
                     tracing::error!(
                         "Failed to execute notification for notifier '{}': {}",
@@ -123,11 +123,7 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
             }
             Err(e) => {
                 // Error retrieving state, log and initialize new state
-                tracing::error!(
-                    "Failed to retrieve throttle state for {}: {}",
-                    notifier_name,
-                    e
-                );
+                tracing::error!("Failed to retrieve throttle state for {}: {}", notifier_name, e);
                 ThrottleState { count: 0, window_start_time: current_time }
             }
         };
@@ -170,10 +166,8 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
         }
 
         // Save the updated throttle state
-        if let Err(e) = self
-            .state_repository
-            .set_json_state(&throttle_state_key, &throttle_state)
-            .await
+        if let Err(e) =
+            self.state_repository.set_json_state(&throttle_state_key, &throttle_state).await
         {
             tracing::error!("Failed to save throttle state for {}: {}", notifier_name, e);
         }
@@ -204,8 +198,8 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
         // Save the updated aggregation state
         self.state_repository.set_json_state(&state_key, &state).await?;
 
-        // If this is the first match in a new window, set a timer to send the aggregated
-        // notification after the window duration
+        // If this is the first match in a new window, set a timer to send the
+        // aggregated notification after the window duration
         if is_new_window {
             let notifier_name = monitor_match.notifier_name.clone();
             let notification_service = self.notification_service.clone();
@@ -250,6 +244,7 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::TxHash;
+    use chrono::Utc;
     use mockall::predicate::eq;
     use serde_json::json;
 
@@ -339,9 +334,8 @@ mod tests {
         let result = alert_manager.process_match(&monitor_match).await;
 
         // Assert
-        // Just verify that it completes without error, actual notification is tested in
-        // integration tests
         assert!(result.is_ok());
+        // Note: Actual notification is tested in integration tests
     }
 
     #[tokio::test]
@@ -487,6 +481,116 @@ mod tests {
 
         let result = alert_manager.process_match(&monitor_match).await;
 
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_handle_aggregation_new_window() {
+        let notifier_name = "Aggregation Notifier".to_string();
+        let aggregation_policy = AggregationPolicy {
+            window_secs: chrono::Duration::seconds(1),
+            template: NotificationMessage {
+                title: "Test".to_string(),
+                body: "This is a test".to_string(),
+            },
+        };
+
+        let notifier_config = NotifierConfig {
+            name: notifier_name.clone(),
+            config: NotifierTypeConfig::Discord(DiscordConfig {
+                discord_url: "http://example.com".to_string(),
+                message: NotificationMessage {
+                    title: "Test".to_string(),
+                    body: "This is a test".to_string(),
+                },
+                retry_policy: Default::default(),
+            }),
+            policy: Some(NotifierPolicy::Aggregation(aggregation_policy)),
+        };
+        let mut notifiers = HashMap::new();
+        notifiers.insert(notifier_name.to_string(), notifier_config);
+
+        let mut state_repo = MockGenericStateRepository::new();
+        let monitor_match = create_monitor_match(notifier_name.clone());
+        let aggregation_key = &monitor_match.monitor_name;
+        let state_key = format!("aggregation_state:{}", aggregation_key);
+
+        // Expect a call to get the current state, returning None.
+        state_repo
+            .expect_get_json_state::<AggregationState>()
+            .with(eq(state_key.clone()))
+            .times(1)
+            .returning(|_| Ok(None));
+
+        // Expect a call to save the new state with one match.
+        state_repo
+            .expect_set_json_state::<AggregationState>()
+            .withf(move |key, state| key == state_key && state.matches.len() == 1)
+            .times(1)
+            .returning(|_, _| Ok(()));
+
+        let alert_manager = create_alert_manager(notifiers, state_repo);
+
+        let result = alert_manager.process_match(&monitor_match).await;
+        assert!(result.is_ok());
+
+        // Note: The spawned task's behavior is tested by integration tests
+    }
+
+    #[tokio::test]
+    async fn test_handle_aggregation_existing_window() {
+        let notifier_name = "Aggregation Notifier".to_string();
+        let aggregation_policy = AggregationPolicy {
+            window_secs: chrono::Duration::seconds(60),
+            template: NotificationMessage {
+                title: "Test".to_string(),
+                body: "This is a test".to_string(),
+            },
+        };
+
+        let notifier_config = NotifierConfig {
+            name: notifier_name.clone(),
+            config: NotifierTypeConfig::Discord(DiscordConfig {
+                discord_url: "http://example.com".to_string(),
+                message: NotificationMessage {
+                    title: "Test".to_string(),
+                    body: "This is a test".to_string(),
+                },
+                retry_policy: Default::default(),
+            }),
+            policy: Some(NotifierPolicy::Aggregation(aggregation_policy)),
+        };
+        let mut notifiers = HashMap::new();
+        notifiers.insert(notifier_name.to_string(), notifier_config);
+
+        let mut state_repo = MockGenericStateRepository::new();
+        let monitor_match = create_monitor_match(notifier_name.clone());
+        let aggregation_key = &monitor_match.monitor_name;
+        let state_key = format!("aggregation_state:{}", aggregation_key);
+
+        // Expect a call to get the current state, returning an existing state.
+        let existing_match = create_monitor_match(notifier_name.clone());
+        state_repo
+            .expect_get_json_state::<AggregationState>()
+            .with(eq(state_key.clone()))
+            .times(1)
+            .returning(move |_| {
+                Ok(Some(AggregationState {
+                    matches: vec![existing_match.clone()],
+                    window_start_time: Utc::now(),
+                }))
+            });
+
+        // Expect a call to save the updated state with two matches.
+        state_repo
+            .expect_set_json_state::<AggregationState>()
+            .withf(move |key, state| key == state_key && state.matches.len() == 2)
+            .times(1)
+            .returning(|_, _| Ok(()));
+
+        let alert_manager = create_alert_manager(notifiers, state_repo);
+
+        let result = alert_manager.process_match(&monitor_match).await;
         assert!(result.is_ok());
     }
 }
