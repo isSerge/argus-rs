@@ -337,9 +337,6 @@ pub fn build_transaction_details_payload(
     map.insert(KEY_TX_NONCE.to_string(), json!(transaction.nonce()));
     map.insert(KEY_TX_INPUT.to_string(), json!(format!("0x{}", hex::encode(transaction.input()))));
 
-    if let Some(block_number) = transaction.block_number() {
-        map.insert(KEY_TX_BLOCK_NUMBER.to_string(), json!(block_number));
-    }
     if let Some(transaction_index) = transaction.transaction_index() {
         map.insert(KEY_TX_TRANSACTION_INDEX.to_string(), json!(transaction_index));
     }
