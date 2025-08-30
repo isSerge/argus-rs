@@ -501,15 +501,13 @@ mod tests {
         harness.mock_data_source.expect_fetch_receipts().times(0);
 
         let supervisor = harness.build();
-        let (tx, mut rx) = mpsc::channel(10);
-        let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+        let (tx, _rx) = mpsc::channel(10);
 
         // Act
         let result = supervisor.monitor_cycle(tx).await;
 
         // Assert
         assert!(result.is_ok());
-        drain.abort();
     }
 
     #[tokio::test]
@@ -534,15 +532,13 @@ mod tests {
         harness.mock_data_source.expect_fetch_receipts().times(0);
 
         let supervisor = harness.build();
-        let (tx, mut rx) = mpsc::channel(10);
-        let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+        let (tx, _rx) = mpsc::channel(10);
 
         // Act
         let result = supervisor.monitor_cycle(tx).await;
 
         // Assert
         assert!(result.is_ok());
-        drain.abort();
     }
 
     #[tokio::test]
@@ -577,15 +573,13 @@ mod tests {
             .returning(move |_| Ok(expected_receipts.clone()));
 
         let supervisor = harness.build();
-        let (tx, mut rx) = mpsc::channel(10);
-        let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+        let (tx, _rx) = mpsc::channel(10);
 
         // Act
         let result = supervisor.monitor_cycle(tx).await;
 
         // Assert
         assert!(result.is_ok());
-        drain.abort();
     }
 
     #[tokio::test]
@@ -615,15 +609,13 @@ mod tests {
         });
 
         let supervisor = harness.build();
-        let (tx, mut rx) = mpsc::channel(10);
-        let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+        let (tx, _rx) = mpsc::channel(10);
 
         // Act
         let result = supervisor.monitor_cycle(tx).await;
 
         // Assert
         assert!(result.is_err());
-        drain.abort();
     }
 
     #[tokio::test]
@@ -661,15 +653,13 @@ mod tests {
             .returning(move |_| Ok(expected_receipts.clone()));
 
         let supervisor = harness.build();
-        let (tx, mut rx) = mpsc::channel(10);
-        let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+        let (tx, _rx) = mpsc::channel(10);
 
         // Act
         let result = supervisor.monitor_cycle(tx).await;
 
         // Assert
         assert!(result.is_ok());
-        drain.abort();
     }
 
     #[tokio::test]
