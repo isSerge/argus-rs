@@ -231,6 +231,7 @@ mod tests {
                 message: NotificationMessage::default(),
                 ..Default::default()
             }),
+            policy: None,
         }
     }
 

@@ -39,6 +39,7 @@ fn create_test_notifier(name: &str) -> NotifierConfig {
             },
             retry_policy: Default::default(),
         }),
+        policy: None,
     }
 }
 

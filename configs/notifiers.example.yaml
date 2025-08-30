@@ -177,3 +177,58 @@ notifiers:
         initial_delay_ms: 100
         # Factor by which the delay increases after each retry (e.g., 2.0 for exponential backoff).
         backoff_factor: 2.0
+
+  # ------------------------------------------------------------------------------------
+  # EXAMPLE 6: Notifier with a Throttling Policy
+  #
+  # This example demonstrates how to limit the rate of notifications using a
+  # throttling policy. This is useful for high-frequency events where you
+  # don't want to be overwhelmed with alerts.
+  # ------------------------------------------------------------------------------------
+  - name: "discord-with-throttling"
+    discord:
+      discord_url: "https://discord.com/api/webhooks/000000000000000000/XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+      message:
+        title: "High-Frequency Event"
+        body: "Monitor {{ monitor_name }} triggered for tx: `{{ transaction_hash }}`"
+    # (Optional) Policy to apply to the notifier.
+    policy:
+      # The `throttle` policy limits the number of notifications sent within a
+      # specified time window.
+      throttle:
+        # The maximum number of notifications to send within the time window.
+        max_count: 5
+        # The duration of the time window in seconds.
+        # In this example, a maximum of 5 notifications will be sent every 60 seconds.
+        time_window_secs: 60
+
+  # ------------------------------------------------------------------------------------
+  # EXAMPLE 7: Notifier with an Aggregation Policy
+  #
+  # This example shows how to group multiple matches into a single summary
+  # notification using an aggregation policy. This is ideal for summarizing
+  # events over a period of time instead of getting an alert for each one.
+  # ------------------------------------------------------------------------------------
+  - name: "slack-with-aggregation"
+    slack:
+      slack_url: "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX"
+      # The `message` here is a fallback for individual notifications if needed,
+      # but the primary template is defined within the aggregation policy.
+      message:
+        title: "Aggregated Event Summary"
+        body: "This is a summary of events."
+    policy:
+      # The `aggregation` policy collects all matches that occur within a time
+      # window and sends a single, consolidated notification.
+      aggregation:
+        # The duration of the aggregation window in seconds.
+        # All matches for a given monitor within this period will be grouped.
+        window_secs: 300 # 5 minutes
+        # The template for the aggregated notification.
+        # This template has access to a `matches` array, which contains all the
+        # `MonitorMatch` objects collected during the window.
+        template:
+          title: "Event Summary for {{ monitor_name }}"
+          # You can iterate over the `matches` or use filters like `length`.
+          body: |
+            In the last 5 minutes there have been {{ matches | length }} new events

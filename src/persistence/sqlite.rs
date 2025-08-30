@@ -5,9 +5,10 @@ use std::str::FromStr;
 
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDateTime, Utc};
+use serde::{Serialize, de::DeserializeOwned};
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 
-use super::traits::StateRepository;
+use super::traits::{GenericStateRepository, StateRepository};
 use crate::models::{
     monitor::{Monitor, MonitorConfig},
     notifier::NotifierConfig,
@@ -401,7 +402,6 @@ impl StateRepository for SqliteStateRepository {
         // Helper struct for mapping from the database row
         #[derive(sqlx::FromRow)]
         struct NotifierRow {
-            name: String,
             config: String,
         }
 
@@ -410,7 +410,7 @@ impl StateRepository for SqliteStateRepository {
                 "query notifiers",
                 sqlx::query_as!(
                     NotifierRow,
-                    "SELECT name, config FROM notifiers WHERE network_id = ?",
+                    "SELECT config FROM notifiers WHERE network_id = ?",
                     network_id
                 )
                 .fetch_all(&self.pool),
@@ -420,11 +420,9 @@ impl StateRepository for SqliteStateRepository {
         let notifiers = notifier_rows
             .into_iter()
             .map(|row| {
-                let config = serde_json::from_str(&row.config)
-                    .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
-                Ok(NotifierConfig { name: row.name, config })
+                serde_json::from_str(&row.config).map_err(|e| sqlx::Error::Decode(Box::new(e)))
             })
-            .collect::<Result<Vec<_>, sqlx::Error>>()?;
+            .collect::<Result<Vec<NotifierConfig>, sqlx::Error>>()?;
 
         tracing::debug!(
             network_id,
@@ -451,15 +449,12 @@ impl StateRepository for SqliteStateRepository {
         let mut tx = self.pool.begin().await?;
 
         for notifier in notifiers {
-            let config_str = serde_json::to_string(&notifier.config)
-                .map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
-
-            let notifier_name = &notifier.name;
-            let config = &config_str;
+            let config =
+                serde_json::to_string(&notifier).map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
 
             sqlx::query!(
                 "INSERT INTO notifiers (name, network_id, config) VALUES (?, ?, ?)",
-                notifier_name,
+                notifier.name,
                 network_id,
                 config
             )
@@ -492,13 +487,109 @@ impl StateRepository for SqliteStateRepository {
     }
 }
 
+#[async_trait]
+impl GenericStateRepository for SqliteStateRepository {
+    /// Retrieves a JSON-serializable state object by its key.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn get_json_state<T: DeserializeOwned + Send + Sync + 'static>(
+        &self,
+        key: &str,
+    ) -> Result<Option<T>, sqlx::Error> {
+        tracing::debug!(key, "Attempting to retrieve JSON state.");
+
+        let result = self
+            .execute_query_with_error_handling(
+                "get JSON state",
+                sqlx::query!("SELECT value FROM application_state WHERE key = ?", key)
+                    .fetch_optional(&self.pool),
+            )
+            .await?;
+
+        match result {
+            Some(record) => {
+                let value_str: String = record.value;
+                serde_json::from_str(&value_str)
+                    .map(Some)
+                    .map_err(|e| sqlx::Error::Decode(Box::new(e)))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Sets or updates a JSON-serializable state object by its key.
+    #[tracing::instrument(skip(self, value), level = "debug")]
+    async fn set_json_state<T: Serialize + Send + Sync + 'static>(
+        &self,
+        key: &str,
+        value: &T,
+    ) -> Result<(), sqlx::Error> {
+        tracing::debug!(key, "Attempting to set JSON state.");
+
+        let value_str =
+            serde_json::to_string(value).map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
+
+        self.execute_query_with_error_handling(
+            "set JSON state",
+            sqlx::query!(
+                "INSERT OR REPLACE INTO application_state (key, value) VALUES (?, ?)",
+                key,
+                value_str
+            )
+            .execute(&self.pool),
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    async fn get_all_json_states_by_prefix<T: DeserializeOwned + Send + Sync + 'static>(
+        &self,
+        prefix: &str,
+    ) -> Result<Vec<(String, T)>, sqlx::Error> {
+        tracing::debug!(prefix = prefix, "Attempting to retrieve all JSON states by prefix.");
+
+        let like_prefix = format!("{}%", prefix);
+        let rows = self
+            .execute_query_with_error_handling(
+                "get all JSON states by prefix",
+                sqlx::query!(
+                    "SELECT key, value FROM application_state WHERE key LIKE ?",
+                    like_prefix
+                )
+                .fetch_all(&self.pool),
+            )
+            .await?;
+
+        let mut states = Vec::new();
+        for row in rows {
+            let key: String = row.key;
+            let value_str: String = row.value;
+            match serde_json::from_str(&value_str) {
+                Ok(value) => states.push((key, value)),
+                Err(e) => {
+                    tracing::error!(key, "Failed to decode JSON state: {}", e);
+                }
+            }
+        }
+
+        Ok(states)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
+    use serde::Deserialize;
+
     use super::*;
     use crate::models::{
         monitor::MonitorConfig,
         notification::NotificationMessage,
-        notifier::{DiscordConfig, NotifierTypeConfig, SlackConfig},
+        notifier::{
+            AggregationPolicy, DiscordConfig, NotifierPolicy, NotifierTypeConfig, SlackConfig,
+            ThrottlePolicy,
+        },
     };
 
     async fn setup_test_db() -> SqliteStateRepository {
@@ -852,6 +943,7 @@ mod tests {
                 },
                 retry_policy: Default::default(),
             }),
+            policy: None,
         }];
 
         // Add notifiers
@@ -884,6 +976,7 @@ mod tests {
                 message: Default::default(),
                 retry_policy: Default::default(),
             }),
+            policy: None,
         }];
         let polygon_notifiers = vec![NotifierConfig {
             name: "Polygon Discord".to_string(),
@@ -892,6 +985,7 @@ mod tests {
                 message: Default::default(),
                 retry_policy: Default::default(),
             }),
+            policy: None,
         }];
 
         // Add notifiers to different networks
@@ -929,20 +1023,24 @@ mod tests {
             NotifierConfig {
                 name: "Unique Notifier".to_string(),
                 config: NotifierTypeConfig::Slack(SlackConfig::default()),
+                policy: None,
             },
             NotifierConfig {
                 name: "Another Unique Notifier".to_string(),
                 config: NotifierTypeConfig::Slack(SlackConfig::default()),
+                policy: None,
             },
         ];
         let notifiers2 = vec![
             NotifierConfig {
                 name: "Third Notifier".to_string(),
                 config: NotifierTypeConfig::Slack(SlackConfig::default()),
+                policy: None,
             },
             NotifierConfig {
                 name: "Unique Notifier".to_string(), // Duplicate name, will cause failure
                 config: NotifierTypeConfig::Slack(SlackConfig::default()),
+                policy: None,
             },
         ];
 
@@ -957,5 +1055,119 @@ mod tests {
         // Verify no new notifiers were added (transaction rolled back)
         // The count should still be 2 from the first successful insert.
         assert_eq!(repo.get_notifiers(network_id).await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_notifier_policy_persistence() {
+        let repo = setup_test_db().await;
+        let network_id = "testnet_policy";
+
+        let aggregation_policy = NotifierPolicy::Aggregation(AggregationPolicy {
+            window_secs: Duration::from_secs(60),
+            template: NotificationMessage {
+                title: "Aggregated Alert".to_string(),
+                body: "Multiple events occurred.".to_string(),
+            },
+        });
+
+        let test_notifier = NotifierConfig {
+            name: "Policy Notifier".to_string(),
+            config: NotifierTypeConfig::Slack(SlackConfig {
+                slack_url: "https://hooks.slack.com/services/policy".to_string(),
+                message: NotificationMessage {
+                    title: "Policy Test".to_string(),
+                    body: "Body".to_string(),
+                    ..Default::default()
+                },
+                retry_policy: Default::default(),
+            }),
+            policy: Some(aggregation_policy.clone()),
+        };
+
+        // Add notifier with policy
+        repo.add_notifiers(network_id, vec![test_notifier.clone()]).await.unwrap();
+
+        // Retrieve and verify
+        let stored_notifiers = repo.get_notifiers(network_id).await.unwrap();
+        assert_eq!(stored_notifiers.len(), 1);
+        let retrieved_notifier = &stored_notifiers[0];
+
+        assert_eq!(retrieved_notifier.name, test_notifier.name);
+        assert!(retrieved_notifier.policy.is_some());
+        assert_eq!(retrieved_notifier.policy.as_ref().unwrap(), &aggregation_policy);
+
+        // Test with a throttle policy as well
+        let throttle_policy = NotifierPolicy::Throttle(ThrottlePolicy {
+            max_count: 5,
+            time_window_secs: Duration::from_secs(10),
+        });
+
+        let throttled_notifier = NotifierConfig {
+            name: "Throttled Notifier".to_string(),
+            config: NotifierTypeConfig::Discord(DiscordConfig {
+                discord_url: "https://discord.com/api/webhooks/throttle".to_string(),
+                message: NotificationMessage {
+                    title: "Throttle Test".to_string(),
+                    body: "Body".to_string(),
+                    ..Default::default()
+                },
+                retry_policy: Default::default(),
+            }),
+            policy: Some(throttle_policy.clone()),
+        };
+
+        repo.add_notifiers(network_id, vec![throttled_notifier.clone()]).await.unwrap();
+
+        let stored_notifiers_after_throttle = repo.get_notifiers(network_id).await.unwrap();
+        assert_eq!(stored_notifiers_after_throttle.len(), 2);
+
+        let retrieved_throttled_notifier = stored_notifiers_after_throttle
+            .into_iter()
+            .find(|n| n.name == "Throttled Notifier")
+            .unwrap();
+
+        assert!(retrieved_throttled_notifier.policy.is_some());
+        assert_eq!(retrieved_throttled_notifier.policy.unwrap(), throttle_policy);
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+    struct TestJsonState {
+        id: u32,
+        message: String,
+        is_active: bool,
+    }
+
+    #[tokio::test]
+    async fn test_json_state_persistence() {
+        let repo = setup_test_db().await;
+        let key = "test_generic_state";
+
+        // Initially, should be None
+        let retrieved: Option<TestJsonState> = repo.get_json_state(key).await.unwrap();
+        assert!(retrieved.is_none());
+
+        // Set a state
+        let original_state =
+            TestJsonState { id: 1, message: "Hello, World!".to_string(), is_active: true };
+        repo.set_json_state(key, &original_state).await.unwrap();
+
+        // Retrieve it again
+        let retrieved_state: Option<TestJsonState> = repo.get_json_state(key).await.unwrap();
+        assert_eq!(retrieved_state, Some(original_state.clone()));
+
+        // Update it
+        let updated_state =
+            TestJsonState { id: 1, message: "Updated message.".to_string(), is_active: false };
+        repo.set_json_state(key, &updated_state).await.unwrap();
+
+        // Retrieve the updated value
+        let retrieved_updated_state: Option<TestJsonState> =
+            repo.get_json_state(key).await.unwrap();
+        assert_eq!(retrieved_updated_state, Some(updated_state.clone()));
+
+        // Test a different key, should be None
+        let non_existent: Option<TestJsonState> =
+            repo.get_json_state("non_existent_key").await.unwrap();
+        assert!(non_existent.is_none());
     }
 }

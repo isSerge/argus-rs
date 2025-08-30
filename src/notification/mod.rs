@@ -40,6 +40,7 @@ use crate::{
     config::HttpRetryConfig,
     http_client::HttpClientPool,
     models::{
+        NotificationMessage,
         monitor_match::MonitorMatch,
         notifier::{NotifierConfig, NotifierTypeConfig},
     },
@@ -58,6 +59,21 @@ use payload_builder::{
 use tokio::sync::mpsc;
 
 use self::{template::TemplateService, webhook::WebhookNotifier};
+
+/// An enum representing the different types of notification payloads.
+pub enum NotificationPayload {
+    /// A single notification for a single monitor match.
+    Single(MonitorMatch),
+    /// An aggregated notification for multiple monitor matches.
+    Aggregated {
+        /// The name of the notifier to use for this aggregated notification.
+        notifier_name: String,
+        /// The list of monitor matches to include in the aggregation.
+        matches: Vec<MonitorMatch>,
+        /// The template to use for the notification message.
+        template: NotificationMessage,
+    },
+}
 
 /// A private container struct holding the generic components required to send
 /// any webhook-based notification.
@@ -174,7 +190,7 @@ pub struct NotificationService {
     /// retry policies.
     client_pool: Arc<HttpClientPool>,
     /// A map of notifier names to their loaded and validated configurations.
-    notifiers: HashMap<String, NotifierTypeConfig>,
+    notifiers: Arc<HashMap<String, NotifierConfig>>,
     /// The service for rendering notification templates.
     template_service: TemplateService,
 }
@@ -187,8 +203,10 @@ impl NotificationService {
     /// * `notifiers` - A vector of `NotifierConfig` loaded and validated at
     ///   application startup.
     /// * `client_pool` - A shared pool of HTTP clients.
-    pub fn new(notifiers: Vec<NotifierConfig>, client_pool: Arc<HttpClientPool>) -> Self {
-        let notifiers = notifiers.into_iter().map(|t| (t.name, t.config)).collect();
+    pub fn new(
+        notifiers: Arc<HashMap<String, NotifierConfig>>,
+        client_pool: Arc<HttpClientPool>,
+    ) -> Self {
         NotificationService { client_pool, notifiers, template_service: TemplateService::new() }
     }
 
@@ -199,18 +217,37 @@ impl NotificationService {
     ///
     /// # Arguments
     ///
-    /// * `monitor_match` - The monitor match data that initiated this notifier.
+    /// * `payload` - The notification payload, which can be either a single
+    ///   match or an aggregated summary.
     ///
     /// # Returns
     ///
     /// * `Result<(), NotificationError>` - Returns `Ok(())` on success, or a
     ///   `NotificationError` if the notifier is not found, the HTTP client
     ///   fails, or the notification fails to send.
-    pub async fn execute(&self, monitor_match: &MonitorMatch) -> Result<(), NotificationError> {
-        let notifier_name = &monitor_match.notifier_name;
+    pub async fn execute(&self, payload: NotificationPayload) -> Result<(), NotificationError> {
+        let (notifier_name, context, custom_template) = match payload {
+            NotificationPayload::Single(monitor_match) => {
+                let context = serde_json::to_value(&monitor_match).map_err(|e| {
+                    NotificationError::InternalError(format!(
+                        "Failed to serialize monitor match: {e}"
+                    ))
+                })?;
+                (monitor_match.notifier_name, context, None)
+            }
+            NotificationPayload::Aggregated { notifier_name, matches, template } => {
+                let monitor_name = matches.first().map(|m| m.monitor_name.clone());
+                let context = serde_json::json!({
+                    "matches": matches,
+                    "monitor_name": monitor_name,
+                });
+                (notifier_name, context, Some(template))
+            }
+        };
+
         tracing::info!(notifier = %notifier_name, "Executing notification notifier.");
 
-        let notifier_config = self.notifiers.get(notifier_name).ok_or_else(|| {
+        let notifier_config = self.notifiers.get(&notifier_name).ok_or_else(|| {
             tracing::warn!(notifier = %notifier_name, "Notifier configuration not found.");
             NotificationError::ConfigError(format!("Notifier '{notifier_name}' not found"))
         })?;
@@ -218,23 +255,27 @@ impl NotificationService {
 
         // Use the AsWebhookComponents trait to get config, retry policy and payload
         // builder
-        let components = notifier_config.as_webhook_components()?;
+        let mut components = notifier_config.config.as_webhook_components()?;
+
+        // If a custom template is provided (e.g., for aggregation), override the
+        // default one.
+        if let Some(template) = custom_template {
+            components.config.title = template.title;
+            components.config.body_template = template.body;
+        }
 
         // Get or create the HTTP client from the pool based on the retry policy
         let http_client = self.client_pool.get_or_create(&components.retry_policy).await?;
 
-        // Serialize the MonitorMatch to a JSON value for the template context.
-        let context = serde_json::to_value(monitor_match).map_err(|e| {
-            NotificationError::InternalError(format!("Failed to serialize monitor match: {e}"))
-        })?;
-
-        // Render the body template.
+        // Render the title and body templates.
+        let rendered_title =
+            self.template_service.render(&components.config.title, context.clone())?;
         let rendered_body =
             self.template_service.render(&components.config.body_template, context)?;
         tracing::debug!(notifier = %notifier_name, body = %rendered_body, "Rendered notification template.");
 
         // Build the payload
-        let payload = components.builder.build_payload(&components.config.title, &rendered_body);
+        let payload = components.builder.build_payload(&rendered_title, &rendered_body);
 
         // Create the notifier
         tracing::info!(notifier = %notifier_name, url = %components.config.url, "Dispatching notification.");
@@ -250,7 +291,7 @@ impl NotificationService {
     /// and executing notifications based on the configured notifiers.
     pub async fn run(&self, mut notifications_rx: mpsc::Receiver<MonitorMatch>) {
         while let Some(monitor_match) = notifications_rx.recv().await {
-            if let Err(e) = self.execute(&monitor_match).await {
+            if let Err(e) = self.execute(NotificationPayload::Single(monitor_match.clone())).await {
                 tracing::error!(
                     "Failed to execute notification for notifier '{}': {}",
                     monitor_match.notifier_name,
@@ -296,10 +337,10 @@ mod tests {
     #[tokio::test]
     async fn test_missing_notifier_error() {
         let http_client_pool = Arc::new(HttpClientPool::new());
-        let service = NotificationService::new(vec![], http_client_pool);
+        let service = NotificationService::new(Arc::new(HashMap::new()), http_client_pool);
         let monitor_match = create_mock_monitor_match("nonexistent");
-
-        let result = service.execute(&monitor_match).await;
+        let notification_payload = NotificationPayload::Single(monitor_match.clone());
+        let result = service.execute(notification_payload).await;
 
         assert!(result.is_err());
         match result {

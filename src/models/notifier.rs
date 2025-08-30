@@ -1,13 +1,13 @@
 //! This module defines the data structures for notifier configurations.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
 
 use crate::{
-    config::HttpRetryConfig,
+    config::{HttpRetryConfig, deserialize_duration_from_seconds, serialize_duration_to_seconds},
     loader::{Loadable, LoaderError},
     models::notification::NotificationMessage,
 };
@@ -150,9 +150,55 @@ impl NotifierTypeConfig {
 pub struct NotifierConfig {
     /// The unique name of the notifier.
     pub name: String,
+
     /// The specific configuration for the notifier type.
     #[serde(flatten)]
     pub config: NotifierTypeConfig,
+
+    /// Optional policy for handling notifications (e.g., aggregation,
+    /// throttling).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy: Option<NotifierPolicy>,
+}
+
+/// Notification policies for handling notifications
+#[derive(Debug, Clone, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum NotifierPolicy {
+    /// Policy for aggregating multiple notifications into a single one.
+    Aggregation(AggregationPolicy),
+
+    /// Policy for throttling notifications to avoid spamming.
+    Throttle(ThrottlePolicy),
+}
+
+/// Policy for aggregating multiple notifications into a single one.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AggregationPolicy {
+    /// The time window in seconds for the aggregation policy.
+    #[serde(
+        deserialize_with = "deserialize_duration_from_seconds",
+        serialize_with = "serialize_duration_to_seconds"
+    )]
+    pub window_secs: Duration,
+
+    /// The template to use for the aggregated notification message.
+    pub template: NotificationMessage,
+}
+
+/// Policy for throttling notifications to avoid spamming.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ThrottlePolicy {
+    /// The maximum number of notifications to send within the specified time
+    /// window.
+    pub max_count: u32,
+
+    /// The time window in seconds for the throttling policy.
+    #[serde(
+        deserialize_with = "deserialize_duration_from_seconds",
+        serialize_with = "serialize_duration_to_seconds"
+    )]
+    pub time_window_secs: Duration,
 }
 
 /// Errors that can occur during notifier processing.

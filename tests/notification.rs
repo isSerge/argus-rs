@@ -10,7 +10,7 @@ use argus::{
         monitor_match::MonitorMatch,
         notifier::{DiscordConfig, NotifierConfig, NotifierTypeConfig},
     },
-    notification::NotificationService,
+    notification::{NotificationPayload, NotificationService},
 };
 use mockito;
 use serde_json::json;
@@ -29,6 +29,7 @@ async fn test_success() {
             },
             retry_policy: Default::default(),
         }),
+        policy: None,
     };
 
     let mock = server
@@ -40,8 +41,9 @@ async fn test_success() {
         .await;
 
     let http_client_pool = Arc::new(HttpClientPool::new());
-    let notification_service =
-        NotificationService::new(vec![mock_discord_notifier], http_client_pool);
+    let notifiers =
+        Arc::new(vec![mock_discord_notifier].into_iter().map(|n| (n.name.clone(), n)).collect());
+    let notification_service = NotificationService::new(notifiers, http_client_pool);
 
     let monitor_match = MonitorMatch::new_tx_match(
         1,
@@ -52,7 +54,8 @@ async fn test_success() {
         json!({"key": "value"}),
     );
 
-    let result = notification_service.execute(&monitor_match).await;
+    let payload = NotificationPayload::Single(monitor_match.clone());
+    let result = notification_service.execute(payload).await;
 
     assert!(result.is_ok());
     mock.assert();
@@ -74,6 +77,7 @@ async fn test_failure_with_retryable_error() {
             },
             retry_policy: retry_policy.clone(),
         }),
+        policy: None,
     };
 
     // Mock a server that fails twice with a retryable error, then succeeds.
@@ -86,8 +90,9 @@ async fn test_failure_with_retryable_error() {
         .await;
 
     let http_client_pool = Arc::new(HttpClientPool::new());
-    let notification_service =
-        NotificationService::new(vec![mock_discord_notifier], http_client_pool);
+    let notifiers =
+        Arc::new(vec![mock_discord_notifier].into_iter().map(|n| (n.name.clone(), n)).collect());
+    let notification_service = NotificationService::new(notifiers, http_client_pool);
 
     let monitor_match = MonitorMatch::new_tx_match(
         2,
@@ -98,7 +103,8 @@ async fn test_failure_with_retryable_error() {
         json!({"key": "value"}),
     );
 
-    let result = notification_service.execute(&monitor_match).await;
+    let payload = NotificationPayload::Single(monitor_match.clone());
+    let result = notification_service.execute(payload).await;
 
     // The final result should be an error because the mock never returns a success
     // status.
@@ -122,6 +128,7 @@ async fn test_failure_with_non_retryable_error() {
             },
             retry_policy: retry_policy.clone(),
         }),
+        policy: None,
     };
 
     // Mock a server that returns a 400 Bad Request, which is a non-retryable error.
@@ -134,8 +141,9 @@ async fn test_failure_with_non_retryable_error() {
         .await;
 
     let http_client_pool = Arc::new(HttpClientPool::new());
-    let notification_service =
-        NotificationService::new(vec![mock_discord_notifier], http_client_pool);
+    let notifiers =
+        Arc::new(vec![mock_discord_notifier].into_iter().map(|n| (n.name.clone(), n)).collect());
+    let notification_service = NotificationService::new(notifiers, http_client_pool);
 
     let monitor_match = MonitorMatch::new_tx_match(
         3,
@@ -146,7 +154,8 @@ async fn test_failure_with_non_retryable_error() {
         json!({"key": "value"}),
     );
 
-    let result = notification_service.execute(&monitor_match).await;
+    let payload = NotificationPayload::Single(monitor_match.clone());
+    let result = notification_service.execute(payload).await;
 
     assert!(result.is_err());
     mock.assert();
@@ -168,11 +177,13 @@ async fn test_failure_with_invalid_url() {
                 ..Default::default()
             },
         }),
+        policy: None,
     };
 
     let http_client_pool = Arc::new(HttpClientPool::new());
-    let notification_service =
-        NotificationService::new(vec![mock_discord_notifier], http_client_pool);
+    let notifiers =
+        Arc::new(vec![mock_discord_notifier].into_iter().map(|t| (t.name.clone(), t)).collect());
+    let notification_service = NotificationService::new(notifiers, http_client_pool);
 
     let monitor_match = MonitorMatch::new_tx_match(
         4,
@@ -183,7 +194,8 @@ async fn test_failure_with_invalid_url() {
         json!({"key": "value"}),
     );
 
-    let result = notification_service.execute(&monitor_match).await;
+    let payload = NotificationPayload::Single(monitor_match.clone());
+    let result = notification_service.execute(payload).await;
 
     assert!(result.is_err());
 }

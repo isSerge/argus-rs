@@ -1,8 +1,10 @@
 # Argus EVM Monitor
 
+Argus Panoptes (“the All-Seeing”) was the sleepless giant of Greek mythology. With a hundred eyes, he could watch without rest, making him a perfect guardian.
+
 > **Note:** This project is under active development and is not yet ready for production use. The API and architecture are subject to change.
 
-Argus is a next-generation, open-source, self-hosted monitoring tool for EVM chains. It's designed to be API-first, highly reliable, and deeply flexible, serving as a foundational piece of infrastructure for any serious EVM project.
+Argus is a next-generation, open-source, self-hosted monitoring tool for EVM chains. It's designed to be API-first, highly reliable, and deeply flexible, serving as a foundational piece of infrastructure for any EVM project.
 
 ## Features
 
@@ -11,14 +13,14 @@ Argus is a next-generation, open-source, self-hosted monitoring tool for EVM cha
 -   **Real-Time EVM Monitoring**: Connects to an EVM RPC endpoint to monitor new blocks in real time, processing transactions and logs as they occur.
 -   **Flexible Filtering with Rhai**: Uses the embedded [Rhai](https://rhai.rs) scripting language to create highly specific and powerful filters for any on-chain event, from simple balance changes to complex DeFi interactions.
 -   **EVM Value Wrappers**: Convenient functions like `ether`, `gwei`, and `usdc` for handling common token denominations, plus a generic `decimals` function for custom tokens. This makes filter scripts more readable and less error-prone.
--   **Basic Notifications**: Supports webhook notifications, allowing for easy integration with services like Slack, Discord, or custom automation workflows.
+-   **Basic Webhook Notifications**: Supports webhook notifications, allowing for easy integration with services like Slack, Discord, or custom automation workflows.
+-   **Advanced Notification Policies**: Support alert aggregation and throttling to reduce noise.
 -   **Stateful Processing**: Tracks its progress in a local SQLite database, allowing it to stop and resume from where it left off without missing any blocks.
 -   **CLI Dry-Run Mode**: A `dry-run` command allows you to test your monitor against a range of historical blocks to ensure it works as expected before deploying it live.
 
 ### Future Features (Planned)
 
 -   **Dynamic Configuration via REST API**: Add, update, and remove monitors on the fly via a REST API, without any downtime.
--   **Advanced Notifications**: Support alert aggregation and throttling to reduce noise.
 -   **Stateful Filtering**: The ability for a filter to remember past events and make decisions based on a time window (e.g., "alert if an address withdraws more than 5 times in 10 minutes").
 -   **Data Enrichment & Cross-Contract Checks**: Make monitors "smarter" by allowing them to fetch external data (e.g., from a price API) or check the state of another contract as part of their filtering logic.
 -   **Automatic ABI Fetching**: Automatically fetch contract ABIs from public registries like Etherscan, reducing the amount of manual configuration required.

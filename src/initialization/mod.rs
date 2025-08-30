@@ -348,6 +348,7 @@ monitors:
         let trigger = NotifierConfig {
             name: "Existing Trigger".to_string(),
             config: NotifierTypeConfig::Webhook(Default::default()),
+            policy: None,
         };
 
         let mut mock_repo = MockStateRepository::new();
@@ -655,6 +656,7 @@ monitors:
                     message: NotificationMessage::default(),
                     retry_policy: HttpRetryConfig::default(),
                 }),
+                policy: None,
             }])
         }); // Return a dummy notifier
         // Expect clear_notifiers and add_notifiers to NOT be called

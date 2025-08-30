@@ -3,6 +3,7 @@
 use async_trait::async_trait;
 #[cfg(test)]
 use mockall::automock;
+use serde::{Serialize, de::DeserializeOwned};
 
 use crate::models::{
     monitor::{Monitor, MonitorConfig},
@@ -63,4 +64,29 @@ pub trait StateRepository: Send + Sync {
 
     /// Clears all notifiers for a specific network.
     async fn clear_notifiers(&self, network_id: &str) -> Result<(), sqlx::Error>;
+}
+
+/// Represents a generic state management interface for JSON-serializable
+/// objects.
+#[cfg_attr(test, automock)]
+#[async_trait]
+pub trait GenericStateRepository: Send + Sync {
+    /// Retrieves a JSON-serializable state object by its key.
+    async fn get_json_state<T: DeserializeOwned + Send + Sync + 'static>(
+        &self,
+        key: &str,
+    ) -> Result<Option<T>, sqlx::Error>;
+
+    /// Sets or updates a JSON-serializable state object by its key.
+    async fn set_json_state<T: Serialize + Send + Sync + 'static>(
+        &self,
+        key: &str,
+        value: &T,
+    ) -> Result<(), sqlx::Error>;
+
+    /// Retrieves all JSON-serializable state objects matching a key prefix.
+    async fn get_all_json_states_by_prefix<T: DeserializeOwned + Send + Sync + 'static>(
+        &self,
+        prefix: &str,
+    ) -> Result<Vec<(String, T)>, sqlx::Error>;
 }
