@@ -80,18 +80,18 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
                 }
             },
             None => {
-        // No policy, send immediately
-        tracing::debug!("No policy for notifier {}, sending immediately.", notifier_name);
-        if let Err(e) = self
-            .notification_service
-            .execute(NotificationPayload::Single(monitor_match.clone()))
-            .await
-        {
-            tracing::error!(
-                "Failed to execute notification for notifier '{}': {}",
-                notifier_name,
-                e
-            );
+                // No policy, send immediately
+                tracing::debug!("No policy for notifier {}, sending immediately.", notifier_name);
+                if let Err(e) = self
+                    .notification_service
+                    .execute(NotificationPayload::Single(monitor_match.clone()))
+                    .await
+                {
+                    tracing::error!(
+                        "Failed to execute notification for notifier '{}': {}",
+                        notifier_name,
+                        e
+                    );
                 }
             }
         }
