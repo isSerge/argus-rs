@@ -231,9 +231,4 @@ notifiers:
           title: "Event Summary for {{ monitor_name }}"
           # You can iterate over the `matches` or use filters like `length`.
           body: |
-            In the last 5 minutes, there have been {{ matches | length }} new events for monitor *{{ monitor_name }}*.
-
-            Here are the transaction hashes:
-            {% for match in matches %}
-            - `{{ match.transaction_hash }}`
-            {% endfor %}
+            In the last 5 minutes there have been {{ matches | length }} new events
