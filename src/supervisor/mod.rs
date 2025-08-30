@@ -222,10 +222,9 @@ impl Supervisor {
 
         // Add the AlertManager's background aggregation dispatcher.
         let dispatcher_alert_manager = Arc::clone(&self.alert_manager);
+        let aggregation_check_interval = self.config.aggregation_check_interval_secs;
         self.join_set.spawn(async move {
-            // TODO: make this interval configurable in `AppConfig` later.
-            let check_interval = self.config.aggregation_check_interval_secs;
-            dispatcher_alert_manager.run_aggregation_dispatcher(check_interval).await;
+            dispatcher_alert_manager.run_aggregation_dispatcher(aggregation_check_interval).await;
         });
 
         // This is the main application loop.

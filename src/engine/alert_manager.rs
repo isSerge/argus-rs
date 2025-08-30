@@ -121,7 +121,8 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
                 ThrottleState { count: 0, window_start_time: current_time }
             }
             Err(e) => {
-                // Error retrieving state, log and initialize new state
+                // If there's an error retrieving state, log it and proceed with a new state.
+                // This prevents a single state retrieval error from halting throttling.
                 tracing::error!("Failed to retrieve throttle state for {}: {}", notifier_name, e);
                 ThrottleState { count: 0, window_start_time: current_time }
             }
