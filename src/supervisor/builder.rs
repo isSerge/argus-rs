@@ -10,7 +10,7 @@ use crate::{
     engine::{block_processor::BlockProcessor, filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
     http_client::HttpClientPool,
     notification::NotificationService,
-    persistence::traits::StateRepository,
+    persistence::{sqlite::SqliteStateRepository, traits::StateRepository},
     providers::traits::DataSource,
 };
 
@@ -18,7 +18,7 @@ use crate::{
 #[derive(Default)]
 pub struct SupervisorBuilder {
     config: Option<AppConfig>,
-    state: Option<Arc<dyn StateRepository>>,
+    state: Option<Arc<SqliteStateRepository>>,
     abi_service: Option<Arc<AbiService>>,
     data_source: Option<Box<dyn DataSource>>,
     script_compiler: Option<Arc<RhaiCompiler>>,
@@ -37,7 +37,7 @@ impl SupervisorBuilder {
     }
 
     /// Sets the state repository (database connection) for the `Supervisor`.
-    pub fn state(mut self, state: Arc<dyn StateRepository>) -> Self {
+    pub fn state(mut self, state: Arc<SqliteStateRepository>) -> Self {
         self.state = Some(state);
         self
     }
@@ -113,33 +113,45 @@ mod tests {
 
     use super::*;
     use crate::{
-        abi::AbiRepository, config::RhaiConfig, persistence::traits::MockStateRepository,
-        providers::traits::MockDataSource, test_helpers::MonitorBuilder,
+        abi::AbiRepository, config::RhaiConfig, models::monitor::MonitorConfig,
+        persistence::traits::MockStateRepository, providers::traits::MockDataSource,
     };
+
+    async fn setup_test_db() -> SqliteStateRepository {
+        let repo = SqliteStateRepository::new("sqlite::memory:")
+            .await
+            .expect("Failed to connect to in-memory db");
+        repo.run_migrations().await.expect("Failed to run migrations");
+        repo
+    }
 
     #[tokio::test]
     async fn build_succeeds_with_valid_monitors() {
+        let network_id = "testnet";
+        let abi_name = "abi";
         let dir = tempdir().unwrap();
-        let abi_path = dir.path().join("abi.json");
+        let abi_path = dir.path().join(format!("{}.json", abi_name));
         let mut file = File::create(&abi_path).unwrap();
         file.write_all(b"[]").unwrap();
 
-        let monitor = MonitorBuilder::new()
-            .name("Valid Monitor")
-            .address("0x0000000000000000000000000000000000000001")
-            .abi(abi_path.to_str().unwrap())
-            .build();
+        let monitor = MonitorConfig {
+            name: "Valid Monitor".into(),
+            network: network_id.into(),
+            address: Some("0x0000000000000000000000000000000000000001".to_string()),
+            abi: Some(abi_name.to_string()),
+            filter_script: "true".to_string(),
+            notifiers: vec![],
+        };
 
-        let mut mock_state_repo = MockStateRepository::new();
-        mock_state_repo.expect_get_monitors().returning(move |_| Ok(vec![monitor.clone()]));
-        mock_state_repo.expect_get_notifiers().returning(|_| Ok(vec![]));
+        let state_repo = Arc::new(setup_test_db().await);
+        state_repo.add_monitors(network_id, vec![monitor]).await.unwrap();
 
         let abi_repository = Arc::new(AbiRepository::new(dir.path()).unwrap());
         let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
 
         let builder = SupervisorBuilder::new()
             .config(AppConfig::default())
-            .state(Arc::new(mock_state_repo))
+            .state(state_repo)
             .abi_service(abi_service)
             .script_compiler(Arc::new(RhaiCompiler::new(RhaiConfig::default())))
             .data_source(Box::new(MockDataSource::new()));
@@ -153,8 +165,9 @@ mod tests {
         let dir = tempdir().unwrap();
         let abi_repository = Arc::new(AbiRepository::new(dir.path()).unwrap());
         let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
+        let state_repo = Arc::new(setup_test_db().await);
         let builder = SupervisorBuilder::new()
-            .state(Arc::new(MockStateRepository::new()))
+            .state(state_repo)
             .abi_service(abi_service)
             .data_source(Box::new(MockDataSource::new()));
 
@@ -178,9 +191,10 @@ mod tests {
 
     #[tokio::test]
     async fn build_fails_if_abi_service_is_missing() {
+        let state_repo = Arc::new(setup_test_db().await);
         let builder = SupervisorBuilder::new()
             .config(AppConfig::default())
-            .state(Arc::new(MockStateRepository::new()))
+            .state(state_repo)
             .data_source(Box::new(MockDataSource::new()));
 
         let result = builder.build().await;
@@ -192,9 +206,10 @@ mod tests {
         let dir = tempdir().unwrap();
         let abi_repository = Arc::new(AbiRepository::new(dir.path()).unwrap());
         let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
+        let state_repo = Arc::new(setup_test_db().await);
         let builder = SupervisorBuilder::new()
             .config(AppConfig::default())
-            .state(Arc::new(MockStateRepository::new()))
+            .state(state_repo)
             .abi_service(abi_service);
 
         let result = builder.build().await;
@@ -212,10 +227,11 @@ mod tests {
         let dir = tempdir().unwrap();
         let abi_repository = Arc::new(AbiRepository::new(dir.path()).unwrap());
         let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
+        let state_repo = Arc::new(setup_test_db().await);
 
         let builder = SupervisorBuilder::new()
             .config(AppConfig::default())
-            .state(Arc::new(mock_state_repo))
+            .state(state_repo)
             .abi_service(abi_service)
             .data_source(Box::new(MockDataSource::new()))
             .script_compiler(Arc::new(RhaiCompiler::new(RhaiConfig::default())));
