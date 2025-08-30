@@ -42,7 +42,7 @@ use crate::{
     models::{
         NotificationMessage,
         monitor_match::MonitorMatch,
-        notifier::{NotifierConfig, NotifierPolicy, NotifierTypeConfig},
+        notifier::{NotifierConfig, NotifierTypeConfig},
     },
 };
 

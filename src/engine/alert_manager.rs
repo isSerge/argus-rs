@@ -203,7 +203,10 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
 
     /// Scans the state repository for expired aggregation windows and
     /// dispatches them.
-    async fn check_and_dispatch_expired_windows(&self) -> Result<(), AlertManagerError> {
+    async fn check_and_dispatch_expired_windows(
+        &self,
+        force: bool,
+    ) -> Result<(), AlertManagerError> {
         const AGGREGATION_PREFIX: &str = "aggregation_state:";
         let pending_states = self
             .state_repository
@@ -248,7 +251,7 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
             };
 
             // Now we use the policy's window_secs to check for expiration.
-            if chrono::Utc::now() > state.window_start_time + policy.window_secs {
+            if force || chrono::Utc::now() > state.window_start_time + policy.window_secs {
                 tracing::info!(
                     "Aggregation window for key '{}' expired. Dispatching summary.",
                     state_key
@@ -296,10 +299,15 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
             tracing::debug!("Running aggregation dispatcher check...");
 
             // Log errors from the check, but we never stop the loop.
-            if let Err(e) = self.check_and_dispatch_expired_windows().await {
+            if let Err(e) = self.check_and_dispatch_expired_windows(false).await {
                 tracing::error!("Error in aggregation dispatcher cycle: {}", e);
             }
         }
+    }
+
+    /// Flushes any pending aggregated notifications.
+    pub async fn flush(&self) -> Result<(), AlertManagerError> {
+        self.check_and_dispatch_expired_windows(true).await
     }
 }
 
@@ -712,7 +720,7 @@ mod tests {
         let alert_manager = create_alert_manager(notifiers, state_repo);
 
         // Act
-        let result = alert_manager.check_and_dispatch_expired_windows().await;
+        let result = alert_manager.check_and_dispatch_expired_windows(false).await;
 
         // Assert
         assert!(result.is_ok());
