@@ -42,7 +42,7 @@ use crate::{
     models::{
         NotificationMessage,
         monitor_match::MonitorMatch,
-        notifier::{NotifierConfig, NotifierTypeConfig},
+        notifier::{NotifierConfig, NotifierPolicy, NotifierTypeConfig},
     },
 };
 
@@ -233,26 +233,15 @@ impl NotificationService {
                         "Failed to serialize monitor match: {e}"
                     ))
                 })?;
-                (monitor_match.notifier_name, context, None::<NotificationMessage>)
+                (monitor_match.notifier_name, context, None)
             }
             NotificationPayload::Aggregated { notifier_name, matches, template } => {
-                let mut context = serde_json::Map::new();
-                context.insert(
-                    "matches".to_string(),
-                    serde_json::to_value(&matches).map_err(|e| {
-                        NotificationError::InternalError(format!(
-                            "Failed to serialize matches for aggregation: {e}"
-                        ))
-                    })?,
-                );
-                // Add monitor_name to the context for template convenience
-                if let Some(first_match) = matches.first() {
-                    context.insert(
-                        "monitor_name".to_string(),
-                        serde_json::Value::String(first_match.monitor_name.clone()),
-                    );
-                }
-                (notifier_name, serde_json::Value::Object(context), Some(template))
+                let monitor_name = matches.first().map(|m| m.monitor_name.clone());
+                let context = serde_json::json!({
+                    "matches": matches,
+                    "monitor_name": monitor_name,
+                });
+                (notifier_name, context, Some(template))
             }
         };
 
@@ -278,13 +267,15 @@ impl NotificationService {
         // Get or create the HTTP client from the pool based on the retry policy
         let http_client = self.client_pool.get_or_create(&components.retry_policy).await?;
 
-        // Render the body template.
+        // Render the title and body templates.
+        let rendered_title =
+            self.template_service.render(&components.config.title, context.clone())?;
         let rendered_body =
             self.template_service.render(&components.config.body_template, context)?;
         tracing::debug!(notifier = %notifier_name, body = %rendered_body, "Rendered notification template.");
 
         // Build the payload
-        let payload = components.builder.build_payload(&components.config.title, &rendered_body);
+        let payload = components.builder.build_payload(&rendered_title, &rendered_body);
 
         // Create the notifier
         tracing::info!(notifier = %notifier_name, url = %components.config.url, "Dispatching notification.");
