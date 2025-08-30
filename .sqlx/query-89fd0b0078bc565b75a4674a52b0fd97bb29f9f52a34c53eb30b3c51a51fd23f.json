@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT config FROM notifiers WHERE network_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "config",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "89fd0b0078bc565b75a4674a52b0fd97bb29f9f52a34c53eb30b3c51a51fd23f"
+}

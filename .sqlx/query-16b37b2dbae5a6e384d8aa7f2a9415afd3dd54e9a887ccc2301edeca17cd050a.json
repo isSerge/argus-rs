@@ -1,15 +1,15 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT name, config FROM notifiers WHERE network_id = ?",
+  "query": "SELECT key, value FROM application_state WHERE key LIKE ?",
   "describe": {
     "columns": [
       {
-        "name": "name",
+        "name": "key",
         "ordinal": 0,
         "type_info": "Text"
       },
       {
-        "name": "config",
+        "name": "value",
         "ordinal": 1,
         "type_info": "Text"
       }
@@ -22,5 +22,5 @@
       false
     ]
   },
-  "hash": "c71824b744998599bb7ed409b4981ac4be40a6eafbce52473045422a87cdce7f"
+  "hash": "16b37b2dbae5a6e384d8aa7f2a9415afd3dd54e9a887ccc2301edeca17cd050a"
 }
