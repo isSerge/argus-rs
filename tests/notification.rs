@@ -6,7 +6,9 @@ use argus::{
     config::HttpRetryConfig,
     http_client::HttpClientPool,
     models::{
-        monitor_match::MonitorMatch, notifier::{DiscordConfig, NotifierConfig, NotifierTypeConfig}, NotificationMessage
+        NotificationMessage,
+        monitor_match::MonitorMatch,
+        notifier::{DiscordConfig, NotifierConfig, NotifierTypeConfig},
     },
     notification::{NotificationPayload, NotificationService},
 };

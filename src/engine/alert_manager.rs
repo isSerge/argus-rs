@@ -3,13 +3,12 @@
 use std::{collections::HashMap, sync::Arc};
 
 use thiserror::Error;
-use tokio::time::{Duration, sleep};
 
 use crate::{
     models::{
         alert_manager_state::{AggregationState, ThrottleState},
         monitor_match::MonitorMatch,
-        notifier::{AggregationPolicy, NotifierConfig, NotifierPolicy},
+        notifier::{NotifierConfig, NotifierPolicy},
     },
     notification::{NotificationPayload, NotificationService, error::NotificationError},
     persistence::traits::GenericStateRepository,
@@ -76,8 +75,8 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
                 NotifierPolicy::Throttle(throttle_policy) => {
                     self.handle_throttle(monitor_match, throttle_policy).await?;
                 }
-                NotifierPolicy::Aggregation(aggregation_policy) => {
-                    self.handle_aggregation(monitor_match, aggregation_policy).await?;
+                NotifierPolicy::Aggregation(_) => {
+                    self.handle_aggregation(monitor_match).await?;
                 }
             },
             None => {
@@ -178,76 +177,111 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
     async fn handle_aggregation(
         &self,
         monitor_match: &MonitorMatch,
-        policy: &AggregationPolicy,
     ) -> Result<(), AlertManagerError> {
-        // Use monitor name as aggregation key
         let aggregation_key = &monitor_match.monitor_name;
         let state_key = format!("aggregation_state:{}", aggregation_key);
 
-        // Retrieve existing aggregation state or initialize a new one
-        let mut state = match self
+        let mut state = self
             .state_repository
             .get_json_state::<AggregationState>(&state_key)
             .await
-        {
-            Ok(Some(state)) => state,
-            Ok(None) => AggregationState::default(),
-            Err(e) => {
-                tracing::error!(
-                    "Failed to retrieve aggregation state for {}: {}",
-                    aggregation_key,
-                    e
-                );
-                AggregationState::default()
-            }
-        };
+            .map_err(AlertManagerError::from)?
+            .unwrap_or_default();
 
-        // Add the new match to the aggregation state
-        let is_new_window = state.matches.is_empty();
-        state.matches.push(monitor_match.clone());
-
-        // Save the updated aggregation state
-        self.state_repository.set_json_state(&state_key, &state).await?;
-
-        // If this is the first match in a new window, set a timer to send the
-        // aggregated notification after the window duration
-        if is_new_window {
-            let notifier_name = monitor_match.notifier_name.clone();
-            let notification_service = self.notification_service.clone();
-            let state_repository = self.state_repository.clone();
-            let window_duration = policy.window_secs;
-
-            tokio::spawn(async move {
-                sleep(Duration::from_secs(window_duration.num_seconds() as u64)).await;
-
-                let state =
-                    match state_repository.get_json_state::<AggregationState>(&state_key).await {
-                        Ok(Some(state)) => state,
-                        _ => {
-                            tracing::error!(
-                                "Failed to retrieve aggregation state for key: {}",
-                                state_key
-                            );
-                            return;
-                        }
-                    };
-
-                if let Err(e) = notification_service
-                    .execute(NotificationPayload::Aggregated(notifier_name.clone(), state.matches))
-                    .await
-                {
-                    tracing::error!("Failed to send aggregated notification: {}", e);
-                }
-
-                // Clear the state by setting it back to default.
-                if let Err(e) =
-                    state_repository.set_json_state(&state_key, &AggregationState::default()).await
-                {
-                    tracing::error!("Failed to clear aggregation state: {}", e);
-                }
-            });
+        // If this is the first match for a new window, set the start time.
+        if state.matches.is_empty() {
+            state.window_start_time = chrono::Utc::now();
         }
 
+        state.matches.push(monitor_match.clone());
+
+        self.state_repository.set_json_state(&state_key, &state).await?;
+
+        Ok(())
+    }
+
+    /// Scans the state repository for expired aggregation windows and
+    /// dispatches them.
+    async fn check_and_dispatch_expired_windows(&self) -> Result<(), AlertManagerError> {
+        const AGGREGATION_PREFIX: &str = "aggregation_state:";
+        let pending_states = self
+            .state_repository
+            .get_all_json_states_by_prefix::<AggregationState>(AGGREGATION_PREFIX)
+            .await?;
+
+        for (state_key, state) in pending_states {
+            if state.matches.is_empty() {
+                continue;
+            }
+
+            // We need to find the notifier and its policy to check the window duration.
+            let first_match = &state.matches[0];
+            let notifier_config = match self.notifiers.get(&first_match.notifier_name) {
+                Some(config) => config,
+                None => {
+                    tracing::warn!(
+                        "Notifier configuration not found for aggregation key '{}'. Clearing \
+                         state.",
+                        state_key
+                    );
+                    self.state_repository
+                        .set_json_state(&state_key, &AggregationState::default())
+                        .await?;
+                    continue;
+                }
+            };
+
+            // This is the crucial part: getting the policy to check against.
+            let policy = match &notifier_config.policy {
+                Some(NotifierPolicy::Aggregation(agg_policy)) => agg_policy,
+                _ => {
+                    tracing::warn!(
+                        "Aggregation policy not found for notifier '{}'. Clearing state.",
+                        notifier_config.name
+                    );
+                    self.state_repository
+                        .set_json_state(&state_key, &AggregationState::default())
+                        .await?;
+                    continue;
+                }
+            };
+
+            // Now we use the policy's window_secs to check for expiration.
+            if chrono::Utc::now() > state.window_start_time + policy.window_secs {
+                tracing::info!(
+                    "Aggregation window for key '{}' expired. Dispatching summary.",
+                    state_key
+                );
+
+                // And we use the policy's template to build the payload.
+                let payload = NotificationPayload::Aggregated {
+                    notifier_name: notifier_config.name.clone(),
+                    matches: state.matches,
+                    template: policy.template.clone(),
+                };
+
+                if let Err(e) = self.notification_service.execute(payload).await {
+                    tracing::error!(
+                        "Failed to send aggregated notification for key '{}': {}",
+                        state_key,
+                        e
+                    );
+                }
+
+                // And finally, clear the state.
+                if let Err(e) = self
+                    .state_repository
+                    .set_json_state(&state_key, &AggregationState::default())
+                    .await
+                {
+                    tracing::error!(
+                        "Failed to clear aggregation state for key '{}': {}",
+                        state_key,
+                        e
+                    );
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -265,7 +299,7 @@ mod tests {
         models::{
             NotificationMessage,
             monitor_match::{LogDetails, MatchData},
-            notifier::{DiscordConfig, NotifierTypeConfig, ThrottlePolicy},
+            notifier::{AggregationPolicy, DiscordConfig, NotifierTypeConfig, ThrottlePolicy},
         },
         persistence::traits::MockGenericStateRepository,
     };

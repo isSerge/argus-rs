@@ -83,4 +83,10 @@ pub trait GenericStateRepository: Send + Sync {
         key: &str,
         value: &T,
     ) -> Result<(), sqlx::Error>;
+
+    /// Retrieves all JSON-serializable state objects matching a key prefix.
+    async fn get_all_json_states_by_prefix<T: DeserializeOwned + Send + Sync + 'static>(
+        &self,
+        prefix: &str,
+    ) -> Result<Vec<(String, T)>, sqlx::Error>;
 }

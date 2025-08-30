@@ -541,6 +541,39 @@ impl GenericStateRepository for SqliteStateRepository {
 
         Ok(())
     }
+
+    async fn get_all_json_states_by_prefix<T: DeserializeOwned + Send + Sync + 'static>(
+        &self,
+        prefix: &str,
+    ) -> Result<Vec<(String, T)>, sqlx::Error> {
+        tracing::debug!(prefix = prefix, "Attempting to retrieve all JSON states by prefix.");
+
+        let like_prefix = format!("{}%", prefix);
+        let rows = self
+            .execute_query_with_error_handling(
+                "get all JSON states by prefix",
+                sqlx::query!(
+                    "SELECT key, value FROM application_state WHERE key LIKE ?",
+                    like_prefix
+                )
+                .fetch_all(&self.pool),
+            )
+            .await?;
+
+        let mut states = Vec::new();
+        for row in rows {
+            let key: String = row.key;
+            let value_str: String = row.value;
+            match serde_json::from_str(&value_str) {
+                Ok(value) => states.push((key, value)),
+                Err(e) => {
+                    tracing::error!(key, "Failed to decode JSON state: {}", e);
+                }
+            }
+        }
+
+        Ok(states)
+    }
 }
 
 #[cfg(test)]

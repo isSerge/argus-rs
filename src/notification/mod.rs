@@ -65,7 +65,14 @@ pub enum NotificationPayload {
     /// A single notification for a single monitor match.
     Single(MonitorMatch),
     /// An aggregated notification for multiple monitor matches.
-    Aggregated(String, Vec<MonitorMatch>),
+    Aggregated {
+        /// The name of the notifier to use for this aggregated notification.
+        notifier_name: String,
+        /// The list of monitor matches to include in the aggregation.
+        matches: Vec<MonitorMatch>,
+        /// The template to use for the notification message.
+        template: NotificationMessage,
+    },
 }
 
 /// A private container struct holding the generic components required to send
@@ -228,7 +235,7 @@ impl NotificationService {
                 })?;
                 (monitor_match.notifier_name, context, None::<NotificationMessage>)
             }
-            NotificationPayload::Aggregated(notifier_name, matches) => {
+            NotificationPayload::Aggregated { notifier_name, matches, template } => {
                 let mut context = serde_json::Map::new();
                 context.insert(
                     "matches".to_string(),
@@ -245,7 +252,7 @@ impl NotificationService {
                         serde_json::Value::String(first_match.monitor_name.clone()),
                     );
                 }
-                (notifier_name, serde_json::Value::Object(context), None)
+                (notifier_name, serde_json::Value::Object(context), Some(template))
             }
         };
 
