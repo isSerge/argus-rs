@@ -185,11 +185,22 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
         let state_key = format!("aggregation_state:{}", aggregation_key);
 
         // Retrieve existing aggregation state or initialize a new one
-        let mut state = self
+        let mut state = match self
             .state_repository
             .get_json_state::<AggregationState>(&state_key)
-            .await?
-            .unwrap_or_default();
+            .await
+        {
+            Ok(Some(state)) => state,
+            Ok(None) => AggregationState::default(),
+            Err(e) => {
+                tracing::error!(
+                    "Failed to retrieve aggregation state for {}: {}",
+                    aggregation_key,
+                    e
+                );
+                AggregationState::default()
+            }
+        };
 
         // Add the new match to the aggregation state
         let is_new_window = state.matches.is_empty();
