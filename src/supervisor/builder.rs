@@ -1,14 +1,18 @@
 //! This module provides the `SupervisorBuilder` for constructing a
 //! `Supervisor`.
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use super::{Supervisor, SupervisorError};
 use crate::{
     abi::AbiService,
     config::AppConfig,
-    engine::{block_processor::BlockProcessor, filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
+    engine::{
+        alert_manager::AlertManager, block_processor::BlockProcessor,
+        filtering::RhaiFilteringEngine, rhai::RhaiCompiler,
+    },
     http_client::HttpClientPool,
+    models::notifier::NotifierConfig,
     notification::NotificationService,
     persistence::{sqlite::SqliteStateRepository, traits::StateRepository},
     providers::traits::DataSource,
@@ -90,8 +94,13 @@ impl SupervisorBuilder {
             RhaiFilteringEngine::new(monitors, script_compiler, config.rhai.clone());
         let http_client_pool = Arc::new(HttpClientPool::new());
 
-        let notifiers = Arc::new(notifiers.into_iter().map(|t| (t.name.clone(), t)).collect());
-        let notification_service = NotificationService::new(notifiers, http_client_pool);
+        // Set up the NotificationService and AlertManager
+        let notifiers_map: Arc<HashMap<String, NotifierConfig>> =
+            Arc::new(notifiers.into_iter().map(|t| (t.name.clone(), t)).collect());
+        let notification_service =
+            Arc::new(NotificationService::new(notifiers_map.clone(), http_client_pool));
+        let alert_manager =
+            Arc::new(AlertManager::new(notification_service, state.clone(), notifiers_map));
 
         // Finally, construct the Supervisor with all its components.
         Ok(Supervisor::new(
@@ -100,7 +109,7 @@ impl SupervisorBuilder {
             data_source,
             block_processor,
             Arc::new(filtering_engine),
-            Arc::new(notification_service),
+            alert_manager,
         ))
     }
 }

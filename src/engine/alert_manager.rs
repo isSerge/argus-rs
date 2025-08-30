@@ -2,6 +2,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
+use chrono::Duration;
 use thiserror::Error;
 
 use crate::{
@@ -283,6 +284,23 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
             }
         }
         Ok(())
+    }
+
+    /// Runs a background task to dispatch expired aggregation windows.
+    /// This should be spawned as a long-running task by the Supervisor.
+    pub async fn run_aggregation_dispatcher(&self, check_interval: Duration) {
+        let mut interval =
+            tokio::time::interval(check_interval.to_std().expect("Interval must be positive"));
+
+        loop {
+            interval.tick().await;
+            tracing::debug!("Running aggregation dispatcher check...");
+
+            // Log errors from the check, but we never stop the loop.
+            if let Err(e) = self.check_and_dispatch_expired_windows().await {
+                tracing::error!("Error in aggregation dispatcher cycle: {}", e);
+            }
+        }
     }
 }
 
