@@ -404,7 +404,7 @@ mod tests {
     async fn test_process_match_notifier_throttle_new_state() {
         let notifier_name = "Throttle Notifier".to_string();
         let throttle_policy =
-            ThrottlePolicy { max_count: 5, time_window_secs: chrono::Duration::seconds(60) };
+            ThrottlePolicy { max_count: 5, time_window_secs: Duration::from_secs(60) };
 
         let notifier_config = NotifierConfig {
             name: notifier_name.clone(),
@@ -452,7 +452,7 @@ mod tests {
     async fn test_process_match_notifier_throttle_existing_state() {
         let notifier_name = "Throttle Notifier".to_string();
         let throttle_policy =
-            ThrottlePolicy { max_count: 5, time_window_secs: chrono::Duration::seconds(60) };
+            ThrottlePolicy { max_count: 5, time_window_secs: Duration::from_secs(60) };
 
         let notifier_config = NotifierConfig {
             name: notifier_name.clone(),
@@ -502,7 +502,7 @@ mod tests {
     async fn test_process_match_notifier_throttle_failed_to_retrieve_state() {
         let notifier_name = "Throttle Notifier".to_string();
         let throttle_policy =
-            ThrottlePolicy { max_count: 5, time_window_secs: chrono::Duration::seconds(60) };
+            ThrottlePolicy { max_count: 5, time_window_secs: Duration::from_secs(60) };
 
         let notifier_config = NotifierConfig {
             name: notifier_name.clone(),
@@ -550,7 +550,7 @@ mod tests {
     async fn test_handle_aggregation_new_window() {
         let notifier_name = "Aggregation Notifier".to_string();
         let aggregation_policy = AggregationPolicy {
-            window_secs: chrono::Duration::seconds(1),
+            window_secs: Duration::from_secs(1),
             template: NotificationMessage {
                 title: "Test".to_string(),
                 body: "This is a test".to_string(),
@@ -603,7 +603,7 @@ mod tests {
     async fn test_handle_aggregation_existing_window() {
         let notifier_name = "Aggregation Notifier".to_string();
         let aggregation_policy = AggregationPolicy {
-            window_secs: chrono::Duration::seconds(60),
+            window_secs: Duration::from_secs(60),
             template: NotificationMessage {
                 title: "Test".to_string(),
                 body: "This is a test".to_string(),
@@ -660,7 +660,7 @@ mod tests {
     async fn test_check_and_dispatch_expired_windows() {
         let notifier_name = "Aggregation Notifier".to_string();
         let aggregation_policy = AggregationPolicy {
-            window_secs: chrono::Duration::seconds(1),
+            window_secs: Duration::from_secs(1),
             template: NotificationMessage {
                 title: "Aggregated Alert: {{ monitor_name }}".to_string(),
                 body: "{{ matches | length }} events detected.".to_string(),

@@ -1,8 +1,7 @@
 //! This module defines the data structures for notifier configurations.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
-use chrono::Duration;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;

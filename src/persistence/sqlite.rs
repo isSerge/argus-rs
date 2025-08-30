@@ -578,6 +578,8 @@ impl GenericStateRepository for SqliteStateRepository {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use serde::Deserialize;
 
     use super::*;
@@ -1061,7 +1063,7 @@ mod tests {
         let network_id = "testnet_policy";
 
         let aggregation_policy = NotifierPolicy::Aggregation(AggregationPolicy {
-            window_secs: chrono::Duration::seconds(60),
+            window_secs: Duration::from_secs(60),
             template: NotificationMessage {
                 title: "Aggregated Alert".to_string(),
                 body: "Multiple events occurred.".to_string(),
@@ -1097,7 +1099,7 @@ mod tests {
         // Test with a throttle policy as well
         let throttle_policy = NotifierPolicy::Throttle(ThrottlePolicy {
             max_count: 5,
-            time_window_secs: chrono::Duration::minutes(10),
+            time_window_secs: Duration::from_secs(10),
         });
 
         let throttled_notifier = NotifierConfig {
