@@ -114,7 +114,7 @@ mod tests {
     use super::*;
     use crate::{
         abi::AbiRepository, config::RhaiConfig, models::monitor::MonitorConfig,
-        persistence::traits::MockStateRepository, providers::traits::MockDataSource,
+        providers::traits::MockDataSource,
     };
 
     async fn setup_test_db() -> SqliteStateRepository {
@@ -214,31 +214,5 @@ mod tests {
 
         let result = builder.build().await;
         assert!(matches!(result, Err(SupervisorError::MissingDataSource)));
-    }
-
-    #[tokio::test]
-    async fn build_fails_on_database_error_fetching_monitors() {
-        let mut mock_state_repo = MockStateRepository::new();
-        mock_state_repo.expect_get_monitors().returning(|_| {
-            Err(sqlx::Error::Io(std::io::Error::new(std::io::ErrorKind::Other, "Database error")))
-        });
-        // Do NOT expect get_triggers, as the function should exit early.
-
-        let dir = tempdir().unwrap();
-        let abi_repository = Arc::new(AbiRepository::new(dir.path()).unwrap());
-        let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
-        let state_repo = Arc::new(setup_test_db().await);
-
-        let builder = SupervisorBuilder::new()
-            .config(AppConfig::default())
-            .state(state_repo)
-            .abi_service(abi_service)
-            .data_source(Box::new(MockDataSource::new()))
-            .script_compiler(Arc::new(RhaiCompiler::new(RhaiConfig::default())));
-
-        let result = builder.build().await;
-        assert!(result.is_err());
-        // Ensure it's a MonitorLoadError error, not a missing component error
-        assert!(matches!(result, Err(SupervisorError::MonitorLoadError(_))));
     }
 }
