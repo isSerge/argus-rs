@@ -655,4 +655,66 @@ mod tests {
         let result = alert_manager.process_match(&monitor_match).await;
         assert!(result.is_ok());
     }
+
+    #[tokio::test]
+    async fn test_check_and_dispatch_expired_windows() {
+        let notifier_name = "Aggregation Notifier".to_string();
+        let aggregation_policy = AggregationPolicy {
+            window_secs: chrono::Duration::seconds(1),
+            template: NotificationMessage {
+                title: "Aggregated Alert: {{ monitor_name }}".to_string(),
+                body: "{{ matches | length }} events detected.".to_string(),
+            },
+        };
+
+        let notifier_config = NotifierConfig {
+            name: notifier_name.clone(),
+            config: NotifierTypeConfig::Discord(DiscordConfig {
+                discord_url: "http://example.com".to_string(),
+                message: NotificationMessage {
+                    title: "Test".to_string(),
+                    body: "This is a test".to_string(),
+                },
+                retry_policy: Default::default(),
+            }),
+            policy: Some(NotifierPolicy::Aggregation(aggregation_policy.clone())),
+        };
+        let mut notifiers = HashMap::new();
+        notifiers.insert(notifier_name.to_string(), notifier_config.clone());
+
+        let mut state_repo = MockGenericStateRepository::new();
+        let monitor_match1 = create_monitor_match(notifier_name.clone());
+        let monitor_match2 = create_monitor_match(notifier_name.clone());
+        let aggregation_key = &monitor_match1.monitor_name;
+        let state_key = format!("aggregation_state:{}", aggregation_key);
+
+        // Simulate an existing aggregation state with two matches and an expired
+        // window.
+        let expired_state = AggregationState {
+            matches: vec![monitor_match1.clone(), monitor_match2.clone()],
+            window_start_time: Utc::now() - chrono::Duration::seconds(2),
+        };
+
+        let state_key_clone = state_key.clone();
+        state_repo
+            .expect_get_all_json_states_by_prefix::<AggregationState>()
+            .with(eq("aggregation_state:".to_string()))
+            .times(1)
+            .returning(move |_| Ok(vec![(state_key_clone.clone(), expired_state.clone())]));
+
+        // Expect the state to be cleared after dispatch.
+        state_repo
+            .expect_set_json_state::<AggregationState>()
+            .with(eq(state_key.clone()), eq(AggregationState::default()))
+            .times(1)
+            .returning(|_, _| Ok(()));
+
+        let alert_manager = create_alert_manager(notifiers, state_repo);
+
+        // Act
+        let result = alert_manager.check_and_dispatch_expired_windows().await;
+
+        // Assert
+        assert!(result.is_ok());
+    }
 }
