@@ -175,10 +175,6 @@ pub enum NotifierPolicy {
 /// Policy for aggregating multiple notifications into a single one.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct AggregationPolicy {
-    /// The key to use for aggregating notifications (monitor name, event type,
-    /// address, etc.).
-    pub key: String,
-
     /// The time window in seconds for the aggregation policy.
     pub window_secs: Duration,
 

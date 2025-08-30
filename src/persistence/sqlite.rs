@@ -1028,7 +1028,6 @@ mod tests {
         let network_id = "testnet_policy";
 
         let aggregation_policy = NotifierPolicy::Aggregation(AggregationPolicy {
-            key: "{{ monitor_name }}".to_string(),
             window_secs: chrono::Duration::seconds(60),
             template: NotificationMessage {
                 title: "Aggregated Alert".to_string(),
