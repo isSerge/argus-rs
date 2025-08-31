@@ -33,6 +33,12 @@ impl TemplateService {
         template_str: &str,
         context: serde_json::Value,
     ) -> Result<String, TemplateServiceError> {
+        tracing::debug!(
+            template = template_str,
+            context = %context,
+            "Rendering template with context."
+        );
+
         match self.env.render_str(template_str, context) {
             Ok(rendered_string) => Ok(rendered_string),
             Err(e) => {

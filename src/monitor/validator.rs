@@ -42,12 +42,13 @@ pub enum MonitorValidationError {
 
     /// A monitor that accesses log data does not have an ABI defined.
     #[error(
-        "Monitor '{monitor_name}' accesses log data but does not have an ABI defined. Please \
-         provide an 'abi' file path."
+        "Monitor '{monitor_name}' accesses log data but does not have an ABI defined. {reason}"
     )]
     MonitorRequiresAbi {
         /// The name of the monitor that failed validation.
         monitor_name: String,
+        /// The reason why the ABI is required but not found/linked.
+        reason: String,
     },
 
     /// The address provided for a monitor is invalid.
@@ -176,9 +177,20 @@ impl<'a> MonitorValidator<'a> {
                 });
             }
 
-            if monitor.abi.is_none() || (monitor.abi.is_some() && abi_json.is_none()) {
+            if monitor.abi.is_none() {
                 return Err(MonitorValidationError::MonitorRequiresAbi {
                     monitor_name: monitor.name.clone(),
+                    reason: "No 'abi' field provided in monitor configuration.".to_string(),
+                });
+            } else if abi_json.is_none() {
+                return Err(MonitorValidationError::MonitorRequiresAbi {
+                    monitor_name: monitor.name.clone(),
+                    reason: format!(
+                        "ABI '{}' could not be retrieved for address '{}'. Ensure the ABI is \
+                         loaded and linked.",
+                        monitor.abi.as_ref().unwrap(),
+                        monitor.address.as_ref().unwrap_or(&"<unknown>".to_string())
+                    ),
                 });
             }
         }
@@ -353,10 +365,12 @@ mod tests {
         let result = validator.validate(&invalid_monitor);
 
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            MonitorValidationError::MonitorRequiresAbi { monitor_name: _ }
-        ));
+        if let Err(MonitorValidationError::MonitorRequiresAbi { monitor_name, reason }) = result {
+            assert!(monitor_name.contains("Test Monitor 1"));
+            assert!(reason.contains("No 'abi' field provided in monitor configuration."));
+        } else {
+            panic!("Expected MonitorValidationError::MonitorRequiresAbi");
+        }
     }
 
     #[tokio::test]
@@ -519,21 +533,57 @@ mod tests {
         let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
         let validator =
             create_monitor_validator(&[], Some((contract_address, "simple", simple_abi())));
-        // Invalid: accesses log data, has address, but no abi file specified
+        // Invalid: accesses log data, has address, but no abi file specified in monitor
+        // config
         let invalid_monitor = create_test_monitor(
             1,
             Some("0x0000000000000000000000000000000000000123"),
-            None, // No ABI file
+            None, // No ABI file specified in monitor config
             "log.name == \"A\"",
             vec![],
         );
         let result = validator.validate(&invalid_monitor);
 
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            MonitorValidationError::MonitorRequiresAbi { monitor_name: _ }
-        ));
+        if let Err(MonitorValidationError::MonitorRequiresAbi { monitor_name, reason }) = result {
+            assert!(monitor_name.contains("Test Monitor 1"));
+            assert!(reason.contains("No 'abi' field provided in monitor configuration."));
+        } else {
+            panic!("Expected MonitorValidationError::MonitorRequiresAbi");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_monitor_validation_failure_requires_abi_for_log_access_abi_not_linked() {
+        let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
+        // Create validator without linking the ABI to the address
+        let validator =
+            create_monitor_validator(&[], Some((contract_address, "simple", simple_abi())));
+
+        // Invalid: accesses log data, has address and abi name, but ABI is not linked
+        let invalid_monitor = create_test_monitor(
+            1,
+            Some("0x0000000000000000000000000000000000000123"),
+            Some("simple"), // ABI name provided
+            "log.name == \"A\"",
+            vec![],
+        );
+        // Manually remove the linked ABI to simulate the failure condition
+        validator.abi_service.remove_abi(&contract_address);
+
+        let result = validator.validate(&invalid_monitor);
+
+        assert!(result.is_err());
+        if let Err(MonitorValidationError::MonitorRequiresAbi { monitor_name, reason }) = result {
+            assert!(monitor_name.contains("Test Monitor 1"));
+            assert!(reason.contains(
+                "ABI 'simple' could not be retrieved for address \
+                 '0x0000000000000000000000000000000000000123'. Ensure the ABI is loaded and \
+                 linked."
+            ));
+        } else {
+            panic!("Expected MonitorValidationError::MonitorRequiresAbi");
+        }
     }
 
     #[tokio::test]
