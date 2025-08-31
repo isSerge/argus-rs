@@ -3,6 +3,7 @@
 
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
+use alloy::primitives;
 use clap::Parser;
 use thiserror::Error;
 
@@ -149,9 +150,19 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     // Link ABIs for monitors that require them.
     for monitor in monitors.iter() {
         if let (Some(address_str), Some(abi_name)) = (&monitor.address, &monitor.abi) {
-            let address: alloy::primitives::Address = address_str.parse().map_err(|_| {
+            // Skip linking ABI for global log monitors (address: "all"), as they don't have a specific address.
+            if address_str.to_lowercase() == "all" {
+                tracing::debug!(
+                    monitor = %monitor.name,
+                    abi = %abi_name,
+                    "Skipping ABI linking for global log monitor."
+                );
+                continue;
+            }
+
+            let address: primitives::Address = address_str.parse().map_err(|_| {
                 DryRunError::MonitorValidation(
-                    crate::monitor::MonitorValidationError::InvalidAddress {
+                    MonitorValidationError::InvalidAddress {
                         monitor_name: monitor.name.clone(),
                         address: address_str.clone(),
                     },
