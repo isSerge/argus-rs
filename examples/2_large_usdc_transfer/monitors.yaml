@@ -1,0 +1,13 @@
+monitors:
+  - name: "Large USDC Transfers"
+    network: "ethereum"
+    # USDC contract address on Ethereum mainnet
+    address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" 
+    # The name of the ABI (Application Binary Interface) for the contract being monitored
+    # This should correspond to a file in the `abis/` directory specified in `app.yaml`
+    # In this case, the file should be named `usdc.json`
+    abi: "usdc"
+    filter_script: |
+      log.name == "Transfer" && log.params.value > usdc(1_000_000)
+    notifiers:
+      - "Telegram Large USDC Transfers"

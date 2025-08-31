@@ -1,0 +1,14 @@
+notifiers:
+  - name: "Telegram Large ETH Transfers"
+    telegram:
+      token: "<TELEGRAM TOKEN>"
+      chat_id: "<TELEGRAM CHAT ID>"
+      disable_web_preview: true
+      message:
+        title: "Large ETH Transfer"
+        body: |
+          A transfer of over 10 ETH was detected by monitor {{ monitor_name }}.
+          - *From*: `{{ from }}`
+          - *To*: `{{ to }}`
+          - *Value*: `{{ value }}` (in raw decimals)
+          [View on Etherscan](https://etherscan.io/tx/{{ transaction_hash }})

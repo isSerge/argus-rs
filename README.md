@@ -84,7 +84,7 @@ monitors:
     # No address means it runs on every transaction.
     # This type of monitor inspects transaction data directly.
     filter_script: |
-      tx.value > ether(10) # 10 ETH
+      tx.value > ether(10)
     # Notifiers are used to send notifications when the monitor triggers.
     notifiers:
       # This monitor will use the "my-generic-webhook" notifier defined in `notifiers.yaml`.
@@ -97,7 +97,7 @@ monitors:
     # The name of the ABI (Application Binary Interface) for the contract being monitored
     abi: "usdc"
     filter_script: |
-      log.name == "Transfer" && log.params.value > usdc(1_000_000) # 1M USDC
+      log.name == "Transfer" && log.params.value > usdc(1_000_000)
     # Notifiers are used to send notifications when the monitor triggers.
     notifiers:
       # This monitor will use the "slack-notifications" notifier defined in `notifiers.yaml`.
