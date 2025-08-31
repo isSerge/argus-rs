@@ -579,7 +579,8 @@ mod tests {
         // Block 101 - with non-matching tx
         mock_data_source.expect_fetch_block_core_data().with(eq(101)).times(1).returning(
             |block_num| {
-                let tx = TransactionBuilder::new().value(U256::from(10)).block_number(block_num).build();
+                let tx =
+                    TransactionBuilder::new().value(U256::from(10)).block_number(block_num).build();
                 let block = BlockBuilder::new().number(block_num).transaction(tx).build();
                 Ok((block, vec![]))
             },
