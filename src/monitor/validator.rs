@@ -107,6 +107,8 @@ impl<'a> MonitorValidator<'a> {
 
     /// Validates the given monitor configuration.
     pub fn validate(&self, monitor: &MonitorConfig) -> Result<(), MonitorValidationError> {
+        tracing::debug!(monitor = ?monitor, "Validating monitor configuration...");
+
         // Check if network id matches the monitor's network.
         if monitor.network != self.network_id {
             return Err(MonitorValidationError::InvalidNetwork {
