@@ -8,7 +8,7 @@ This example sets up a monitor that triggers when a `Transfer` event with a valu
 - `monitors.yaml`: Defines the "Large USDC Transfers" monitor.
 - `notifiers.yaml`: Defines "Telegram Large USDC Transfers" notifier.
 
-### Monitor Configuration Details
+### Monitor Configuration
 
 The `monitors.yaml` file in this example defines a single monitor:
 
@@ -30,6 +30,36 @@ monitors:
 - **`abi`**: The name of the ABI (Application Binary Interface) to use for decoding contract events. Here, "usdc" refers to the `usdc.json` file in the `abis/` directory. This is crucial for `log.name` and `log.params` to be available in the `filter_script`.
 - **`filter_script`**: This Rhai script defines the conditions for a match. `log.name == "Transfer"` checks for the `Transfer` event, and `log.params.value > usdc(1_000_000)` checks if the `value` parameter of that event is greater than 1 million USDC. The `usdc()` function is a convenient wrapper for handling USDC denominations.
 - **`notifiers`**: A list of notifier names (defined in `notifiers.yaml`) that will receive alerts when this monitor triggers. Here, it references "Telegram Large USDC Transfers".
+
+### Notifier Configuration
+
+The `notifiers.yaml` in this example defines a single Telegram notifier:
+
+```yaml
+notifiers:
+  - name: "Telegram Large USDC Transfers"
+    telegram:
+      token: "<TELEGRAM TOKEN>"
+      chat_id: "<TELEGRAM CHAT ID>"
+      disable_web_preview: true
+      message:
+        title: "Large USDC Transfer"
+        body: |
+          A transfer of over 1,000,000 USDC was detected by monitor {{ monitor_name }}.
+          - *From*: `{{ from }}`
+          - *To*: `{{ to }}`
+          - *Value*: `{{ value }}` (in raw decimals)
+          [View on Etherscan](https://etherscan.io/tx/{{ transaction_hash }})
+```
+
+-   **`name`**: A unique, human-readable name for the notifier. This name is referenced by monitors in their `notifiers` list.
+-   **`telegram`**: This block configures a Telegram notifier.
+    -   **`token`**: Your Telegram bot token.
+    -   **`chat_id`**: The ID of the Telegram chat where notifications will be sent.
+    -   **`disable_web_preview`**: (Optional) Set to `true` to disable link previews in Telegram messages.
+    -   **`message`**: Defines the structure and content of the notification message.
+        -   **`title`**: The title of the notification. Supports [Jinja2-like templating](https://docs.rs/minijinja/latest/minijinja/) to include dynamic data from the monitor match (e.g., `{{ monitor_name }}`).
+        -   **`body`**: The main content of the notification. Supports [Jinja2-like templating](https://docs.rs/minijinja/latest/minijinja/) and Markdown formatting.
 
 ### How to Run (Dry-Run Mode)
 
