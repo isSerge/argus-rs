@@ -7,7 +7,7 @@ use clap::Parser;
 use thiserror::Error;
 
 use crate::{
-    abi::{AbiRepository, AbiService, repository::AbiRepositoryError},
+    abi::{AbiError, AbiRepository, AbiService, repository::AbiRepositoryError},
     config::AppConfig,
     engine::{
         alert_manager::{AlertManager, AlertManagerError},
@@ -88,6 +88,10 @@ pub enum DryRunError {
     /// An error occurred during database migrations.
     #[error("Migration error: {0}")]
     Migration(#[from] sqlx::migrate::MigrateError),
+
+    /// An error occurred in the ABI service.
+    #[error("ABI service error: {0}")]
+    AbiServiceError(#[from] AbiError),
 }
 
 /// A command to perform a dry run of monitors over a specified block range.
@@ -141,6 +145,27 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     // Load and validate monitor and notifier configurations from files.
     let monitors = load_config::<MonitorConfig>(config.monitor_config_path.into())?;
     let notifiers = load_config::<NotifierConfig>(config.notifier_config_path.into())?;
+
+    // Link ABIs for monitors that require them.
+    for monitor in monitors.iter() {
+        if let (Some(address_str), Some(abi_name)) = (&monitor.address, &monitor.abi) {
+            let address: alloy::primitives::Address = address_str.parse().map_err(|_| {
+                DryRunError::MonitorValidation(
+                    crate::monitor::MonitorValidationError::InvalidAddress {
+                        monitor_name: monitor.name.clone(),
+                        address: address_str.clone(),
+                    },
+                )
+            })?;
+            tracing::debug!(
+                monitor = %monitor.name,
+                address = %address,
+                abi = %abi_name,
+                "Linking ABI for monitor."
+            );
+            abi_service.link_abi(address, abi_name)?;
+        }
+    }
 
     let monitor_validator = MonitorValidator::new(
         script_validator,
