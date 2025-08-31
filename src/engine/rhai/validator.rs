@@ -91,6 +91,8 @@ impl RhaiScriptValidator {
             HashSet::new()
         };
 
+        tracing::debug!(?valid_static_fields, ?valid_dynamic_fields, "Valid Rhai fields");
+
         // Iterate over accessed variables
         for field in ast_analysis.accessed_variables.iter() {
             let is_static = valid_static_fields.contains(field);
