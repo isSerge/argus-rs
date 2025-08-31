@@ -1,8 +1,8 @@
 notifiers:
   - name: "Telegram WETH Deposits"
     telegram:
-      token: "8104353094:AAHOcqTmeNwuHjCf-QGlZcFtzeDMcFlab_o"
-      chat_id: "86472762"
+      token: "<TELEGRAM TOKEN>"
+      chat_id: "<TELEGRAM CHAT ID>"
       disable_web_preview: true
       message:
         title: "WETH Deposit Detected"
