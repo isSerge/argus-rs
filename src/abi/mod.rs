@@ -257,6 +257,12 @@ impl AbiService {
     pub fn get_abi(&self, address: Address) -> Option<Arc<CachedContract>> {
         self.cache.get(&address).map(|entry| Arc::clone(&entry))
     }
+
+    /// Retrieves an ABI by its name from the `AbiRepository`, without linking it to a specific address.
+    /// This is useful for retrieving ABIs for global log monitors (have no address).
+    pub fn get_abi_by_name(&self, abi_name: &str) -> Option<Arc<JsonAbi>> {
+        self.abi_repository.get_abi(abi_name)
+    }
 }
 
 #[cfg(test)]
@@ -536,5 +542,21 @@ mod tests {
 
         let cached_contract = service.get_abi(contract_address).unwrap();
         assert_eq!(cached_contract.abi.functions().next().unwrap().name, "transfer");
+    }
+
+    #[test]
+    fn test_get_abi_by_name() {
+        let temp_dir = tempdir().unwrap();
+        create_test_abi_file(&temp_dir, "test_abi.json", simple_abi_json());
+        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
+        let service = AbiService::new(abi_repo);
+
+        // Test with an existing ABI name
+        let abi = service.get_abi_by_name("test_abi").unwrap();
+        assert_eq!(abi.functions().next().unwrap().name, "transfer");
+
+        // Test with a non-existent ABI name
+        let non_existent_abi = service.get_abi_by_name("nonexistent");
+        assert!(non_existent_abi.is_none());
     }
 }
