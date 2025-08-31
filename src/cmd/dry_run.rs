@@ -512,4 +512,129 @@ mod tests {
         // Assert
         assert!(result.is_ok());
     }
+
+    #[tokio::test]
+    async fn test_run_dry_run_loop_data_source_error() {
+        // Arrange
+        let from_block = 100;
+        let to_block = 100;
+        let monitor_script = "tx.value > 100";
+
+        // Create a mock data source that returns an error
+        let mut mock_data_source = MockDataSource::new();
+        mock_data_source
+            .expect_fetch_block_core_data()
+            .with(eq(from_block))
+            .times(1)
+            .returning(|_| Err(DataSourceError::BlockNotFound(100)));
+
+        let monitor = MonitorBuilder::new().filter_script(monitor_script).build();
+
+        // Initialize other services
+        let temp_dir = tempdir().unwrap();
+        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
+        let abi_service = Arc::new(AbiService::new(abi_repo));
+        let block_processor = BlockProcessor::new(abi_service.clone());
+        let rhai_config = RhaiConfig::default();
+        let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));
+        let filtering_engine = RhaiFilteringEngine::new(vec![monitor], rhai_compiler, rhai_config);
+        let alert_manager = create_test_alert_manager(Arc::new(HashMap::new())).await;
+
+        // Act
+        let result = run_dry_run_loop(
+            from_block,
+            to_block,
+            Box::new(mock_data_source),
+            block_processor,
+            filtering_engine,
+            alert_manager,
+        )
+        .await;
+
+        // Assert
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, DryRunError::DataSource(_)));
+    }
+
+    #[tokio::test]
+    async fn test_run_dry_run_loop_multiple_blocks() {
+        // Arrange
+        let from_block = 100;
+        let to_block = 101;
+        let monitor_script = "tx.value > bigint(\"10000000000000000000\")";
+
+        // Create a mock data source
+        let mut mock_data_source = MockDataSource::new();
+
+        // Block 100 - with matching tx
+        mock_data_source.expect_fetch_block_core_data().with(eq(100)).times(1).returning(
+            |block_num| {
+                let tx = TransactionBuilder::new().value(U256::MAX).block_number(block_num).build();
+                let block = BlockBuilder::new().number(block_num).transaction(tx).build();
+                Ok((block, vec![]))
+            },
+        );
+
+        // Block 101 - with non-matching tx
+        mock_data_source.expect_fetch_block_core_data().with(eq(101)).times(1).returning(
+            |block_num| {
+                let tx = TransactionBuilder::new().value(U256::from(10)).block_number(block_num).build();
+                let block = BlockBuilder::new().number(block_num).transaction(tx).build();
+                Ok((block, vec![]))
+            },
+        );
+
+        // Create a monitor that will match the transaction
+        let monitor = MonitorBuilder::new()
+            .filter_script(monitor_script)
+            .notifiers(vec!["test-notifier".to_string()])
+            .build();
+
+        // Initialize other services
+        let temp_dir = tempdir().unwrap();
+        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
+        let abi_service = Arc::new(AbiService::new(abi_repo));
+        let block_processor = BlockProcessor::new(abi_service.clone());
+        let rhai_config = RhaiConfig::default();
+        let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));
+        let filtering_engine = RhaiFilteringEngine::new(vec![monitor], rhai_compiler, rhai_config);
+        let notifiers = HashMap::from([
+            (
+                "test-notifier".to_string(),
+                NotifierConfig {
+                    name: "test-notifier".to_string(),
+                    config: NotifierTypeConfig::Slack(
+                        SlackConfig {
+                            slack_url: "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX".to_string(),
+                            message: NotificationMessage {
+                                title: "Test Alert".to_string(),
+                                body: "A test alert was triggered by monitor {{ monitor_name }}.".to_string(),
+                            },
+                            retry_policy: Default::default(),
+                        },
+                    ),
+                    policy: None,
+                },
+            ),
+        ]);
+        let alert_manager = create_test_alert_manager(Arc::new(notifiers)).await;
+
+        // Act
+        let result = run_dry_run_loop(
+            from_block,
+            to_block,
+            Box::new(mock_data_source),
+            block_processor,
+            filtering_engine,
+            alert_manager,
+        )
+        .await;
+
+        // Assert
+        assert!(result.is_ok());
+        let matches = result.unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].block_number, 100);
+    }
 }
