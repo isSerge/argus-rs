@@ -5,6 +5,7 @@ This directory contains various examples demonstrating how to configure and use 
 ## List of Examples
 
 - [1. Basic ETH Transfer Monitor](./1_basic_eth_transfer/README.md)
+- [2. Large USDC Transfer Monitor](./2_large_usdc_transfer/README.md)
 
 ---
 
