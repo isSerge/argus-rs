@@ -205,7 +205,7 @@ mod tests {
         let retry_config_1 = HttpRetryConfig::default();
 
         // Config 2 (different retry count)
-        let retry_config_2 = HttpRetryConfig { max_retries: 5, ..Default::default() };
+        let retry_config_2 = HttpRetryConfig { max_retry: 5, ..Default::default() };
 
         // Get a client for each config
         let client1 = pool.get_or_create(&retry_config_1).await.unwrap();

@@ -65,7 +65,7 @@ async fn test_success() {
 async fn test_failure_with_retryable_error() {
     let mut server = mockito::Server::new_async().await;
 
-    let retry_policy = HttpRetryConfig { max_retries: 2, ..Default::default() };
+    let retry_policy = HttpRetryConfig { max_retry: 2, ..Default::default() };
 
     let mock_discord_notifier = NotifierConfig {
         name: "test_discord_retry".to_string(),
@@ -116,7 +116,7 @@ async fn test_failure_with_retryable_error() {
 async fn test_failure_with_non_retryable_error() {
     let mut server = mockito::Server::new_async().await;
 
-    let retry_policy = HttpRetryConfig { max_retries: 3, ..Default::default() };
+    let retry_policy = HttpRetryConfig { max_retry: 3, ..Default::default() };
 
     let mock_discord_notifier = NotifierConfig {
         name: "test_discord_no_retry".to_string(),
@@ -172,7 +172,7 @@ async fn test_failure_with_invalid_url() {
                 body: "This should fail".to_string(),
             },
             retry_policy: HttpRetryConfig {
-                max_retries: 0,
+                max_retry: 0,
                 initial_backoff_ms: std::time::Duration::from_millis(1),
                 ..Default::default()
             },

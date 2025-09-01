@@ -41,7 +41,7 @@ pub enum JitterSetting {
 pub struct HttpRetryConfig {
     /// Maximum number of retries for transient errors
     #[serde(default = "default_max_attempts")]
-    pub max_retries: u32,
+    pub max_retry: u32,
     /// Base duration for exponential backoff calculations
     #[serde(default = "default_base_for_backoff")]
     pub base_for_backoff: u32,
@@ -68,7 +68,7 @@ impl Default for HttpRetryConfig {
     /// Creates a default configuration with reasonable retry settings
     fn default() -> Self {
         Self {
-            max_retries: default_max_attempts(),
+            max_retry: default_max_attempts(),
             base_for_backoff: default_base_for_backoff(),
             initial_backoff_ms: default_initial_backoff_ms(),
             max_backoff_secs: default_max_backoff_ms(),
@@ -88,7 +88,7 @@ mod tests {
     #[test]
     fn test_http_retry_config_with_custom_values() {
         let yaml = "
-            max_retries: 5
+            max_retry: 5
             base_for_backoff: 100
             initial_backoff_ms: 200
             max_backoff_secs: 10
@@ -99,7 +99,7 @@ mod tests {
             Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
         let config: HttpRetryConfig = builder.build().unwrap().try_deserialize().unwrap();
 
-        assert_eq!(config.max_retries, 5);
+        assert_eq!(config.max_retry, 5);
         assert_eq!(config.base_for_backoff, 100);
         assert_eq!(config.initial_backoff_ms, Duration::from_millis(200));
         assert_eq!(config.max_backoff_secs, Duration::from_secs(10));
@@ -115,7 +115,7 @@ mod tests {
             Config::builder().add_source(config::File::from_str(yaml, config::FileFormat::Yaml));
         let config: HttpRetryConfig = builder.build().unwrap().try_deserialize().unwrap();
 
-        assert_eq!(config.max_retries, default_config.max_retries);
+        assert_eq!(config.max_retry, default_config.max_retry);
         assert_eq!(config.base_for_backoff, default_config.base_for_backoff);
         assert_eq!(config.initial_backoff_ms, default_config.initial_backoff_ms);
         assert_eq!(config.max_backoff_secs, default_config.max_backoff_secs);
