@@ -12,8 +12,8 @@ use futures::future::join_all;
 use thiserror::Error;
 
 use crate::{
-    abi::{AbiService, DecodedLog},
-    models::{BlockData, CorrelatedBlockItem, DecodedBlockData, transaction::Transaction},
+    abi::{AbiError, AbiService, DecodedLog},
+    models::{transaction::Transaction, BlockData, CorrelatedBlockItem, DecodedBlockData},
 };
 
 /// Custom error type for `BlockProcessor` operations.
@@ -66,13 +66,10 @@ impl BlockProcessor {
 
                     let mut decoded_logs: Vec<DecodedLog> = Vec::new();
                     for log in &raw_logs_for_tx {
-                        // First, check if we are monitoring this address at all.
-                        if self.abi_service.is_monitored(&log.address()) {
-                            match self.abi_service.decode_log(log) {
-                                Ok(decoded) => decoded_logs.push(decoded),
-                                Err(e) => {
-                                    // If we are monitoring the address, a decoding failure is a
-                                    // significant warning.
+                        match self.abi_service.decode_log(log) {
+                            Ok(decoded) => decoded_logs.push(decoded),
+                            Err(e) => {
+                                if !matches!(e, AbiError::AbiNotFound(_)) {
                                     tracing::warn!(
                                         log_address = %log.address(),
                                         error = %e,
@@ -177,6 +174,54 @@ mod tests {
         let address = address!("0000000000000000000000000000000000000001");
         abi_service.link_abi(address, abi_name).unwrap();
         (abi_service, address)
+    }
+
+    #[tokio::test]
+    async fn test_process_block_global_abi() {
+        let block_number = 123;
+        let contract_address = address!("0000000000000000000000000000000000000001");
+        let tx_hash = b256!("1111111111111111111111111111111111111111111111111111111111111111");
+
+        // 1. Setup ABI Service with a global ABI
+        let temp_dir = tempdir().unwrap();
+        create_test_abi_file(&temp_dir, "simple.json", simple_abi_json());
+        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
+        let abi_service = Arc::new(AbiService::new(abi_repo));
+        abi_service.add_global_abi("simple").unwrap();
+
+        // 2. Setup BlockData
+        let tx = TransactionBuilder::new()
+            .hash(tx_hash)
+            .to(Some(contract_address))
+            .block_number(block_number)
+            .build();
+
+        let log = LogBuilder::new()
+            .address(contract_address)
+            .topic(b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"))
+            .topic(Address::default().into_word())
+            .topic(Address::default().into_word())
+            .data(Bytes::from(U256::from(1000).to_be_bytes::<32>()))
+            .transaction_hash(tx_hash)
+            .block_number(block_number)
+            .build();
+
+        let block = BlockBuilder::new().number(block_number).transaction(tx).build();
+
+        let mut logs_by_tx = HashMap::new();
+        logs_by_tx.insert(tx_hash, vec![log.into()]);
+
+        let block_data = BlockData::new(block, HashMap::new(), logs_by_tx);
+
+        // 3. Setup BlockProcessor
+        let block_processor = BlockProcessor::new(abi_service);
+
+        // 4. Process block
+        let decoded_block = block_processor.process_block(block_data).await.unwrap();
+
+        // 5. Assertions
+        assert_eq!(decoded_block.items[0].decoded_logs.len(), 1);
+        assert_eq!(decoded_block.items[0].decoded_logs[0].name, "Transfer");
     }
 
     #[tokio::test]
