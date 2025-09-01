@@ -6,7 +6,10 @@
 //! ABI.
 pub mod repository;
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use alloy::{
     dyn_abi::{self, DynSolValue, EventExt},
@@ -14,6 +17,7 @@ use alloy::{
     primitives::{Address, B256},
 };
 use dashmap::DashMap;
+use parking_lot::RwLock;
 use thiserror::Error;
 
 pub use self::repository::AbiRepository;
@@ -48,6 +52,19 @@ impl From<Arc<JsonAbi>> for CachedContract {
             .collect::<HashMap<B256, Event>>();
 
         Self { functions, events, abi }
+    }
+}
+
+impl PartialEq for CachedContract {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.abi, &other.abi)
+    }
+}
+impl Eq for CachedContract {}
+
+impl std::hash::Hash for CachedContract {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        Arc::as_ptr(&self.abi).hash(state);
     }
 }
 
@@ -121,7 +138,9 @@ pub struct DecodedCall {
 #[derive(Debug)]
 pub struct AbiService {
     /// Cache for pre-processed contract ABIs, mapped by contract address.
-    cache: DashMap<Address, Arc<CachedContract>>,
+    address_specific_cache: DashMap<Address, Arc<CachedContract>>,
+    /// A set of global ABIs used for decoding logs from any address.
+    global_cache: RwLock<HashSet<Arc<CachedContract>>>,
     /// Repository for loading raw ABI definitions by name.
     abi_repository: Arc<AbiRepository>,
 }
@@ -129,7 +148,23 @@ pub struct AbiService {
 impl AbiService {
     /// Creates a new `AbiService`.
     pub fn new(abi_repository: Arc<AbiRepository>) -> Self {
-        Self { cache: DashMap::new(), abi_repository }
+        Self {
+            address_specific_cache: DashMap::new(),
+            global_cache: RwLock::new(HashSet::new()),
+            abi_repository,
+        }
+    }
+
+    /// Adds a global ABI to the service.
+    pub fn add_global_abi(&self, abi_name: &str) -> Result<(), AbiError> {
+        let abi = self
+            .abi_repository
+            .get_abi(abi_name)
+            .ok_or_else(|| AbiError::AbiNotFoundInRepository(abi_name.to_string()))?;
+
+        let cached_contract = Arc::new(CachedContract::from(abi));
+        self.global_cache.write().insert(cached_contract);
+        Ok(())
     }
 
     /// Links a contract address to an ABI by its name from the `AbiRepository`.
@@ -141,7 +176,7 @@ impl AbiService {
             .ok_or_else(|| AbiError::AbiNotFoundInRepository(abi_name.to_string()))?;
 
         let cached_contract = Arc::new(CachedContract::from(abi));
-        self.cache.insert(address, cached_contract);
+        self.address_specific_cache.insert(address, cached_contract);
         Ok(())
     }
 
@@ -150,32 +185,52 @@ impl AbiService {
     /// Returns true if the ABI was present and removed, false if it wasn't in
     /// the cache.
     pub fn remove_abi(&self, address: &Address) -> bool {
-        self.cache.remove(address).is_some()
+        self.address_specific_cache.remove(address).is_some()
     }
 
     /// Checks if the service is configured to monitor a given address.
     pub fn is_monitored(&self, address: &Address) -> bool {
-        self.cache.contains_key(address)
+        self.address_specific_cache.contains_key(address)
     }
 
     /// Returns the number of ABIs in the cache.
     pub fn cache_size(&self) -> usize {
-        self.cache.len()
+        self.address_specific_cache.len()
     }
 
     /// Decodes an event log using proper Alloy APIs.
     pub fn decode_log(&self, log: &Log) -> Result<DecodedLog, AbiError> {
-        let contract =
-            self.cache.get(&log.address()).ok_or_else(|| AbiError::AbiNotFound(log.address()))?;
-
         let event_signature = log.topics().first().ok_or(AbiError::LogHasNoTopics)?;
 
+        // Prioritize address-specific ABIs.
+        if let Some(contract) = self.address_specific_cache.get(&log.address())
+            && contract.events.contains_key(event_signature)
+        {
+            return self.decode_log_with_contract(log, &contract, event_signature);
+        }
+
+        // Fallback to global ABIs if no address-specific match is found.
+        for contract in self.global_cache.read().iter() {
+            if contract.events.contains_key(event_signature) {
+                return self.decode_log_with_contract(log, contract, event_signature);
+            }
+        }
+
+        Err(AbiError::EventNotFound(*event_signature))
+    }
+
+    fn decode_log_with_contract(
+        &self,
+        log: &Log,
+        contract: &Arc<CachedContract>,
+        event_signature: &B256,
+    ) -> Result<DecodedLog, AbiError> {
         let event = contract
             .events
             .get(event_signature)
             .ok_or_else(|| AbiError::EventNotFound(*event_signature))?;
 
-        let decoded = event.decode_log_parts(log.topics().iter().copied(), log.data().as_ref())?; // Use contract.abi directly
+        let decoded = event.decode_log_parts(log.topics().iter().copied(), log.data().as_ref())?;
 
         let params: Vec<(String, DynSolValue)> = event
             .inputs
@@ -196,7 +251,6 @@ impl AbiService {
     /// the parameters.
     pub fn decode_function_input(&self, tx: &Transaction) -> Result<DecodedCall, AbiError> {
         // Get the target contract address from the transaction
-
         let to = tx.to().ok_or_else(|| {
             tracing::debug!("Cannot decode function call from contract creation transaction");
             AbiError::ContractCreation
@@ -214,9 +268,29 @@ impl AbiService {
         // Extract the function selector (first 4 bytes)
         let selector: [u8; 4] = input[0..4].try_into().unwrap();
 
-        let contract = self.cache.get(&to).ok_or_else(|| AbiError::AbiNotFound(to))?;
+        // Prioritize address-specific ABIs.
+        if let Some(contract) = self.address_specific_cache.get(&to)
+            && contract.functions.contains_key(&selector)
+        {
+            return self.decode_function_input_with_contract(tx, &contract, selector);
+        }
 
-        // Look up the function in the contract ABI using the selector
+        // Fallback to global ABIs if no address-specific match is found.
+        for contract in self.global_cache.read().iter() {
+            if contract.functions.contains_key(&selector) {
+                return self.decode_function_input_with_contract(tx, contract, selector);
+            }
+        }
+
+        Err(AbiError::FunctionNotFound(selector))
+    }
+
+    fn decode_function_input_with_contract(
+        &self,
+        tx: &Transaction,
+        contract: &Arc<CachedContract>,
+        selector: [u8; 4],
+    ) -> Result<DecodedCall, AbiError> {
         let function = contract
             .functions
             .get(&selector)
@@ -226,7 +300,7 @@ impl AbiService {
             function.inputs.iter().map(|p| p.ty.parse()).collect::<Result<Vec<_>, _>>()?;
 
         let tuple_type = dyn_abi::DynSolType::Tuple(input_types);
-        let decoded_value = tuple_type.abi_decode(&input[4..])?;
+        let decoded_value = tuple_type.abi_decode(&tx.input()[4..])?;
 
         let decoded_tokens = if let DynSolValue::Tuple(tokens) = decoded_value {
             tokens
@@ -255,7 +329,25 @@ impl AbiService {
 
     /// Retrieves the cached ABI for a given contract address, if it exists.
     pub fn get_abi(&self, address: Address) -> Option<Arc<CachedContract>> {
-        self.cache.get(&address).map(|entry| Arc::clone(&entry))
+        self.address_specific_cache.get(&address).map(|entry| Arc::clone(&entry))
+    }
+
+    /// Retrieves an ABI by its name from the `AbiRepository`, without linking
+    /// it to a specific address. This is useful for retrieving ABIs for
+    /// global log monitors (have no address).
+    pub fn get_abi_by_name(&self, abi_name: &str) -> Option<Arc<JsonAbi>> {
+        self.abi_repository.get_abi(abi_name)
+    }
+
+    /// Checks if a global ABI with the given name has been added to the
+    /// service.
+    pub fn has_global_abi(&self, abi_name: &str) -> bool {
+        let global_cache = self.global_cache.read();
+        global_cache.iter().any(|cached_contract| {
+            self.abi_repository
+                .get_abi(abi_name)
+                .is_some_and(|repo_abi| Arc::ptr_eq(&repo_abi, &cached_contract.abi))
+        })
     }
 }
 
@@ -263,10 +355,7 @@ impl AbiService {
 mod tests {
     use std::path::PathBuf;
 
-    use alloy::{
-        primitives::{Address, Bytes, U256, address, b256, bytes},
-        rpc::types::Log as AlloyLog,
-    };
+    use alloy::primitives::{Address, Bytes, U256, address, b256, bytes};
     use tempfile::tempdir;
 
     use super::*;
@@ -417,10 +506,35 @@ mod tests {
         let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
         let service = AbiService::new(abi_repo);
 
-        let log = AlloyLog::default();
+        let log = LogBuilder::new()
+            .topic(b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"))
+            .build();
         let log: Log = log.into();
         let err = service.decode_log(&log).unwrap_err();
-        assert!(matches!(err, AbiError::AbiNotFound(_)));
+        assert!(matches!(err, AbiError::EventNotFound(_)));
+    }
+
+    #[test]
+    fn test_decode_log_global_abi() {
+        let temp_dir = tempdir().unwrap();
+        create_test_abi_file(&temp_dir, "simple.json", simple_abi_json());
+        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
+        let service = AbiService::new(abi_repo);
+        service.add_global_abi("simple").unwrap();
+
+        let from = address!("1111111111111111111111111111111111111111");
+        let to = address!("2222222222222222222222222222222222222222");
+
+        let log = LogBuilder::new()
+            .address(address!("3333333333333333333333333333333333333333")) // Some random address
+            .topic(b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef")) // Transfer event signature
+            .topic(from.into_word())
+            .topic(to.into_word())
+            .data(bytes!("0000000000000000000000000000000000000000000000000000000000000064"))
+            .build();
+
+        let decoded = service.decode_log(&log).unwrap();
+        assert_eq!(decoded.name, "Transfer");
     }
 
     #[test]
@@ -430,11 +544,11 @@ mod tests {
         let service = AbiService::new(abi_repo);
 
         let tx = TransactionBuilder::new()
-            .input(Bytes::from(vec![0u8; 32]))
+            .input(Bytes::from(vec![0x12, 0x34, 0x56, 0x78]))
             .to(Some(Address::default()))
             .build();
         let err = service.decode_function_input(&tx).unwrap_err();
-        assert!(matches!(err, AbiError::AbiNotFound(_)));
+        assert!(matches!(err, AbiError::FunctionNotFound(_)));
     }
 
     #[test]
@@ -536,5 +650,116 @@ mod tests {
 
         let cached_contract = service.get_abi(contract_address).unwrap();
         assert_eq!(cached_contract.abi.functions().next().unwrap().name, "transfer");
+    }
+
+    #[test]
+    fn test_get_abi_by_name() {
+        let temp_dir = tempdir().unwrap();
+        create_test_abi_file(&temp_dir, "test_abi.json", simple_abi_json());
+        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
+        let service = AbiService::new(abi_repo);
+
+        // Test with an existing ABI name
+        let abi = service.get_abi_by_name("test_abi").unwrap();
+        assert_eq!(abi.functions().next().unwrap().name, "transfer");
+
+        // Test with a non-existent ABI name
+        let non_existent_abi = service.get_abi_by_name("nonexistent");
+        assert!(non_existent_abi.is_none());
+    }
+
+    #[test]
+    fn test_decode_log_fallback_to_global() {
+        let temp_dir = tempdir().unwrap();
+        create_test_abi_file(
+            &temp_dir,
+            "specific.json",
+            r#"[{"type": "event", "name": "SpecificEvent", "inputs": [], "anonymous": false}]"#,
+        );
+        create_test_abi_file(&temp_dir, "simple.json", simple_abi_json());
+
+        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
+        let service = AbiService::new(abi_repo);
+
+        let contract_address = address!("0000000000000000000000000000000000000001");
+        service.link_abi(contract_address, "specific").unwrap();
+        service.add_global_abi("simple").unwrap();
+
+        let from = address!("1111111111111111111111111111111111111111");
+        let to = address!("2222222222222222222222222222222222222222");
+
+        // This log has the "Transfer" event signature, which is in the global ABI,
+        // but not in the address-specific ABI.
+        let log = LogBuilder::new()
+            .address(contract_address)
+            .topic(b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"))
+            .topic(from.into_word())
+            .topic(to.into_word())
+            .data(bytes!("0000000000000000000000000000000000000000000000000000000000000064"))
+            .build();
+
+        // The service should fail to decode with the specific ABI and fallback to the
+        // global one.
+        let decoded = service.decode_log(&log).unwrap();
+        assert_eq!(decoded.name, "Transfer");
+    }
+
+    #[test]
+    fn test_decode_log_global_abi_decoding_error() {
+        let temp_dir = tempdir().unwrap();
+        create_test_abi_file(&temp_dir, "simple.json", simple_abi_json());
+        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
+        let service = AbiService::new(abi_repo);
+        service.add_global_abi("simple").unwrap();
+
+        // Log with correct "Transfer" signature but malformed data
+        let log = LogBuilder::new()
+            .address(address!("3333333333333333333333333333333333333333"))
+            .topic(b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"))
+            .data(bytes!("00000001")) // Malformed data
+            .build();
+
+        let err = service.decode_log(&log).unwrap_err();
+        assert!(matches!(err, AbiError::DecodingError(_)));
+    }
+
+    #[test]
+    fn test_decode_function_input_fallback_to_global() {
+        let temp_dir = tempdir().unwrap();
+        create_test_abi_file(
+            &temp_dir,
+            "specific.json",
+            r#"[{"type": "function", "name": "specificFunction", "inputs": [], "outputs": []}]"#,
+        );
+        create_test_abi_file(&temp_dir, "simple.json", simple_abi_json());
+
+        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
+        let service = AbiService::new(abi_repo);
+
+        let contract_address = address!("0000000000000000000000000000000000000001");
+        service.link_abi(contract_address, "specific").unwrap();
+        service.add_global_abi("simple").unwrap();
+
+        let to_addr = address!("2222222222222222222222222222222222222222");
+        let amount = U256::from(100);
+
+        let mut input_data = bytes!("a9059cbb").to_vec(); // transfer function selector
+        let to_addr_bytes = to_addr.as_slice();
+        let mut padded_addr = [0u8; 32];
+        padded_addr[12..].copy_from_slice(to_addr_bytes);
+        input_data.extend_from_slice(&padded_addr);
+        input_data.extend_from_slice(&amount.to_be_bytes_vec());
+
+        // This transaction has the "transfer" function selector, which is in the global
+        // ABI, but not in the address-specific ABI.
+        let tx = TransactionBuilder::new()
+            .to(Some(contract_address))
+            .input(Bytes::from(input_data))
+            .build();
+
+        // The service should fail to decode with the specific ABI and fallback to the
+        // global one.
+        let decoded = service.decode_function_input(&tx).unwrap();
+        assert_eq!(decoded.name, "transfer");
     }
 }

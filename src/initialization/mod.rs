@@ -177,19 +177,28 @@ impl InitializationService {
 
         for monitor in &monitors {
             if let (Some(address_str), Some(abi_name)) = (&monitor.address, &monitor.abi) {
-                let address = address_str.parse().map_err(|e| {
-                    InitializationError::AbiLoadError(format!(
-                        "Failed to parse address for monitor '{}': {}",
-                        monitor.name, e
-                    ))
-                })?;
+                if address_str.eq_ignore_ascii_case("all") {
+                    self.abi_service.add_global_abi(abi_name).map_err(|e| {
+                        InitializationError::AbiLoadError(format!(
+                            "Failed to add global ABI '{}' for monitor '{}': {}",
+                            abi_name, monitor.name, e
+                        ))
+                    })?;
+                } else {
+                    let address = address_str.parse().map_err(|e| {
+                        InitializationError::AbiLoadError(format!(
+                            "Failed to parse address for monitor '{}': {}",
+                            monitor.name, e
+                        ))
+                    })?;
 
-                self.abi_service.link_abi(address, abi_name).map_err(|e| {
-                    InitializationError::AbiLoadError(format!(
-                        "Failed to link ABI '{}' for monitor '{}': {}",
-                        abi_name, monitor.name, e
-                    ))
-                })?;
+                    self.abi_service.link_abi(address, abi_name).map_err(|e| {
+                        InitializationError::AbiLoadError(format!(
+                            "Failed to link ABI '{}' for monitor '{}': {}",
+                            abi_name, monitor.name, e
+                        ))
+                    })?;
+                }
             }
         }
         tracing::info!(count = monitors.len(), network_id = %network_id, "ABIs loaded for monitors from database.");
@@ -726,5 +735,46 @@ monitors:
             abi_service
                 .is_monitored(&"0x0000000000000000000000000000000000000001".parse().unwrap())
         );
+    }
+
+    #[tokio::test]
+    async fn test_load_abis_from_monitors_global_abi() {
+        let temp_dir = tempdir().unwrap();
+        create_test_abi_file(
+            &temp_dir,
+            "global_test_abi.json",
+            r#"[{"type":"event","name":"GlobalEvent","inputs":[],"anonymous":false}]"#,
+        );
+        let network_id = "testnet";
+        let monitor = MonitorBuilder::new()
+            .name("Global ABI Monitor")
+            .network(network_id)
+            .address("all") // This is the key for global ABI
+            .abi("global_test_abi")
+            .build();
+
+        let mut mock_repo = MockStateRepository::new();
+        mock_repo
+            .expect_get_monitors()
+            .with(eq(network_id))
+            .once()
+            .returning(move |_| Ok(vec![monitor.clone()]));
+
+        let abi_repository = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
+        let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
+        let config = AppConfig::builder().network_id(network_id).build();
+        let script_validator = create_script_validator();
+        let initialization_service = InitializationService::new(
+            config,
+            Arc::new(mock_repo),
+            Arc::clone(&abi_service),
+            script_validator,
+        );
+
+        let result = initialization_service.load_abis_from_monitors().await;
+        assert!(result.is_ok());
+
+        // Verify ABI was added to AbiService's global cache
+        assert!(abi_service.has_global_abi("global_test_abi"));
     }
 }

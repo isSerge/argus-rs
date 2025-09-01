@@ -13,6 +13,7 @@ Argus EVM Monitor.
   greater than 1,000,000 USDC is detected from the USDC contract on the Ethereum
   mainnet.
 - [3. WETH Deposit](./3_weth_deposit/README.md): This example sets up a monitor that triggers when a `Deposit` event is detected from the WETH contract on the Ethereum mainnet.
+- [4. All ERC20 Transfers Monitor for Specific EOA](./4_all_erc20_transfers_for_eoa/README.md): This example sets up a global log monitor that triggers for any `Transfer` event from any ERC20-compliant contract on the Ethereum mainnet involving specific EOA.
 
 ---
 

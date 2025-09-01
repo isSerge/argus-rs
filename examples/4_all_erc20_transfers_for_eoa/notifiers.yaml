@@ -1,0 +1,15 @@
+notifiers:
+  - name: "Telegram ERC20 Transfers"
+    telegram:
+      token: "<TELEGRAM TOKEN>"
+      chat_id: "<TELEGRAM CHAT ID>"
+      disable_web_preview: true
+      message:
+        title: "ERC20 Transfer Detected"
+        body: |
+          An ERC20 transfer was detected by monitor {{ monitor_name }}.
+          - *From*: `{{ from }}`
+          - *To*: `{{ to }}`
+          - *Value*: `{{ value }}` (in raw decimals)
+          - *Contract*: `{{ contract_address }}`
+          [View on Etherscan](https://etherscan.io/tx/{{ transaction_hash }})

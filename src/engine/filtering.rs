@@ -6,7 +6,6 @@
 //! `filter_script`.
 
 use std::{
-    collections::HashSet,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -14,9 +13,7 @@ use std::{
     time::Duration,
 };
 
-use alloy::primitives::Address;
 use async_trait::async_trait;
-use dashmap::DashMap;
 use futures::future;
 #[cfg(test)]
 use mockall::automock;
@@ -27,12 +24,15 @@ use tokio::{
     time::timeout,
 };
 
-use super::rhai::{
-    conversions::{
-        build_log_map, build_log_params_map, build_log_params_payload,
-        build_transaction_details_payload, build_transaction_map,
+use super::{
+    monitor_organizer::{GLOBAL_MONITORS_KEY, MonitorOrganizer, OrganizedMonitors},
+    rhai::{
+        conversions::{
+            build_log_map, build_log_params_map, build_log_params_payload,
+            build_transaction_details_payload, build_transaction_map,
+        },
+        create_engine,
     },
-    create_engine,
 };
 use crate::{
     abi::DecodedLog,
@@ -98,17 +98,6 @@ pub trait FilteringEngine: Send + Sync {
     );
 }
 
-/// A container for monitors that have been organized for efficient execution.
-#[derive(Debug, Default)]
-struct OrganizedMonitors {
-    /// Monitors that only access transaction data.
-    transaction_only_monitors: Vec<Monitor>,
-    /// Log-aware monitors that are not tied to a specific address.
-    global_log_aware_monitors: Vec<Monitor>,
-    /// Log-aware monitors that are tied to a specific contract address.
-    log_aware_monitors_by_address: DashMap<String, Vec<Monitor>>,
-}
-
 /// A Rhai-based implementation of the `FilteringEngine` with integrated
 /// security controls.
 #[derive(Debug)]
@@ -117,6 +106,8 @@ pub struct RhaiFilteringEngine {
     monitors: Arc<RwLock<OrganizedMonitors>>,
     /// The Rhai script compiler.
     compiler: Arc<RhaiCompiler>,
+    /// The monitor organizer.
+    organizer: MonitorOrganizer,
     /// Indicates if any monitor requires transaction receipt data.
     requires_receipts: AtomicBool,
     /// The Rhai script execution configuration.
@@ -132,70 +123,23 @@ impl RhaiFilteringEngine {
         // Currently use the default Rhai engine creation function, but can consider
         // adding more customizations later
         let engine = create_engine(config.clone());
+        let organizer = MonitorOrganizer::new(compiler.clone());
 
-        let (organized_monitors, needs_receipts) = Self::organize_monitors(monitors, &compiler);
+        tracing::debug!(
+            monitor_count = monitors.len(),
+            "Filtering engine initialized with monitors."
+        );
+
+        let (organized_monitors, needs_receipts) = organizer.organize(monitors);
 
         Self {
             monitors: Arc::new(RwLock::new(organized_monitors)),
             compiler,
+            organizer,
             requires_receipts: AtomicBool::new(needs_receipts),
             config,
             engine,
         }
-    }
-
-    /// Organizes monitors into optimized collections based on their script
-    /// analysis.
-    fn organize_monitors(
-        monitors: Vec<Monitor>,
-        compiler: &RhaiCompiler,
-    ) -> (OrganizedMonitors, bool) {
-        let mut organized = OrganizedMonitors::default();
-        let mut needs_receipts = false;
-
-        // Receipt-specific fields that are only available from transaction receipts
-        let receipt_fields: HashSet<String> = [
-            "tx.gas_used".to_string(),
-            "tx.status".to_string(),
-            "tx.effective_gas_price".to_string(),
-        ]
-        .into_iter()
-        .collect();
-
-        for monitor in monitors {
-            match compiler.analyze_script(&monitor.filter_script) {
-                Ok(analysis) => {
-                    // Check if this monitor's script needs receipt data
-                    if !needs_receipts && !analysis.accessed_variables.is_disjoint(&receipt_fields)
-                    {
-                        needs_receipts = true;
-                    }
-
-                    if analysis.accesses_log_variable {
-                        if let Some(address_str) = &monitor.address {
-                            let address: Address =
-                                address_str.parse().expect("Address should be valid at this stage");
-                            let checksummed_address = address.to_checksum(None);
-                            organized
-                                .log_aware_monitors_by_address
-                                .entry(checksummed_address)
-                                .or_default()
-                                .push(monitor);
-                        } else {
-                            organized.global_log_aware_monitors.push(monitor);
-                        }
-                    } else {
-                        organized.transaction_only_monitors.push(monitor);
-                    }
-                }
-                Err(e) => {
-                    // If a script fails to compile, we can't analyze it. Log an error.
-                    tracing::error!(monitor_id = monitor.id, error = ?e, "Failed to compile and analyze script during monitor organization");
-                }
-            }
-        }
-
-        (organized, needs_receipts)
     }
 
     /// Execute a pre-compiled AST with security controls including timeout
@@ -347,9 +291,7 @@ impl FilteringEngine for RhaiFilteringEngine {
         }
 
         // --- 2. Handle all log-aware monitors ---
-        if monitors_guard.global_log_aware_monitors.is_empty()
-            && monitors_guard.log_aware_monitors_by_address.is_empty()
-        {
+        if monitors_guard.log_aware_monitors.is_empty() {
             return Ok(matches);
         }
 
@@ -360,8 +302,16 @@ impl FilteringEngine for RhaiFilteringEngine {
             let log_map = build_log_map(log, params_map);
             let log_match_payload = build_log_params_payload(&log.params);
 
-            // 2a. Evaluate global log-aware monitors
-            for monitor in &monitors_guard.global_log_aware_monitors {
+            // Evaluate both address-specific and global log-aware monitors.
+            let address_monitors = monitors_guard.log_aware_monitors.get(&log_address_str);
+            let global_monitors = monitors_guard.log_aware_monitors.get(GLOBAL_MONITORS_KEY);
+
+            let monitors_to_run = address_monitors
+                .iter()
+                .flat_map(|r| r.iter())
+                .chain(global_monitors.iter().flat_map(|r| r.iter()));
+
+            for monitor in monitors_to_run {
                 match self
                     .evaluate_single_log_monitor(
                         monitor.clone(),
@@ -377,38 +327,8 @@ impl FilteringEngine for RhaiFilteringEngine {
                         tracing::error!(
                             monitor_id = monitor.id,
                             error = ?e,
-                            "Error evaluating global log-aware monitor"
+                            "Error evaluating log-aware monitor"
                         );
-                        // Continue processing other monitors even if one fails
-                    }
-                }
-            }
-
-            // 2b. Evaluate address-specific log-aware monitors
-            if let Some(monitors) =
-                monitors_guard.log_aware_monitors_by_address.get(&log_address_str)
-            {
-                for monitor in monitors.iter() {
-                    match self
-                        .evaluate_single_log_monitor(
-                            monitor.clone(),
-                            tx_map.clone(),
-                            log_map.clone(),
-                            log_match_payload.clone(),
-                            log,
-                        )
-                        .await
-                    {
-                        Ok(new_matches) => matches.extend(new_matches),
-                        Err(e) => {
-                            tracing::error!(
-                                monitor_id = monitor.id,
-                                error = ?e,
-                                "Error evaluating address-specific log-aware monitor"
-                            );
-                            // Continue processing other monitors even if one
-                            // fails
-                        }
                     }
                 }
             }
@@ -419,8 +339,7 @@ impl FilteringEngine for RhaiFilteringEngine {
 
     /// Updates the set of monitors used by the engine.
     async fn update_monitors(&self, monitors: Vec<Monitor>) {
-        let (new_organized_monitors, needs_receipts) =
-            Self::organize_monitors(monitors, self.compiler.as_ref());
+        let (new_organized_monitors, needs_receipts) = self.organizer.organize(monitors);
 
         let mut monitors_guard = self.monitors.write().await;
         *monitors_guard = new_organized_monitors;
@@ -502,15 +421,9 @@ mod tests {
         );
 
         let monitors_guard = engine.monitors.read().await;
-        assert_eq!(monitors_guard.log_aware_monitors_by_address.len(), 2);
-        assert_eq!(
-            monitors_guard.log_aware_monitors_by_address.get(addr1_checksum).unwrap().len(),
-            2
-        );
-        assert_eq!(
-            monitors_guard.log_aware_monitors_by_address.get(addr2_checksum).unwrap().len(),
-            1
-        );
+        assert_eq!(monitors_guard.log_aware_monitors.len(), 2);
+        assert_eq!(monitors_guard.log_aware_monitors.get(addr1_checksum).unwrap().len(), 2);
+        assert_eq!(monitors_guard.log_aware_monitors.get(addr2_checksum).unwrap().len(), 1);
         assert_eq!(monitors_guard.transaction_only_monitors.len(), 1);
         assert_eq!(monitors_guard.transaction_only_monitors[0].id, 4);
         drop(monitors_guard);
@@ -525,19 +438,10 @@ mod tests {
         engine.update_monitors(vec![monitor1.clone(), monitor5.clone(), monitor6.clone()]).await;
 
         let monitors_guard = engine.monitors.read().await;
-        assert_eq!(monitors_guard.log_aware_monitors_by_address.len(), 2);
-        assert_eq!(
-            monitors_guard.log_aware_monitors_by_address.get(addr1_checksum).unwrap().len(),
-            1
-        );
-        assert_eq!(
-            monitors_guard.log_aware_monitors_by_address.get(addr2_checksum).unwrap().len(),
-            1
-        );
-        assert_eq!(
-            monitors_guard.log_aware_monitors_by_address.get(addr2_checksum).unwrap()[0].id,
-            5
-        );
+        assert_eq!(monitors_guard.log_aware_monitors.len(), 2);
+        assert_eq!(monitors_guard.log_aware_monitors.get(addr1_checksum).unwrap().len(), 1);
+        assert_eq!(monitors_guard.log_aware_monitors.get(addr2_checksum).unwrap().len(), 1);
+        assert_eq!(monitors_guard.log_aware_monitors.get(addr2_checksum).unwrap()[0].id, 5);
         assert_eq!(monitors_guard.transaction_only_monitors.len(), 1);
         assert_eq!(monitors_guard.transaction_only_monitors[0].id, 6);
         drop(monitors_guard);
@@ -816,37 +720,6 @@ mod tests {
         // Test non-matching case
         let no_matches = engine.evaluate_item(&item_no_match).await.unwrap();
         assert!(no_matches.is_empty(), "Should find no matches for value <= 1.5 ether");
-    }
-
-    #[test]
-    fn test_organize_monitors_categorization() {
-        let config = RhaiConfig::default();
-        let compiler = Arc::new(RhaiCompiler::new(config.clone()));
-
-        let tx_monitor = MonitorBuilder::new().id(1).filter_script("tx.value > 100").build();
-        let log_monitor_address = MonitorBuilder::new()
-            .id(2)
-            .address("0x0000000000000000000000000000000000000001")
-            .filter_script("log.name == \"Transfer\"")
-            .build();
-        let log_monitor_global =
-            MonitorBuilder::new().id(3).filter_script("log.name == \"Approval\"").build();
-
-        let monitors =
-            vec![tx_monitor.clone(), log_monitor_address.clone(), log_monitor_global.clone()];
-
-        let (organized, _) = RhaiFilteringEngine::organize_monitors(monitors, &compiler);
-
-        assert_eq!(organized.transaction_only_monitors.len(), 1);
-        assert_eq!(organized.transaction_only_monitors[0].id, 1);
-
-        assert_eq!(organized.global_log_aware_monitors.len(), 1);
-        assert_eq!(organized.global_log_aware_monitors[0].id, 3);
-
-        assert_eq!(organized.log_aware_monitors_by_address.len(), 1);
-        let addr_checksum = "0x0000000000000000000000000000000000000001".to_string();
-        assert_eq!(organized.log_aware_monitors_by_address.get(&addr_checksum).unwrap().len(), 1);
-        assert_eq!(organized.log_aware_monitors_by_address.get(&addr_checksum).unwrap()[0].id, 2);
     }
 
     #[tokio::test]
