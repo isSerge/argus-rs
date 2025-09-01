@@ -1,0 +1,11 @@
+monitors:
+  - name: 'All ERC20 Transfers (Ethereum)'
+    network: 'ethereum'
+    address: 'all' # Monitor all logs on the network
+    abi: 'usdc' # A generic ERC20 ABI (e.g., usdc.json can decode Transfer events)
+    filter_script: |
+      log.name == "Transfer" 
+      && log.params.to == "0xE4b8583cCB95b25737C016ac88E539D0605949e8" 
+      || log.params.from == "0xE4b8583cCB95b25737C016ac88E539D0605949e8"
+    notifiers:
+      - 'Telegram ERC20 Transfers'
