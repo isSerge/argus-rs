@@ -63,7 +63,7 @@ impl HttpClientPool {
         retry_policy: &HttpRetryConfig,
     ) -> Result<Arc<ClientWithMiddleware>, HttpClientPoolError> {
         // Fast path: Check if the client already exists with a read lock.
-        if let Some(client) = self.clients.read().await.get(&retry_policy) {
+        if let Some(client) = self.clients.read().await.get(retry_policy) {
             return Ok(client.clone());
         }
 
@@ -71,7 +71,7 @@ impl HttpClientPool {
         let mut clients = self.clients.write().await;
         // Double-check: Another thread might have created the client while we were
         // waiting for the write lock.
-        if let Some(client) = clients.get(&retry_policy) {
+        if let Some(client) = clients.get(retry_policy) {
             return Ok(client.clone());
         }
 
