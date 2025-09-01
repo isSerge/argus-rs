@@ -85,7 +85,7 @@ impl InitializationService {
             return Ok(());
         }
 
-        tracing::info!(config_path = %config_path, "No monitors found in database. Loading from configuration file...");
+        tracing::info!(config_path = %config_path.display(), "No monitors found in database. Loading from configuration file...");
         let monitors = load_config::<MonitorConfig>(PathBuf::from(config_path)).map_err(|e| {
             InitializationError::MonitorLoadError(format!("Failed to load monitors from file: {e}"))
         })?;
@@ -146,7 +146,7 @@ impl InitializationService {
             return Ok(());
         }
 
-        tracing::info!(config_path = %config_path, "No notifiers found in database. Loading from configuration file...");
+        tracing::info!(config_path = %config_path.display(), "No notifiers found in database. Loading from configuration file...");
         let notifiers = load_config::<NotifierConfig>(PathBuf::from(config_path)).map_err(|e| {
             InitializationError::NotifierLoadError(format!(
                 "Failed to load notifiers from file: {e}"

@@ -1,7 +1,7 @@
 //! This module provides functionality to execute a dry run of the monitoring
 //! process over a specified block range.
 
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use alloy::primitives;
 use clap::Parser;
@@ -134,8 +134,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let evm_source = EvmRpcSource::new(provider);
 
     // Init services for processing and decoding data.
-    let abi_path = PathBuf::from(config.abi_config_path.clone());
-    let abi_repository = Arc::new(AbiRepository::new(&abi_path)?);
+    let abi_repository = Arc::new(AbiRepository::new(&config.abi_config_path)?);
     let abi_service = Arc::new(AbiService::new(abi_repository));
     let block_processor = BlockProcessor::new(Arc::clone(&abi_service));
 
@@ -144,8 +143,8 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let script_validator = RhaiScriptValidator::new(rhai_compiler.clone());
 
     // Load and validate monitor and notifier configurations from files.
-    let monitors = load_config::<MonitorConfig>(config.monitor_config_path.into())?;
-    let notifiers = load_config::<NotifierConfig>(config.notifier_config_path.into())?;
+    let monitors = load_config::<MonitorConfig>(config.monitor_config_path)?;
+    let notifiers = load_config::<NotifierConfig>(config.notifier_config_path)?;
 
     // Link ABIs for monitors that require them.
     for monitor in monitors.iter() {
