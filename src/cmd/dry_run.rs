@@ -150,7 +150,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     // Link ABIs for monitors that require them.
     for monitor in monitors.iter() {
         if let (Some(address_str), Some(abi_name)) = (&monitor.address, &monitor.abi) {
-            if address_str.to_lowercase() == "all" {
+            if address_str.eq_ignore_ascii_case("all") {
                 abi_service.add_global_abi(abi_name)?;
             } else {
                 let address: primitives::Address = address_str.parse().map_err(|_| {
