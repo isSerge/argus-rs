@@ -74,13 +74,13 @@ notifiers:
 To test this monitor against historical blocks, use the `dry-run` command with the `--config-dir` argument pointing to this example's configuration:
 
 ```bash
-cargo run --release -- dry-run --from 18000000 --to 18000001 --config-dir examples/4_all_erc20_transfers/
+cargo run --release -- dry-run --from 18000000 --to 18000001 --config-dir examples/4_all_erc20_transfers_for_eoa/
 ```
 
 Run with `debug` logs:
 
 ```bash
-RUST_LOG=debug cargo run --release -- dry-run --from 18000000 --to 18000001 --config-dir examples/4_all_erc20_transfers/
+RUST_LOG=debug cargo run --release -- dry-run --from 18000000 --to 18000001 --config-dir examples/4_all_erc20_transfers_for_eoa/
 ```
 
 Replace `18000000` and `18000001` with actual Ethereum block numbers to test against.
@@ -121,5 +121,5 @@ terminal, which is a JSON array with all detected monitor matches:
 Once you have verified your monitor works against historical data in `dry-run` mode, you can start it in default (live monitoring) mode. In this mode, the monitor will continuously poll for new blocks and dispatch actual notifications via the configured notifier when a match is found.
 
 ```bash
-cargo run --release -- run --config-dir examples/4_all_erc20_transfers/
+cargo run --release -- run --config-dir examples/4_all_erc20_transfers_for_eoa
 ```
