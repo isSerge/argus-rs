@@ -150,31 +150,17 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     // Link ABIs for monitors that require them.
     for monitor in monitors.iter() {
         if let (Some(address_str), Some(abi_name)) = (&monitor.address, &monitor.abi) {
-            // Skip linking ABI for global log monitors (address: "all"), as they don't have a specific address.
             if address_str.to_lowercase() == "all" {
-                tracing::debug!(
-                    monitor = %monitor.name,
-                    abi = %abi_name,
-                    "Skipping ABI linking for global log monitor."
-                );
-                continue;
-            }
-
-            let address: primitives::Address = address_str.parse().map_err(|_| {
-                DryRunError::MonitorValidation(
-                    MonitorValidationError::InvalidAddress {
+                abi_service.add_global_abi(abi_name)?;
+            } else {
+                let address: primitives::Address = address_str.parse().map_err(|_| {
+                    DryRunError::MonitorValidation(MonitorValidationError::InvalidAddress {
                         monitor_name: monitor.name.clone(),
                         address: address_str.clone(),
-                    },
-                )
-            })?;
-            tracing::debug!(
-                monitor = %monitor.name,
-                address = %address,
-                abi = %abi_name,
-                "Linking ABI for monitor."
-            );
-            abi_service.link_abi(address, abi_name)?;
+                    })
+                })?;
+                abi_service.link_abi(address, abi_name)?;
+            }
         }
     }
 
@@ -195,14 +181,20 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let monitors: Vec<_> = monitors
         .into_iter()
         .map(|m| {
-            MonitorBuilder::new()
+            let mut builder = MonitorBuilder::new()
                 .name(&m.name)
                 .network(&m.network)
-                .address(&m.address.unwrap_or_default())
-                .abi(&m.abi.unwrap_or_default())
                 .filter_script(&m.filter_script)
-                .notifiers(m.notifiers)
-                .build()
+                .notifiers(m.notifiers);
+
+            if let Some(address) = &m.address {
+                builder = builder.address(address);
+            }
+            if let Some(abi) = &m.abi {
+                builder = builder.abi(abi);
+            }
+
+            builder.build()
         })
         .collect::<Vec<_>>();
 
