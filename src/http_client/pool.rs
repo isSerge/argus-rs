@@ -33,7 +33,7 @@ pub enum HttpClientPoolError {
 /// Clients are keyed by their `HttpRetryConfig` to ensure that different
 /// retry strategies result in different, isolated clients.
 pub struct HttpClientPool {
-    clients: Arc<RwLock<HashMap<String, Arc<ClientWithMiddleware>>>>,
+    clients: Arc<RwLock<HashMap<HttpRetryConfig, Arc<ClientWithMiddleware>>>>,
 }
 
 impl HttpClientPool {
@@ -62,10 +62,8 @@ impl HttpClientPool {
         &self,
         retry_policy: &HttpRetryConfig,
     ) -> Result<Arc<ClientWithMiddleware>, HttpClientPoolError> {
-        let key = format!("{retry_policy:?}");
-
         // Fast path: Check if the client already exists with a read lock.
-        if let Some(client) = self.clients.read().await.get(&key) {
+        if let Some(client) = self.clients.read().await.get(retry_policy) {
             return Ok(client.clone());
         }
 
@@ -73,7 +71,7 @@ impl HttpClientPool {
         let mut clients = self.clients.write().await;
         // Double-check: Another thread might have created the client while we were
         // waiting for the write lock.
-        if let Some(client) = clients.get(&key) {
+        if let Some(client) = clients.get(retry_policy) {
             return Ok(client.clone());
         }
 
@@ -87,7 +85,7 @@ impl HttpClientPool {
             .map_err(|e| HttpClientPoolError::HttpClientBuildError(e.to_string()))?;
 
         let new_client = Arc::new(create_retryable_http_client(retry_policy, base_client));
-        clients.insert(key, new_client.clone());
+        clients.insert(retry_policy.clone(), new_client.clone());
 
         Ok(new_client)
     }
