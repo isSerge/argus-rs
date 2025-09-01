@@ -177,7 +177,7 @@ impl InitializationService {
 
         for monitor in &monitors {
             if let (Some(address_str), Some(abi_name)) = (&monitor.address, &monitor.abi) {
-                if address_str.to_lowercase() == "all" {
+                if address_str.eq_ignore_ascii_case("all") {
                     self.abi_service.add_global_abi(abi_name).map_err(|e| {
                         InitializationError::AbiLoadError(format!(
                             "Failed to add global ABI '{}' for monitor '{}': {}",
