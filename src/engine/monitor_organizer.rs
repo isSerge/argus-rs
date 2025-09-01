@@ -7,7 +7,8 @@ use dashmap::DashMap;
 
 use crate::{engine::rhai::compiler::RhaiCompiler, models::monitor::Monitor};
 
-/// The key used to store global log-aware monitors in the `log_aware_monitors` map.
+/// The key used to store global log-aware monitors in the `log_aware_monitors`
+/// map.
 pub const GLOBAL_MONITORS_KEY: &str = "*";
 
 /// A container for monitors that have been organized for efficient execution.
@@ -15,7 +16,8 @@ pub const GLOBAL_MONITORS_KEY: &str = "*";
 pub struct OrganizedMonitors {
     /// Monitors that only access transaction data.
     pub transaction_only_monitors: Vec<Monitor>,
-    /// Log-aware monitors, keyed by checksummed contract address or the global key.
+    /// Log-aware monitors, keyed by checksummed contract address or the global
+    /// key.
     pub log_aware_monitors: DashMap<String, Vec<Monitor>>,
 }
 

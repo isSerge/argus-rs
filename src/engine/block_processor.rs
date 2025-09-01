@@ -13,7 +13,7 @@ use thiserror::Error;
 
 use crate::{
     abi::{AbiError, AbiService, DecodedLog},
-    models::{transaction::Transaction, BlockData, CorrelatedBlockItem, DecodedBlockData},
+    models::{BlockData, CorrelatedBlockItem, DecodedBlockData, transaction::Transaction},
 };
 
 /// Custom error type for `BlockProcessor` operations.
@@ -68,15 +68,14 @@ impl BlockProcessor {
                     for log in &raw_logs_for_tx {
                         match self.abi_service.decode_log(log) {
                             Ok(decoded) => decoded_logs.push(decoded),
-                            Err(e) => {
+                            Err(e) =>
                                 if !matches!(e, AbiError::AbiNotFound(_)) {
                                     tracing::warn!(
                                         log_address = %log.address(),
                                         error = %e,
                                         "Could not decode log for a monitored address. Check if the ABI is correct."
                                     );
-                                }
-                            }
+                                },
                         }
                     }
 

@@ -203,10 +203,10 @@ impl AbiService {
         let event_signature = log.topics().first().ok_or(AbiError::LogHasNoTopics)?;
 
         // Prioritize address-specific ABIs.
-        if let Some(contract) = self.address_specific_cache.get(&log.address()) {
-            if contract.events.contains_key(event_signature) {
-                return self.decode_log_with_contract(log, &contract, event_signature);
-            }
+        if let Some(contract) = self.address_specific_cache.get(&log.address())
+            && contract.events.contains_key(event_signature)
+        {
+            return self.decode_log_with_contract(log, &contract, event_signature);
         }
 
         // Fallback to global ABIs if no address-specific match is found.
@@ -269,10 +269,10 @@ impl AbiService {
         let selector: [u8; 4] = input[0..4].try_into().unwrap();
 
         // Prioritize address-specific ABIs.
-        if let Some(contract) = self.address_specific_cache.get(&to) {
-            if contract.functions.contains_key(&selector) {
-                return self.decode_function_input_with_contract(tx, &contract, selector);
-            }
+        if let Some(contract) = self.address_specific_cache.get(&to)
+            && contract.functions.contains_key(&selector)
+        {
+            return self.decode_function_input_with_contract(tx, &contract, selector);
         }
 
         // Fallback to global ABIs if no address-specific match is found.
@@ -332,19 +332,21 @@ impl AbiService {
         self.address_specific_cache.get(&address).map(|entry| Arc::clone(&entry))
     }
 
-    /// Retrieves an ABI by its name from the `AbiRepository`, without linking it to a specific address.
-    /// This is useful for retrieving ABIs for global log monitors (have no address).
+    /// Retrieves an ABI by its name from the `AbiRepository`, without linking
+    /// it to a specific address. This is useful for retrieving ABIs for
+    /// global log monitors (have no address).
     pub fn get_abi_by_name(&self, abi_name: &str) -> Option<Arc<JsonAbi>> {
         self.abi_repository.get_abi(abi_name)
     }
 
-    /// Checks if a global ABI with the given name has been added to the service.
+    /// Checks if a global ABI with the given name has been added to the
+    /// service.
     pub fn has_global_abi(&self, abi_name: &str) -> bool {
         let global_cache = self.global_cache.read();
         global_cache.iter().any(|cached_contract| {
             self.abi_repository
                 .get_abi(abi_name)
-                .map_or(false, |repo_abi| Arc::ptr_eq(&repo_abi, &cached_contract.abi))
+                .is_some_and(|repo_abi| Arc::ptr_eq(&repo_abi, &cached_contract.abi))
         })
     }
 }
@@ -353,9 +355,7 @@ impl AbiService {
 mod tests {
     use std::path::PathBuf;
 
-    use alloy::{
-        primitives::{Address, Bytes, U256, address, b256, bytes},
-    };
+    use alloy::primitives::{Address, Bytes, U256, address, b256, bytes};
     use tempfile::tempdir;
 
     use super::*;
@@ -750,8 +750,8 @@ mod tests {
         input_data.extend_from_slice(&padded_addr);
         input_data.extend_from_slice(&amount.to_be_bytes_vec());
 
-        // This transaction has the "transfer" function selector, which is in the global ABI,
-        // but not in the address-specific ABI.
+        // This transaction has the "transfer" function selector, which is in the global
+        // ABI, but not in the address-specific ABI.
         let tx = TransactionBuilder::new()
             .to(Some(contract_address))
             .input(Bytes::from(input_data))
