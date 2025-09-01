@@ -172,7 +172,7 @@ notifiers:
       # (Optional) Custom retry policy.
       retry_policy:
         # Maximum number of retries.
-        max_retries: 5
+        max_retry: 5
         # Initial delay between retries in milliseconds.
         initial_delay_ms: 100
         # Factor by which the delay increases after each retry (e.g., 2.0 for exponential backoff).
