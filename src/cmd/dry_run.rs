@@ -260,14 +260,20 @@ async fn run_dry_run_loop(
     let mut matches: Vec<MonitorMatch> = Vec::new();
     let mut current_block = from_block;
 
-    tracing::info!(from = from_block, to = to_block, batch_size = BATCH_SIZE, "Starting block processing...");
+    tracing::info!(
+        from = from_block,
+        to = to_block,
+        batch_size = BATCH_SIZE,
+        "Starting block processing..."
+    );
 
     // The outer loop now iterates over batches of blocks.
     while current_block <= to_block {
         let batch_end_block = (current_block + BATCH_SIZE - 1).min(to_block);
         tracing::info!(from = current_block, to = batch_end_block, "Fetching block batch...");
-        
-        let mut block_data_batch = Vec::with_capacity((batch_end_block - current_block + 1) as usize);
+
+        let mut block_data_batch =
+            Vec::with_capacity((batch_end_block - current_block + 1) as usize);
 
         // Inner loop collects data for the current batch.
         for block_num in current_block..=batch_end_block {
@@ -289,7 +295,8 @@ async fn run_dry_run_loop(
         // Process the entire collected batch in one call.
         if !block_data_batch.is_empty() {
             tracing::info!(count = block_data_batch.len(), "Processing block batch...");
-            let decoded_blocks_batch = block_processor.process_blocks_batch(block_data_batch).await?;
+            let decoded_blocks_batch =
+                block_processor.process_blocks_batch(block_data_batch).await?;
 
             // Evaluate each item from the entire batch of decoded blocks.
             for decoded_block in decoded_blocks_batch {
@@ -306,7 +313,7 @@ async fn run_dry_run_loop(
                 }
             }
         }
-        
+
         // Move to the next batch.
         current_block = batch_end_block + 1;
     }
