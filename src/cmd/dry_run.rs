@@ -232,11 +232,6 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
 
 /// The core processing logic for the dry run.
 ///
-/// This function is decoupled from the concrete `EvmRpcSource` to facilitate
-/// testing with a mock data source. It iterates through the specified block
-/// range, fetches the necessary data, processes it, evaluates it against the
-/// filtering engine, and dispatches notifications for any matches.
-///
 /// # Arguments
 ///
 /// * `from_block` - The starting block number.
@@ -245,7 +240,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
 /// * `block_processor` - The service for decoding raw block data.
 /// * `filtering_engine` - The service for evaluating data against monitor
 ///   scripts.
-/// * `notification_service` - The service for sending notifications.
+/// * `alert_manager` - The service for managing alerts and notifications.
 ///
 /// # Returns
 ///
@@ -259,50 +254,64 @@ async fn run_dry_run_loop(
     filtering_engine: RhaiFilteringEngine,
     alert_manager: Arc<AlertManager<SqliteStateRepository>>,
 ) -> Result<Vec<MonitorMatch>, DryRunError> {
+    // Define a batch size for processing blocks in chunks.
+    const BATCH_SIZE: u64 = 50;
+
     let mut matches: Vec<MonitorMatch> = Vec::new();
     let mut current_block = from_block;
 
-    tracing::info!(from = from_block, to = to_block, "Starting block processing...");
+    tracing::info!(from = from_block, to = to_block, batch_size = BATCH_SIZE, "Starting block processing...");
 
+    // The outer loop now iterates over batches of blocks.
     while current_block <= to_block {
-        let (block, logs) = data_source.fetch_block_core_data(current_block).await?;
+        let batch_end_block = (current_block + BATCH_SIZE - 1).min(to_block);
+        tracing::info!(from = current_block, to = batch_end_block, "Fetching block batch...");
+        
+        let mut block_data_batch = Vec::with_capacity((batch_end_block - current_block + 1) as usize);
 
-        // Conditionally fetch transaction receipts only if a monitor requires them.
-        let receipts = if filtering_engine.requires_receipt_data() {
-            let tx_hashes: Vec<_> = block.transactions.hashes().collect();
-            if tx_hashes.is_empty() {
-                Default::default()
-            } else {
-                data_source.fetch_receipts(&tx_hashes).await?
-            }
-        } else {
-            Default::default()
-        };
+        // Inner loop collects data for the current batch.
+        for block_num in current_block..=batch_end_block {
+            let (block, logs) = data_source.fetch_block_core_data(block_num).await?;
 
-        // Process the raw block data into a decoded format.
-        let block_data = BlockData::from_raw_data(block, receipts, logs);
-        let decoded_blocks = block_processor.process_blocks_batch(vec![block_data]).await?;
-
-        // Evaluate each item in the decoded block against the filtering engine.
-        for decoded_block in decoded_blocks {
-            for item in decoded_block.items {
-                let item_matches = filtering_engine.evaluate_item(&item).await?;
-                let mut limited_matches = item_matches.clone();
-                if limited_matches.len() > 10 {
-                    limited_matches.truncate(10);
+            let receipts = if filtering_engine.requires_receipt_data() {
+                let tx_hashes: Vec<_> = block.transactions.hashes().collect();
+                if tx_hashes.is_empty() {
+                    Default::default()
+                } else {
+                    data_source.fetch_receipts(&tx_hashes).await?
                 }
-                for m in limited_matches {
-                    // For every match, dispatch a notification and collect the result.
-                    alert_manager.process_match(&m).await?;
-                    matches.push(m.clone());
+            } else {
+                Default::default()
+            };
+            block_data_batch.push(BlockData::from_raw_data(block, receipts, logs));
+        }
+
+        // Process the entire collected batch in one call.
+        if !block_data_batch.is_empty() {
+            tracing::info!(count = block_data_batch.len(), "Processing block batch...");
+            let decoded_blocks_batch = block_processor.process_blocks_batch(block_data_batch).await?;
+
+            // Evaluate each item from the entire batch of decoded blocks.
+            for decoded_block in decoded_blocks_batch {
+                for item in decoded_block.items {
+                    let item_matches = filtering_engine.evaluate_item(&item).await?;
+                    let mut limited_matches = item_matches.clone();
+                    if limited_matches.len() > 10 {
+                        limited_matches.truncate(10);
+                    }
+                    for m in limited_matches {
+                        alert_manager.process_match(&m).await?;
+                        matches.push(m.clone());
+                    }
                 }
             }
         }
-        current_block += 1;
+        
+        // Move to the next batch.
+        current_block = batch_end_block + 1;
     }
     tracing::info!("Block processing finished.");
 
-    // After the loop, check for any expired aggregation windows and dispatch them.
     alert_manager.flush().await?;
     tracing::info!("Dispatched any pending aggregated notifications.");
 
