@@ -140,7 +140,7 @@ impl<'a> MonitorValidator<'a> {
         let mut is_global_log_monitor = false;
 
         if let Some(address_str) = &monitor.address {
-            if address_str.to_lowercase() == "all" {
+            if address_str.eq_ignore_ascii_case("all") {
                 is_global_log_monitor = true;
                 // For global monitors, parsed_address remains None.
             } else {
