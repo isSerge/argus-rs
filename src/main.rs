@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
 use argus::{
     abi::{AbiService, repository::AbiRepository},
@@ -58,8 +58,7 @@ async fn run_supervisor() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize ABI repository
     tracing::debug!("Initializing ABI repository...");
-    let abi_repository =
-        Arc::new(AbiRepository::new(&PathBuf::from(config.abi_config_path.clone()))?);
+    let abi_repository = Arc::new(AbiRepository::new(&config.abi_config_path)?);
     tracing::info!("ABI repository initialized with {} ABIs.", abi_repository.len());
 
     // Initialize ABI service

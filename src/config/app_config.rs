@@ -1,4 +1,7 @@
-use std::{path::Path, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use config::{Config, ConfigError, File};
 use serde::Deserialize;
@@ -39,11 +42,11 @@ pub struct AppConfig {
 
     /// Path to monitor configuration file.
     #[serde(skip_deserializing)]
-    pub monitor_config_path: String,
+    pub monitor_config_path: PathBuf,
 
     /// Path to notifier configuration file.
     #[serde(skip_deserializing)]
-    pub notifier_config_path: String,
+    pub notifier_config_path: PathBuf,
 
     /// Optional retry configuration.
     #[serde(default)]
@@ -83,7 +86,7 @@ pub struct AppConfig {
     pub notification_channel_capacity: u32,
 
     /// Path to ABI configuration directory.
-    pub abi_config_path: String,
+    pub abi_config_path: PathBuf,
 
     /// The interval in seconds to check for aggregated matches.
     #[serde(
@@ -109,10 +112,10 @@ impl AppConfig {
         // This ensures that the paths are correctly resolved relative to the config
         // directory.
         let monitor_path = config_path.join("monitors.yaml");
-        config.monitor_config_path = monitor_path.to_string_lossy().into_owned();
+        config.monitor_config_path = monitor_path;
 
         let notifier_path = config_path.join("notifiers.yaml");
-        config.notifier_config_path = notifier_path.to_string_lossy().into_owned();
+        config.notifier_config_path = notifier_path;
 
         Ok(config)
     }
@@ -144,12 +147,12 @@ impl AppConfigBuilder {
     }
 
     pub fn monitor_config_path(mut self, path: &str) -> Self {
-        self.config.monitor_config_path = path.to_string();
+        self.config.monitor_config_path = path.into();
         self
     }
 
     pub fn notifier_config_path(mut self, path: &str) -> Self {
-        self.config.notifier_config_path = path.to_string();
+        self.config.notifier_config_path = path.into();
         self
     }
 
@@ -168,7 +171,7 @@ impl AppConfigBuilder {
     }
 
     pub fn abi_config_path(mut self, path: &str) -> Self {
-        self.config.abi_config_path = path.to_string();
+        self.config.abi_config_path = path.into();
         self
     }
 }
@@ -192,8 +195,8 @@ mod tests {
 
         assert_eq!(config.rpc_urls.len(), 1);
         assert_eq!(config.network_id, "testnet");
-        assert_eq!(config.monitor_config_path, "test_monitor.yaml");
-        assert_eq!(config.notifier_config_path, "test_notifier.yaml");
+        assert_eq!(config.monitor_config_path, PathBuf::from("test_monitor.yaml"));
+        assert_eq!(config.notifier_config_path, PathBuf::from("test_notifier.yaml"));
         assert_eq!(config.database_url, "sqlite::memory:");
         assert_eq!(config.confirmation_blocks, 12);
     }
@@ -221,10 +224,10 @@ mod tests {
         assert_eq!(config.network_id, "testnet");
 
         let expected_monitor_path = temp_dir_path.join("monitors.yaml");
-        assert_eq!(config.monitor_config_path, expected_monitor_path.to_str().unwrap());
+        assert_eq!(config.monitor_config_path, PathBuf::from(expected_monitor_path));
 
         let expected_notifier_path = temp_dir_path.join("notifiers.yaml");
-        assert_eq!(config.notifier_config_path, expected_notifier_path.to_str().unwrap());
+        assert_eq!(config.notifier_config_path, PathBuf::from(expected_notifier_path));
 
         assert_eq!(config.database_url, "sqlite::memory:");
         assert_eq!(config.confirmation_blocks, 12);
