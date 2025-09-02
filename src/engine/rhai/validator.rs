@@ -45,7 +45,9 @@ pub enum RhaiScriptValidationError {
 /// Result of Rhai script validation
 #[derive(Debug, Clone)]
 pub struct RhaiScriptValidationResult {
+    /// Analysis of the script's AST
     pub ast_analysis: ScriptAnalysis,
+    /// Whether the script requires receipt data
     pub requires_receipt: bool,
 }
 
