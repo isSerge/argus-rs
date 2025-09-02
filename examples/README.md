@@ -14,6 +14,7 @@ Argus EVM Monitor.
   mainnet.
 - [3. WETH Deposit](./3_weth_deposit/README.md): This example sets up a monitor that triggers when a `Deposit` event is detected from the WETH contract on the Ethereum mainnet.
 - [4. All ERC20 Transfers Monitor for Specific EOA](./4_all_erc20_transfers_for_eoa/README.md): This example sets up a global log monitor that triggers for any `Transfer` event from any ERC20-compliant contract on the Ethereum mainnet involving specific EOA.
+- [5. Monitor with Throttling Policy](./5_notifier_with_throttle_policy/README.md): This example demonstrates how to configure a notifier with a `throttle` policy to limit the rate of notifications.
 
 ---
 

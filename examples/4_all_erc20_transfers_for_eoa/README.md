@@ -83,10 +83,9 @@ Run with `debug` logs:
 RUST_LOG=debug cargo run --release -- dry-run --from 18000000 --to 18000001 --config-dir examples/4_all_erc20_transfers_for_eoa/
 ```
 
-Replace `18000000` and `18000001` with actual Ethereum block numbers to test against.
+Replace `18000000` and `18000001` with any Ethereum block numbers to test against.
 
 #### Expected Output
-
 
 As blocks within the specified range are processed, you should receive
 notifications on Telegram (or another specified notifier):

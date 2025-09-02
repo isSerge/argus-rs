@@ -1,0 +1,7 @@
+monitors:
+  - name: "Large ETH Transfers with Throttling"
+    network: "ethereum"
+    filter_script: |
+      tx.value > ether(1)
+    notifiers:
+      - "Throttled Telegram Notifier"

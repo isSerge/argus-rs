@@ -1,0 +1,19 @@
+notifiers:
+  - name: "Throttled Telegram Notifier"
+    telegram:
+      token: "8104353094:AAHOcqTmeNwuHjCf-QGlZcFtzeDMcFlab_o"
+      chat_id: "86472762"
+      disable_web_preview: true
+      message:
+        title: "Large ETH Transfer (Throttled)"
+        body: |
+          A transfer of over 1 ETH was detected by monitor {{ monitor_name }}.
+          - *From*: `{{ from }}`
+          - *To*: `{{ to }}`
+          - *Value*: `{{ value }}` (in raw decimals)
+          [View on Etherscan](https://etherscan.io/tx/{{ transaction_hash }})
+    policy:
+      throttle:
+        # Send at most 5 notifications every 10 minutes
+        max_count: 5
+        time_window_secs: 600
