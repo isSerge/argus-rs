@@ -2,12 +2,12 @@
 
 use std::sync::Arc;
 
-use alloy::primitives::Address;
+use alloy::{json_abi::JsonAbi, primitives::Address};
 use thiserror::Error;
 
 use crate::{
     abi::AbiService,
-    engine::rhai::{RhaiScriptValidationError, RhaiScriptValidator},
+    engine::rhai::{RhaiScriptValidationError, RhaiScriptValidationResult, RhaiScriptValidator},
     models::{monitor::MonitorConfig, notifier::NotifierConfig},
 };
 
@@ -118,67 +118,13 @@ impl<'a> MonitorValidator<'a> {
             });
         }
 
-        if monitor.notifiers.is_empty() {
-            tracing::warn!(
-                monitor_name = monitor.name,
-                "Monitor has no notifiers configured and will not send any notifications."
-            );
-        }
+        self.validate_notifiers(monitor)?;
 
-        // Check if all notifiers exist.
-        for notifier_name in &monitor.notifiers {
-            if !self.notifiers.iter().any(|n| n.name == *notifier_name) {
-                return Err(MonitorValidationError::UnknownNotifier {
-                    monitor_name: monitor.name.clone(),
-                    notifier_name: notifier_name.clone(),
-                });
-            }
-        }
+        let (parsed_address, is_global_log_monitor) = self.parse_and_validate_address(monitor)?;
 
-        // Parse and validate the contract address if provided.
-        let mut parsed_address: Option<Address> = None;
-        let mut is_global_log_monitor = false;
+        let abi_json = self.get_monitor_abi_json(monitor, parsed_address, is_global_log_monitor);
 
-        if let Some(address_str) = &monitor.address {
-            if address_str.eq_ignore_ascii_case("all") {
-                is_global_log_monitor = true;
-                // For global monitors, parsed_address remains None.
-            } else {
-                match address_str.parse::<Address>() {
-                    Ok(addr) => parsed_address = Some(addr),
-                    Err(_) => {
-                        return Err(MonitorValidationError::InvalidAddress {
-                            monitor_name: monitor.name.clone(),
-                            address: address_str.clone(),
-                        });
-                    }
-                }
-            }
-        }
-
-        // Determine the ABI to pass to the script validator.
-        // For contract-specific monitors, it's Some if address and abi path are
-        // provided and address is valid. For global log monitors, it's Some if
-        // abi path is provided.
-        let abi_json = if let Some(address) = parsed_address {
-            if monitor.abi.is_some() {
-                self.abi_service.get_abi(address).map(|c| c.abi.clone())
-            } else {
-                None // No ABI name provided for contract-specific, so no ABI expected for script validation
-            }
-        } else if is_global_log_monitor {
-            if let Some(abi_name) = &monitor.abi {
-                // For global log monitors, we don't have a specific address to link the ABI to,
-                // so we just try to get the ABI by name.
-                self.abi_service.get_abi_by_name(abi_name)
-            } else {
-                None // No ABI name provided for global log monitor
-            }
-        } else {
-            None // No address and not a global log monitor, so no ABI expected for script validation
-        };
-
-        let validation_result = self
+        let script_validation_result = self
             .script_validator
             .validate_script(&monitor.filter_script, abi_json.as_deref())
             .map_err(|e| MonitorValidationError::ScriptError {
@@ -186,8 +132,15 @@ impl<'a> MonitorValidator<'a> {
                 error: e,
             })?;
 
+        self.validate_script_and_abi_rules(
+            monitor,
+            &script_validation_result,
+            is_global_log_monitor,
+            abi_json.is_some(),
+        )?;
+
         // Enforce address and ABI requirements based on script analysis.
-        if validation_result.ast_analysis.accesses_log_variable {
+        if script_validation_result.ast_analysis.accesses_log_variable {
             if is_global_log_monitor {
                 if monitor.abi.is_none() {
                     return Err(MonitorValidationError::MonitorRequiresAbi {
@@ -235,6 +188,148 @@ impl<'a> MonitorValidator<'a> {
             }
         }
 
+        Ok(())
+    }
+
+    /// Validates that all notifiers referenced by the monitor exist.
+    fn validate_notifiers(&self, monitor: &MonitorConfig) -> Result<(), MonitorValidationError> {
+        if monitor.notifiers.is_empty() {
+            tracing::warn!(
+                monitor_name = monitor.name,
+                "Monitor has no notifiers configured and will not send any notifications."
+            );
+        }
+
+        // Check if all notifiers exist.
+        for notifier_name in &monitor.notifiers {
+            if !self.notifiers.iter().any(|n| n.name == *notifier_name) {
+                return Err(MonitorValidationError::UnknownNotifier {
+                    monitor_name: monitor.name.clone(),
+                    notifier_name: notifier_name.clone(),
+                });
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Parses and validates the address for the monitor.
+    /// Returns the parsed address (if any) and a flag indicating if it's a
+    /// global log monitor.
+    fn parse_and_validate_address(
+        &self,
+        monitor: &MonitorConfig,
+    ) -> Result<(Option<Address>, bool), MonitorValidationError> {
+        // Parse and validate the contract address if provided.
+        let mut parsed_address: Option<Address> = None;
+        let mut is_global_log_monitor = false;
+
+        if let Some(address_str) = &monitor.address {
+            if address_str.eq_ignore_ascii_case("all") {
+                is_global_log_monitor = true;
+                // For global monitors, parsed_address remains None.
+            } else {
+                match address_str.parse::<Address>() {
+                    Ok(addr) => parsed_address = Some(addr),
+                    Err(_) => {
+                        return Err(MonitorValidationError::InvalidAddress {
+                            monitor_name: monitor.name.clone(),
+                            address: address_str.clone(),
+                        });
+                    }
+                }
+            }
+        }
+        Ok((parsed_address, is_global_log_monitor))
+    }
+
+    /// Gets the ABI JSON for the monitor based on its configuration.
+    /// For contract-specific monitors, it's Some if address and abi path are
+    /// provided and address is valid. For global log monitors, it's Some if
+    /// abi path is provided.
+    fn get_monitor_abi_json(
+        &self,
+        monitor: &MonitorConfig,
+        parsed_address: Option<Address>,
+        is_global_log_monitor: bool,
+    ) -> Option<Arc<JsonAbi>> {
+        if let Some(address) = parsed_address {
+            if monitor.abi.is_some() {
+                self.abi_service.get_abi(address).map(|c| c.abi.clone())
+            } else {
+                None // No ABI name provided for contract-specific, so no ABI expected for script validation
+            }
+        } else if is_global_log_monitor {
+            if let Some(abi_name) = &monitor.abi {
+                // For global log monitors, we don't have a specific address to link the ABI to,
+                // so we just try to get the ABI by name.
+                self.abi_service.get_abi_by_name(abi_name)
+            } else {
+                None // No ABI name provided for global log monitor
+            }
+        } else {
+            None // No address and not a global log monitor, so no ABI expected for script validation
+        }
+    }
+
+    /// Enforces address and ABI requirements based on script analysis.
+    fn validate_script_and_abi_rules(
+        &self,
+        monitor: &MonitorConfig,
+        script_result: &RhaiScriptValidationResult,
+        is_global_log_monitor: bool,
+        abi_was_retrieved: bool,
+    ) -> Result<(), MonitorValidationError> {
+        if !script_result.ast_analysis.accesses_log_variable {
+            return Ok(()); // No log access, no special rules apply.
+        }
+
+        if is_global_log_monitor {
+            // Rules for global log monitors (`address: all`)
+            if monitor.abi.is_none() {
+                return Err(MonitorValidationError::MonitorRequiresAbi {
+                    monitor_name: monitor.name.clone(),
+                    reason: "ABI is required for global log monitoring (`address: all`) to decode \
+                             logs."
+                        .to_string(),
+                });
+            }
+            if !abi_was_retrieved {
+                return Err(MonitorValidationError::MonitorRequiresAbi {
+                    monitor_name: monitor.name.clone(),
+                    reason: format!(
+                        "ABI '{}' could not be retrieved. Ensure the ABI is loaded.",
+                        monitor.abi.as_ref().unwrap()
+                    ),
+                });
+            }
+        } else {
+            // Rules for specific-address log monitors
+            if monitor.address.is_none() {
+                return Err(MonitorValidationError::MonitorRequiresAddress {
+                    monitor_name: monitor.name.clone(),
+                });
+            }
+            if monitor.abi.is_none() {
+                return Err(MonitorValidationError::MonitorRequiresAbi {
+                    monitor_name: monitor.name.clone(),
+                    reason: "ABI is required for contract-specific log monitoring to decode logs."
+                        .to_string(),
+                });
+            }
+            if !abi_was_retrieved {
+                return Err(MonitorValidationError::MonitorRequiresAbi {
+                    monitor_name: monitor.name.clone(),
+                    reason: format!(
+                        "ABI '{}' could not be retrieved for address '{}'. Ensure the ABI is \
+                         loaded and linked.",
+                        monitor.abi.as_ref().unwrap(),
+                        monitor.address.as_ref().unwrap() /* Safe unwrap as we checked for None
+                                                           * above */
+                    ),
+                });
+            }
+        }
         Ok(())
     }
 }
