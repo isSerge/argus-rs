@@ -14,6 +14,7 @@ use reqwest::{
 };
 use reqwest_middleware::ClientWithMiddleware;
 use sha2::Sha256;
+use url::Url;
 
 use super::error::NotificationError;
 
@@ -36,7 +37,7 @@ pub struct WebhookConfig {
 #[derive(Debug)]
 pub struct WebhookNotifier {
     /// Webhook URL for message delivery
-    pub url: String,
+    pub url: Url,
     /// URL parameters to use for the webhook request
     pub url_params: Option<HashMap<String, String>>,
     /// Configured HTTP client for webhook requests with retry capabilities
@@ -67,8 +68,13 @@ impl WebhookNotifier {
         if !headers.contains_key("Content-Type") {
             headers.insert("Content-Type".to_string(), "application/json".to_string());
         }
+
+        let url = Url::parse(&config.url).map_err(|e| {
+            NotificationError::ConfigError(format!("Invalid webhook URL '{}': {e}", config.url))
+        })?;
+
         Ok(Self {
-            url: config.url,
+            url,
             url_params: config.url_params,
             client: http_client,
             method: Some(config.method.unwrap_or("POST".to_string())),
@@ -118,12 +124,11 @@ impl WebhookNotifier {
     /// * `Result<(), NotificationError>` - Success or error
     pub async fn notify_json(&self, payload: &serde_json::Value) -> Result<(), NotificationError> {
         let mut url = self.url.clone();
-        // Add URL parameters if present
+
+        // Add URL parameters if any
         if let Some(params) = &self.url_params {
-            let params_str: Vec<String> =
-                params.iter().map(|(k, v)| format!("{}={}", k, urlencoding::encode(v))).collect();
-            if !params_str.is_empty() {
-                url = format!("{}?{}", url, params_str.join("&"));
+            if !params.is_empty() {
+                url.query_pairs_mut().extend_pairs(params);
             }
         }
 
