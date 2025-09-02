@@ -2,7 +2,9 @@
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
+use dashmap::DashMap;
 use thiserror::Error;
+use tokio::sync::Mutex;
 
 use crate::{
     models::{
@@ -26,6 +28,9 @@ pub struct AlertManager<T: GenericStateRepository> {
 
     /// A map of notifier names to their loaded and validated configurations.
     notifiers: Arc<HashMap<String, NotifierConfig>>,
+
+    /// A map of notifier names to their locks to prevent race conditions.
+    notifier_locks: DashMap<String, Arc<Mutex<()>>>,
 }
 
 /// Errors that can occur within the AlertManager
@@ -48,7 +53,7 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
         state_repository: Arc<T>,
         notifiers: Arc<HashMap<String, NotifierConfig>>,
     ) -> Self {
-        Self { notification_service, state_repository, notifiers }
+        Self { notification_service, state_repository, notifiers, notifier_locks: DashMap::new() }
     }
 
     /// Processes a monitor match
@@ -106,6 +111,13 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
         policy: &crate::models::notifier::ThrottlePolicy,
     ) -> Result<(), AlertManagerError> {
         let notifier_name = &monitor_match.notifier_name;
+        // Get or create a lock for this specific notifier.
+        let lock = self
+            .notifier_locks
+            .entry(notifier_name.clone())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone();
+        let _guard = lock.lock().await;
         let throttle_state_key = format!("throttle_state:{}", notifier_name);
         let current_time = chrono::Utc::now();
 
@@ -179,7 +191,15 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
         &self,
         monitor_match: &MonitorMatch,
     ) -> Result<(), AlertManagerError> {
-        let aggregation_key = &monitor_match.monitor_name;
+        let aggregation_key = &monitor_match.notifier_name;
+        // Get or create a lock for this specific notifier.
+        let lock = self
+            .notifier_locks
+            .entry(aggregation_key.clone())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone();
+        let _guard = lock.lock().await;
+
         let state_key = format!("aggregation_state:{}", aggregation_key);
 
         let mut state = self
@@ -582,7 +602,7 @@ mod tests {
 
         let mut state_repo = MockGenericStateRepository::new();
         let monitor_match = create_monitor_match(notifier_name.clone());
-        let aggregation_key = &monitor_match.monitor_name;
+        let aggregation_key = &monitor_match.notifier_name;
         let state_key = format!("aggregation_state:{}", aggregation_key);
 
         // Expect a call to get the current state, returning None.
@@ -635,7 +655,7 @@ mod tests {
 
         let mut state_repo = MockGenericStateRepository::new();
         let monitor_match = create_monitor_match(notifier_name.clone());
-        let aggregation_key = &monitor_match.monitor_name;
+        let aggregation_key = &monitor_match.notifier_name;
         let state_key = format!("aggregation_state:{}", aggregation_key);
 
         // Expect a call to get the current state, returning an existing state.

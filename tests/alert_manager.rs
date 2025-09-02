@@ -116,7 +116,7 @@ async fn test_aggregation_policy_dispatches_summary_after_window() {
     mock.assert();
 
     // Verify that the aggregation state is cleared from the repository
-    let state_key = format!("aggregation_state:{}", monitor_name);
+    let state_key = format!("aggregation_state:{}", notifier_name);
     let cleared_state = state_repo.get_json_state::<AggregationState>(&state_key).await.unwrap();
     assert!(cleared_state.is_some());
     assert!(cleared_state.unwrap().matches.is_empty());
@@ -355,7 +355,7 @@ async fn test_aggregation_state_persistence_on_restart() {
     alert_manager1.process_match(&match2).await.unwrap();
 
     // Verify state is persisted
-    let state_key = format!("aggregation_state:{}", monitor_name);
+    let state_key = format!("aggregation_state:{}", notifier_name);
     let saved_state =
         state_repo.get_json_state::<AggregationState>(&state_key).await.unwrap().unwrap();
     assert_eq!(saved_state.matches.len(), 2);
