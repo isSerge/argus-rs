@@ -16,6 +16,8 @@ use crate::{
     persistence::traits::StateRepository,
 };
 
+// TODO: wrap the specific underlying error instead of String after introducing
+// custom error to replace sqlx::Error
 /// Errors that can occur during initialization.
 #[derive(Debug, Error)]
 pub enum InitializationError {
