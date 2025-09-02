@@ -126,10 +126,10 @@ impl WebhookNotifier {
         let mut url = self.url.clone();
 
         // Add URL parameters if any
-        if let Some(params) = &self.url_params {
-            if !params.is_empty() {
-                url.query_pairs_mut().extend_pairs(params);
-            }
+        if let Some(params) = &self.url_params
+            && !params.is_empty()
+        {
+            url.query_pairs_mut().extend_pairs(params);
         }
 
         let method = if let Some(ref m) = self.method {
