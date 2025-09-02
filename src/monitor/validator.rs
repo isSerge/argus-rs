@@ -139,55 +139,6 @@ impl<'a> MonitorValidator<'a> {
             abi_json.is_some(),
         )?;
 
-        // Enforce address and ABI requirements based on script analysis.
-        if script_validation_result.ast_analysis.accesses_log_variable {
-            if is_global_log_monitor {
-                if monitor.abi.is_none() {
-                    return Err(MonitorValidationError::MonitorRequiresAbi {
-                        monitor_name: monitor.name.clone(),
-                        reason: "ABI is required for global log monitoring (address: all) to \
-                                 decode logs."
-                            .to_string(),
-                    });
-                } else if abi_json.is_none() {
-                    return Err(MonitorValidationError::MonitorRequiresAbi {
-                        monitor_name: monitor.name.clone(),
-                        reason: format!(
-                            "ABI '{}' could not be retrieved for global log monitor. Ensure the \
-                             ABI is loaded.",
-                            monitor.abi.as_ref().unwrap()
-                        ),
-                    });
-                }
-            } else {
-                // This is a contract-specific log monitor (log accessed, but not global)
-                if monitor.address.is_none() {
-                    return Err(MonitorValidationError::MonitorRequiresAddress {
-                        monitor_name: monitor.name.clone(),
-                    });
-                }
-
-                if monitor.abi.is_none() {
-                    return Err(MonitorValidationError::MonitorRequiresAbi {
-                        monitor_name: monitor.name.clone(),
-                        reason: "ABI is required for contract-specific log monitoring to decode \
-                                 logs."
-                            .to_string(),
-                    });
-                } else if abi_json.is_none() {
-                    return Err(MonitorValidationError::MonitorRequiresAbi {
-                        monitor_name: monitor.name.clone(),
-                        reason: format!(
-                            "ABI '{}' could not be retrieved for address '{}'. Ensure the ABI is \
-                             loaded and linked.",
-                            monitor.abi.as_ref().unwrap(),
-                            monitor.address.as_ref().unwrap_or(&"<unknown>".to_string())
-                        ),
-                    });
-                }
-            }
-        }
-
         Ok(())
     }
 
@@ -289,7 +240,7 @@ impl<'a> MonitorValidator<'a> {
             if monitor.abi.is_none() {
                 return Err(MonitorValidationError::MonitorRequiresAbi {
                     monitor_name: monitor.name.clone(),
-                    reason: "ABI is required for global log monitoring (`address: all`) to decode \
+                    reason: "ABI is required for global log monitoring (address: all) to decode \
                              logs."
                         .to_string(),
                 });
@@ -298,7 +249,8 @@ impl<'a> MonitorValidator<'a> {
                 return Err(MonitorValidationError::MonitorRequiresAbi {
                     monitor_name: monitor.name.clone(),
                     reason: format!(
-                        "ABI '{}' could not be retrieved. Ensure the ABI is loaded.",
+                        "ABI '{}' could not be retrieved for global log monitor. Ensure the ABI \
+                         is loaded.",
                         monitor.abi.as_ref().unwrap()
                     ),
                 });
@@ -807,6 +759,8 @@ mod tests {
 
         assert!(result.is_err());
         if let Err(MonitorValidationError::MonitorRequiresAbi { monitor_name, reason }) = result {
+            println!("Monitor '{}' requires ABI: {}", monitor_name, reason);
+
             assert!(monitor_name.contains("Test Monitor 1"));
             assert!(reason.contains(
                 "ABI 'nonexistent_abi' could not be retrieved for global log monitor. Ensure the \
