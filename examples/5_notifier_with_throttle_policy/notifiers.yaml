@@ -1,8 +1,8 @@
 notifiers:
   - name: "Throttled Telegram Notifier"
     telegram:
-      token: "${TELEGRAM_BOT_TOKEN}"
-      chat_id: "${TELEGRAM_CHAT_ID}"
+      token: "<TELEGRAM TOKEN>"
+      chat_id: "<TELEGRAM CHAT ID>"
       disable_web_preview: true
       message:
         title: "Large ETH Transfer (Throttled)"
