@@ -2,7 +2,9 @@
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
+use dashmap::DashMap;
 use thiserror::Error;
+use tokio::sync::Mutex;
 
 use crate::{
     models::{
@@ -26,6 +28,9 @@ pub struct AlertManager<T: GenericStateRepository> {
 
     /// A map of notifier names to their loaded and validated configurations.
     notifiers: Arc<HashMap<String, NotifierConfig>>,
+
+    /// A map of notifier names to their locks to prevent race conditions.
+    notifier_locks: DashMap<String, Arc<Mutex<()>>>,
 }
 
 /// Errors that can occur within the AlertManager
@@ -48,7 +53,7 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
         state_repository: Arc<T>,
         notifiers: Arc<HashMap<String, NotifierConfig>>,
     ) -> Self {
-        Self { notification_service, state_repository, notifiers }
+        Self { notification_service, state_repository, notifiers, notifier_locks: DashMap::new() }
     }
 
     /// Processes a monitor match
@@ -99,6 +104,15 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
         Ok(())
     }
 
+    /// Gets or creates a lock for a specific notifier to prevent race
+    /// conditions.
+    fn get_notifier_lock(&self, notifier_name: &str) -> Arc<Mutex<()>> {
+        self.notifier_locks
+            .entry(notifier_name.to_string())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
+    }
+
     /// Handles throttling policy for a monitor match
     async fn handle_throttle(
         &self,
@@ -106,6 +120,8 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
         policy: &crate::models::notifier::ThrottlePolicy,
     ) -> Result<(), AlertManagerError> {
         let notifier_name = &monitor_match.notifier_name;
+        let lock = self.get_notifier_lock(notifier_name);
+        let _guard = lock.lock().await;
         let throttle_state_key = format!("throttle_state:{}", notifier_name);
         let current_time = chrono::Utc::now();
 
@@ -179,7 +195,10 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
         &self,
         monitor_match: &MonitorMatch,
     ) -> Result<(), AlertManagerError> {
-        let aggregation_key = &monitor_match.monitor_name;
+        let aggregation_key = &monitor_match.notifier_name;
+        let lock = self.get_notifier_lock(aggregation_key);
+        let _guard = lock.lock().await;
+
         let state_key = format!("aggregation_state:{}", aggregation_key);
 
         let mut state = self
@@ -582,7 +601,7 @@ mod tests {
 
         let mut state_repo = MockGenericStateRepository::new();
         let monitor_match = create_monitor_match(notifier_name.clone());
-        let aggregation_key = &monitor_match.monitor_name;
+        let aggregation_key = &monitor_match.notifier_name;
         let state_key = format!("aggregation_state:{}", aggregation_key);
 
         // Expect a call to get the current state, returning None.
@@ -635,7 +654,7 @@ mod tests {
 
         let mut state_repo = MockGenericStateRepository::new();
         let monitor_match = create_monitor_match(notifier_name.clone());
-        let aggregation_key = &monitor_match.monitor_name;
+        let aggregation_key = &monitor_match.notifier_name;
         let state_key = format!("aggregation_state:{}", aggregation_key);
 
         // Expect a call to get the current state, returning an existing state.
@@ -724,5 +743,26 @@ mod tests {
 
         // Assert
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_get_notifier_lock_is_shared_and_distinct() {
+        // Arrange
+        let state_repo = MockGenericStateRepository::new();
+        let alert_manager = create_alert_manager(HashMap::new(), state_repo);
+        let notifier1_name = "notifier1";
+        let notifier2_name = "notifier2";
+
+        // Act
+        let lock1_instance1 = alert_manager.get_notifier_lock(notifier1_name);
+        let lock1_instance2 = alert_manager.get_notifier_lock(notifier1_name);
+        let lock2_instance1 = alert_manager.get_notifier_lock(notifier2_name);
+
+        // Assert
+        // The same notifier name should return the same lock instance.
+        assert!(Arc::ptr_eq(&lock1_instance1, &lock1_instance2));
+
+        // Different notifier names should return different lock instances.
+        assert!(!Arc::ptr_eq(&lock1_instance1, &lock2_instance1));
     }
 }

@@ -93,7 +93,7 @@ Run with `debug` logs:
 RUST_LOG=debug cargo run --release -- dry-run --from 18000000 --to 18000010 --config-dir examples/3_weth_deposit_monitor/
 ```
 
-Replace `18000000` and `18000010` with actual Ethereum block numbers to test
+Replace `18000000` and `18000010` with any Ethereum block numbers to test
 against.
 
 #### Expected Output

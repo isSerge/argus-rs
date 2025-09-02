@@ -96,7 +96,7 @@ Run with `debug` logs:
 RUST_LOG=debug cargo run --release -- dry-run --from 23159290 --to 23159300 --config-dir examples/2_large_usdc_transfer/
 ```
 
-Replace `23159290` and `23159300` with actual Ethereum block numbers to test
+Replace `23159290` and `23159300` with any Ethereum block numbers to test
 against.
 
 #### Expected Output
