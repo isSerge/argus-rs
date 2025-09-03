@@ -172,13 +172,12 @@ impl NotifierTypeConfig {
     /// Transforms the specific notifier configuration into a generic set of
     /// webhook components.
     fn as_webhook_components(&self) -> Result<WebhookComponents, NotificationError> {
-        let components = match self {
+        Ok(match self {
             NotifierTypeConfig::Webhook(c) => c.into(),
             NotifierTypeConfig::Discord(c) => c.into(),
             NotifierTypeConfig::Telegram(c) => c.into(),
             NotifierTypeConfig::Slack(c) => c.into(),
-        };
-        Ok(components)
+        })
     }
 }
 
