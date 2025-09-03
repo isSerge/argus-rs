@@ -45,8 +45,10 @@ fn create_alert_manager(
     state_repo: Arc<SqliteStateRepository>,
 ) -> AlertManager<SqliteStateRepository> {
     let notifiers_arc = Arc::new(notifiers);
-    let notification_service =
-        Arc::new(NotificationService::new(notifiers_arc.clone(), Arc::new(HttpClientPool::new())));
+    let notification_service = Arc::new(NotificationService::new(
+        notifiers_arc.clone(),
+        Arc::new(HttpClientPool::default()),
+    ));
     AlertManager::new(notification_service, state_repo, notifiers_arc)
 }
 

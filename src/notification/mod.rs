@@ -334,7 +334,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_missing_notifier_error() {
-        let http_client_pool = Arc::new(HttpClientPool::new());
+        let http_client_pool = Arc::new(HttpClientPool::default());
         let service = NotificationService::new(Arc::new(HashMap::new()), http_client_pool);
         let monitor_match = create_mock_monitor_match("nonexistent");
         let notification_payload = NotificationPayload::Single(monitor_match.clone());

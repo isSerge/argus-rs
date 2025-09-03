@@ -447,7 +447,7 @@ mod tests {
             let abi_repository = Arc::new(AbiRepository::new(dir.path()).unwrap());
             let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
             let block_processor = BlockProcessor::new(abi_service);
-            let http_client_pool = Arc::new(HttpClientPool::new());
+            let http_client_pool = Arc::new(HttpClientPool::default());
             let notification_service =
                 Arc::new(NotificationService::new(Arc::new(HashMap::new()), http_client_pool));
             let alert_manager = Arc::new(AlertManager::new(

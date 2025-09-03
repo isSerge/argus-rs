@@ -198,7 +198,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
         .collect::<Vec<_>>();
 
     // Init services for notifications and filtering logic.
-    let client_pool = Arc::new(HttpClientPool::new());
+    let client_pool = Arc::new(HttpClientPool::new(config.http_base_config.clone()));
     let notifiers: Arc<HashMap<String, NotifierConfig>> =
         Arc::new(notifiers.into_iter().map(|t| (t.name.clone(), t)).collect());
     let notification_service = Arc::new(NotificationService::new(notifiers.clone(), client_pool));
@@ -360,7 +360,7 @@ mod tests {
             .await
             .expect("Failed to connect to in-memory db");
         state_repo.run_migrations().await.expect("Failed to run migrations");
-        let client_pool = Arc::new(HttpClientPool::new());
+        let client_pool = Arc::new(HttpClientPool::default());
         let notification_service =
             Arc::new(NotificationService::new(notifiers.clone(), client_pool));
         Arc::new(AlertManager::new(notification_service, Arc::new(state_repo), notifiers))

@@ -11,6 +11,7 @@ use super::{
     HttpRetryConfig, RhaiConfig, RpcRetryConfig, deserialize_duration_from_ms,
     deserialize_duration_from_seconds, deserialize_urls,
 };
+use crate::config::BaseHttpClientConfig;
 
 /// Provides the default value for shutdown_timeout_secs.
 fn default_shutdown_timeout() -> Duration {
@@ -55,6 +56,10 @@ pub struct AppConfig {
     /// Configuration for HTTP client retry policies.
     #[serde(default)]
     pub http_retry_config: HttpRetryConfig,
+
+    /// Configuration for the base HTTP client.
+    #[serde(default)]
+    pub http_base_config: BaseHttpClientConfig,
 
     /// The size of the block chunk to process at once.
     pub block_chunk_size: u64,
