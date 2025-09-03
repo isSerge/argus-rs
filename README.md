@@ -1,5 +1,7 @@
 # Argus EVM Monitor
 
+![alt text](banner.png)
+
 Argus Panoptes (“the All-Seeing”) was the sleepless giant of Greek mythology. With a hundred eyes, he could watch without rest, making him a perfect guardian.
 
 > **Note:** This project is under active development and is not yet ready for production use. The API and architecture are subject to change.
@@ -133,6 +135,12 @@ notifiers:
           <https://etherscan.io/tx/{{ transaction_hash }}|View on Etherscan>
 ```
 
+## Examples
+
+This project includes a variety of examples to help you get started. Each example is self-contained and demonstrates a specific use case.
+
+For a full list of examples, see the [Examples README](./examples/README.md).
+
 ### Configuration Parameters (`app.yaml`)
 
 | Parameter | Description | Default |
@@ -146,9 +154,18 @@ notifiers:
 | `notification_channel_capacity` | The capacity of the internal channel for sending notifications. | `1024` |
 | `abi_config_path` | The directory where contract ABI JSON files are located. | `abis/` |
 | `shutdown_timeout_secs` | The maximum time in seconds to wait for a graceful shutdown. | `30` |
-| `retry_config.max_retry` | The maximum number of retries for a failing RPC request. | `10` |
-| `retry_config.backoff_ms` | The initial backoff delay in milliseconds for RPC retries. | `1000` |
-| `retry_config.compute_units_per_second` | The number of compute units per second to allow (for rate limiting). | `100` |
+| `aggregation_check_interval_secs` | The interval in seconds to check for aggregated matches. | `5` |
+| `http_base_config.max_idle_per_host` | Maximum number of idle connections per host for the HTTP client. | `10` |
+| `http_base_config.idle_timeout` | Timeout in seconds for idle HTTP connections. | `30` |
+| `http_base_config.connect_timeout` | Timeout in seconds for establishing HTTP connections. | `10` |
+| `http_retry_config.max_retry` | The maximum number of retries for a failing HTTP request. | `3` |
+| `http_retry_config.initial_backoff_ms` | The initial backoff delay in milliseconds for HTTP retries. | `250` |
+| `http_retry_config.max_backoff_secs` | The maximum backoff delay in seconds for HTTP retries. | `10` |
+| `http_retry_config.base_for_backoff` | The base for the exponential backoff calculation for HTTP retries. | `2` |
+| `http_retry_config.jitter` | The jitter to apply to the backoff duration for HTTP retries (`none` or `full`). | `full` |
+| `rpc_retry_config.max_retry` | The maximum number of retries for a failing RPC request. | `10` |
+| `rpc_retry_config.backoff_ms` | The initial backoff delay in milliseconds for RPC retries. | `1000` |
+| `rpc_retry_config.compute_units_per_second` | The number of compute units per second to allow (for rate limiting). | `100` |
 | `rhai.max_operations` | Maximum number of operations a Rhai script can perform. | `100000` |
 | `rhai.max_call_levels` | Maximum function call nesting depth in a Rhai script. | `10` |
 | `rhai.max_string_size` | Maximum size of strings in characters in a Rhai script. | `8192` |
