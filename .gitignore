@@ -3,3 +3,4 @@
 monitor.db
 configs/monitors.yaml
 configs/notifiers.yaml
+/docs/book/
