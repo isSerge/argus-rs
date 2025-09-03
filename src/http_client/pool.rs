@@ -4,7 +4,7 @@
 //! the application to create and reuse HTTP clients with different
 //! configurations.
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc};
 
 use reqwest::Client as ReqwestClient;
 use reqwest_middleware::ClientWithMiddleware;
@@ -12,7 +12,7 @@ use thiserror::Error;
 use tokio::sync::RwLock;
 
 use super::client::create_retryable_http_client;
-use crate::config::HttpRetryConfig;
+use crate::config::{BaseHttpClientConfig, HttpRetryConfig};
 
 /// Errors that can occur within the `HttpClientPool`.
 #[derive(Debug, Error)]
@@ -34,12 +34,13 @@ pub enum HttpClientPoolError {
 /// retry strategies result in different, isolated clients.
 pub struct HttpClientPool {
     clients: Arc<RwLock<HashMap<HttpRetryConfig, Arc<ClientWithMiddleware>>>>,
+    base_client_config: BaseHttpClientConfig,
 }
 
 impl HttpClientPool {
     /// Creates a new, empty `HttpClientPool`.
-    pub fn new() -> Self {
-        Self { clients: Arc::new(RwLock::new(HashMap::new())) }
+    pub fn new(base_client_config: BaseHttpClientConfig) -> Self {
+        Self { clients: Arc::new(RwLock::new(HashMap::new())), base_client_config }
     }
 
     /// Gets an existing HTTP client from the pool or creates a new one if none
@@ -76,11 +77,10 @@ impl HttpClientPool {
         }
 
         // Create and insert the new client if it still doesn't exist.
-        // TODO: make configurable
         let base_client = ReqwestClient::builder()
-            .pool_max_idle_per_host(10)
-            .pool_idle_timeout(Some(Duration::from_secs(90)))
-            .connect_timeout(Duration::from_secs(10))
+            .pool_max_idle_per_host(self.base_client_config.max_idle_per_host)
+            .pool_idle_timeout(Some(self.base_client_config.idle_timeout))
+            .connect_timeout(self.base_client_config.connect_timeout)
             .build()
             .map_err(|e| HttpClientPoolError::HttpClientBuildError(e.to_string()))?;
 
@@ -99,7 +99,7 @@ impl HttpClientPool {
 
 impl Default for HttpClientPool {
     fn default() -> Self {
-        Self::new()
+        Self::new(BaseHttpClientConfig::default())
     }
 }
 
@@ -108,7 +108,7 @@ mod tests {
     use super::*;
 
     fn create_pool() -> HttpClientPool {
-        HttpClientPool::new()
+        HttpClientPool::default()
     }
 
     #[tokio::test]

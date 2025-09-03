@@ -11,6 +11,7 @@ use super::{
     HttpRetryConfig, RhaiConfig, RpcRetryConfig, deserialize_duration_from_ms,
     deserialize_duration_from_seconds, deserialize_urls,
 };
+use crate::config::BaseHttpClientConfig;
 
 /// Provides the default value for shutdown_timeout_secs.
 fn default_shutdown_timeout() -> Duration {
@@ -55,6 +56,10 @@ pub struct AppConfig {
     /// Configuration for HTTP client retry policies.
     #[serde(default)]
     pub http_retry_config: HttpRetryConfig,
+
+    /// Configuration for the base HTTP client.
+    #[serde(default)]
+    pub http_base_config: BaseHttpClientConfig,
 
     /// The size of the block chunk to process at once.
     pub block_chunk_size: u64,
@@ -235,5 +240,33 @@ mod tests {
         assert_eq!(config.notification_channel_capacity, 1024);
         assert_eq!(config.block_chunk_size, 0);
         assert_eq!(config.polling_interval_ms, Duration::from_millis(10000));
+    }
+
+    #[test]
+    fn test_app_config_from_file_with_http_base_config() {
+        let config_content = r#"
+        database_url: "sqlite::memory:"
+        rpc_urls:
+          - "http://localhost:8545"
+        network_id: "testnet"
+        confirmation_blocks: 12
+        block_chunk_size: 0
+        polling_interval_ms: 10000
+        abi_config_path: abis/
+        http_base_config:
+          max_idle_per_host: 50
+          idle_timeout: 120
+          connect_timeout: 20
+        "#;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let app_yaml_path = temp_dir.path().join("app.yaml");
+        std::fs::write(&app_yaml_path, config_content).unwrap();
+
+        let temp_dir_path = temp_dir.path();
+        let config = AppConfig::new(Some(temp_dir_path.to_str().unwrap())).unwrap();
+
+        assert_eq!(config.http_base_config.max_idle_per_host, 50);
+        assert_eq!(config.http_base_config.idle_timeout, Duration::from_secs(120));
+        assert_eq!(config.http_base_config.connect_timeout, Duration::from_secs(20));
     }
 }

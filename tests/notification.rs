@@ -40,7 +40,7 @@ async fn test_success() {
         .create_async()
         .await;
 
-    let http_client_pool = Arc::new(HttpClientPool::new());
+    let http_client_pool = Arc::new(HttpClientPool::default());
     let notifiers =
         Arc::new(vec![mock_discord_notifier].into_iter().map(|n| (n.name.clone(), n)).collect());
     let notification_service = NotificationService::new(notifiers, http_client_pool);
@@ -89,7 +89,7 @@ async fn test_failure_with_retryable_error() {
         .create_async()
         .await;
 
-    let http_client_pool = Arc::new(HttpClientPool::new());
+    let http_client_pool = Arc::new(HttpClientPool::default());
     let notifiers =
         Arc::new(vec![mock_discord_notifier].into_iter().map(|n| (n.name.clone(), n)).collect());
     let notification_service = NotificationService::new(notifiers, http_client_pool);
@@ -140,7 +140,7 @@ async fn test_failure_with_non_retryable_error() {
         .create_async()
         .await;
 
-    let http_client_pool = Arc::new(HttpClientPool::new());
+    let http_client_pool = Arc::new(HttpClientPool::default());
     let notifiers =
         Arc::new(vec![mock_discord_notifier].into_iter().map(|n| (n.name.clone(), n)).collect());
     let notification_service = NotificationService::new(notifiers, http_client_pool);
@@ -180,7 +180,7 @@ async fn test_failure_with_invalid_url() {
         policy: None,
     };
 
-    let http_client_pool = Arc::new(HttpClientPool::new());
+    let http_client_pool = Arc::new(HttpClientPool::default());
     let notifiers =
         Arc::new(vec![mock_discord_notifier].into_iter().map(|t| (t.name.clone(), t)).collect());
     let notification_service = NotificationService::new(notifiers, http_client_pool);
