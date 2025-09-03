@@ -241,4 +241,32 @@ mod tests {
         assert_eq!(config.block_chunk_size, 0);
         assert_eq!(config.polling_interval_ms, Duration::from_millis(10000));
     }
+
+    #[test]
+    fn test_app_config_from_file_with_http_base_config() {
+        let config_content = r#"
+        database_url: "sqlite::memory:"
+        rpc_urls:
+          - "http://localhost:8545"
+        network_id: "testnet"
+        confirmation_blocks: 12
+        block_chunk_size: 0
+        polling_interval_ms: 10000
+        abi_config_path: abis/
+        http_base_config:
+          max_idle_per_host: 50
+          idle_timeout: 120
+          connect_timeout: 20
+        "#;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let app_yaml_path = temp_dir.path().join("app.yaml");
+        std::fs::write(&app_yaml_path, config_content).unwrap();
+
+        let temp_dir_path = temp_dir.path();
+        let config = AppConfig::new(Some(temp_dir_path.to_str().unwrap())).unwrap();
+
+        assert_eq!(config.http_base_config.max_idle_per_host, 50);
+        assert_eq!(config.http_base_config.idle_timeout, Duration::from_secs(120));
+        assert_eq!(config.http_base_config.connect_timeout, Duration::from_secs(20));
+    }
 }
