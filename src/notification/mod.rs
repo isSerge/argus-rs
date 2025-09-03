@@ -9,10 +9,9 @@
 //! - **`NotificationService`**: The main struct that holds the loaded notifier
 //!   configurations and a shared `HttpClientPool`. It is responsible for
 //!   executing notifications.
-//! - **`AsWebhookComponents` Trait**: A helper trait that abstracts the
-//!   specific details of each notification channel (Slack, Discord, etc.) into
-//!   a common `WebhookComponents` struct. This allows the service to handle
-//!   different webhook providers polymorphically.
+//! - **`WebhookComponents` struct**: This struct provides a common interface
+//!   for the `NotificationService` to work with, regardless of the underlying
+//!   provider (e.g., Slack, Discord).
 //! - **Payload Builders**: Located in the `payload_builder` module, these are
 //!   responsible for constructing the JSON payload specific to each
 //!   notification channel.
@@ -25,9 +24,9 @@
 //!    of the notifier to be executed and a set of variables for template
 //!    substitution.
 //! 3. The service looks up the corresponding `NotifierTypeConfig` by its name.
-//! 4. The `as_webhook_components` trait method is called to transform the
-//!    specific notifier configuration (e.g., `SlackConfig`) into a generic set
-//!    of components needed to send a webhook.
+//! 4. The `NotifierTypeConfig` is transformed into a `WebhookComponents`
+//!    struct, which includes the generic webhook configuration, retry policy,
+//!    and the payload builder specific to the notifier type.
 //! 5. An HTTP client is retrieved from the `HttpClientPool`, configured with
 //!    the appropriate retry policy for the specific notifier.
 //! 6. The appropriate `WebhookPayloadBuilder` constructs the final JSON
@@ -42,7 +41,10 @@ use crate::{
     models::{
         NotificationMessage,
         monitor_match::MonitorMatch,
-        notifier::{NotifierConfig, NotifierTypeConfig},
+        notifier::{
+            DiscordConfig, NotifierConfig, NotifierTypeConfig, SlackConfig, TelegramConfig,
+            WebhookConfig,
+        },
     },
 };
 
@@ -78,9 +80,8 @@ pub enum NotificationPayload {
 /// A private container struct holding the generic components required to send
 /// any webhook-based notification.
 ///
-/// This struct is created by the `AsWebhookComponents` trait and provides a
-/// common interface for the `NotificationService` to work with, regardless of
-/// the underlying provider (e.g., Slack, Discord).
+/// This struct provides a common interface for the `NotificationService` to
+/// work with, regardless of the underlying provider (e.g., Slack, Discord).
 struct WebhookComponents {
     /// The generic webhook configuration, including the URL, method, and
     /// headers.
@@ -92,93 +93,90 @@ struct WebhookComponents {
     builder: Box<dyn WebhookPayloadBuilder>,
 }
 
-/// A trait to convert a specific notifier configuration (e.g., `SlackConfig`)
-/// into a generic `WebhookComponents` struct.
-///
-/// This abstraction allows the `NotificationService` to handle various webhook
-/// providers in a uniform way, decoupling the core service logic from the
-/// specific details of each notification channel.
-trait AsWebhookComponents {
-    /// Transforms a specific notifier configuration into the generic components
-    /// needed to dispatch a webhook notification.
-    ///
-    /// This method extracts the URL, message, retry policy, and the appropriate
-    /// payload builder from the specific config.
-    fn as_webhook_components(&self) -> Result<WebhookComponents, NotificationError>;
-}
-impl AsWebhookComponents for NotifierTypeConfig {
-    fn as_webhook_components(&self) -> Result<WebhookComponents, NotificationError> {
-        // A private helper struct to hold the provider-specific details extracted from
-        // the `match` statement. This helps reduce code repetition.
-        struct ProviderDetails {
-            url: String,
-            builder: Box<dyn WebhookPayloadBuilder>,
-            method: Option<String>,
-            secret: Option<String>,
-            headers: Option<HashMap<String, String>>,
-        }
-
-        impl ProviderDetails {
-            /// A constructor for standard notifiers (like Slack, Discord) that
-            /// use POST and have no custom secret or headers.
-            fn new_standard(url: String, builder: Box<dyn WebhookPayloadBuilder>) -> Self {
-                Self { url, builder, method: Some("POST".to_string()), secret: None, headers: None }
-            }
-        }
-
-        // Extract common components (message and retry_policy) that exist in all
-        // variants.
-        let (message, retry_policy) = match self {
-            NotifierTypeConfig::Webhook(c) => (&c.message, &c.retry_policy),
-            NotifierTypeConfig::Discord(c) => (&c.message, &c.retry_policy),
-            NotifierTypeConfig::Telegram(c) => (&c.message, &c.retry_policy),
-            NotifierTypeConfig::Slack(c) => (&c.message, &c.retry_policy),
-        };
-
-        // The match statement now focuses only on creating the provider-specific
-        // details.
-        let details = match self {
-            // The generic webhook is fully customizable.
-            NotifierTypeConfig::Webhook(c) => ProviderDetails {
+impl From<&WebhookConfig> for WebhookComponents {
+    fn from(c: &WebhookConfig) -> Self {
+        WebhookComponents {
+            config: webhook::WebhookConfig {
                 url: c.url.clone(),
-                builder: Box::new(GenericWebhookPayloadBuilder),
+                title: c.message.title.clone(),
+                body_template: c.message.body.clone(),
                 method: c.method.clone(),
                 secret: c.secret.clone(),
                 headers: c.headers.clone(),
+                url_params: None,
             },
-            // Other notifiers use the standard POST configuration.
-            NotifierTypeConfig::Discord(c) => ProviderDetails::new_standard(
-                c.discord_url.clone(),
-                Box::new(DiscordPayloadBuilder),
-            ),
-            NotifierTypeConfig::Telegram(c) => {
-                let url = format!("https://api.telegram.org/bot{}/sendMessage", c.token);
-                let builder = Box::new(TelegramPayloadBuilder {
-                    chat_id: c.chat_id.clone(),
-                    disable_web_preview: c.disable_web_preview.unwrap_or(false),
-                });
-                ProviderDetails::new_standard(url, builder)
-            }
-            NotifierTypeConfig::Slack(c) =>
-                ProviderDetails::new_standard(c.slack_url.clone(), Box::new(SlackPayloadBuilder)),
-        };
+            retry_policy: c.retry_policy.clone(),
+            builder: Box::new(GenericWebhookPayloadBuilder),
+        }
+    }
+}
 
-        // Construct the final WebhookConfig from the common and provider-specific
-        // parts.
-        let config = webhook::WebhookConfig {
-            url: details.url,
-            title: message.title.clone(),
-            body_template: message.body.clone(),
-            method: details.method,
-            secret: details.secret,
-            headers: details.headers,
-            url_params: None,
-        };
+impl From<&DiscordConfig> for WebhookComponents {
+    fn from(c: &DiscordConfig) -> Self {
+        WebhookComponents {
+            config: webhook::WebhookConfig {
+                url: c.discord_url.clone(),
+                title: c.message.title.clone(),
+                body_template: c.message.body.clone(),
+                method: Some("POST".to_string()),
+                secret: None,
+                headers: None,
+                url_params: None,
+            },
+            retry_policy: c.retry_policy.clone(),
+            builder: Box::new(DiscordPayloadBuilder),
+        }
+    }
+}
 
-        Ok(WebhookComponents {
-            config,
-            retry_policy: retry_policy.clone(),
-            builder: details.builder,
+impl From<&TelegramConfig> for WebhookComponents {
+    fn from(c: &TelegramConfig) -> Self {
+        WebhookComponents {
+            config: webhook::WebhookConfig {
+                url: format!("https://api.telegram.org/bot{}/sendMessage", c.token),
+                title: c.message.title.clone(),
+                body_template: c.message.body.clone(),
+                method: Some("POST".to_string()),
+                secret: None,
+                headers: None,
+                url_params: None,
+            },
+            retry_policy: c.retry_policy.clone(),
+            builder: Box::new(TelegramPayloadBuilder {
+                chat_id: c.chat_id.clone(),
+                disable_web_preview: c.disable_web_preview.unwrap_or(false),
+            }),
+        }
+    }
+}
+
+impl From<&SlackConfig> for WebhookComponents {
+    fn from(c: &SlackConfig) -> Self {
+        WebhookComponents {
+            config: webhook::WebhookConfig {
+                url: c.slack_url.clone(),
+                title: c.message.title.clone(),
+                body_template: c.message.body.clone(),
+                method: Some("POST".to_string()),
+                secret: None,
+                headers: None,
+                url_params: None,
+            },
+            retry_policy: c.retry_policy.clone(),
+            builder: Box::new(SlackPayloadBuilder),
+        }
+    }
+}
+
+impl NotifierTypeConfig {
+    /// Transforms the specific notifier configuration into a generic set of
+    /// webhook components.
+    fn as_webhook_components(&self) -> Result<WebhookComponents, NotificationError> {
+        Ok(match self {
+            NotifierTypeConfig::Webhook(c) => c.into(),
+            NotifierTypeConfig::Discord(c) => c.into(),
+            NotifierTypeConfig::Telegram(c) => c.into(),
+            NotifierTypeConfig::Slack(c) => c.into(),
         })
     }
 }
