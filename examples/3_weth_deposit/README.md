@@ -84,13 +84,13 @@ To test this monitor against historical blocks, use the `dry-run` command with
 the `--config-dir` argument pointing to this example's configuration:
 
 ```bash
-cargo run --release -- dry-run --from 18000000 --to 18000010 --config-dir examples/3_weth_deposit_monitor/
+cargo run --release -- dry-run --from 18000000 --to 18000010 --config-dir examples/3_weth_deposit/
 ```
 
 Run with `debug` logs:
 
 ```bash
-RUST_LOG=debug cargo run --release -- dry-run --from 18000000 --to 18000010 --config-dir examples/3_weth_deposit_monitor/
+RUST_LOG=debug cargo run --release -- dry-run --from 18000000 --to 18000010 --config-dir examples/3_weth_deposit/
 ```
 
 Replace `18000000` and `18000010` with any Ethereum block numbers to test
@@ -133,5 +133,5 @@ monitor will continuously poll for new blocks and dispatch actual notifications
 via the configured notifier when a match is found.
 
 ```bash
-cargo run --release -- run --config-dir examples/3_weth_deposit_monitor/
+cargo run --release -- run --config-dir examples/3_weth_deposit/
 ```
