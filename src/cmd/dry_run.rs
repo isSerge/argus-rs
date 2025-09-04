@@ -343,7 +343,7 @@ mod tests {
         http_client::HttpClientPool,
         models::{
             NotificationMessage,
-            monitor_match::{MatchData, TransactionDetails},
+            monitor_match::{MatchData, TransactionMatchData},
             notifier::{NotifierTypeConfig, SlackConfig},
         },
         notification::NotificationService,
@@ -432,7 +432,10 @@ mod tests {
         let matches = result.unwrap();
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].block_number, from_block);
-        assert!(matches!(matches[0].match_data, MatchData::Transaction(TransactionDetails { .. })));
+        assert!(matches!(
+            matches[0].match_data,
+            MatchData::Transaction(TransactionMatchData { .. })
+        ));
     }
 
     #[tokio::test]

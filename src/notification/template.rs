@@ -80,4 +80,30 @@ mod tests {
         assert!(result.is_err());
         assert!(matches!(result, Err(TemplateServiceError::RenderError(_))));
     }
+
+    #[test]
+    fn test_render_template_with_nested_log_params() {
+        let service = TemplateService::new();
+        let template =
+            "From: {{ log.params.from }}, To: {{ log.params.to }}, Value: {{ log.params.value }}";
+        let context = json!({
+            "log": {
+                "contract_address": "0x576e2bed8f7b46d34016198911cdf9886f78bea7",
+                "log_index": 105,
+                "name": "Transfer",
+                "params": {
+                    "from": "0xE4b8583cCB95b25737C016ac88E539D0605949e8",
+                    "to": "0x035A0C81ceFd37b7c6c638870Ddfa7937C303997",
+                    "value": "3141247012536"
+                }
+            },
+            "monitor_name": "All ERC20 Transfers (Ethereum)"
+        });
+        let result = service.render(template, context).unwrap();
+        assert_eq!(
+            result,
+            "From: 0xE4b8583cCB95b25737C016ac88E539D0605949e8, To: \
+             0x035A0C81ceFd37b7c6c638870Ddfa7937C303997, Value: 3141247012536"
+        );
+    }
 }

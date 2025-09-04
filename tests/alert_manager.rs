@@ -36,7 +36,7 @@ fn create_monitor_match(monitor_name: &str, notifier_name: &str) -> MonitorMatch
         notifier_name.to_string(),
         123,
         Default::default(),
-        json!({"key": "value"}),
+        json!({ "key": "value" }),
     )
 }
 
