@@ -332,7 +332,7 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
 
 #[cfg(test)]
 mod tests {
-    use alloy::primitives::TxHash;
+    use alloy::primitives::{Address, TxHash};
     use chrono::Utc;
     use mockall::predicate::eq;
     use serde_json::json;
@@ -342,7 +342,7 @@ mod tests {
         http_client::HttpClientPool,
         models::{
             NotificationMessage,
-            monitor_match::{LogDetails, MatchData},
+            monitor_match::{LogDetails, LogMatchData, MatchData},
             notifier::{AggregationPolicy, DiscordConfig, NotifierTypeConfig, ThrottlePolicy},
         },
         persistence::traits::MockGenericStateRepository,
@@ -355,14 +355,17 @@ mod tests {
             notifier_name,
             block_number: 123,
             transaction_hash: TxHash::default(),
-            match_data: MatchData::Log(LogDetails {
-                contract_address: alloy::primitives::Address::default(),
-                log_index: 0,
-                log_name: "Test Log".to_string(),
-                log_params: json!({
-                    "param1": "value1",
-                    "param2": 42,
-                }),
+            match_data: MatchData::Log(LogMatchData {
+                log_details: LogDetails {
+                    contract_address: Address::default(),
+                    log_index: 0,
+                    name: "Test Log".to_string(),
+                    params: json!({
+                        "param1": "value1",
+                        "param2": 42,
+                    }),
+                },
+                tx_details: json!({}), // Default empty transaction details for test
             }),
         }
     }

@@ -319,8 +319,8 @@ mod tests {
         let log_details = LogDetails {
             contract_address: address!("0x1234567890abcdef1234567890abcdef12345678"),
             log_index: 15,
-            log_name: "TestLog".to_string(),
-            log_params: json!({"param1": "value1", "param2": 42}),
+            name: "TestLog".to_string(),
+            params: json!({"param1": "value1", "param2": 42}),
         };
         MonitorMatch::new_log_match(
             1,
@@ -329,6 +329,7 @@ mod tests {
             123,
             TxHash::default(),
             log_details,
+            json!({}),
         )
     }
 

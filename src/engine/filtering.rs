@@ -166,6 +166,7 @@ impl RhaiFilteringEngine {
         tx_map: rhai::Map,
         log_map: rhai::Map,
         log_match_payload: serde_json::Value,
+        tx_match_payload: serde_json::Value,
         decoded_log: &DecodedLog,
     ) -> Result<Vec<MonitorMatch>, RhaiError> {
         let mut scope = Scope::new();
@@ -185,8 +186,8 @@ impl RhaiFilteringEngine {
                 let log_details = LogDetails {
                     contract_address,
                     log_index,
-                    log_name: decoded_log.name.clone(),
-                    log_params: log_match_payload.clone(),
+                    name: decoded_log.name.clone(),
+                    params: log_match_payload.clone(),
                 };
 
                 monitor_matches.push(MonitorMatch::new_log_match(
@@ -196,6 +197,7 @@ impl RhaiFilteringEngine {
                     block_number,
                     transaction_hash,
                     log_details,
+                    tx_match_payload.clone(),
                 ));
             }
         }
@@ -301,6 +303,8 @@ impl FilteringEngine for RhaiFilteringEngine {
             let params_map = build_log_params_map(&log.params);
             let log_map = build_log_map(log, params_map);
             let log_match_payload = build_log_params_payload(&log.params);
+            let tx_match_payload =
+                build_transaction_details_payload(&item.transaction, item.receipt.as_ref());
 
             // Evaluate both address-specific and global log-aware monitors.
             let address_monitors = monitors_guard.log_aware_monitors.get(&log_address_str);
@@ -318,6 +322,7 @@ impl FilteringEngine for RhaiFilteringEngine {
                         tx_map.clone(),
                         log_map.clone(),
                         log_match_payload.clone(),
+                        tx_match_payload.clone(),
                         log,
                     )
                     .await
@@ -365,7 +370,7 @@ mod tests {
         abi::DecodedLog,
         config::RhaiConfig,
         models::{
-            monitor_match::{LogDetails, MatchData, TransactionDetails},
+            monitor_match::{LogDetails, LogMatchData, MatchData, TransactionMatchData},
             transaction::Transaction,
         },
         test_helpers::{LogBuilder, MonitorBuilder, TransactionBuilder},
@@ -574,7 +579,7 @@ mod tests {
         assert_eq!(matches[0].monitor_id, 1);
         assert_eq!(matches[0].notifier_name, "notifier1");
         assert!(
-            matches!(matches[0].match_data, MatchData::Log(LogDetails { ref log_name, .. }) if log_name == "ValueTransfered")
+            matches!(&matches[0].match_data, MatchData::Log(log_match) if log_match.log_details.name == "ValueTransfered")
         );
     }
 
@@ -715,7 +720,10 @@ mod tests {
         assert_eq!(matches.len(), 1, "Should find one match for value > 1.5 ether");
         assert_eq!(matches[0].monitor_id, 1);
         assert_eq!(matches[0].transaction_hash, tx_match.hash());
-        assert!(matches!(matches[0].match_data, MatchData::Transaction(TransactionDetails { .. })));
+        assert!(matches!(
+            matches[0].match_data,
+            MatchData::Transaction(TransactionMatchData { .. })
+        ));
 
         // Test non-matching case
         let no_matches = engine.evaluate_item(&item_no_match).await.unwrap();
@@ -753,11 +761,11 @@ mod tests {
         assert_eq!(matches[1].monitor_id, 100);
         assert_eq!(matches[0].block_number, item.transaction.block_number().unwrap_or_default());
         assert!(
-            matches!(matches[0].match_data, MatchData::Log(LogDetails { contract_address, .. }) if contract_address == addr1)
+            matches!(matches[0].match_data, MatchData::Log(LogMatchData { log_details: LogDetails { contract_address, .. }, .. }) if contract_address == addr1)
         );
         assert_eq!(matches[1].block_number, item.transaction.block_number().unwrap_or_default());
         assert!(
-            matches!(matches[1].match_data, MatchData::Log(LogDetails { contract_address, .. }) if contract_address == addr2)
+            matches!(matches[1].match_data, MatchData::Log(LogMatchData { log_details: LogDetails { contract_address, .. }, .. }) if contract_address == addr2)
         );
     }
 }
