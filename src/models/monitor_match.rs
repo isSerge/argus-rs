@@ -104,7 +104,7 @@ pub struct LogMatchData {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LogDetails {
     /// The address of the contract that emitted the event.
-    pub contract_address: Address,
+    pub address: Address,
     /// The log index within the block.
     pub log_index: u64,
     /// The name of the log/event.
@@ -308,7 +308,7 @@ mod tests {
     #[test]
     fn test_monitor_match_construction_from_log() {
         let log_details = LogDetails {
-            contract_address: Address::default(),
+            address: Address::default(),
             log_index: 15,
             name: "TestLog".to_string(),
             params: json!({"param1": "value1"}),
@@ -371,7 +371,7 @@ mod tests {
     fn test_monitor_match_log_serialization() {
         let contract_address = address!("0x0000000000000000000000000000000000000011");
         let log_details = LogDetails {
-            contract_address,
+            address: contract_address,
             log_index: 15,
             name: "Transfer".to_string(),
             params: json!({ "value": "22545..." }),
@@ -398,7 +398,7 @@ mod tests {
                 "from": "0x4976..."
             },
             "log": {
-                "contract_address": contract_address.to_checksum(None),
+                "address": contract_address.to_checksum(None),
                 "log_index": 15,
                 "name": "Transfer",
                 "params": {
@@ -450,7 +450,7 @@ mod tests {
                 "from": "0x4976..."
             }},
             "log": {{
-                "contract_address": "{}",
+                "address": "{}",
                 "log_index": 15,
                 "name": "Transfer",
                 "params": {{
@@ -464,7 +464,7 @@ mod tests {
         let deserialized: MonitorMatch = serde_json::from_str(&json_str).unwrap();
 
         let expected_log_details = LogDetails {
-            contract_address,
+            address: contract_address,
             log_index: 15,
             name: "Transfer".to_string(),
             params: json!({ "value": "22545..." }),
@@ -493,7 +493,7 @@ mod tests {
             "block_number": 456,
             "transaction_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
             "log": {{
-                "contract_address": "{}",
+                "address": "{}",
                 "log_index": 15,
                 "name": "Transfer",
                 "params": {{

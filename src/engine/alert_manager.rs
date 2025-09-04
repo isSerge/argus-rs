@@ -357,7 +357,7 @@ mod tests {
             transaction_hash: TxHash::default(),
             match_data: MatchData::Log(LogMatchData {
                 log_details: LogDetails {
-                    contract_address: Address::default(),
+                    address: Address::default(),
                     log_index: 0,
                     name: "Test Log".to_string(),
                     params: json!({

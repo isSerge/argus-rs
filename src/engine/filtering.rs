@@ -177,14 +177,14 @@ impl RhaiFilteringEngine {
 
         let block_number = decoded_log.log.block_number().unwrap_or_default();
         let transaction_hash = decoded_log.log.transaction_hash().unwrap_or_default();
-        let contract_address = decoded_log.log.address();
+        let address = decoded_log.log.address();
         let log_index = decoded_log.log.log_index().unwrap_or_default();
 
         let mut monitor_matches = Vec::new();
         if let Ok(true) = self.eval_ast_bool_secure(&ast, &mut scope).await {
             for notifier_name in &monitor.notifiers {
                 let log_details = LogDetails {
-                    contract_address,
+                    address,
                     log_index,
                     name: decoded_log.name.clone(),
                     params: log_match_payload.clone(),
@@ -761,11 +761,11 @@ mod tests {
         assert_eq!(matches[1].monitor_id, 100);
         assert_eq!(matches[0].block_number, item.transaction.block_number().unwrap_or_default());
         assert!(
-            matches!(matches[0].match_data, MatchData::Log(LogMatchData { log_details: LogDetails { contract_address, .. }, .. }) if contract_address == addr1)
+            matches!(matches[0].match_data, MatchData::Log(LogMatchData { log_details: LogDetails { address, .. }, .. }) if address == addr1)
         );
         assert_eq!(matches[1].block_number, item.transaction.block_number().unwrap_or_default());
         assert!(
-            matches!(matches[1].match_data, MatchData::Log(LogMatchData { log_details: LogDetails { contract_address, .. }, .. }) if contract_address == addr2)
+            matches!(matches[1].match_data, MatchData::Log(LogMatchData { log_details: LogDetails { address, .. }, .. }) if address == addr2)
         );
     }
 }

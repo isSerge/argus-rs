@@ -317,7 +317,7 @@ mod tests {
 
     fn create_mock_monitor_match(notifier_name: &str) -> MonitorMatch {
         let log_details = LogDetails {
-            contract_address: address!("0x1234567890abcdef1234567890abcdef12345678"),
+            address: address!("0x1234567890abcdef1234567890abcdef12345678"),
             log_index: 15,
             name: "TestLog".to_string(),
             params: json!({"param1": "value1", "param2": 42}),
