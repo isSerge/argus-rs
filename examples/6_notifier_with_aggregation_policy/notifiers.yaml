@@ -1,0 +1,27 @@
+notifiers:
+  - name: "Telegram Aggregated WBTC Transfers"
+    telegram:
+      token: "<TELEGRAM TOKEN>"
+      chat_id: "<TELEGRAM CHAT ID>"
+      disable_web_preview: true
+      message:
+        title: "Aggregated WBTC Transfers"
+        body: |
+          This template will not be used directly, as we are using an aggregation policy.
+    policy:
+      # The `aggregation` policy collects all matches that occur within a time
+      # window and sends a single, consolidated notification.
+      aggregation:
+        # The duration of the aggregation window in seconds.
+        # All matches for a given monitor within this period will be grouped.
+        window_secs: 300 # 5 minutes
+        # The template for the aggregated notification.
+        # This template has access to a `matches` array, which contains all the
+        # `MonitorMatch` objects collected during the window.
+        template:
+          title: "Event Summary for {{ monitor_name }}"
+          # You can iterate over the `matches` or use filters like `length`.
+          body: |
+            Detected {{ matches | length }} WBTC transfers by monitor {{ monitor_name }}.
+            Total value: {{ matches | map(attribute='log.params.value') | sum | wbtc }} WBTC
+            Average value: {{ matches | map(attribute='log.params.value') | avg | wbtc }} WBTC

@@ -25,7 +25,9 @@ async fn test_success() {
             discord_url: server.url(),
             message: NotificationMessage {
                 title: "Test Title".to_string(),
-                body: "Monitor {{ monitor_id }} matched on block {{ block_number }}".to_string(),
+                body: "Monitor {{ monitor_id }} matched on block {{ block_number }} with tx value \
+                       {{ tx.value }}"
+                    .to_string(),
             },
             retry_policy: Default::default(),
         }),
@@ -36,7 +38,9 @@ async fn test_success() {
         .mock("POST", "/")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"content":"*Test Title*\n\nMonitor 1 matched on block 123"}"#)
+        .with_body(
+            r#"{"content":"*Test Title*\n\nMonitor 1 matched on block 123 with tx value 100"}"#,
+        )
         .create_async()
         .await;
 
@@ -51,7 +55,7 @@ async fn test_success() {
         "test_discord".to_string(),
         123,
         Default::default(),
-        json!({"key": "value"}),
+        json!({"value": "100"}),
     );
 
     let payload = NotificationPayload::Single(monitor_match.clone());
@@ -100,7 +104,7 @@ async fn test_failure_with_retryable_error() {
         "test_discord_retry".to_string(),
         456,
         Default::default(),
-        json!({"key": "value"}),
+        json!({}),
     );
 
     let payload = NotificationPayload::Single(monitor_match.clone());
@@ -151,7 +155,7 @@ async fn test_failure_with_non_retryable_error() {
         "test_discord_no_retry".to_string(),
         789,
         Default::default(),
-        json!({"key": "value"}),
+        json!({}),
     );
 
     let payload = NotificationPayload::Single(monitor_match.clone());
@@ -191,7 +195,7 @@ async fn test_failure_with_invalid_url() {
         "test_invalid_url".to_string(),
         101,
         Default::default(),
-        json!({"key": "value"}),
+        json!({}),
     );
 
     let payload = NotificationPayload::Single(monitor_match.clone());

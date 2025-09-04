@@ -8,8 +8,8 @@ notifiers:
         title: "ERC20 Transfer Detected"
         body: |
           An ERC20 transfer was detected by monitor {{ monitor_name }}.
-          - *From*: `{{ from }}`
-          - *To*: `{{ to }}`
-          - *Value*: `{{ value }}` (in raw decimals)
-          - *Contract*: `{{ contract_address }}`
+          - *From*: `{{ log.params.from }}`
+          - *To*: `{{ log.params.to }}`
+          - *Value*: `{{ log.params.value | decimals(18) }}`
+          - *Contract*: `{{ log.address }}`
           [View on Etherscan](https://etherscan.io/tx/{{ transaction_hash }})

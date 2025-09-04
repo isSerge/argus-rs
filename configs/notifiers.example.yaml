@@ -13,43 +13,36 @@
 # - `notifier_name`: The name of the notifier handling this match (string).
 # - `block_number`: The block number where the match occurred (integer).
 # - `transaction_hash`: The hash of the transaction associated with the match (string).
-# - `type`: The type of match, either "transaction" or "log" (string).
 #
-# Depending on the `type` field ("transaction" or "log"), additional fields
-# related to that specific match type become available for templating:
+# Additionally, the following structured objects are always available:
 #
-# If `type` is "transaction":
-# - `from`: The sender address of the transaction (string).
-# - `to`: The recipient address of the transaction (string, can be null for contract creations).
-# - `hash`: The transaction hash (string).
-# - `value`: The value transferred in the transaction (string, as a large number).
-# - `gas_limit`: The gas limit for the transaction (integer).
-# - `nonce`: The transaction nonce (integer).
-# - `input`: The transaction input data (string).
-# - `block_number`: The block number where the transaction was included (integer).
-# - `transaction_index`: The index of the transaction within its block (integer).
-# - `gas_price`: (Legacy transactions) The gas price (string, as a large number).
-# - `max_fee_per_gas`: (EIP-1559 transactions) The maximum fee per gas (string, as a large number).
-# - `max_priority_fee_per_gas`: (EIP-1559 transactions) The maximum priority fee per gas (string, as a large number).
-# - `gas_used`: (From receipt) The gas used by the transaction (string, as a large number).
-# - `status`: (From receipt) The transaction status (integer, 1 for success, 0 for failure).
-# - `effective_gas_price`: (From receipt) The effective gas price (string, as a large number).
+# - `tx`: An object containing details about the transaction.
+#   - `tx.from`: The sender address of the transaction (string).
+#   - `tx.to`: The recipient address of the transaction (string, can be null for contract creations).
+#   - `tx.hash`: The transaction hash (string).
+#   - `tx.value`: The value transferred in the transaction (string, as a large number).
+#   - `tx.gas_limit`: The gas limit for the transaction (integer).
+#   - `tx.nonce`: The transaction nonce (integer).
+#   - `tx.input`: The transaction input data (string).
+#   - `tx.block_number`: The block number where the transaction was included (integer).
+#   - `tx.transaction_index`: The index of the transaction within its block (integer).
+#   - `tx.gas_price`: (Legacy transactions) The gas price (string, as a large number).
+#   - `tx.max_fee_per_gas`: (EIP-1559 transactions) The maximum fee per gas (string, as a large number).
+#   - `tx.max_priority_fee_per_gas`: (EIP-1559 transactions) The maximum priority fee per gas (string, as a large number).
+#   - `tx.gas_used`: (From receipt) The gas used by the transaction (string, as a large number).
+#   - `tx.status`: (From receipt) The transaction status (integer, 1 for success, 0 for failure).
+#   - `tx.effective_gas_price`: (From receipt) The effective gas price (string, as a large number).
 #
-# If `type` is "log":
-# - `contract_address`: The address of the contract that emitted the log (string).
-# - `log_index`: The index of the log within its block (integer).
-# - `log_name`: The name of the decoded event (string, e.g., "Transfer").
-# - `from`: (Example) The 'from' address from a Transfer event (string).
-# - `to`: (Example) The 'to' address from a Transfer event (string).
-# - `value`: (Example) The 'value' from a Transfer event (string).
-# - ... any other decoded event parameters.
-#
-# You can use conditional logic in your templates, for example:
-# {% if type == "log" %}
-#   Log-specific content here.
-# {% elif type == "transaction" %}
-#   Transaction-specific content here.
-# {% endif %}
+# - `log`: An object containing details about the log/event. This will be `null`
+#   if the match is transaction-based.
+#   - `log.contract_address`: The address of the contract that emitted the log (string).
+#   - `log.log_index`: The index of the log within its block (integer).
+#   - `log.name`: The name of the decoded event (string, e.g., "Transfer").
+#   - `log.params`: A map of the event's decoded parameters.
+#     - `log.params.from`: (Example) The 'from' address from a Transfer event (string).
+#     - `log.params.to`: (Example) The 'to' address from a Transfer event (string).
+#     - `log.params.value`: (Example) The 'value' from a Transfer event (string).
+#     - ... any other decoded event parameters.
 # ------------------------------------------------------------------------------------
 notifiers:
   # ------------------------------------------------------------------------------------
@@ -84,12 +77,12 @@ notifiers:
           A new match was detected for monitor {{ monitor_name }}.
           - **Block Number**: {{ block_number }}
           - **Transaction Hash**: {{ transaction_hash }}
-          {% if type == "log" %}
+          {% if log %}
           - **Type**: Log
-          - **Contract Address**: {{ contract_address }}
-          - **Log Index**: {{ log_index }}
-          - **Log Name**: {{ log_name }}
-          - **Log Params**: {{ log_params }}
+          - **Contract Address**: {{ log.address }}
+          - **Log Index**: {{ log.log_index }}
+          - **Log Name**: {{ log.name }}
+          - **Log Params**: {{ log.params }}
           {% endif %}
 
   # ------------------------------------------------------------------------------------
@@ -108,9 +101,9 @@ notifiers:
         # For example, if the filter script returns a map like `#{ from: log.params.from, to: log.params.to, value: log.params.value }`
         body: |
           A transfer of over 1,000,000 USDC was detected by monitor {{ monitor_name }}.
-          - *From*: `{{ from }}`
-          - *To*: `{{ to }}`
-          - *Value*: `{{ value }}`
+          - *From*: `{{ log.params.from }}`
+          - *To*: `{{ log.params.to }}`
+          - *Value*: `{{ log.params.value }}`
           <https://etherscan.io/tx/{{ transaction_hash }}|View on Etherscan>
 
   # ------------------------------------------------------------------------------------
@@ -128,8 +121,8 @@ notifiers:
           A new WETH deposit was detected on Ethereum by monitor {{ monitor_name }}.
           - **Transaction**: `{{ transaction_hash }}`
           - **Block**: {{ block_number }}
-          - **Contract Address**: {{ contract_address }}
-          - **Log Name**: {{ log_name }}
+          - **Contract Address**: {{ log.address }}
+          - **Log Name**: {{ log.name }}
 
   # ------------------------------------------------------------------------------------
   # EXAMPLE 4: Telegram Notification
@@ -150,9 +143,9 @@ notifiers:
         # Argus will automatically escape special characters for you.
         body: |
           A transfer of over 10 ETH was detected by monitor {{ monitor_name }}.
-          - *Value*: {{ value }} ETH
-          - *From*: `{{ from }}`
-          - *To*: `{{ to }}`
+          - *Value*: {{ tx.value }} ETH
+          - *From*: `{{ tx.from }}`
+          - *To*: `{{ tx.to }}`
           [View on Etherscan](https://etherscan.io/tx/{{ transaction_hash }})
 
   # ------------------------------------------------------------------------------------
