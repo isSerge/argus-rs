@@ -123,10 +123,13 @@ impl Serialize for MonitorMatch {
     where
         S: Serializer,
     {
-        let field_count = match &self.match_data {
-            MatchData::Transaction(_) => 6, // 5 base fields + "tx"
-            MatchData::Log(_) => 7,         // 5 base fields + "tx" + "log"
+        // 5 base fields: monitor_id, monitor_name, notifier_name, block_number, transaction_hash
+        let base_fields = 5;
+        let extra_fields = match &self.match_data {
+            MatchData::Transaction(_) => 1, // "tx"
+            MatchData::Log(_) => 2,         // "tx" + "log"
         };
+        let field_count = base_fields + extra_fields;
 
         let mut state = serializer.serialize_struct("MonitorMatch", field_count)?;
         state.serialize_field("monitor_id", &self.monitor_id)?;
