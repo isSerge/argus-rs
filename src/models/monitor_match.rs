@@ -111,19 +111,22 @@ pub struct LogDetails {
     pub name: String,
     /// The decoded parameters of the log/event.
     pub params: Value,
-// Custom serialization and deserialization for MonitorMatch.
-// Standard derive macros (#[derive(Serialize, Deserialize)]) cannot be used here
-// because we need to flatten the fields from the nested `match_data` enum variants
-// (TransactionMatchData or LogMatchData) directly into the parent MonitorMatch struct
-// during serialization, rather than nesting them under a field. This ensures that
-// all relevant match data appears at the top level of the serialized output.
+}
 
+// Custom serialization and deserialization for MonitorMatch.
+// Standard derive macros (#[derive(Serialize, Deserialize)]) cannot be used
+// here because we need to flatten the fields from the nested `match_data` enum
+// variants (TransactionMatchData or LogMatchData) directly into the parent
+// MonitorMatch struct during serialization, rather than nesting them under a
+// field. This ensures that all relevant match data appears at the top level of
+// the serialized output.
 impl Serialize for MonitorMatch {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        // 5 base fields: monitor_id, monitor_name, notifier_name, block_number, transaction_hash
+        // 5 base fields: monitor_id, monitor_name, notifier_name, block_number,
+        // transaction_hash
         let base_fields = 5;
         let extra_fields = match &self.match_data {
             MatchData::Transaction(_) => 1, // "tx"
