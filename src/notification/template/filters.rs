@@ -185,6 +185,92 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_sum_filter_empty_list() {
+        let values = Value::from_serialize(&Vec::<String>::new());
+        let result = sum(values).unwrap();
+        assert_eq!(result, "0");
+    }
+
+    #[test]
+    fn test_sum_filter_single_item() {
+        let values = Value::from_serialize(&vec!["123.45"]);
+        let result = sum(values).unwrap();
+        assert_eq!(result, "123.45");
+    }
+
+    #[test]
+    fn test_sum_filter_negative_numbers() {
+        let values = Value::from_serialize(&vec!["-10", "-20", "5"]);
+        let result = sum(values).unwrap();
+        assert_eq!(result, "-25");
+    }
+
+    #[test]
+    fn test_sum_filter_non_numeric_string() {
+        let values = Value::from_serialize(&vec!["10", "abc", "20"]);
+        let result = sum(values);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), ErrorKind::InvalidOperation);
+    }
+
+    #[test]
+    fn test_avg_filter_empty_list() {
+        let values = Value::from_serialize(&Vec::<String>::new());
+        let result = avg(values).unwrap();
+        assert_eq!(result, "0");
+    }
+
+    #[test]
+    fn test_avg_filter_single_item() {
+        let values = Value::from_serialize(&vec!["100"]);
+        let result = avg(values).unwrap();
+        assert_eq!(result, "100");
+    }
+
+    #[test]
+    fn test_avg_filter_negative_numbers() {
+        let values = Value::from_serialize(&vec!["-10", "-20", "5"]);
+        let result = avg(values).unwrap();
+        assert_eq!(result, "-8.333333333333333333333333333"); // -25 / 3
+    }
+
+    #[test]
+    fn test_avg_filter_non_numeric_string() {
+        let values = Value::from_serialize(&vec!["10", "xyz", "20"]);
+        let result = avg(values);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), ErrorKind::InvalidOperation);
+    }
+
+    #[test]
+    fn test_decimals_zero_decimals() {
+        let env = Environment::new();
+        let state = env.empty_state();
+        let value = "123456789".to_string();
+        let result = decimals(&state, value, 0).unwrap();
+        assert_eq!(result, "123456789");
+    }
+
+    #[test]
+    fn test_decimals_negative_value() {
+        let env = Environment::new();
+        let state = env.empty_state();
+        let value = "-1234500000000000000".to_string();
+        let result = decimals(&state, value, 18).unwrap();
+        assert_eq!(result, "-1.2345");
+    }
+
+    #[test]
+    fn test_decimals_non_numeric_string() {
+        let env = Environment::new();
+        let state = env.empty_state();
+        let value = "abc".to_string();
+        let result = decimals(&state, value, 18);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), ErrorKind::InvalidOperation);
+    }
+
+    #[test]
     fn test_sum_filter() {
         let values = Value::from_serialize(&vec!["1000", "2000", "3000.5"]);
         let result = sum(values).unwrap();

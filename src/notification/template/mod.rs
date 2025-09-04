@@ -152,4 +152,13 @@ mod tests {
         let result = service.render(template, context).unwrap();
         assert_eq!(result, "30");
     }
+
+    #[test]
+    fn test_template_service_default_implementation() {
+        let service = TemplateService::default();
+        let template = "Hello, {{ name }}!";
+        let context = json!({ "name": "World" });
+        let result = service.render(template, context).unwrap();
+        assert_eq!(result, "Hello, World!");
+    }
 }
