@@ -1,6 +1,8 @@
 //! This module provides a service for rendering templates using the minijinja
 //! templating engine.
 
+pub mod filters;
+
 use minijinja::Environment;
 use thiserror::Error;
 
@@ -12,6 +14,7 @@ pub struct TemplateService {
 /// Error type for the TemplateService.
 #[derive(Debug, Error)]
 pub enum TemplateServiceError {
+    /// An error occurred while rendering the template.
     #[error("Failed to render template")]
     RenderError(#[from] minijinja::Error),
 }
@@ -23,6 +26,15 @@ impl TemplateService {
     pub fn new() -> Self {
         let mut env = Environment::new();
         env.set_undefined_behavior(minijinja::UndefinedBehavior::Strict);
+
+        env.add_filter("sum", filters::sum);
+        env.add_filter("avg", filters::avg);
+        env.add_filter("decimals", filters::decimals);
+        env.add_filter("ether", filters::ether);
+        env.add_filter("gwei", filters::gwei);
+        env.add_filter("usdc", filters::usdc);
+        env.add_filter("usdt", filters::usdt);
+        env.add_filter("wbtc", filters::wbtc);
 
         Self { env }
     }
@@ -105,5 +117,33 @@ mod tests {
             "From: 0xE4b8583cCB95b25737C016ac88E539D0605949e8, To: \
              0x035A0C81ceFd37b7c6c638870Ddfa7937C303997, Value: 3141247012536"
         );
+    }
+
+    #[test]
+    fn test_sum_and_format_with_ether_filter() {
+        let service = TemplateService::new();
+        let template = "{{ matches | map(attribute='tx.value') | sum | ether }}";
+        let context = json!({
+            "matches": [
+                {"tx": {"value": "1000000000000000000"}}, // 1 ETH
+                {"tx": {"value": "500000000000000000"}}   // 0.5 ETH
+            ]
+        });
+        let result = service.render(template, context).unwrap();
+        assert_eq!(result, "1.5");
+    }
+
+    #[test]
+    fn test_avg_and_format_with_gwei_filter() {
+        let service = TemplateService::new();
+        let template = "{{ matches | map(attribute='tx.gas_price') | avg | gwei }}";
+        let context = json!({
+            "matches": [
+                {"tx": {"gas_price": "20000000000"}}, // 20 Gwei
+                {"tx": {"gas_price": "40000000000"}}  // 40 Gwei
+            ]
+        });
+        let result = service.render(template, context).unwrap();
+        assert_eq!(result, "30");
     }
 }

@@ -50,7 +50,7 @@ use crate::{
 
 pub mod error;
 pub mod payload_builder;
-mod template;
+pub mod template;
 mod webhook;
 
 use error::NotificationError;
