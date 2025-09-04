@@ -19,6 +19,12 @@ pub enum TemplateServiceError {
     RenderError(#[from] minijinja::Error),
 }
 
+impl Default for TemplateService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TemplateService {
     /// Creates a new instance of `TemplateService` with a default environment.
     /// The environment is configured with a custom missing value callback to

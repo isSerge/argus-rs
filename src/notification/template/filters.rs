@@ -1,4 +1,4 @@
-//! This module provides custom filters for the minijinja templating engine,
+//! This module provides custom filters for the minijinja templating engine
 
 use std::str::FromStr;
 

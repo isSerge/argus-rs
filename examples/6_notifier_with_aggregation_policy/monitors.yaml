@@ -2,7 +2,7 @@ monitors:
   - name: "Aggregated WBTC Transfers"
     network: "ethereum"
     address: "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599" # WBTC contract address on Ethereum mainnet
-    abi: "usdc"
+    abi: "wbtc"
     filter_script: |
       log.name == "Transfer" && log.params.value > wbtc(0.001)
     notifiers:
