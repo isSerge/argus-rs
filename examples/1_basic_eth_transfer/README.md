@@ -52,7 +52,7 @@ notifiers:
           A transfer of over 10 ETH was detected by monitor {{ monitor_name }}.
           - *From*: `{{ from }}`
           - *To*: `{{ to }}`
-          - *Value*: `{{ value }}` (in raw decimals)
+          - *Value*: `{{ value | ether }}` ETH
           [View on Etherscan](https://etherscan.io/tx/{{ transaction_hash }})
 ```
 

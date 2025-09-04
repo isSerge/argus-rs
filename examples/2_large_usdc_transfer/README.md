@@ -59,9 +59,9 @@ notifiers:
         title: 'Large USDC Transfer'
         body: |
           A transfer of over 1,000,000 USDC was detected by monitor {{ monitor_name }}.
-          - *From*: `{{ from }}`
-          - *To*: `{{ to }}`
-          - *Value*: `{{ value }}` (in raw decimals)
+          - *From*: `{{ log.params.from }}`
+          - *To*: `{{ log.params.to }}`
+          - *Value*: `{{ log.params.value | usdc }}` USDC
           [View on Etherscan](https://etherscan.io/tx/{{ transaction_hash }})
 ```
 

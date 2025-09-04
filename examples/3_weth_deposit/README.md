@@ -57,8 +57,8 @@ notifiers:
         title: 'WETH Deposit Detected'
         body: |
           A WETH deposit was detected by monitor {{ monitor_name }}.
-          - *From*: `{{ dst }}`                     
-          - *Value*: `{{ wad }}` (in raw decimals) 
+          - *From*: `{{ log.params.dst }}`                     
+          - *Value*: `{{ log.params.wad | ether }}` WETH 
           [View on Etherscan](https://etherscan.io/tx/{{ transaction_hash }})
 ```
 
