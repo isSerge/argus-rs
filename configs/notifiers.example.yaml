@@ -77,13 +77,10 @@ notifiers:
           A new match was detected for monitor {{ monitor_name }}.
           - **Block Number**: {{ block_number }}
           - **Transaction Hash**: {{ transaction_hash }}
-          {% if log %}
-          - **Type**: Log
           - **Contract Address**: {{ log.address }}
           - **Log Index**: {{ log.log_index }}
           - **Log Name**: {{ log.name }}
           - **Log Params**: {{ log.params }}
-          {% endif %}
 
   # ------------------------------------------------------------------------------------
   # EXAMPLE 2: Slack Notification

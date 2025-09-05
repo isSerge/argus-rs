@@ -70,7 +70,7 @@ Argus provides several custom Jinja2 filters to help you work with blockchain da
     {{ log.params.value | usdc }} USDC
     ```
 
-*   **`wbtc`**: Converts a `BigInt` string into its equivalent decimal value for WBTC (8 decimal places). This filter is crucial for converting the raw `BigInt` string into a decimal representation before mathematical operations.
+*   **`wbtc`**: Converts a `BigInt` string into its equivalent decimal value for WBTC (8 decimal places).
     ```jinja
     {{ log.params.value | wbtc }} WBTC
     ```
@@ -111,16 +111,13 @@ notifiers:
           A new match was detected for monitor {{ monitor_name }}.
           - **Block Number**: {{ block_number }}
           - **Transaction Hash**: {{ transaction_hash }}
-          {% if log %}
-          - **Type**: Log
           - **Contract Address**: {{ log.address }}
           - **Log Index**: {{ log.log_index }}
           - **Log Name**: {{ log.name }}
           - **Log Params**: {{ log.params }}
-          {% endif %}
 ```
 
-In this example, `{{ monitor_name }}`, `{{ block_number }}`, `{{ transaction_hash }}`, `{{ log.address }}`, `{{ log.log_index }}`, `{{ log.name }}`, and `{{ log.params }}` are placeholders that will be replaced with the actual data at the time of notification. The `{% if log %}` syntax demonstrates conditional rendering based on the presence of log data.
+In this example, `{{ monitor_name }}`, `{{ block_number }}`, `{{ transaction_hash }}`, `{{ log.address }}`, `{{ log.log_index }}`, `{{ log.name }}`, and `{{ log.params }}` are placeholders that will be replaced with the actual data at the time of notification.
 
 ## Example: Slack Notification with Aggregation Policy
 

@@ -9,11 +9,6 @@ This document provides a high-level overview of the internal architecture of the
 -   **Stateful**: The application's progress is persisted to a local database, allowing for resilience and crash recovery.
 -   **Decoupled**: Components communicate through channels, reducing tight coupling and improving maintainability.
 
-## High-Level Diagram
-
-<!-- The Mermaid diagram was removed due to rendering issues in the current environment. It will be re-added once the rendering is supported. -->
-
-
 ## Key Components
 
 The `src` directory is organized into several modules, each representing a key component of the system.
