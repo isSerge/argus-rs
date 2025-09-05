@@ -14,7 +14,7 @@ This modular approach allows for a clean separation of concerns, making it easie
 
 Select a topic below for a detailed breakdown of each file and its parameters.
 
--   [**`app.yaml` Configuration (`config_app.md`)**](./config_app.md)
--   [**Monitors Configuration (`config_monitors.md`)**](./config_monitors.md)
--   [**Notifiers Configuration (`config_notifiers.md`)**](./config_notifiers.md)
+-   [**`app.yaml` Configuration (`app_yaml.md`)**](./app_yaml.md)
+-   [**Monitors Configuration (`monitors_yaml.md`)**](./monitors_yaml.md)
+-   [**Notifiers Configuration (`notifiers_yaml.md`)**](./notifiers_yaml.md)
 -   [**ABI Management (`config_abis.md`)**](./config_abis.md)

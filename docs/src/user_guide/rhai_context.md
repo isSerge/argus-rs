@@ -67,3 +67,5 @@ log.name == "Transfer" && log.params.from == "0xabcd..."
 // Check for a large transfer value
 log.name == "Transfer" && log.params.value > usdc(1_000_000)
 ```
+
+For more practical examples of using `tx` and `log` data in Rhai scripts, refer to the [Example Gallery](../examples/gallery.md).

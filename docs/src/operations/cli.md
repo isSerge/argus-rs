@@ -39,32 +39,41 @@ This command will:
 
 ### `dry-run`
 
-The `dry-run` command is an essential tool for testing your monitors. It allows you to run your monitor configurations against a specified range of historical blocks to see what matches would have occurred. This is a safe way to verify your `filter_script` logic without running the live service.
+The `dry-run` command is an essential tool for testing and validating your monitor configurations and Rhai filter scripts against historical blockchain data. It allows you to simulate the monitoring process over a specified range of blocks without affecting the live service or making persistent database changes.
 
-The command will print any matches it finds to the console.
+**How it Works:**
+
+1.  **One-Shot Execution**: The command initializes all necessary application services (data source, block processor, filtering engine, etc.) in a temporary, one-shot mode.
+2.  **In-Memory Database**: It uses a temporary, in-memory SQLite database for state management, ensuring that no persistent changes are made to your actual database.
+3.  **Block Processing**: It fetches and processes blocks in batches (defaulting to 50 blocks per batch) within the specified `--from` and `--to` range.
+4.  **Script Evaluation**: For each transaction and log in the processed blocks, it evaluates your monitor's `filter_script`.
+5.  **Real Notifications (Test Mode)**: Any matches found will trigger *real* notifications to your configured notifiers. During development, it's highly recommended to configure your notifiers to point to test endpoints (e.g., [Webhook.site](https://webhook.site/)) to avoid sending unwanted alerts.
+6.  **JSON Report**: After processing the entire block range, the command prints a comprehensive JSON array of all detected `MonitorMatch`es to standard output. This output is invaluable for verifying your script logic and understanding what events would trigger alerts.
 
 **Usage:**
 
 ```bash
-cargo run --release -- dry-run --from <START_BLOCK> --to <END_BLOCK>
+cargo run --release -- dry-run --from <START_BLOCK> --to <END_BLOCK> [--config-dir <PATH>]
 ```
 
 **Arguments:**
 
--   `--from <BLOCK>`: The starting block number (inclusive).
--   `--to <BLOCK>`: The ending block number (inclusive).
+*   `--from <BLOCK>`: The starting block number for the dry run (inclusive).
+*   `--to <BLOCK>`: The ending block number for the dry run (inclusive).
 
 **Options:**
 
--   `--config-dir <PATH>`: Specifies a custom directory to load configuration files from.
+*   `--config-dir <PATH>`: (Optional) Specifies a custom directory to load configuration files from. Defaults to `configs/`.
 
 **Example:**
 
-To test your monitors against blocks 15,000,000 to 15,000,100 on the network defined in your `app.yaml`:
+To test your monitors against blocks 15,000,000 to 15,000,100 on the network defined in your [`app.yaml`](../user_guide/app_yaml.md):
 
 ```bash
 cargo run --release -- dry-run --from 15000000 --to 15000100
 ```
+
+For a practical example of using `dry-run` to test a monitor, refer to the [Basic ETH Transfer Monitor example](../examples/1_basic_eth_transfer/README.md#how-to-run-dry-run-mode).
 
 ## Database Migrations
 

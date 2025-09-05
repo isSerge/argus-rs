@@ -125,7 +125,7 @@ The `throttle` policy limits the number of notifications sent within a specified
 
 ### Aggregation Policy
 
-The `aggregation` policy collects all matches that occur within a time window and sends a single, consolidated notification. This is ideal for summarizing events.
+The `aggregation` policy collects all matches that occur within a time window and sends a single, consolidated notification. This is ideal for summarizing events. When using an aggregation policy, you can leverage custom filters like `map`, `sum`, and `avg` on the `matches` array to perform calculations.
 
 ```yaml
 - name: "slack-with-aggregation"
@@ -136,14 +136,25 @@ The `aggregation` policy collects all matches that occur within a time window an
       # The duration of the aggregation window in seconds.
       window_secs: 300 # 5 minutes
       # The template for the aggregated notification.
-      # This template has access to a `matches` array.
+      # This template has access to a `matches` array, which contains all the
+      # `MonitorMatch` objects collected during the window.
       template:
         title: "Event Summary for {{ monitor_name }}"
-        body: "In the last 5 minutes there have been {{ matches | length }} new events."
+        body: |
+          Detected {{ matches | length }} events by monitor {{ monitor_name }}.
+          Total value: {{ matches | map(attribute='log.params.value') | sum | wbtc }} WBTC
+          Average value: {{ matches | map(attribute='log.params.value') | avg | wbtc }} WBTC
 ```
+
+In this example:
+*   `matches | length` counts the number of aggregated events.
+*   `matches | map(attribute='log.params.value')` extracts the `log.params.value` (which is a `BigInt` string) from each match in the `matches` array.
+*   `sum` calculates the total of the extracted values.
+*   `avg` calculates the average of the extracted values.
+*   `wbtc` is a critical custom filter that converts the `BigInt` string value into a decimal representation (e.g., WBTC units) before mathematical operations are performed. Without this conversion, `sum` and `avg` would operate on the raw `BigInt` strings, leading to incorrect results.
 
 ---
 
 ## Templating
 
-All `message` fields (`title` and `body`) support [Jinja2](https://jinja.palletsprojects.com/) templating. You have access to the `MonitorMatch` object, which contains all the data about the on-chain event. See the comments in the [`notifiers.example.yaml`](https://github.com/isSerge/argus-rs/blob/main/configs/notifiers.example.yaml) for a full list of available fields.
+Notifier messages support [Jinja2](https://jinja.palletsprojects.com/) templating, allowing for dynamic content based on the detected blockchain events. For a comprehensive guide on available data, conversion filters, and examples, refer to the [Notifier Templating documentation](./notifier_templating.md).

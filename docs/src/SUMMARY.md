@@ -14,9 +14,11 @@
 # User Guide
 
 - [Configuration](./user_guide/configuration.md)
-  - [app.yaml](./user_guide/config_app.md)
-  - [notifiers.yaml](./user_guide/config_notifiers.md)
+  - [app.yaml](./user_guide/app_yaml.md)
+  - [monitors.yaml](./user_guide/monitors_yaml.md)
+  - [notifiers.yaml](./user_guide/notifiers_yaml.md)
   - [ABI Management](./user_guide/config_abis.md)
+- [Notifier Templating](./user_guide/notifier_templating.md)
 - [Writing Rhai Scripts](./user_guide/rhai_scripts.md)
   - [Data Context (tx & log)](./user_guide/rhai_context.md)
   - [Helpers (ether, usdc, etc)](./user_guide/rhai_helpers.md)

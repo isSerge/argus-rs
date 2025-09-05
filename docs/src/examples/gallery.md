@@ -43,3 +43,11 @@ Demonstrates a powerful global log monitor (`address: 'all'`) to catch all `Tran
 Shows how to configure a notifier with a `throttle` policy to limit the rate of notifications and prevent alert fatigue.
 
 **Features Demonstrated:** Notifier policies.
+
+---
+
+### [6. Notifier with Aggregation Policy](https://github.com/isSerge/argus-rs/tree/main/examples/6_notifier_with_aggregation_policy/README.md)
+
+Demonstrates how to use `aggregation` policy for notifiers as well as `sum` and `avg` filters in templates to aggregate values from multiple monitor matches.
+
+**Features Demonstrated:** Aggregation policy, `map`, `sum`, `avg` filters.

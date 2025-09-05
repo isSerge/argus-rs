@@ -11,30 +11,8 @@ This document provides a high-level overview of the internal architecture of the
 
 ## High-Level Diagram
 
-```mermaid
-flowchart TD
-    subgraph Supervisor
-        A[Block Ingestor] --> B{Block Channel};
-        B --> C[Block Processor];
-        C --> D{Match Channel};
-        D --> E[Alert Manager];
-    end
+<!-- The Mermaid diagram was removed due to rendering issues in the current environment. It will be re-added once the rendering is supported. -->
 
-    subgraph External
-        F[EVM RPC Node] --> A;
-        E --> G[Notifier Services];
-    end
-
-    subgraph Persistence
-        H[SQLite Database]
-        A <-- --> H;
-        E <-- --> H;
-    end
-
-    style Supervisor fill:#f9f,stroke:#333,stroke-width:2px
-    style Persistence fill:#ccf,stroke:#333,stroke-width:2px
-    style External fill:#cfc,stroke:#333,stroke-width:2px
-```
 
 ## Key Components
 

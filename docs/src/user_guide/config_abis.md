@@ -10,11 +10,11 @@ You only need to provide an ABI if your monitor needs to inspect event logs (i.e
 
 ## How Argus Finds ABIs
 
-1.  **ABI Directory**: In your `app.yaml`, you specify the path to your ABI directory using the `abi_config_path` parameter (default is `abis/`).
+1.  **ABI Directory**: In your [`app.yaml`](./app_yaml.md), you specify the path to your ABI directory using the `abi_config_path` parameter (default is `abis/`).
 
 2.  **JSON Files**: Argus expects to find ABI files in this directory with a `.json` extension.
 
-3.  **Naming Convention**: When you define a monitor in `monitors.yaml` that needs an ABI, you set the `abi` field to the **name of the JSON file without the extension**.
+3.  **Naming Convention**: When you define a monitor in [`monitors.yaml`](./monitors_yaml.md) that needs an ABI, you set the `abi` field to the **name of the JSON file without the extension**.
 
 ## Example Workflow
 
@@ -26,13 +26,13 @@ Let's say you want to monitor `Transfer` events from the USDC contract.
 
 2.  **Save the ABI File**: Save the ABI file into your configured ABI directory. For this example, you would save it as `abis/usdc.json`.
 
-3.  **Reference in Monitor**: In your `monitors.yaml`, reference the ABI by its filename (without the `.json` extension).
+3.  **Reference in Monitor**: In your [`monitors.yaml`](./monitors_yaml.md), reference the ABI by its filename (without the `.json` extension).
 
     ```yaml
     # monitors.yaml
     monitors:
       - name: "Large USDC Transfers"
-        network: "mainnet"
+        network: "ethereum"
         address: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
         # This tells Argus to load `abis/usdc.json` to decode logs for this monitor.
         abi: "usdc"

@@ -82,3 +82,5 @@ Converts a string into a `BigInt`. This is useful for representing very large nu
 let threshold = bigint("5000000000000000000000");
 tx.value > threshold
 ```
+
+For more practical examples of using Rhai helper functions, refer to the [Example Gallery](../examples/gallery.md).
