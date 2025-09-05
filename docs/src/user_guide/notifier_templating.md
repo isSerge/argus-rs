@@ -59,26 +59,31 @@ Argus provides several custom Jinja2 filters to help you work with blockchain da
     ```jinja
     {{ tx.value | ether }} ETH
     ```
+    *Example*: If `tx.value` is `"1500000000000000000"`, the expression `{{ tx.value | ether }}` renders `1.5`, and the full template would output `1.5 ETH`.
 
 *   **`gwei`**: Converts a `BigInt` string (representing Wei) into its equivalent decimal value in Gwei (9 decimal places).
     ```jinja
     {{ tx.gas_price | gwei }} Gwei
     ```
+    *Example*: If `tx.gas_price` is `"20000000000"`, `{{ tx.gas_price | gwei }}` renders `20.0`, and the full template would output `20.0 Gwei`.
 
 *   **`usdc`**: Converts a `BigInt` string into its equivalent decimal value for USDC (6 decimal places).
     ```jinja
     {{ log.params.value | usdc }} USDC
     ```
+    *Example*: If `log.params.value` is `"50000000"`, `{{ log.params.value | usdc }}` renders `50.0`, and the full template would output `50.0 USDC`.
 
 *   **`wbtc`**: Converts a `BigInt` string into its equivalent decimal value for WBTC (8 decimal places).
     ```jinja
     {{ log.params.value | wbtc }} WBTC
     ```
+    *Example*: If `log.params.value` is `"100000000"`, `{{ log.params.value | wbtc }}` renders `1.0`, and the full template would output `1.0 WBTC`.
 
 *   **`decimals(num_decimals)`**: A generic filter to convert a `BigInt` string into a decimal value with a specified number of decimal places.
     ```jinja
     {{ log.params.tokenAmount | decimals(18) }}
     ```
+    *Example*: If `log.params.tokenAmount` is `"123450000000000000000"`, `{{ log.params.tokenAmount | decimals(18) }}` renders `123.45`.
 
 *   **`map(attribute)`**: Extracts a specific `attribute` from each item in an array. This is particularly useful with aggregation policies to get a list of values for `sum` or `avg`.
     ```jinja
