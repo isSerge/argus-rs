@@ -1,6 +1,6 @@
 # `app.yaml` Configuration
 
-The `app.yaml` file is the heart of the Argus application's configuration. It defines the global settings for the service, including how it connects to the blockchain, how it stores data, and how it behaves under load.
+The `app.yaml` file defines the global settings for the service, including how it connects to the blockchain, how it stores data, etc.
 
 ## Example `app.yaml`
 

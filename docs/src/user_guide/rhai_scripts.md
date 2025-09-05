@@ -1,6 +1,6 @@
 # Writing Rhai Scripts
 
-The core of Argus's flexibility comes from the use of the [Rhai](https://rhai.rs) scripting language for its filtering logic. Each monitor you define has a `filter_script` that determines whether a given transaction or log should trigger a notification.
+Argus is using the [Rhai](https://rhai.rs) scripting language for its filtering logic. Each monitor you define has a `filter_script` that determines whether a given transaction or log should trigger a notification.
 
 ## The `filter_script`
 

@@ -10,8 +10,6 @@ The configuration is split into three key files:
 
 3.  **`notifiers.yaml`**: This file defines *how* you want to be notified when a monitor finds a match. You can configure various notification channels (e.g., webhooks) and set policies like throttling.
 
-This modular approach allows for a clean separation of concerns, making it easier to manage complex monitoring setups.
-
 Select a topic below for a detailed breakdown of each file and its parameters.
 
 -   [**`app.yaml` Configuration (`app_yaml.md`)**](./app_yaml.md)
