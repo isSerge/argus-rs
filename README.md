@@ -54,7 +54,7 @@ The application's behavior is primarily configured through three YAML files loca
 
 ### `app.yaml`
 
-This file contains the main application settings, such as the database connection, RPC endpoints, and performance tuning parameters.
+This file contains the main application settings, such as the database connection, RPC endpoints, and performance tuning parameters. For a complete list of parameters and their descriptions, see the [app.yaml documentation](./docs/src/user_guide/config_app.md).
 
 **Example `app.yaml`**
 ```yaml
@@ -73,7 +73,7 @@ abi_config_path: abis/
 
 ### `monitors.yaml`
 
-This file is where you define *what* you want to monitor on the blockchain. Each monitor specifies a network, an optional contract address, and a Rhai filter script. If your script needs to inspect event logs (i.e., access the `log` variable), you must also provide the **name** of the contract's ABI. This name should correspond to a `.json` file (without the `.json` extension) located in the `abis/` directory (or the directory configured for ABIs in `app.yaml`).
+This file is where you define *what* you want to monitor on the blockchain. Each monitor specifies a network, an optional contract address, and a Rhai filter script. If your script needs to inspect event logs (i.e., access the `log` variable), you must also provide the **name** of the contract's ABI. This name should correspond to a `.json` file (without the `.json` extension) located in the `abis/` directory (or the directory configured for ABIs in `app.yaml`). For a complete list of parameters and their descriptions, see the [monitors.yaml documentation](./docs/src/user_guide/config_monitors.md).
 
 See [`configs/monitors.example.yaml`](./configs/monitors.example.yaml) for more detailed examples.
 
@@ -108,7 +108,7 @@ monitors:
 
 ### `notifiers.yaml`
 
-This file defines *how* you want to be notified when a monitor finds a match. You can configure various notification channels like webhooks, Slack, or Discord.
+This file defines *how* you want to be notified when a monitor finds a match. You can configure various notification channels like webhooks, Slack, or Discord. For a complete list of parameters and their descriptions, see the [notifiers.yaml documentation](./docs/src/user_guide/config_notifiers.md).
 
 See [`configs/notifiers.example.yaml`](./configs/notifiers.example.yaml) for more detailed examples.
 
@@ -140,37 +140,6 @@ notifiers:
 This project includes a variety of examples to help you get started. Each example is self-contained and demonstrates a specific use case.
 
 For a full list of examples, see the [Examples README](./examples/README.md).
-
-### Configuration Parameters (`app.yaml`)
-
-| Parameter | Description | Default |
-| :--- | :--- | :--- |
-| `database_url` | The connection string for the SQLite database. | (Required) |
-| `rpc_urls` | A list of RPC endpoint URLs for the EVM network. | (Required) |
-| `network_id` | A unique identifier for the network being monitored (e.g., "mainnet"). | (Required) |
-| `block_chunk_size` | The number of blocks to fetch and process in a single batch. | `5` |
-| `polling_interval_ms` | The interval in milliseconds to poll for new blocks. | `10000` |
-| `confirmation_blocks` | Number of blocks to wait for before processing to protect against reorgs. | `12` |
-| `notification_channel_capacity` | The capacity of the internal channel for sending notifications. | `1024` |
-| `abi_config_path` | The directory where contract ABI JSON files are located. | `abis/` |
-| `shutdown_timeout_secs` | The maximum time in seconds to wait for a graceful shutdown. | `30` |
-| `aggregation_check_interval_secs` | The interval in seconds to check for aggregated matches. | `5` |
-| `http_base_config.max_idle_per_host` | Maximum number of idle connections per host for the HTTP client. | `10` |
-| `http_base_config.idle_timeout` | Timeout in seconds for idle HTTP connections. | `30` |
-| `http_base_config.connect_timeout` | Timeout in seconds for establishing HTTP connections. | `10` |
-| `http_retry_config.max_retry` | The maximum number of retries for a failing HTTP request. | `3` |
-| `http_retry_config.initial_backoff_ms` | The initial backoff delay in milliseconds for HTTP retries. | `250` |
-| `http_retry_config.max_backoff_secs` | The maximum backoff delay in seconds for HTTP retries. | `10` |
-| `http_retry_config.base_for_backoff` | The base for the exponential backoff calculation for HTTP retries. | `2` |
-| `http_retry_config.jitter` | The jitter to apply to the backoff duration for HTTP retries (`none` or `full`). | `full` |
-| `rpc_retry_config.max_retry` | The maximum number of retries for a failing RPC request. | `10` |
-| `rpc_retry_config.backoff_ms` | The initial backoff delay in milliseconds for RPC retries. | `1000` |
-| `rpc_retry_config.compute_units_per_second` | The number of compute units per second to allow (for rate limiting). | `100` |
-| `rhai.max_operations` | Maximum number of operations a Rhai script can perform. | `100000` |
-| `rhai.max_call_levels` | Maximum function call nesting depth in a Rhai script. | `10` |
-| `rhai.max_string_size` | Maximum size of strings in characters in a Rhai script. | `8192` |
-| `rhai.max_array_size` | Maximum number of array elements in a Rhai script. | `1000` |
-| `rhai.execution_timeout` | Maximum execution time per Rhai script in milliseconds. | `5000` |
 
 ## Logging
 
