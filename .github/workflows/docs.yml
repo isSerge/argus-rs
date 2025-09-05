@@ -23,7 +23,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Install mdbook
-        run: cargo install mdbook --no-default-features --features HTML
+        run: cargo install mdbook
 
       - name: Build mdBook
         run: mdbook build ./docs
