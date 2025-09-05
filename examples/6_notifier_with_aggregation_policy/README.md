@@ -4,13 +4,13 @@ This example demonstrates how to use `aggregation` policy for notifiers as well 
 
 ### Configuration Files
 
-- `app.yaml`: Basic application configuration.
-- `monitors.yaml`: Defines the "Aggregated WBTC Transfers" monitor.
-- `notifiers.yaml`: Defines a Telegram notifier that aggregates WBTC transfer values.
+- [`app.yaml`](../../docs/src/user_guide/config_app.md): Basic application configuration.
+- [`monitors.yaml`](../../docs/src/user_guide/config_monitors.md): Defines the "Aggregated WBTC Transfers" monitor.
+- [`notifiers.yaml`](../../docs/src/user_guide/config_notifiers.md): Defines a Telegram notifier that aggregates WBTC transfer values.
 
 ### Monitor Configuration
 
-The `monitors.yaml` file defines a monitor that triggers for any WBTC `Transfer` event with a value greater than 0.001 WBTC.
+The `monitors.yaml` file defines a monitor that triggers for any WBTC `Transfer` event with a value greater than 0.001 WBTC. For a complete reference on monitor configuration, see the [Monitor Configuration documentation](../../docs/src/user_guide/config_monitors.md).
 
 ```yaml
 monitors:
@@ -26,7 +26,7 @@ monitors:
 
 ### Notifier Configuration
 
-The `notifiers.yaml` file defines a Telegram notifier that uses the `sum` and `avg` filters to aggregate the values of the detected WBTC transfers, and an `aggregation` policy to group notifications within a time window.
+The `notifiers.yaml` file defines a Telegram notifier that uses the `sum` and `avg` filters to aggregate the values of the detected WBTC transfers, and an `aggregation` policy to group notifications within a time window. For a complete reference on notifier configuration, including policies and templating, see the [Notifier Configuration documentation](../../docs/src/user_guide/config_notifiers.md) and [Notifier Templating documentation](../../docs/src/user_guide/notifier_templating.md).
 
 ```yaml
 notifiers:
@@ -58,10 +58,10 @@ notifiers:
             Average value: {{ matches | map(attribute='log.params.value') | avg | wbtc }} WBTC
 ```
 
--   **`policy.aggregation`**:
+-   **`policy.aggregation`**: For more details on aggregation policies, see the [Notifier Configuration documentation](../../docs/src/user_guide/config_notifiers.md#aggregation-policy).
     -   `time_window_secs`: The duration of the time window in seconds during which notifications will be aggregated.
 
-### How to Run (Dry-Run Mode)
+### How to Run ([Dry-Run Mode](../../docs/src/operations/cli.md#dry-run-mode))
 
 To test this monitor against historical blocks, use the `dry-run` command with the `--config-dir` argument pointing to this example's configuration:
 

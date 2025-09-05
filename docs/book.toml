@@ -1,0 +1,12 @@
+[book]
+title = "Argus EVM Monitor Documentation"
+authors = ["isSerge"]
+description = "Official documentation for the Argus EVM monitoring tool."
+language = "en"
+
+[build]
+build-dir = "book"
+
+[output.html]
+git-repository-url = "https://github.com/isSerge/argus-rs"
+edit-url-template = "https://github.com/isSerge/argus-rs/edit/main/docs/{path}"

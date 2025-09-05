@@ -6,13 +6,13 @@ Telegram notifier.
 
 ### Configuration Files
 
-- `app.yaml`: Basic application configuration, pointing to public RPC endpoints.
-- `monitors.yaml`: Defines the "Large ETH Transfers" monitor.
-- `notifiers.yaml`: Defines "Telegram Large ETH Transfers" notifier.
+- [`app.yaml`](../../docs/src/user_guide/config_app.md): Basic application configuration, pointing to public RPC endpoints.
+- [`monitors.yaml`](../../docs/src/user_guide/config_monitors.md): Defines the "Large ETH Transfers" monitor.
+- [`notifiers.yaml`](../../docs/src/user_guide/config_notifiers.md): Defines "Telegram Large ETH Transfers" notifier.
 
 ### Monitor Configuration
 
-The `monitors.yaml` file in this example defines a single monitor:
+The `monitors.yaml` file in this example defines a single monitor. For a complete reference on monitor configuration, see the [Monitor Configuration documentation](../../docs/src/user_guide/config_monitors.md).
 
 ```yaml
 monitors:
@@ -27,9 +27,9 @@ monitors:
 - **`name`**: A human-readable name for the monitor.
 - **`network`**: Specifies the blockchain network to monitor (e.g., "ethereum").
   This must match a network configured in `app.yaml`.
-- **`filter_script`**: This is a Rhai script that defines the conditions under
+- **`filter_script`**: This is a [Rhai script](../../docs/src/user_guide/rhai_scripts.md) that defines the conditions under
   which the monitor will trigger. In this example, `tx.value > ether(10)` checks
-  if the transaction's value is greater than 10 ETH. The `ether()` function is a
+  if the transaction's value is greater than 10 ETH. The [`ether()`](../../docs/src/user_guide/rhai_helpers.md#ethervalue) function is a
   convenient wrapper, which handles `BigInt` conversions.
 - **`notifiers`**: A list of notifier names (defined in `notifiers.yaml`) that
   will receive alerts when this monitor triggers. Here, it references "Telegram
@@ -37,7 +37,7 @@ monitors:
 
 ### Notifier Configuration
 
-The `notifiers.yaml` in this example defines a single Telegram notifier:
+The `notifiers.yaml` in this example defines a single Telegram notifier. For a complete reference on notifier configuration, see the [Notifier Configuration documentation](../../docs/src/user_guide/config_notifiers.md).
 
 ```yaml
 notifiers:
@@ -50,9 +50,9 @@ notifiers:
         title: 'Large ETH Transfer'
         body: |
           A transfer of over 10 ETH was detected by monitor {{ monitor_name }}.
-          - *From*: `{{ from }}`
-          - *To*: `{{ to }}`
-          - *Value*: `{{ value | ether }}` ETH
+          - *From*: `{{ tx.from }}`
+          - *To*: `{{ tx.to }}`
+          - *Value*: `{{ tx.value | ether }}` ETH
           [View on Etherscan](https://etherscan.io/tx/{{ transaction_hash }})
 ```
 
@@ -64,7 +64,7 @@ notifiers:
   - **`disable_web_preview`**: (Optional) Set to `true` to disable link previews
     in Telegram messages.
   - **`message`**: Defines the structure and content of the notification
-    message.
+    message. For more details on templating, see the [Notifier Templating documentation](../../docs/src/user_guide/notifier_templating.md).
     - **`title`**: The title of the notification. Supports
       [Jinja2-like templating](https://docs.rs/minijinja/latest/minijinja/) to
       include dynamic data from the monitor match (e.g., `{{ monitor_name }}`).
@@ -72,7 +72,7 @@ notifiers:
       [Jinja2-like templating](https://docs.rs/minijinja/latest/minijinja/) and
       Markdown formatting.
 
-### How to Run (Dry-Run Mode)
+### How to Run ([Dry-Run Mode](../../docs/src/operations/cli.md#dry-run-mode))
 
 To test this monitor against historical blocks, use the `dry-run` command with
 the `--config-dir` argument pointing to this example's configuration:

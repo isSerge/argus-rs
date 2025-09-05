@@ -5,14 +5,14 @@ to limit the rate of notifications and prevent alert fatigue.
 
 ### Configuration Files
 
-- `app.yaml`: Basic application configuration.
-- `monitors.yaml`: Defines the "Large ETH Transfers with Throttling" monitor.
-- `notifiers.yaml`: Defines a Telegram notifier with a `throttle` policy.
+- [`app.yaml`](../../docs/src/user_guide/config_app.md): Basic application configuration.
+- [`monitors.yaml`](../../docs/src/user_guide/config_monitors.md): Defines the "Large ETH Transfers with Throttling" monitor.
+- [`notifiers.yaml`](../../docs/src/user_guide/config_notifiers.md): Defines a Telegram notifier with a `throttle` policy.
 
 ### Monitor Configuration
 
 The `monitors.yaml` file defines a monitor that triggers for any Ethereum
-transaction with a value greater than 1 ETH.
+transaction with a value greater than 1 ETH. For a complete reference on monitor configuration, see the [Monitor Configuration documentation](../../docs/src/user_guide/config_monitors.md).
 
 ```yaml
 monitors:
@@ -27,7 +27,7 @@ monitors:
 ### Notifier Configuration
 
 The `notifiers.yaml` file defines a single Telegram notifier with a `throttle`
-policy.
+policy. For a complete reference on notifier configuration, including policies, see the [Notifier Configuration documentation](../../docs/src/user_guide/config_notifiers.md).
 
 ```yaml
 notifiers:
@@ -51,12 +51,12 @@ notifiers:
         time_window_secs: 600
 ```
 
--   **`policy.throttle`**:
+-   **`policy.throttle`**: For more details on throttling policies, see the [Notifier Configuration documentation](../../docs/src/user_guide/config_notifiers.md#throttle-policy).
     -   `max_count`: The maximum number of notifications to send within the
         time window.
     -   `time_window_secs`: The duration of the time window in seconds.
 
-### How to Run
+### How to Run ([Dry-Run Mode](../../docs/src/operations/cli.md#dry-run-mode))
 
 You can test this configuration using the `dry-run` command:
 

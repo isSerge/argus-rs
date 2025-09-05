@@ -4,13 +4,13 @@ This example sets up a global log monitor that triggers for any `Transfer` event
 
 ### Configuration Files
 
-- `app.yaml`: Basic application configuration, pointing to public RPC endpoints.
-- `monitors.yaml`: Defines the "All ERC20 Transfers (Ethereum)" monitor.
-- `notifiers.yaml`: Defines "Telegram ERC20 Transfers" notifier.
+- [`app.yaml`](../../docs/src/user_guide/config_app.md): Basic application configuration, pointing to public RPC endpoints.
+- [`monitors.yaml`](../../docs/src/user_guide/config_monitors.md): Defines the "All ERC20 Transfers (Ethereum)" monitor.
+- [`notifiers.yaml`](../../docs/src/user_guide/config_notifiers.md): Defines "Telegram ERC20 Transfers" notifier.
 
 ### Monitor Configuration
 
-The `monitors.yaml` file in this example defines a single monitor:
+The `monitors.yaml` file in this example defines a single monitor. For a complete reference on monitor configuration, see the [Monitor Configuration documentation](../../docs/src/user_guide/config_monitors.md).
 
 ```yaml
 monitors:
@@ -33,14 +33,14 @@ monitors:
 
 - **`name`**: A human-readable name for the monitor.
 - **`network`**: Specifies the blockchain network to monitor (e.g., "ethereum"). This must match a network configured in `app.yaml`.
-- **`address`**: Set to `"all"` to configure this as a global log monitor. This means the monitor will execute its script for *every* log on the blockchain that can be successfully decoded by the provided ABI, regardless of the emitting contract's address.
-- **`abi`**: The name of a generic ABI (e.g., "usdc" referring to `usdc.json`) that can decode the `Transfer` event. This is crucial for `log.name` and `log.params` to be available in the `filter_script`.
-- **`filter_script`**: This Rhai script defines the conditions for a match. It checks for the `Transfer` event involving specific address either as `from` or `to`.
+- **`address`**: Set to `"all"` to configure this as a global log monitor. This means the monitor will execute its script for *every* log on the blockchain that can be successfully decoded by the provided ABI, regardless of the emitting contract's address. For more details on `address` configuration, see the [Monitor Configuration documentation](../../docs/src/user_guide/config_monitors.md#monitor-fields).
+- **`abi`**: The name of a generic ABI (e.g., "usdc" referring to `usdc.json`) that can decode the `Transfer` event. This is crucial for `log.name` and `log.params` to be available in the `filter_script`. For more details, see [ABI Management](../../docs/src/user_guide/config_abis.md).
+- **`filter_script`**: This [Rhai script](../../docs/src/user_guide/rhai_scripts.md) defines the conditions for a match. It checks for the `Transfer` event involving specific address either as `from` or `to`. For more on `log` data, see [Rhai Data Context](../../docs/src/user_guide/rhai_context.md#the-log-object-decoded-event-log).
 - **`notifiers`**: A list of notifier names (defined in `notifiers.yaml`) that will receive alerts when this monitor triggers. Here, it references "Telegram ERC20 Transfers".
 
 ### Notifier Configuration
 
-The `notifiers.yaml` in this example defines a single Telegram notifier:
+The `notifiers.yaml` in this example defines a single Telegram notifier. For a complete reference on notifier configuration, see the [Notifier Configuration documentation](../../docs/src/user_guide/config_notifiers.md).
 
 ```yaml
 notifiers:
@@ -65,11 +65,11 @@ notifiers:
     -   **`token`**: Your Telegram bot token.
     -   **`chat_id`**: The ID of the Telegram chat where notifications will be sent.
     -   **`disable_web_preview`**: (Optional) Set to `true` to disable link previews in Telegram messages.
-    -   **`message`**: Defines the structure and content of the notification message.
+    -   **`message`**: Defines the structure and content of the notification message. For more details on templating, see the [Notifier Templating documentation](../../docs/src/user_guide/notifier_templating.md).
         -   **`title`**: The title of the notification. Supports [Jinja2-like templating](https://docs.rs/minijinja/latest/minijinja/) to include dynamic data from the monitor match (e.g., `{{ monitor_name }}`).
         -   **`body`**: The main content of the notification. Supports [Jinja2-like templating](https://docs.rs/minijinja/latest/minijinja/) and Markdown formatting.
 
-### How to Run (Dry-Run Mode)
+### How to Run ([Dry-Run Mode](../../docs/src/operations/cli.md#dry-run-mode))
 
 To test this monitor against historical blocks, use the `dry-run` command with the `--config-dir` argument pointing to this example's configuration:
 
