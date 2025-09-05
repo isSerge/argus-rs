@@ -40,7 +40,7 @@ The `log` object is only available for monitors that have an `address` and an `a
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
-| `contract_address` | String | The address of the contract that emitted the log. |
+| `address` | String | The address of the contract that emitted the log. |
 | `log_index` | Integer | The index of the log within the block. |
 | `name` | String | The name of the decoded event (e.g., "Transfer", "Approval"). |
 | `params` | Map | A map containing the event's parameters, accessed by name. |

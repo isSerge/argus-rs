@@ -35,7 +35,7 @@
 #
 # - `log`: An object containing details about the log/event. This will be `null`
 #   if the match is transaction-based.
-#   - `log.contract_address`: The address of the contract that emitted the log (string).
+#   - `log.address`: The address of the contract that emitted the log (string).
 #   - `log.log_index`: The index of the log within its block (integer).
 #   - `log.name`: The name of the decoded event (string, e.g., "Transfer").
 #   - `log.params`: A map of the event's decoded parameters.
@@ -71,7 +71,7 @@ notifiers:
       message:
         title: "New Transaction Alert: {{ monitor_name }}"
         # The body can use any data from the monitor match:
-        # monitor_id, block_number, transaction_hash, contract_address, notifier_name,
+        # monitor_id, block_number, transaction_hash, address, notifier_name,
         # log_index, log_name, log_params (for log matches),
         body: |
           A new match was detected for monitor {{ monitor_name }}.

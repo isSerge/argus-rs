@@ -38,7 +38,7 @@ Additionally, the following structured objects are always available:
     *   `tx.effective_gas_price`: (From receipt) The effective gas price (string, as a large number).
 
 *   **`log`**: An object containing details about the log/event. This will be `null` if the match is transaction-based.
-    *   `log.contract_address`: The address of the contract that emitted the log (string).
+    *   `log.address`: The address of the contract that emitted the log (string).
     *   `log.log_index`: The index of the log within its block (integer).
     *   `log.name`: The name of the decoded event (string, e.g., "Transfer").
     *   `log.params`: A map of the event's decoded parameters (e.g., `log.params.from`, `log.params.to`, `log.params.value`).

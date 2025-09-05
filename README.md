@@ -121,7 +121,7 @@ notifiers:
       message:
         title: "New Transaction Alert: {{ monitor_name }}"
         body: |
-          A new event was detected on contract {{ contract_address }}.
+          A new event was detected on contract {{ log.address }}.
           - **Block Number**: {{ block_number }}
           - **Transaction Hash**: {{ transaction_hash }}
 
