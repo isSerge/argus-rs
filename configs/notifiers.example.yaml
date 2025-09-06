@@ -54,7 +54,7 @@ notifiers:
   - name: "my-generic-webhook"
     webhook:
       # The URL of your webhook endpoint.
-      url: "https://my-service.com/webhook-endpoint"
+      url: "${WEBHOOK_URL}"
       # The HTTP method to use. Defaults to "POST".
       method: "POST"
       # (Optional) A secret key to sign the request payload.
@@ -62,7 +62,7 @@ notifiers:
       # and include it in the `X-Signature` header. The `X-Timestamp` header
       # will also be included.
       # The signature is computed as: hex(hmac_sha256(payload_body + timestamp, secret))
-      secret: "your-super-secret-webhook-secret"
+      secret: "${WEBHOOK_SECRET}"
       # (Optional) Custom headers to include in the request.
       headers:
         Authorization: "Bearer your-auth-token"
@@ -90,7 +90,7 @@ notifiers:
   - name: "slack-notifications"
     slack:
       # Your Slack Incoming Webhook URL.
-      slack_url: "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX"
+      slack_url: "${SLACK_WEBHOOK_URL}"
       message:
         title: "Large USDC Transfer Detected"
         # You can use markdown in the body.
@@ -111,7 +111,7 @@ notifiers:
   - name: "discord-alerts"
     discord:
       # Your Discord Webhook URL.
-      discord_url: "https://discord.com/api/webhooks/000000000000000000/XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+      discord_url: "${DISCORD_WEBHOOK_URL}"
       message:
         title: "WETH Deposit Event"
         body: |
@@ -129,9 +129,9 @@ notifiers:
   - name: "telegram-updates"
     telegram:
       # Your Telegram Bot Token.
-      token: "0000000000:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      token: "${TELEGRAM_TOKEN}"
       # The ID of the chat to send the message to.
-      chat_id: "-1000000000000"
+      chat_id: "${TELEGRAM_CHAT_ID}"
       # (Optional) Disable the web page preview for links in the message.
       disable_web_preview: true
       message:
@@ -152,7 +152,7 @@ notifiers:
   # ------------------------------------------------------------------------------------
   - name: "webhook-with-custom-retry-policy"
     webhook:
-      url: "https://my-flaky-service.com/webhook"
+      url: "${WEBHOOK_URL}"
       message:
         title: "Notification with Custom Retry Policy for monitor {{ monitor_name }}"
         body: |
@@ -177,7 +177,7 @@ notifiers:
   # ------------------------------------------------------------------------------------
   - name: "discord-with-throttling"
     discord:
-      discord_url: "https://discord.com/api/webhooks/000000000000000000/XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+      discord_url: "${DISCORD_WEBHOOK_URL}"
       message:
         title: "High-Frequency Event"
         body: "Monitor {{ monitor_name }} triggered for tx: `{{ transaction_hash }}`"
@@ -201,7 +201,7 @@ notifiers:
   # ------------------------------------------------------------------------------------
   - name: "slack-with-aggregation"
     slack:
-      slack_url: "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX"
+      slack_url: "${SLACK_WEBHOOK_URL}"
       # The `message` here is a fallback for individual notifications if needed,
       # but the primary template is defined within the aggregation policy.
       message:

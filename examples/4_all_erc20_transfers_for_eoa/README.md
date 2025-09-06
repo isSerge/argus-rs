@@ -8,6 +8,25 @@ This example sets up a global log monitor that triggers for any `Transfer` event
 - [`monitors.yaml`](../../docs/src/user_guide/config_monitors.md): Defines the "All ERC20 Transfers (Ethereum)" monitor.
 - [`notifiers.yaml`](../../docs/src/user_guide/config_notifiers.md): Defines "Telegram ERC20 Transfers" notifier.
 
+### Environment Variables for Notifier Secrets
+
+> **Important:** All secrets and sensitive values in `notifiers.yaml` (such as API tokens, webhook URLs, chat IDs, etc.) must be provided as environment variables.
+> For example, if your `notifiers.yaml` contains:
+>
+> ```yaml
+> token: "${TELEGRAM_TOKEN}"
+> chat_id: "${TELEGRAM_CHAT_ID}"
+> ```
+>
+> You must set these in your shell before running Argus:
+>
+> ```sh
+> export TELEGRAM_TOKEN="your-telegram-token"
+> export TELEGRAM_CHAT_ID="your-chat-id"
+> ```
+>
+> See the example `notifiers.yaml` for all required variables for each notifier type.
+
 ### Monitor Configuration
 
 The `monitors.yaml` file in this example defines a single monitor. For a complete reference on monitor configuration, see the [Monitor Configuration documentation](../../docs/src/user_guide/config_monitors.md).

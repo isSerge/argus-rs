@@ -1,8 +1,8 @@
 notifiers:
   - name: "Telegram Aggregated WBTC Transfers"
     telegram:
-      token: "<TELEGRAM TOKEN>"
-      chat_id: "<TELEGRAM CHAT ID>"
+      token: "${TELEGRAM_TOKEN}"
+      chat_id: "${TELEGRAM_CHAT_ID}"
       disable_web_preview: true
       message:
         title: "Aggregated WBTC Transfers"
