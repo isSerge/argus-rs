@@ -16,6 +16,7 @@ Argus EVM Monitor.
 - [4. All ERC20 Transfers Monitor for Specific EOA](./4_all_erc20_transfers_for_eoa/README.md): This example sets up a global log monitor that triggers for any `Transfer` event from any ERC20-compliant contract on the Ethereum mainnet involving specific EOA.
 - [5. Monitor with Throttling Policy](./5_notifier_with_throttle_policy/README.md): This example demonstrates how to configure a notifier with a `throttle` policy to limit the rate of notifications.
 - [6. Notifier with Aggregation Policy](./6_notifier_with_aggregation_policy/README.md): This example demonstrates how to use the `sum` and `avg` filters in notifier templates to aggregate values from multiple monitor matches.
+- [7. Address Watchlist Monitor](./7_address_watchlist_monitor/README.md): This example demonstrates how to use an array as a watchlist to monitor for any activity involving a specific set of addresses.
 
 ---
 

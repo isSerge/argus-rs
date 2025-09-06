@@ -1,0 +1,14 @@
+monitors:
+  - name: "Address Watchlist"
+    network: "ethereum"
+    filter_script: |
+      let watchlist = [
+          "0x5eD8Cee6b63b1c6AFce3AD7c92f4fD7E1B8fAd9F", // EF1
+          "0xc06145782F31030dB1C40B203bE6B0fD53410B6d", // EF2
+          "0x9fC3dc011b461664c835F2527fffb1169b3C213e", // EF: DeFi Multisig
+          "0xde0B295669a9FD93d5F28D9Ec85E40f4cb697BAe"  // EthDev
+      ];
+
+      tx.from in watchlist || tx.to in watchlist
+    notifiers:
+      - "Telegram Watchlist"

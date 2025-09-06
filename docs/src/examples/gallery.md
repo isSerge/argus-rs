@@ -51,3 +51,11 @@ Shows how to configure a notifier with a `throttle` policy to limit the rate of 
 Demonstrates how to use `aggregation` policy for notifiers as well as `sum` and `avg` filters in templates to aggregate values from multiple monitor matches.
 
 **Features Demonstrated:** Aggregation policy, `map`, `sum`, `avg` filters.
+
+---
+
+### [7. Address Watchlist Monitor](https://github.com/isSerge/argus-rs/tree/main/examples/7_address_watchlist_monitor/README.md)
+
+Shows how to use a Rhai array as a watchlist to get notifications for any transaction involving a specific set of addresses.
+
+**Features Demonstrated:** Rhai arrays, `let` variables, `in` operator.
