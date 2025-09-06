@@ -156,6 +156,39 @@ items:
     }
 
     #[test]
+    fn test_expand_env_vars_expands_correctly() {
+        let loader = ConfigLoader::new(PathBuf::from("dummy.yaml"));
+        unsafe {
+            std::env::set_var("TEST_ENV_VAR", "secret_value");
+        }
+        let input = "token: \"${TEST_ENV_VAR}\"";
+        let expanded = loader.expand_env_vars(input).unwrap();
+        assert_eq!(expanded, "token: \"secret_value\"");
+        unsafe {
+            std::env::remove_var("TEST_ENV_VAR");
+        }
+    }
+
+    #[test]
+    fn test_expand_env_vars_missing_var() {
+        let loader = ConfigLoader::new(PathBuf::from("dummy.yaml"));
+        let input = "token: \"${MISSING_ENV_VAR}\"";
+        let result = loader.expand_env_vars(input);
+        match result {
+            Err(LoaderError::MissingEnvVar(var)) => assert_eq!(var, "MISSING_ENV_VAR"),
+            _ => panic!("Expected MissingEnvVar error"),
+        }
+    }
+
+    #[test]
+    fn test_expand_env_vars_no_expansion_needed() {
+        let loader = ConfigLoader::new(PathBuf::from("dummy.yaml"));
+        let input = "token: \"static_value\"";
+        let expanded = loader.expand_env_vars(input).unwrap();
+        assert_eq!(expanded, "token: \"static_value\"");
+    }
+
+    #[test]
     fn test_load_nonexistent_file() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("nonexistent.yaml");
