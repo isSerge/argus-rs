@@ -11,8 +11,12 @@ pub struct ScriptAnalysisResult {
     /// A set of all unique, fully-qualified variable paths accessed in the
     /// script.
     pub accessed_variables: HashSet<String>,
+
     /// True if the script accesses the `log` variable.
     pub accesses_log_variable: bool,
+
+    /// A set of local variables defined within the script using `let`.
+    pub local_variables: HashSet<String>,
 }
 
 /// Traverses a compiled `AST` and returns a `ScriptAnalysisResult` containing
@@ -57,12 +61,22 @@ fn walk_stmt(stmt: &Stmt, result: &mut ScriptAnalysisResult) {
             walk_expr(&flow_control.expr, result);
         }
         Stmt::For(for_loop, _) => {
+            // The `for_loop.0` and `for_loop.1` are variable names (e.g., `item` in `for
+            // item in ...`)
+            result.local_variables.insert(for_loop.0.name.to_string());
+            if let Some(second_var) = &for_loop.1 {
+                result.local_variables.insert(second_var.name.to_string());
+            }
+
             walk_expr(&for_loop.2.expr, result);
             for s in for_loop.2.body.statements() {
                 walk_stmt(s, result);
             }
         }
         Stmt::Var(var_definition, _, _) => {
+            // Add the defined variable name to our local_variables set.
+            result.local_variables.insert(var_definition.0.name.to_string());
+
             walk_expr(&var_definition.1, result);
         }
         Stmt::Assignment(assignment) => {

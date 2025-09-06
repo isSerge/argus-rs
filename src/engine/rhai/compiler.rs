@@ -17,11 +17,16 @@ use crate::config::RhaiConfig;
 pub struct ScriptAnalysis {
     /// The compiled AST of the Rhai script.
     pub ast: Arc<AST>,
+
     /// A set of variable paths accessed in the script.
     /// This is used to determine which variables are read or written to.
     pub accessed_variables: Arc<HashSet<String>>,
+
     /// True if the script accesses the `log` variable.
     pub accesses_log_variable: bool,
+
+    /// A set of local variables defined within the script.
+    pub local_variables: HashSet<String>,
 }
 
 /// A type alias for the hash of a Rhai script.
@@ -82,6 +87,7 @@ impl RhaiCompiler {
             ast: Arc::new(ast),
             accessed_variables: Arc::new(analysis_result.accessed_variables),
             accesses_log_variable: analysis_result.accesses_log_variable,
+            local_variables: analysis_result.local_variables,
         };
 
         // Store the analysis in the cache
@@ -249,5 +255,28 @@ mod tests {
         // A script with only comments should access no variables.
         assert!(analysis.accessed_variables.is_empty());
         assert!(!analysis.accesses_log_variable);
+    }
+
+    #[test]
+    fn test_script_with_local_variable() {
+        let config = RhaiConfig::default();
+        let compiler = RhaiCompiler::new(config);
+        let script = r#"
+            let x = 10;
+            x > 5
+        "#;
+
+        let result = compiler.analyze_script(script);
+        assert!(result.is_ok());
+
+        let analysis = result.unwrap();
+        // The accessed variables should include only 'x'.
+        let expected_vars: HashSet<String> = HashSet::from(["x".to_string()]);
+        assert_eq!(*analysis.accessed_variables, expected_vars);
+        assert!(!analysis.accesses_log_variable);
+
+        // The local variables should include 'x'.
+        let expected_locals: HashSet<String> = HashSet::from(["x".to_string()]);
+        assert_eq!(analysis.local_variables, expected_locals);
     }
 }
