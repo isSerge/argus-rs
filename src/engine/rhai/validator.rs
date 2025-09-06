@@ -97,6 +97,12 @@ impl RhaiScriptValidator {
 
         // Iterate over accessed variables
         for field in ast_analysis.accessed_variables.iter() {
+            // Check if the accessed variable is a local variable
+            if ast_analysis.local_variables.contains(field) {
+                tracing::debug!("Skipping validation for local variable: {}", field);
+                continue;
+            }
+
             let is_static = valid_static_fields.contains(field);
             let is_dynamic = field.starts_with("log.params.");
 
@@ -356,6 +362,17 @@ mod tests {
         let result = validator.validate_script(script, None).unwrap();
 
         assert!(result.ast_analysis.accessed_variables.is_empty());
+        assert!(!result.requires_receipt);
+        assert!(!result.ast_analysis.accesses_log_variable);
+    }
+
+    #[test]
+    fn test_validate_local_variable_script() {
+        let validator = create_validator();
+        let script = "let x = 10; x > 5";
+        let result = validator.validate_script(script, None).unwrap();
+
+        assert!(result.ast_analysis.accessed_variables.contains("x"));
         assert!(!result.requires_receipt);
         assert!(!result.ast_analysis.accesses_log_variable);
     }
