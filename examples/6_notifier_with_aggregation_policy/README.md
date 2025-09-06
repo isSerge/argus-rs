@@ -8,6 +8,25 @@ This example demonstrates how to use `aggregation` policy for notifiers as well 
 - [`monitors.yaml`](../../docs/src/user_guide/config_monitors.md): Defines the "Aggregated WBTC Transfers" monitor.
 - [`notifiers.yaml`](../../docs/src/user_guide/config_notifiers.md): Defines a Telegram notifier that aggregates WBTC transfer values.
 
+### Environment Variables for Notifier Secrets
+
+> **Important:** All secrets and sensitive values in `notifiers.yaml` (such as API tokens, webhook URLs, chat IDs, etc.) must be provided as environment variables.
+> For example, if your `notifiers.yaml` contains:
+>
+> ```yaml
+> token: "${TELEGRAM_TOKEN}"
+> chat_id: "${TELEGRAM_CHAT_ID}"
+> ```
+>
+> You must set these in your shell before running Argus:
+>
+> ```sh
+> export TELEGRAM_TOKEN="your-telegram-token"
+> export TELEGRAM_CHAT_ID="your-chat-id"
+> ```
+>
+> See the example `notifiers.yaml` for all required variables for each notifier type.
+
 ### Monitor Configuration
 
 The `monitors.yaml` file defines a monitor that triggers for any WBTC `Transfer` event with a value greater than 0.001 WBTC. For a complete reference on monitor configuration, see the [Monitor Configuration documentation](../../docs/src/user_guide/config_monitors.md).

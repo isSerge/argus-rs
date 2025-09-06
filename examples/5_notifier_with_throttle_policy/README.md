@@ -9,6 +9,25 @@ to limit the rate of notifications and prevent alert fatigue.
 - [`monitors.yaml`](../../docs/src/user_guide/config_monitors.md): Defines the "Large ETH Transfers with Throttling" monitor.
 - [`notifiers.yaml`](../../docs/src/user_guide/config_notifiers.md): Defines a Telegram notifier with a `throttle` policy.
 
+### Environment Variables for Notifier Secrets
+
+> **Important:** All secrets and sensitive values in `notifiers.yaml` (such as API tokens, webhook URLs, chat IDs, etc.) must be provided as environment variables.
+> For example, if your `notifiers.yaml` contains:
+>
+> ```yaml
+> token: "${TELEGRAM_TOKEN}"
+> chat_id: "${TELEGRAM_CHAT_ID}"
+> ```
+>
+> You must set these in your shell before running Argus:
+>
+> ```sh
+> export TELEGRAM_TOKEN="your-telegram-token"
+> export TELEGRAM_CHAT_ID="your-chat-id"
+> ```
+>
+> See the example `notifiers.yaml` for all required variables for each notifier type.
+
 ### Monitor Configuration
 
 The `monitors.yaml` file defines a monitor that triggers for any Ethereum
