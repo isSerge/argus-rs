@@ -23,7 +23,10 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Runs the main monitoring supervisor.
-    Run,
+    Run {
+        #[arg(short, long)]
+        config_dir: Option<String>,
+    },
     /// Performs a dry run of a single monitor over a specified block range.
     DryRun(DryRunArgs),
 }
@@ -39,16 +42,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Run => run_supervisor().await?,
+        Commands::Run { config_dir } => run_supervisor(config_dir).await?,
         Commands::DryRun(args) => dry_run::execute(args).await?,
     }
 
     Ok(())
 }
 
-async fn run_supervisor() -> Result<(), Box<dyn std::error::Error>> {
+async fn run_supervisor(config_dir: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
     tracing::debug!("Loading application configuration...");
-    let config = AppConfig::new(None)?; // TODO: get config path from env
+    let config = AppConfig::new(config_dir.as_deref())?;
     tracing::debug!(database_url = %config.database_url, rpc_urls = ?config.rpc_urls, network_id = %config.network_id, "Configuration loaded.");
 
     tracing::debug!("Initializing state repository...");
