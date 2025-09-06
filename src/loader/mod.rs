@@ -158,11 +158,15 @@ items:
     #[test]
     fn test_expand_env_vars_expands_correctly() {
         let loader = ConfigLoader::new(PathBuf::from("dummy.yaml"));
-        std::env::set_var("TEST_ENV_VAR", "secret_value");
+        unsafe {
+            std::env::set_var("TEST_ENV_VAR", "secret_value");
+        }
         let input = "token: \"${TEST_ENV_VAR}\"";
         let expanded = loader.expand_env_vars(input).unwrap();
         assert_eq!(expanded, "token: \"secret_value\"");
-        std::env::remove_var("TEST_ENV_VAR");
+        unsafe {
+            std::env::remove_var("TEST_ENV_VAR");
+        }
     }
 
     #[test]
