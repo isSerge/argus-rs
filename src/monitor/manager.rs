@@ -61,12 +61,13 @@ impl InterestRegistry {
             && log
                 .topics()
                 .first()
-                .map_or(false, |topic0| self.global_event_signatures.contains(topic0))
+                .is_some_and(|topic0| self.global_event_signatures.contains(topic0))
     }
 }
 
 /// Manages monitors, including organizing them for efficient execution and
 /// providing atomic updates to the monitor state.
+#[derive(Debug)]
 pub struct MonitorManager {
     compiler: Arc<RhaiCompiler>,
     abi_service: Arc<AbiService>,
@@ -82,7 +83,6 @@ impl MonitorManager {
         abi_service: Arc<AbiService>,
     ) -> Self {
         let initial_state = Self::organize_assets(&initial_monitors, &compiler, &abi_service);
-
         Self { compiler, abi_service, state: ArcSwap::new(Arc::new(initial_state)) }
     }
 
@@ -198,11 +198,11 @@ impl MonitorManager {
             organized_monitors.log_aware_monitors.get(GLOBAL_MONITORS_KEY)
         {
             for monitor in global_monitors.value() {
-                if let Some(abi_name) = &monitor.abi {
-                    if let Some(abi) = abi_service.get_abi_by_name(abi_name) {
-                        for event in abi.events.values().flatten() {
-                            global_event_signatures.insert(event.selector());
-                        }
+                if let Some(abi_name) = &monitor.abi
+                    && let Some(abi) = abi_service.get_abi_by_name(abi_name)
+                {
+                    for event in abi.events.values().flatten() {
+                        global_event_signatures.insert(event.selector());
                     }
                 }
             }
