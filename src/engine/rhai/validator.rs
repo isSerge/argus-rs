@@ -179,36 +179,12 @@ impl RhaiScriptValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::RhaiConfig;
+    use crate::{config::RhaiConfig, test_helpers::simple_abi_json};
 
     fn create_validator() -> RhaiScriptValidator {
         let config = RhaiConfig::default();
         let compiler = Arc::new(RhaiCompiler::new(config));
         RhaiScriptValidator::new(compiler)
-    }
-
-    fn simple_abi_json() -> &'static str {
-        r#"[
-            {
-                "type": "function",
-                "name": "transfer",
-                "inputs": [
-                    {"name": "to", "type": "address"},
-                    {"name": "amount", "type": "uint256"}
-                ],
-                "outputs": [{"name": "success", "type": "bool"}]
-            },
-            {
-                "type": "event",
-                "name": "Transfer",
-                "inputs": [
-                    {"name": "from", "type": "address", "indexed": true},
-                    {"name": "to", "type": "address", "indexed": true},
-                    {"name": "amount", "type": "uint256", "indexed": false}
-                ],
-                "anonymous": false
-            }
-        ]"#
     }
 
     #[test]

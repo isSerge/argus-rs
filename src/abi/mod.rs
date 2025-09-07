@@ -359,31 +359,7 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
-    use crate::test_helpers::{LogBuilder, TransactionBuilder};
-
-    fn simple_abi_json() -> &'static str {
-        r#"[
-            {
-                "type": "function",
-                "name": "transfer",
-                "inputs": [
-                    {"name": "to", "type": "address"},
-                    {"name": "amount", "type": "uint256"}
-                ],
-                "outputs": [{"name": "success", "type": "bool"}]
-            },
-            {
-                "type": "event",
-                "name": "Transfer",
-                "inputs": [
-                    {"name": "from", "type": "address", "indexed": true},
-                    {"name": "to", "type": "address", "indexed": true},
-                    {"name": "amount", "type": "uint256", "indexed": false}
-                ],
-                "anonymous": false
-            }
-        ]"#
-    }
+    use crate::test_helpers::{LogBuilder, TransactionBuilder, simple_abi_json};
 
     fn create_test_abi_file(dir: &tempfile::TempDir, filename: &str, content: &str) -> PathBuf {
         let file_path = dir.path().join(filename);
