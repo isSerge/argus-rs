@@ -13,6 +13,7 @@ use crate::{
     },
     http_client::HttpClientPool,
     models::notifier::NotifierConfig,
+    monitor::MonitorManager,
     notification::NotificationService,
     persistence::{sqlite::SqliteStateRepository, traits::StateRepository},
     providers::traits::DataSource,
@@ -83,15 +84,19 @@ impl SupervisorBuilder {
         let monitors = state.get_monitors(&config.network_id).await?;
         tracing::info!(count = monitors.len(), network_id = %config.network_id, "Loaded monitors from database for filtering engine.");
 
+        let monitor_manager =
+            Arc::new(MonitorManager::new(monitors, script_compiler.clone(), abi_service.clone()));
+
         // Load notifiers from the database for the NotificationService.
         tracing::debug!(network_id = %config.network_id, "Loading notifiers from database for notification service...");
         let notifiers = state.get_notifiers(&config.network_id).await?;
         tracing::info!(count = notifiers.len(), network_id = %config.network_id, "Loaded notifiers from database for notification service.");
 
         // Construct the internal services.
-        let block_processor = BlockProcessor::new(Arc::clone(&abi_service));
+        let block_processor =
+            BlockProcessor::new(Arc::clone(&abi_service), monitor_manager.clone());
         let filtering_engine =
-            RhaiFilteringEngine::new(monitors, script_compiler, config.rhai.clone());
+            RhaiFilteringEngine::new(script_compiler, config.rhai.clone(), monitor_manager.clone());
         let http_client_pool = Arc::new(HttpClientPool::new(config.http_base_config.clone()));
 
         // Set up the NotificationService and AlertManager
@@ -110,6 +115,7 @@ impl SupervisorBuilder {
             block_processor,
             Arc::new(filtering_engine),
             alert_manager,
+            monitor_manager,
         ))
     }
 }

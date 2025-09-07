@@ -14,6 +14,7 @@ use thiserror::Error;
 use crate::{
     abi::{AbiError, AbiService, DecodedLog},
     models::{BlockData, CorrelatedBlockItem, DecodedBlockData, transaction::Transaction},
+    monitor::MonitorManager,
 };
 
 /// Custom error type for `BlockProcessor` operations.
@@ -28,12 +29,13 @@ pub enum BlockProcessorError {
 /// This includes decoding logs and correlating data
 pub struct BlockProcessor {
     abi_service: Arc<AbiService>,
+    monitor_manager: Arc<MonitorManager>,
 }
 
 impl BlockProcessor {
     /// Creates a new `BlockProcessor` with the provided `AbiService`.
-    pub fn new(abi_service: Arc<AbiService>) -> Self {
-        Self { abi_service }
+    pub fn new(abi_service: Arc<AbiService>, monitor_manager: Arc<MonitorManager>) -> Self {
+        Self { abi_service, monitor_manager }
     }
 
     /// Processes the given `BlockData`, decodes logs, correlates data,
@@ -43,6 +45,9 @@ impl BlockProcessor {
         block_data: BlockData,
     ) -> Result<DecodedBlockData, BlockProcessorError> {
         tracing::debug!(block_number = block_data.block.header.number, "Processing block data.");
+
+        // Load the current monitor snapshot
+        let monitor_snapshot = self.monitor_manager.load();
 
         let num_txs = match &block_data.block.transactions {
             BlockTransactions::Full(txs) => txs.len(),
@@ -66,16 +71,18 @@ impl BlockProcessor {
 
                     let mut decoded_logs: Vec<DecodedLog> = Vec::new();
                     for log in &raw_logs_for_tx {
-                        match self.abi_service.decode_log(log) {
-                            Ok(decoded) => decoded_logs.push(decoded),
-                            Err(e) =>
-                                if !matches!(e, AbiError::AbiNotFound(_)) {
-                                    tracing::warn!(
-                                        log_address = %log.address(),
-                                        error = %e,
-                                        "Could not decode log for a monitored address. Check if the ABI is correct."
-                                    );
-                                },
+                        if monitor_snapshot.interest_registry.is_log_interesting(log) {
+                            match self.abi_service.decode_log(log) {
+                                Ok(decoded) => decoded_logs.push(decoded),
+                                Err(e) =>
+                                    if !matches!(e, AbiError::AbiNotFound(_)) {
+                                        tracing::warn!(
+                                            log_address = %log.address(),
+                                            error = %e,
+                                            "Could not decode log for a monitored address. Check if the ABI is correct."
+                                        );
+                                    },
+                            }
                         }
                     }
 
@@ -139,8 +146,14 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
-    use crate::test_helpers::{
-        BlockBuilder, LogBuilder, TransactionBuilder, create_test_abi_service, simple_abi_json,
+    use crate::{
+        config::RhaiConfig,
+        engine::rhai::RhaiCompiler,
+        models::monitor::Monitor,
+        test_helpers::{
+            BlockBuilder, LogBuilder, MonitorBuilder, TransactionBuilder, create_test_abi_service,
+            simple_abi_json,
+        },
     };
 
     fn setup_abi_service_with_abi(abi_name: &str, abi_content: &str) -> (Arc<AbiService>, Address) {
@@ -149,6 +162,17 @@ mod tests {
         let address = address!("0000000000000000000000000000000000000001");
         abi_service.link_abi(address, abi_name).unwrap();
         (abi_service, address)
+    }
+
+    fn setup_monitor_manager_with_monitors(
+        monitors: Vec<Monitor>,
+        abi_service: Arc<AbiService>,
+    ) -> Arc<MonitorManager> {
+        Arc::new(MonitorManager::new(
+            monitors,
+            Arc::new(RhaiCompiler::new(RhaiConfig::default())),
+            abi_service,
+        ))
     }
 
     #[tokio::test]
@@ -161,6 +185,19 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
         abi_service.add_global_abi("simple").unwrap();
+
+        // Setup global monitor
+        let monitors = vec![
+            MonitorBuilder::new()
+                .name("Global ABI Monitor")
+                .address("all")
+                .abi("simple")
+                .filter_script("log.name == \"Transfer\"")
+                .build(),
+        ];
+
+        // Setup MonitorManager
+        let monitor_manager = setup_monitor_manager_with_monitors(monitors, abi_service.clone());
 
         // 2. Setup BlockData
         let tx = TransactionBuilder::new()
@@ -187,7 +224,7 @@ mod tests {
         let block_data = BlockData::new(block, HashMap::new(), logs_by_tx);
 
         // 3. Setup BlockProcessor
-        let block_processor = BlockProcessor::new(abi_service);
+        let block_processor = BlockProcessor::new(abi_service, monitor_manager);
 
         // 4. Process block
         let decoded_block = block_processor.process_block(block_data).await.unwrap();
@@ -206,6 +243,17 @@ mod tests {
         let (abi_service, contract_address) =
             setup_abi_service_with_abi("simple", simple_abi_json());
 
+        // Setup MonitorManager
+        let monitors = vec![
+            MonitorBuilder::new()
+                .name("Transfer Monitor")
+                .address(&contract_address.to_string())
+                .abi("simple")
+                .filter_script("log.name == \"Transfer\"")
+                .build(),
+        ];
+        let monitor_manager = setup_monitor_manager_with_monitors(monitors, abi_service.clone());
+
         // 2. Setup BlockData
         let tx = TransactionBuilder::new()
             .hash(tx_hash)
@@ -231,7 +279,7 @@ mod tests {
         let block_data = BlockData::new(block, HashMap::new(), logs_by_tx);
 
         // 3. Setup BlockProcessor
-        let block_processor = BlockProcessor::new(abi_service);
+        let block_processor = BlockProcessor::new(abi_service, monitor_manager);
 
         // 4. Process block
         let decoded_block = block_processor.process_block(block_data).await.unwrap();
@@ -247,11 +295,13 @@ mod tests {
         assert_eq!(decoded_log.params.len(), 3);
         // TODO: consider more assertions
     }
+
     #[tokio::test]
     async fn test_process_block_no_full_transactions() {
         let temp_dir = tempdir().unwrap();
         let (abi_service, _) = create_test_abi_service(&temp_dir, &[]);
-        let block_processor = BlockProcessor::new(abi_service);
+        let monitor_manager = setup_monitor_manager_with_monitors(vec![], abi_service.clone());
+        let block_processor = BlockProcessor::new(abi_service, monitor_manager);
 
         // Create a block with no full transactions
         let block = BlockBuilder::new().build();
@@ -264,7 +314,8 @@ mod tests {
     async fn test_process_block_log_decoding_error() {
         let temp_dir = tempdir().unwrap();
         let (abi_service, _) = create_test_abi_service(&temp_dir, &[]); // Empty repo
-        let block_processor = BlockProcessor::new(abi_service);
+        let monitor_manager = setup_monitor_manager_with_monitors(vec![], abi_service.clone());
+        let block_processor = BlockProcessor::new(abi_service, monitor_manager);
         let tx_hash = B256::default();
         let tx = TransactionBuilder::new().hash(tx_hash).build();
         let log = LogBuilder::new().transaction_hash(tx_hash).build();
@@ -284,7 +335,8 @@ mod tests {
     async fn test_process_blocks_batch_multiple_blocks() {
         let (abi_service, contract_address) =
             setup_abi_service_with_abi("simple", simple_abi_json());
-        let block_processor = BlockProcessor::new(abi_service);
+        let monitor_manager = setup_monitor_manager_with_monitors(vec![], abi_service.clone());
+        let block_processor = BlockProcessor::new(abi_service, monitor_manager);
 
         // Create multiple blocks for batch processing
         let mut blocks = Vec::new();
@@ -331,7 +383,8 @@ mod tests {
     async fn test_process_blocks_batch_empty() {
         let temp_dir = tempdir().unwrap();
         let (abi_service, _) = create_test_abi_service(&temp_dir, &[]);
-        let block_processor = BlockProcessor::new(abi_service);
+        let monitor_manager = setup_monitor_manager_with_monitors(vec![], abi_service.clone());
+        let block_processor = BlockProcessor::new(abi_service, monitor_manager);
 
         let matches = block_processor.process_blocks_batch(Vec::new()).await.unwrap();
         assert!(matches.is_empty());
@@ -341,7 +394,8 @@ mod tests {
     async fn test_process_blocks_batch_no_full_transactions() {
         let temp_dir = tempdir().unwrap();
         let (abi_service, _) = create_test_abi_service(&temp_dir, &[]);
-        let block_processor = BlockProcessor::new(abi_service);
+        let monitor_manager = setup_monitor_manager_with_monitors(vec![], abi_service.clone());
+        let block_processor = BlockProcessor::new(abi_service, monitor_manager);
 
         // Create a block with no full transactions
         let block = BlockBuilder::new().build();
@@ -358,7 +412,8 @@ mod tests {
     async fn test_process_blocks_batch_log_decoding_error() {
         let temp_dir = tempdir().unwrap();
         let (abi_service, _) = create_test_abi_service(&temp_dir, &[]); // Empty repo
-        let block_processor = BlockProcessor::new(abi_service);
+        let monitor_manager = setup_monitor_manager_with_monitors(vec![], abi_service.clone());
+        let block_processor = BlockProcessor::new(abi_service, monitor_manager);
 
         let tx_hash = B256::default();
         let tx = TransactionBuilder::new().hash(tx_hash).build();
