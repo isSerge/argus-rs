@@ -116,14 +116,12 @@ impl SupervisorBuilder {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs::File, io::Write};
-
     use tempfile::tempdir;
 
     use super::*;
     use crate::{
-        abi::AbiRepository, config::RhaiConfig, models::monitor::MonitorConfig,
-        providers::traits::MockDataSource,
+        config::RhaiConfig, models::monitor::MonitorConfig, providers::traits::MockDataSource,
+        test_helpers::create_test_abi_service,
     };
 
     async fn setup_test_db() -> SqliteStateRepository {
@@ -139,9 +137,6 @@ mod tests {
         let network_id = "testnet";
         let abi_name = "abi";
         let dir = tempdir().unwrap();
-        let abi_path = dir.path().join(format!("{}.json", abi_name));
-        let mut file = File::create(&abi_path).unwrap();
-        file.write_all(b"[]").unwrap();
 
         let monitor = MonitorConfig {
             name: "Valid Monitor".into(),
@@ -155,8 +150,7 @@ mod tests {
         let state_repo = Arc::new(setup_test_db().await);
         state_repo.add_monitors(network_id, vec![monitor]).await.unwrap();
 
-        let abi_repository = Arc::new(AbiRepository::new(dir.path()).unwrap());
-        let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
+        let (abi_service, _) = create_test_abi_service(&dir, &[(abi_name, "[]")]);
 
         let builder = SupervisorBuilder::new()
             .config(AppConfig::default())
@@ -172,8 +166,7 @@ mod tests {
     #[tokio::test]
     async fn build_fails_if_config_is_missing() {
         let dir = tempdir().unwrap();
-        let abi_repository = Arc::new(AbiRepository::new(dir.path()).unwrap());
-        let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
+        let (abi_service, _) = create_test_abi_service(&dir, &[]);
         let state_repo = Arc::new(setup_test_db().await);
         let builder = SupervisorBuilder::new()
             .state(state_repo)
@@ -187,8 +180,7 @@ mod tests {
     #[tokio::test]
     async fn build_fails_if_state_repository_is_missing() {
         let dir = tempdir().unwrap();
-        let abi_repository = Arc::new(AbiRepository::new(dir.path()).unwrap());
-        let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
+        let (abi_service, _) = create_test_abi_service(&dir, &[]);
         let builder = SupervisorBuilder::new()
             .config(AppConfig::default())
             .abi_service(abi_service)
@@ -213,8 +205,7 @@ mod tests {
     #[tokio::test]
     async fn build_fails_if_data_source_is_missing() {
         let dir = tempdir().unwrap();
-        let abi_repository = Arc::new(AbiRepository::new(dir.path()).unwrap());
-        let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
+        let (abi_service, _) = create_test_abi_service(&dir, &[]);
         let state_repo = Arc::new(setup_test_db().await);
         let builder = SupervisorBuilder::new()
             .config(AppConfig::default())

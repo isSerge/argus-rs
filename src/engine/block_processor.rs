@@ -133,43 +133,19 @@ impl BlockProcessor {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, path::PathBuf, sync::Arc};
+    use std::{collections::HashMap, sync::Arc};
 
     use alloy::primitives::{Address, B256, Bytes, U256, address, b256};
     use tempfile::tempdir;
 
     use super::*;
-    use crate::{
-        abi::repository::AbiRepository,
-        test_helpers::{BlockBuilder, LogBuilder, TransactionBuilder},
+    use crate::test_helpers::{
+        BlockBuilder, LogBuilder, TransactionBuilder, create_test_abi_service, simple_abi_json,
     };
-
-    fn simple_abi_json() -> &'static str {
-        r#"[
-            {
-                "type": "event",
-                "name": "Transfer",
-                "inputs": [
-                    {"name": "from", "type": "address", "indexed": true},
-                    {"name": "to", "type": "address", "indexed": true},
-                    {"name": "amount", "type": "uint256", "indexed": false}
-                ],
-                "anonymous": false
-            }
-        ]"#
-    }
-
-    fn create_test_abi_file(dir: &tempfile::TempDir, filename: &str, content: &str) -> PathBuf {
-        let file_path = dir.path().join(filename);
-        std::fs::write(&file_path, content).unwrap();
-        file_path
-    }
 
     fn setup_abi_service_with_abi(abi_name: &str, abi_content: &str) -> (Arc<AbiService>, Address) {
         let temp_dir = tempdir().unwrap();
-        create_test_abi_file(&temp_dir, &format!("{}.json", abi_name), abi_content);
-        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
-        let abi_service = Arc::new(AbiService::new(abi_repo));
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[(abi_name, abi_content)]);
         let address = address!("0000000000000000000000000000000000000001");
         abi_service.link_abi(address, abi_name).unwrap();
         (abi_service, address)
@@ -183,9 +159,7 @@ mod tests {
 
         // 1. Setup ABI Service with a global ABI
         let temp_dir = tempdir().unwrap();
-        create_test_abi_file(&temp_dir, "simple.json", simple_abi_json());
-        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
-        let abi_service = Arc::new(AbiService::new(abi_repo));
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
         abi_service.add_global_abi("simple").unwrap();
 
         // 2. Setup BlockData
@@ -226,11 +200,11 @@ mod tests {
     #[tokio::test]
     async fn test_process_block_happy_path() {
         let block_number = 123;
-        let contract_address = address!("0000000000000000000000000000000000000001");
         let tx_hash = b256!("1111111111111111111111111111111111111111111111111111111111111111");
 
         // 1. Setup ABI Service
-        let (abi_service, _) = setup_abi_service_with_abi("simple", simple_abi_json());
+        let (abi_service, contract_address) =
+            setup_abi_service_with_abi("simple", simple_abi_json());
 
         // 2. Setup BlockData
         let tx = TransactionBuilder::new()
@@ -276,8 +250,7 @@ mod tests {
     #[tokio::test]
     async fn test_process_block_no_full_transactions() {
         let temp_dir = tempdir().unwrap();
-        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
-        let abi_service = Arc::new(AbiService::new(abi_repo));
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[]);
         let block_processor = BlockProcessor::new(abi_service);
 
         // Create a block with no full transactions
@@ -290,8 +263,7 @@ mod tests {
     #[tokio::test]
     async fn test_process_block_log_decoding_error() {
         let temp_dir = tempdir().unwrap();
-        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap()); // Empty repo
-        let abi_service = Arc::new(AbiService::new(abi_repo)); // No ABIs added
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[]); // Empty repo
         let block_processor = BlockProcessor::new(abi_service);
         let tx_hash = B256::default();
         let tx = TransactionBuilder::new().hash(tx_hash).build();
@@ -358,8 +330,7 @@ mod tests {
     #[tokio::test]
     async fn test_process_blocks_batch_empty() {
         let temp_dir = tempdir().unwrap();
-        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
-        let abi_service = Arc::new(AbiService::new(abi_repo));
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[]);
         let block_processor = BlockProcessor::new(abi_service);
 
         let matches = block_processor.process_blocks_batch(Vec::new()).await.unwrap();
@@ -369,8 +340,7 @@ mod tests {
     #[tokio::test]
     async fn test_process_blocks_batch_no_full_transactions() {
         let temp_dir = tempdir().unwrap();
-        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
-        let abi_service = Arc::new(AbiService::new(abi_repo));
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[]);
         let block_processor = BlockProcessor::new(abi_service);
 
         // Create a block with no full transactions
@@ -387,8 +357,7 @@ mod tests {
     #[tokio::test]
     async fn test_process_blocks_batch_log_decoding_error() {
         let temp_dir = tempdir().unwrap();
-        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap()); // Empty repo
-        let abi_service = Arc::new(AbiService::new(abi_repo)); // No ABIs added
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[]); // Empty repo
         let block_processor = BlockProcessor::new(abi_service);
 
         let tx_hash = B256::default();

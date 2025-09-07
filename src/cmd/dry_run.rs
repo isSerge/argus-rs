@@ -20,6 +20,7 @@ use crate::{
     loader::{LoaderError, load_config},
     models::{
         BlockData,
+        builder::MonitorBuilder,
         monitor::MonitorConfig,
         monitor_match::MonitorMatch,
         notifier::{NotifierConfig, NotifierError},
@@ -31,7 +32,6 @@ use crate::{
         rpc::{EvmRpcSource, ProviderError, create_provider},
         traits::{DataSource, DataSourceError},
     },
-    test_helpers::MonitorBuilder,
 };
 
 /// Errors that can occur during the execution of a dry run.
