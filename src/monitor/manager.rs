@@ -434,6 +434,76 @@ mod tests {
     }
 
     #[test]
+    fn test_update_rebuilds_interest_registry_correctly() {
+        let (compiler, abi_service) = setup();
+
+        // Initial state: One address-specific log monitor
+        let initial_monitors = vec![
+            MonitorBuilder::new()
+                .id(1)
+                .address("0x1111111111111111111111111111111111111111")
+                .filter_script("log.name == \"A\"")
+                .build(),
+        ];
+        let manager = MonitorManager::new(initial_monitors, compiler.clone(), abi_service.clone());
+
+        let snapshot1 = manager.load();
+        assert_eq!(snapshot1.interest_registry.addresses.len(), 1);
+        assert!(
+            snapshot1
+                .interest_registry
+                .addresses
+                .contains(&address!("1111111111111111111111111111111111111111"))
+        );
+        assert!(snapshot1.interest_registry.global_event_signatures.is_empty());
+        drop(snapshot1);
+
+        // New state: A different address and a new global monitor
+        let updated_monitors = vec![
+            MonitorBuilder::new()
+                .id(2)
+                .address("0x2222222222222222222222222222222222222222")
+                .filter_script("log.name == \"B\"")
+                .build(),
+            MonitorBuilder::new()
+                .id(3)
+                .address("all")
+                .abi("simple")
+                .filter_script("log.name == \"Transfer\"")
+                .build(),
+        ];
+
+        let temp_dir = tempdir().unwrap();
+        let (abi_service_with_abi, _) =
+            create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
+        let manager = MonitorManager::new(vec![], compiler.clone(), abi_service_with_abi);
+
+        manager.update(updated_monitors);
+
+        let snapshot2 = manager.load();
+        // Address set should be completely replaced, not merged.
+        assert_eq!(snapshot2.interest_registry.addresses.len(), 1);
+        assert!(
+            !snapshot2
+                .interest_registry
+                .addresses
+                .contains(&address!("1111111111111111111111111111111111111111"))
+        );
+        assert!(
+            snapshot2
+                .interest_registry
+                .addresses
+                .contains(&address!("2222222222222222222222222222222222222222"))
+        );
+
+        // Global signatures should now be populated.
+        assert_eq!(snapshot2.interest_registry.global_event_signatures.len(), 1);
+        let transfer_event_sig =
+            b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef");
+        assert!(snapshot2.interest_registry.global_event_signatures.contains(&transfer_event_sig));
+    }
+
+    #[test]
     fn test_empty_monitor_list() {
         let (compiler, abi_service) = setup();
 
@@ -479,5 +549,88 @@ mod tests {
 
         // No event signatures should be added because the ABI was not found.
         assert!(snapshot.interest_registry.global_event_signatures.is_empty());
+    }
+
+    #[test]
+    fn test_build_interest_registry_aggregates_global_signatures() {
+        let (compiler, _) = setup();
+        let temp_dir = tempdir().unwrap();
+        let weth_abi = r#"[
+        {
+            "type":"event",
+            "name":"Deposit",
+            "inputs":[
+                {"name":"dst","type":"address","indexed":true},
+                {"name":"wad","type":"uint256","indexed":false}
+            ],
+            "anonymous":false
+        }
+    ]"#;
+        let (abi_service, _) = create_test_abi_service(
+            &temp_dir,
+            &[("simple", simple_abi_json()), ("weth", weth_abi)],
+        );
+
+        let global_erc20_monitor = MonitorBuilder::new()
+            .id(1)
+            .address("all")
+            .abi("simple")
+            .filter_script("log.name == \"Transfer\"")
+            .build();
+
+        let global_weth_monitor = MonitorBuilder::new()
+            .id(2)
+            .address("all")
+            .abi("weth")
+            .filter_script("log.name == \"Deposit\"")
+            .build();
+
+        let monitors = vec![global_erc20_monitor, global_weth_monitor];
+        let (organized, _) = MonitorManager::organize_monitors(&monitors, &compiler);
+        let registry = MonitorManager::build_interest_registry(&organized, &abi_service);
+
+        // Should contain event signatures from BOTH ABIs.
+        assert_eq!(registry.global_event_signatures.len(), 2);
+
+        // Keccak256 hash of "Transfer(address,address,uint256)"
+        let transfer_sig =
+            b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef");
+        // Keccak256 hash of "Deposit()"
+        let deposit_sig = b256!("e1fffcc4923d04b559f4d29a8bfc6cda04eb5b0d3c460751c2402c5c5cc9109c");
+
+        assert!(registry.global_event_signatures.contains(&transfer_sig));
+        assert!(registry.global_event_signatures.contains(&deposit_sig));
+    }
+
+    #[test]
+    fn test_is_log_interesting_edge_cases() {
+        let monitored_address = address!("1111111111111111111111111111111111111111");
+        let monitored_event_sig =
+            b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef");
+
+        // Case 1: Registry with no global signatures
+        let registry_no_globals = InterestRegistry {
+            addresses: Arc::new(HashSet::from([monitored_address])),
+            global_event_signatures: Arc::new(HashSet::new()), // Empty set
+        };
+
+        let log_from_other_addr = LogBuilder::new()
+            .address(address!("2222222222222222222222222222222222222222"))
+            .topic(monitored_event_sig) // This topic is NOT in the registry
+            .build();
+
+        assert!(!registry_no_globals.is_log_interesting(&log_from_other_addr));
+
+        // Case 2: Log with no topics
+        let log_no_topics =
+            LogBuilder::new().address(address!("3333333333333333333333333333333333333333")).build(); // No .topic() calls
+
+        let registry_with_globals = InterestRegistry {
+            addresses: Arc::new(HashSet::new()),
+            global_event_signatures: Arc::new(HashSet::from([monitored_event_sig])),
+        };
+
+        // Should return false because it can't match a global signature
+        assert!(!registry_with_globals.is_log_interesting(&log_no_topics));
     }
 }
