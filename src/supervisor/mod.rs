@@ -34,8 +34,8 @@ use crate::{
         block_processor::{BlockProcessor, BlockProcessorError},
         filtering::FilteringEngine,
     },
-    models::{BlockData, DecodedBlockData, monitor_match::MonitorMatch},
-    monitor::MonitorValidationError,
+    models::{BlockData, DecodedBlockData, monitor::Monitor, monitor_match::MonitorMatch},
+    monitor::{MonitorManager, MonitorValidationError},
     persistence::{sqlite::SqliteStateRepository, traits::StateRepository},
     providers::traits::{DataSource, DataSourceError},
 };
@@ -124,6 +124,9 @@ pub struct Supervisor {
 
     /// A set of all spawned tasks that the supervisor is actively managing.
     join_set: tokio::task::JoinSet<()>,
+
+    /// The manager responsible for handling monitors.
+    monitor_manager: Arc<MonitorManager>,
 }
 
 impl Supervisor {
@@ -138,6 +141,7 @@ impl Supervisor {
         processor: BlockProcessor,
         filtering: Arc<dyn FilteringEngine>,
         alert_manager: Arc<AlertManager<SqliteStateRepository>>,
+        monitor_manager: Arc<MonitorManager>,
     ) -> Self {
         Self {
             config,
@@ -148,6 +152,7 @@ impl Supervisor {
             alert_manager,
             cancellation_token: tokio_util::sync::CancellationToken::new(),
             join_set: tokio::task::JoinSet::new(),
+            monitor_manager,
         }
     }
 
@@ -396,6 +401,11 @@ impl Supervisor {
     pub fn builder() -> SupervisorBuilder {
         SupervisorBuilder::new()
     }
+
+    /// Updates the monitors managed by the `MonitorManager`
+    pub fn update_monitors(&self, monitors: Vec<Monitor>) {
+        self.monitor_manager.update(monitors)
+    }
 }
 
 /// This module contains the integration tests for the Supervisor.
@@ -410,7 +420,7 @@ mod tests {
     use super::*;
     use crate::{
         abi::{AbiRepository, AbiService},
-        engine::filtering::MockFilteringEngine,
+        engine::{filtering::MockFilteringEngine, rhai::RhaiCompiler},
         http_client::HttpClientPool,
         notification::NotificationService,
         providers::traits::MockDataSource,
@@ -435,6 +445,7 @@ mod tests {
         mock_filtering_engine: MockFilteringEngine,
         block_processor: BlockProcessor,
         alert_manager: Arc<AlertManager<SqliteStateRepository>>,
+        monitor_manager: Arc<MonitorManager>,
     }
 
     impl SupervisorTestHarness {
@@ -446,7 +457,10 @@ mod tests {
             let dir = tempdir().unwrap();
             let abi_repository = Arc::new(AbiRepository::new(dir.path()).unwrap());
             let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
-            let block_processor = BlockProcessor::new(abi_service);
+            let rhai_compiler = Arc::new(RhaiCompiler::new(config.rhai.clone()));
+            let monitor_manager =
+                Arc::new(MonitorManager::new(vec![], rhai_compiler, Arc::clone(&abi_service)));
+            let block_processor = BlockProcessor::new(abi_service, monitor_manager.clone());
             let http_client_pool = Arc::new(HttpClientPool::default());
             let notification_service =
                 Arc::new(NotificationService::new(Arc::new(HashMap::new()), http_client_pool));
@@ -463,6 +477,7 @@ mod tests {
                 mock_filtering_engine: MockFilteringEngine::new(),
                 block_processor,
                 alert_manager,
+                monitor_manager,
             }
         }
 
@@ -474,6 +489,7 @@ mod tests {
                 self.block_processor,
                 Arc::new(self.mock_filtering_engine),
                 self.alert_manager,
+                self.monitor_manager,
             )
         }
     }

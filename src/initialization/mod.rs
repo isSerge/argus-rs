@@ -210,36 +210,30 @@ impl InitializationService {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, io::Write};
+    use std::fs;
 
+    use alloy::primitives::address;
     use mockall::predicate::*;
     use tempfile::tempdir;
 
     use super::*;
     use crate::{
-        abi::repository::AbiRepository,
         config::{AppConfig, HttpRetryConfig, RhaiConfig},
         engine::rhai::RhaiCompiler,
         models::{
+            builder::MonitorBuilder,
             monitor::MonitorConfig,
             notification::NotificationMessage,
             notifier::{NotifierConfig, NotifierTypeConfig, SlackConfig},
         },
         persistence::traits::MockStateRepository,
-        test_helpers::MonitorBuilder,
+        test_helpers::create_test_abi_service,
     };
 
     // Helper to create a dummy config file
     fn create_dummy_config_file(dir: &tempfile::TempDir, filename: &str, content: &str) -> PathBuf {
         let file_path = dir.path().join(filename);
         fs::write(&file_path, content).unwrap();
-        file_path
-    }
-
-    fn create_test_abi_file(dir: &tempfile::TempDir, filename: &str, content: &str) -> PathBuf {
-        let file_path = dir.path().join(filename);
-        let mut file = fs::File::create(&file_path).unwrap();
-        file.write_all(content.as_bytes()).unwrap();
         file_path
     }
 
@@ -292,7 +286,6 @@ monitors:
     #[tokio::test]
     async fn test_run_happy_path_db_empty() {
         let temp_dir = tempdir().unwrap();
-        create_test_abi_file(&temp_dir, "test_abi.json", create_test_abi_content());
         let monitor_config_path =
             create_dummy_config_file(&temp_dir, "monitors.yaml", create_test_monitor_config_str());
         let notifier_config_path = create_dummy_config_file(
@@ -332,10 +325,11 @@ monitors:
             .network_id(network_id)
             .monitor_config_path(monitor_config_path.to_str().unwrap())
             .notifier_config_path(notifier_config_path.to_str().unwrap())
+            .abi_config_path(temp_dir.path().to_str().unwrap())
             .build();
 
-        let abi_repository = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
-        let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
+        let (abi_service, _) =
+            create_test_abi_service(&temp_dir, &[("test_abi", create_test_abi_content())]);
         // Link the ABI for the test monitor
         abi_service
             .link_abi("0x0000000000000000000000000000000000000123".parse().unwrap(), "test_abi")
@@ -346,7 +340,6 @@ monitors:
 
         let result = initialization_service.run().await;
 
-        println!("Initialization result: {:?}", result);
         assert!(result.is_ok());
     }
 
@@ -381,8 +374,8 @@ monitors:
         mock_repo.expect_add_notifiers().times(0);
 
         let config = AppConfig::builder().network_id(network_id).build();
-        let abi_repository = Arc::new(AbiRepository::new(&PathBuf::from("abis")).unwrap()); // Dummy path, won't be used
-        let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
+        let temp_dir = tempdir().unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[]); // Dummy path, won't be used
         let script_validator = create_script_validator();
         let initialization_service =
             InitializationService::new(config, Arc::new(mock_repo), abi_service, script_validator);
@@ -409,8 +402,7 @@ monitors:
             .monitor_config_path(config_path.to_str().unwrap())
             .build();
 
-        let abi_repository = Arc::new(AbiRepository::new(&PathBuf::from("abis")).unwrap()); // Dummy path, won't be used
-        let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[]); // Dummy path, won't be used
         let script_validator = create_script_validator();
         let initialization_service =
             InitializationService::new(config, Arc::new(mock_repo), abi_service, script_validator);
@@ -442,8 +434,8 @@ monitors:
             .returning(move |_| Ok(vec![monitor.clone()]));
 
         let config = AppConfig::builder().network_id(network_id).build();
-        let abi_repository = Arc::new(AbiRepository::new(&PathBuf::from("abis")).unwrap()); // Dummy path, won't be used
-        let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
+        let temp_dir = tempdir().unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[]); // Dummy path, won't be used
         let script_validator = create_script_validator();
         let initialization_service =
             InitializationService::new(config, Arc::new(mock_repo), abi_service, script_validator);
@@ -475,8 +467,7 @@ monitors:
             .once()
             .returning(move |_| Ok(vec![monitor.clone()]));
 
-        let abi_repository = Arc::new(AbiRepository::new(temp_dir.path()).unwrap()); // Empty repo
-        let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[]); // Empty repo
 
         let config = AppConfig::builder().network_id(network_id).build();
         let script_validator = create_script_validator();
@@ -494,7 +485,6 @@ monitors:
     #[tokio::test]
     async fn test_load_monitors_from_file_when_db_empty() {
         let temp_dir = tempdir().unwrap();
-        create_test_abi_file(&temp_dir, "test_abi.json", create_test_abi_content());
         let config_path =
             create_dummy_config_file(&temp_dir, "monitors.yaml", create_test_monitor_config_str());
         let network_id = "testnet";
@@ -516,13 +506,14 @@ monitors:
         let config = AppConfig::builder()
             .network_id(network_id)
             .monitor_config_path(config_path.to_str().unwrap())
+            .abi_config_path(temp_dir.path().to_str().unwrap())
             .build();
 
-        let abi_repository = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
-        let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
+        let (abi_service, _) =
+            create_test_abi_service(&temp_dir, &[("test_abi", create_test_abi_content())]);
         // Link the ABI for the test monitor
         abi_service
-            .link_abi("0x0000000000000000000000000000000000000123".parse().unwrap(), "test_abi")
+            .link_abi(address!("0x0000000000000000000000000000000000000123"), "test_abi")
             .unwrap();
         let script_validator = create_script_validator();
         let initialization_service =
@@ -560,8 +551,7 @@ monitors:
             .monitor_config_path(config_path.to_str().unwrap())
             .build();
 
-        let abi_repository = Arc::new(AbiRepository::new(&PathBuf::from("abis")).unwrap()); // Dummy path, won't be used
-        let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[]); // Dummy path, won't be used
         let script_validator = create_script_validator();
         let initialization_service =
             InitializationService::new(config, Arc::new(mock_repo), abi_service, script_validator);
@@ -600,8 +590,7 @@ monitors:
             .monitor_config_path(config_path.to_str().unwrap())
             .build();
 
-        let abi_repository = Arc::new(AbiRepository::new(&PathBuf::from("abis")).unwrap()); // Dummy path, won't be used
-        let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[]); // Dummy path, won't be used
         let script_validator = create_script_validator();
         let initialization_service =
             InitializationService::new(config, Arc::new(mock_repo), abi_service, script_validator);
@@ -637,8 +626,7 @@ monitors:
             .notifier_config_path(config_path.to_str().unwrap())
             .build();
 
-        let abi_repository = Arc::new(AbiRepository::new(&PathBuf::from("abis")).unwrap()); // Dummy path, won't be used
-        let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[]); // Dummy path, won't be used
         let script_validator = create_script_validator();
         let initialization_service =
             InitializationService::new(config, Arc::new(mock_repo), abi_service, script_validator);
@@ -680,8 +668,7 @@ monitors:
             .notifier_config_path(config_path.to_str().unwrap())
             .build();
 
-        let abi_repository = Arc::new(AbiRepository::new(&PathBuf::from("abis")).unwrap()); // Dummy path, won't be used
-        let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[]); // Dummy path, won't be used
         let script_validator = create_script_validator();
         let initialization_service =
             InitializationService::new(config, Arc::new(mock_repo), abi_service, script_validator);
@@ -693,11 +680,6 @@ monitors:
     #[tokio::test]
     async fn test_load_abis_from_monitors() {
         let temp_dir = tempdir().unwrap();
-        create_test_abi_file(
-            &temp_dir,
-            "test_abi.json",
-            r#"[{"type":"function","name":"testFunc","inputs":[],"outputs":[]}]"#,
-        );
         let network_id = "testnet";
         let monitor = MonitorBuilder::new()
             .name("ABI Monitor")
@@ -714,8 +696,10 @@ monitors:
             .once()
             .returning(move |_| Ok(vec![monitor.clone()]));
 
-        let abi_repository = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
-        let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
+        let (abi_service, _) = create_test_abi_service(
+            &temp_dir,
+            &[("test_abi", r#"[{"type":"function","name":"testFunc","inputs":[],"outputs":[]}]"#)],
+        );
         let initial_abi_cache_size = abi_service.cache_size();
 
         // Dummy config for AppConfig
@@ -733,20 +717,12 @@ monitors:
 
         // Verify ABI was added to AbiService
         assert_eq!(abi_service.cache_size(), initial_abi_cache_size + 1);
-        assert!(
-            abi_service
-                .is_monitored(&"0x0000000000000000000000000000000000000001".parse().unwrap())
-        );
+        assert!(abi_service.is_monitored(&address!("0x0000000000000000000000000000000000000001")));
     }
 
     #[tokio::test]
     async fn test_load_abis_from_monitors_global_abi() {
         let temp_dir = tempdir().unwrap();
-        create_test_abi_file(
-            &temp_dir,
-            "global_test_abi.json",
-            r#"[{"type":"event","name":"GlobalEvent","inputs":[],"anonymous":false}]"#,
-        );
         let network_id = "testnet";
         let monitor = MonitorBuilder::new()
             .name("Global ABI Monitor")
@@ -762,8 +738,13 @@ monitors:
             .once()
             .returning(move |_| Ok(vec![monitor.clone()]));
 
-        let abi_repository = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
-        let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
+        let (abi_service, _) = create_test_abi_service(
+            &temp_dir,
+            &[(
+                "global_test_abi",
+                r#"[{"type":"event","name":"GlobalEvent","inputs":[],"anonymous":false}]"#,
+            )],
+        );
         let config = AppConfig::builder().network_id(network_id).build();
         let script_validator = create_script_validator();
         let initialization_service = InitializationService::new(

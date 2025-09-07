@@ -125,27 +125,13 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+    use crate::test_helpers::simple_abi_json;
 
     fn create_test_abi_file(dir: &tempfile::TempDir, filename: &str, content: &str) -> PathBuf {
         let file_path = dir.path().join(filename);
         let mut file = fs::File::create(&file_path).unwrap();
         file.write_all(content.as_bytes()).unwrap();
         file_path
-    }
-
-    fn erc20_abi_content() -> &'static str {
-        r#"[
-            {
-                "type": "function",
-                "name": "balanceOf",
-                "inputs": [
-                    {"name": "account", "type": "address"}
-                ],
-                "outputs": [
-                    {"name": "", "type": "uint256"}
-                ]
-            }
-        ]"#
     }
 
     fn weth_abi_content() -> &'static str {
@@ -162,7 +148,7 @@ mod tests {
     #[test]
     fn test_abi_repository_new_success() {
         let temp_dir = tempdir().unwrap();
-        create_test_abi_file(&temp_dir, "erc20.json", erc20_abi_content());
+        create_test_abi_file(&temp_dir, "erc20.json", simple_abi_json());
         create_test_abi_file(&temp_dir, "weth.json", weth_abi_content());
         create_test_abi_file(&temp_dir, "not_an_abi.txt", "some text"); // Should be ignored
 
@@ -175,7 +161,7 @@ mod tests {
 
         let erc20_abi = repo.get_abi("erc20").unwrap();
         assert_eq!(erc20_abi.functions().count(), 1);
-        assert_eq!(erc20_abi.functions().next().unwrap().name, "balanceOf");
+        assert_eq!(erc20_abi.functions().next().unwrap().name, "transfer");
     }
 
     #[test]
@@ -210,12 +196,12 @@ mod tests {
     #[test]
     fn test_abi_repository_get_abi() {
         let temp_dir = tempdir().unwrap();
-        create_test_abi_file(&temp_dir, "test_abi.json", erc20_abi_content());
+        create_test_abi_file(&temp_dir, "test_abi.json", simple_abi_json());
         let repo = AbiRepository::new(temp_dir.path()).unwrap();
 
         let abi = repo.get_abi("test_abi");
         assert!(abi.is_some());
-        assert_eq!(abi.unwrap().functions().next().unwrap().name, "balanceOf");
+        assert_eq!(abi.unwrap().functions().next().unwrap().name, "transfer");
 
         let non_existent_abi = repo.get_abi("another_abi");
         assert!(non_existent_abi.is_none());
@@ -228,7 +214,7 @@ mod tests {
         assert_eq!(repo_empty.len(), 0);
         assert!(repo_empty.is_empty());
 
-        create_test_abi_file(&temp_dir, "one.json", erc20_abi_content());
+        create_test_abi_file(&temp_dir, "one.json", simple_abi_json());
         let repo_one = AbiRepository::new(temp_dir.path()).unwrap();
         assert_eq!(repo_one.len(), 1);
         assert!(!repo_one.is_empty());

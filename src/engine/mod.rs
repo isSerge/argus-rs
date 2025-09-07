@@ -4,5 +4,4 @@
 pub mod alert_manager;
 pub mod block_processor;
 pub mod filtering;
-pub mod monitor_organizer;
 pub mod rhai;

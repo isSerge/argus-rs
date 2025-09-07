@@ -1,3 +1,5 @@
+//! A builder for creating `Monitor` instances in tests.
+
 use chrono::{DateTime, Utc};
 
 use crate::models::monitor::Monitor;

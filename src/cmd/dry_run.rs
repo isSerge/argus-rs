@@ -20,18 +20,18 @@ use crate::{
     loader::{LoaderError, load_config},
     models::{
         BlockData,
+        builder::MonitorBuilder,
         monitor::MonitorConfig,
         monitor_match::MonitorMatch,
         notifier::{NotifierConfig, NotifierError},
     },
-    monitor::{MonitorValidationError, MonitorValidator},
+    monitor::{MonitorManager, MonitorValidationError, MonitorValidator},
     notification::NotificationService,
     persistence::sqlite::SqliteStateRepository,
     providers::{
         rpc::{EvmRpcSource, ProviderError, create_provider},
         traits::{DataSource, DataSourceError},
     },
-    test_helpers::MonitorBuilder,
 };
 
 /// Errors that can occur during the execution of a dry run.
@@ -136,7 +136,6 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     // Init services for processing and decoding data.
     let abi_repository = Arc::new(AbiRepository::new(&config.abi_config_path)?);
     let abi_service = Arc::new(AbiService::new(abi_repository));
-    let block_processor = BlockProcessor::new(Arc::clone(&abi_service));
 
     // Init Rhai scripting engine and validator
     let rhai_compiler = Arc::new(RhaiCompiler::new(config.rhai.clone()));
@@ -197,12 +196,19 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
         })
         .collect::<Vec<_>>();
 
+    let monitor_manager =
+        Arc::new(MonitorManager::new(monitors.clone(), rhai_compiler.clone(), abi_service.clone()));
+
+    // Init the block processor for decoding raw blockchain data.
+    let block_processor = BlockProcessor::new(Arc::clone(&abi_service), monitor_manager.clone());
+
     // Init services for notifications and filtering logic.
     let client_pool = Arc::new(HttpClientPool::new(config.http_base_config.clone()));
     let notifiers: Arc<HashMap<String, NotifierConfig>> =
         Arc::new(notifiers.into_iter().map(|t| (t.name.clone(), t)).collect());
     let notification_service = Arc::new(NotificationService::new(notifiers.clone(), client_pool));
-    let filtering_engine = RhaiFilteringEngine::new(monitors, rhai_compiler, config.rhai.clone());
+    let filtering_engine =
+        RhaiFilteringEngine::new(rhai_compiler, config.rhai.clone(), monitor_manager.clone());
 
     // Init a temporary, in-memory state repository for the dry run.
     let state_repo = Arc::new(SqliteStateRepository::new("sqlite::memory:").await?);
@@ -393,10 +399,17 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
         let abi_service = Arc::new(AbiService::new(abi_repo));
-        let block_processor = BlockProcessor::new(abi_service.clone());
         let rhai_config = RhaiConfig::default();
         let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));
-        let filtering_engine = RhaiFilteringEngine::new(vec![monitor], rhai_compiler, rhai_config);
+        let monitors = vec![monitor];
+        let monitor_manager = Arc::new(MonitorManager::new(
+            monitors.clone(),
+            rhai_compiler.clone(),
+            abi_service.clone(),
+        ));
+        let block_processor = BlockProcessor::new(abi_service.clone(), monitor_manager.clone());
+        let filtering_engine =
+            RhaiFilteringEngine::new(rhai_compiler, rhai_config, monitor_manager.clone());
         let notifiers = HashMap::from([(
             "test-notifier".to_string(),
             NotifierConfig {
@@ -464,10 +477,17 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
         let abi_service = Arc::new(AbiService::new(abi_repo));
-        let block_processor = BlockProcessor::new(abi_service.clone());
         let rhai_config = RhaiConfig::default();
         let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));
-        let filtering_engine = RhaiFilteringEngine::new(vec![monitor], rhai_compiler, rhai_config);
+        let monitors = vec![monitor];
+        let monitor_manager = Arc::new(MonitorManager::new(
+            monitors.clone(),
+            rhai_compiler.clone(),
+            abi_service.clone(),
+        ));
+        let block_processor = BlockProcessor::new(abi_service.clone(), monitor_manager.clone());
+        let filtering_engine =
+            RhaiFilteringEngine::new(rhai_compiler, rhai_config, monitor_manager.clone());
         let alert_manager = create_test_alert_manager(Arc::new(HashMap::new())).await;
 
         // Act
@@ -513,10 +533,17 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
         let abi_service = Arc::new(AbiService::new(abi_repo));
-        let block_processor = BlockProcessor::new(abi_service.clone());
         let rhai_config = RhaiConfig::default();
         let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));
-        let filtering_engine = RhaiFilteringEngine::new(vec![monitor], rhai_compiler, rhai_config);
+        let monitors = vec![monitor];
+        let monitor_manager = Arc::new(MonitorManager::new(
+            monitors.clone(),
+            rhai_compiler.clone(),
+            abi_service.clone(),
+        ));
+        let block_processor = BlockProcessor::new(abi_service.clone(), monitor_manager.clone());
+        let filtering_engine =
+            RhaiFilteringEngine::new(rhai_compiler, rhai_config, monitor_manager.clone());
         let alert_manager = create_test_alert_manager(Arc::new(HashMap::new())).await;
 
         // Act
@@ -555,10 +582,17 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
         let abi_service = Arc::new(AbiService::new(abi_repo));
-        let block_processor = BlockProcessor::new(abi_service.clone());
         let rhai_config = RhaiConfig::default();
         let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));
-        let filtering_engine = RhaiFilteringEngine::new(vec![monitor], rhai_compiler, rhai_config);
+        let monitors = vec![monitor];
+        let monitor_manager = Arc::new(MonitorManager::new(
+            monitors.clone(),
+            rhai_compiler.clone(),
+            abi_service.clone(),
+        ));
+        let block_processor = BlockProcessor::new(abi_service.clone(), monitor_manager.clone());
+        let filtering_engine =
+            RhaiFilteringEngine::new(rhai_compiler, rhai_config, monitor_manager.clone());
         let alert_manager = create_test_alert_manager(Arc::new(HashMap::new())).await;
 
         // Act
@@ -617,10 +651,17 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
         let abi_service = Arc::new(AbiService::new(abi_repo));
-        let block_processor = BlockProcessor::new(abi_service.clone());
         let rhai_config = RhaiConfig::default();
         let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));
-        let filtering_engine = RhaiFilteringEngine::new(vec![monitor], rhai_compiler, rhai_config);
+        let monitors = vec![monitor];
+        let monitor_manager = Arc::new(MonitorManager::new(
+            monitors.clone(),
+            rhai_compiler.clone(),
+            abi_service.clone(),
+        ));
+        let block_processor = BlockProcessor::new(abi_service.clone(), monitor_manager.clone());
+        let filtering_engine =
+            RhaiFilteringEngine::new(rhai_compiler, rhai_config, monitor_manager.clone());
         let notifiers = HashMap::from([
             (
                 "test-notifier".to_string(),

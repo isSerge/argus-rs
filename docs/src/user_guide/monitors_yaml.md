@@ -30,20 +30,21 @@ Argus performs several validation checks on your monitor configurations at start
 
 Here are the key validation rules:
 
-*   **Network Mismatch**: The `network` specified in a monitor must exactly match one of the `network_id`s configured in your [`app.yaml`](./app_yaml.md).
+*   **Network Mismatch**: The `network` specified in a monitor must exactly match the `network_id` configured in your [`app.yaml`](./app_yaml.md).
 
 *   **Unknown Notifier**: Every notifier name listed in a monitor's `notifiers` field must correspond to a `name` defined in your [`notifiers.yaml`](./notifiers_yaml.md) file.
 
-*   **Invalid Address**: If an `address` is provided for a monitor, it must be a valid hexadecimal Ethereum address (e.g., `0x...`) or the special string `"all"` for global log monitoring.
+*   **Invalid Address**: If an `address` is provided, it must be a valid hexadecimal Ethereum address (e.g., `0x...`) or the special string `"all"` for global log monitoring.
 
-*   **Log Access Requires Address/ABI**: If your `filter_script` accesses the `log` variable (meaning it intends to process event logs):
-    *   A contract `address` must be specified (either a specific address or `"all"`).
-    *   An `abi` name must be provided.
-    *   The ABI file referenced by the `abi` name must exist in the configured `abi_config_path` and be loadable.
+*   **Script Compilation**: The `filter_script` must be valid Rhai code that compiles without errors.
 
-*   **Script Syntax and Logic**: The `filter_script` must be valid Rhai code, must evaluate to a boolean (`true` or `false`), and must only attempt to access valid fields within the `tx` and `log` objects (including correctly defined `log.params` based on the ABI).
+*   **Script Static Analysis**: Argus analyzes your Rhai script to prevent common logical errors before they can cause issues at runtime. This includes:
+    *   **Log Access without ABI**: If your script accesses the `log` variable (e.g., `log.name`), the monitor *must* have an `abi` field defined.
+    *   **ABI Requirement**: If an `abi` is specified, the corresponding ABI file must exist in the configured `abi_config_path` and be a valid JSON ABI.
+    *   **Return Type**: The script must evaluate to a boolean (`true` or `false`). Argus will reject scripts that return other types.
+    *   **Invalid Field Access**: The script is checked for invalid field access (e.g., `tx.foobar`, `log.params.nonexistent`). The validator uses the provided ABI to ensure that `log.params` access is valid.
 
-Using the [`dry-run` CLI command](../operations/cli.md#dry-run-mode) is highly recommended to test your monitor configurations and scripts against historical data, which can help catch validation issues early.
+Using the [`dry-run` CLI command](../operations/cli.md#dry-run) is highly recommended to test your monitor configurations and scripts against historical data, which can help catch validation issues early.
 
 ## Examples
 

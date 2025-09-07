@@ -353,60 +353,26 @@ impl AbiService {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use alloy::primitives::{Address, Bytes, U256, address, b256, bytes};
     use tempfile::tempdir;
 
     use super::*;
-    use crate::test_helpers::{LogBuilder, TransactionBuilder};
+    use crate::test_helpers::{
+        LogBuilder, TransactionBuilder, create_test_abi_service, simple_abi_json,
+    };
 
-    fn simple_abi_json() -> &'static str {
-        r#"[
-            {
-                "type": "function",
-                "name": "transfer",
-                "inputs": [
-                    {"name": "to", "type": "address"},
-                    {"name": "amount", "type": "uint256"}
-                ],
-                "outputs": [{"name": "success", "type": "bool"}]
-            },
-            {
-                "type": "event",
-                "name": "Transfer",
-                "inputs": [
-                    {"name": "from", "type": "address", "indexed": true},
-                    {"name": "to", "type": "address", "indexed": true},
-                    {"name": "amount", "type": "uint256", "indexed": false}
-                ],
-                "anonymous": false
-            }
-        ]"#
-    }
-
-    fn create_test_abi_file(dir: &tempfile::TempDir, filename: &str, content: &str) -> PathBuf {
-        let file_path = dir.path().join(filename);
-        std::fs::write(&file_path, content).unwrap();
-        file_path
-    }
-
-    fn setup_abi_service_with_abi(abi_name: &str, abi_content: &str) -> (AbiService, Address) {
+    fn setup_abi_service_with_abi(abi_name: &str, abi_content: &str) -> (Arc<AbiService>, Address) {
         let temp_dir = tempdir().unwrap();
-        create_test_abi_file(&temp_dir, &format!("{}.json", abi_name), abi_content);
-        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
-        let service = AbiService::new(abi_repo);
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[(abi_name, abi_content)]);
         let address = address!("0000000000000000000000000000000000000001");
-        service.link_abi(address, abi_name).unwrap();
-        (service, address)
+        abi_service.link_abi(address, abi_name).unwrap();
+        (abi_service, address)
     }
 
     #[test]
     fn test_link_abi_success() {
         let temp_dir = tempdir().unwrap();
-        create_test_abi_file(&temp_dir, "simple.json", simple_abi_json());
-        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
-        let service = AbiService::new(abi_repo);
+        let (service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
         let address = Address::default();
 
         assert!(!service.is_monitored(&address));
@@ -421,8 +387,7 @@ mod tests {
     #[test]
     fn test_link_abi_not_found_in_repository() {
         let temp_dir = tempdir().unwrap();
-        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap()); // Empty repo
-        let service = AbiService::new(abi_repo);
+        let (service, _) = create_test_abi_service(&temp_dir, &[]); // Empty repo
         let address = Address::default();
 
         let result = service.link_abi(address, "nonexistent");
@@ -503,8 +468,7 @@ mod tests {
     #[test]
     fn test_decode_log_not_found() {
         let temp_dir = tempdir().unwrap();
-        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
-        let service = AbiService::new(abi_repo);
+        let (service, _) = create_test_abi_service(&temp_dir, &[]);
 
         let log = LogBuilder::new()
             .topic(b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"))
@@ -517,9 +481,7 @@ mod tests {
     #[test]
     fn test_decode_log_global_abi() {
         let temp_dir = tempdir().unwrap();
-        create_test_abi_file(&temp_dir, "simple.json", simple_abi_json());
-        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
-        let service = AbiService::new(abi_repo);
+        let (service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
         service.add_global_abi("simple").unwrap();
 
         let from = address!("1111111111111111111111111111111111111111");
@@ -540,8 +502,7 @@ mod tests {
     #[test]
     fn test_decode_function_not_found() {
         let temp_dir = tempdir().unwrap();
-        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
-        let service = AbiService::new(abi_repo);
+        let (service, _) = create_test_abi_service(&temp_dir, &[]);
 
         let tx = TransactionBuilder::new()
             .input(Bytes::from(vec![0x12, 0x34, 0x56, 0x78]))
@@ -598,9 +559,7 @@ mod tests {
     #[test]
     fn test_decode_contract_creation() {
         let temp_dir = tempdir().unwrap();
-        create_test_abi_file(&temp_dir, "simple.json", simple_abi_json());
-        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
-        let service = AbiService::new(abi_repo);
+        let (service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
 
         // Contract creation transactions have `to` as None.
         let tx = TransactionBuilder::new().to(None).build();
@@ -655,9 +614,7 @@ mod tests {
     #[test]
     fn test_get_abi_by_name() {
         let temp_dir = tempdir().unwrap();
-        create_test_abi_file(&temp_dir, "test_abi.json", simple_abi_json());
-        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
-        let service = AbiService::new(abi_repo);
+        let (service, _) = create_test_abi_service(&temp_dir, &[("test_abi", simple_abi_json())]);
 
         // Test with an existing ABI name
         let abi = service.get_abi_by_name("test_abi").unwrap();
@@ -671,15 +628,16 @@ mod tests {
     #[test]
     fn test_decode_log_fallback_to_global() {
         let temp_dir = tempdir().unwrap();
-        create_test_abi_file(
+        let (service, _) = create_test_abi_service(
             &temp_dir,
-            "specific.json",
-            r#"[{"type": "event", "name": "SpecificEvent", "inputs": [], "anonymous": false}]"#,
+            &[
+                (
+                    "specific",
+                    r#"[{"type": "event", "name": "SpecificEvent", "inputs": [], "anonymous": false}]"#,
+                ),
+                ("simple", simple_abi_json()),
+            ],
         );
-        create_test_abi_file(&temp_dir, "simple.json", simple_abi_json());
-
-        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
-        let service = AbiService::new(abi_repo);
 
         let contract_address = address!("0000000000000000000000000000000000000001");
         service.link_abi(contract_address, "specific").unwrap();
@@ -707,9 +665,7 @@ mod tests {
     #[test]
     fn test_decode_log_global_abi_decoding_error() {
         let temp_dir = tempdir().unwrap();
-        create_test_abi_file(&temp_dir, "simple.json", simple_abi_json());
-        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
-        let service = AbiService::new(abi_repo);
+        let (service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
         service.add_global_abi("simple").unwrap();
 
         // Log with correct "Transfer" signature but malformed data
@@ -726,15 +682,16 @@ mod tests {
     #[test]
     fn test_decode_function_input_fallback_to_global() {
         let temp_dir = tempdir().unwrap();
-        create_test_abi_file(
+        let (service, _) = create_test_abi_service(
             &temp_dir,
-            "specific.json",
-            r#"[{"type": "function", "name": "specificFunction", "inputs": [], "outputs": []}]"#,
+            &[
+                (
+                    "specific",
+                    r#"[{"type": "function", "name": "specificFunction", "inputs": [], "outputs": []}]"#,
+                ),
+                ("simple", simple_abi_json()),
+            ],
         );
-        create_test_abi_file(&temp_dir, "simple.json", simple_abi_json());
-
-        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
-        let service = AbiService::new(abi_repo);
 
         let contract_address = address!("0000000000000000000000000000000000000001");
         service.link_abi(contract_address, "specific").unwrap();

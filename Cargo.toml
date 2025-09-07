@@ -41,6 +41,7 @@ minijinja = { version = "2.11.0", features = ["serde"] }
 clap = { version = "4.5.45", features = ["derive"] }
 rust_decimal = { version = "1.37.2", features = ["maths"] }
 parking_lot = "0.12.4"
+arc-swap = "1.7.1"
 
 [dev-dependencies]
 mockall = "0.13.1"

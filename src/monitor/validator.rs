@@ -759,8 +759,6 @@ mod tests {
 
         assert!(result.is_err());
         if let Err(MonitorValidationError::MonitorRequiresAbi { monitor_name, reason }) = result {
-            println!("Monitor '{}' requires ABI: {}", monitor_name, reason);
-
             assert!(monitor_name.contains("Test Monitor 1"));
             assert!(reason.contains(
                 "ABI 'nonexistent_abi' could not be retrieved for global log monitor. Ensure the \
