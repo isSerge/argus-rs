@@ -38,7 +38,7 @@ pub struct MonitorAssetState {
 
 /// A registry for quickly determining if a log is of interest to any monitor.
 #[derive(Debug, Default)]
-struct InterestRegistry {
+pub struct InterestRegistry {
     /// Set of addresses that have log-aware monitors.
     addresses: Arc<HashSet<Address>>,
 
@@ -217,24 +217,28 @@ impl MonitorManager {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use alloy::primitives::{address, b256};
     use tempfile::tempdir;
 
     use super::*;
-    use crate::{abi::AbiRepository, config::RhaiConfig, test_helpers::MonitorBuilder};
+    use crate::{
+        config::RhaiConfig,
+        test_helpers::{LogBuilder, MonitorBuilder, create_test_abi_service, simple_abi_json},
+    };
 
-    fn create_test_abi_service() -> Arc<AbiService> {
+    fn setup() -> (Arc<RhaiCompiler>, Arc<AbiService>) {
+        let config = RhaiConfig::default();
+        let compiler = Arc::new(RhaiCompiler::new(config));
         let temp_dir = tempdir().unwrap();
-        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
-        Arc::new(AbiService::new(abi_repo))
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[]);
+        (compiler, abi_service)
     }
 
     #[test]
-
     fn test_organize_monitors_categorization() {
-        let config = RhaiConfig::default();
-        let compiler = Arc::new(RhaiCompiler::new(config.clone()));
-        let abi_service = create_test_abi_service();
+        let (compiler, abi_service) = setup();
 
         let tx_monitor = MonitorBuilder::new().id(1).filter_script("tx.value > 100").build();
         let log_monitor_address = MonitorBuilder::new()
@@ -244,64 +248,236 @@ mod tests {
             .build();
         let log_monitor_global =
             MonitorBuilder::new().id(3).filter_script(r#"log.name == "Approval""#).build();
+        let log_monitor_global_all = MonitorBuilder::new()
+            .id(4)
+            .address("all")
+            .filter_script(r#"log.name == "Approval""#)
+            .build();
 
-        let monitors =
-            vec![tx_monitor.clone(), log_monitor_address.clone(), log_monitor_global.clone()];
+        let monitors = vec![
+            tx_monitor.clone(),
+            log_monitor_address.clone(),
+            log_monitor_global.clone(),
+            log_monitor_global_all.clone(),
+        ];
 
-        let manager = MonitorManager::new(monitors.clone(), compiler, abi_service);
-
+        let manager = MonitorManager::new(monitors, compiler, abi_service);
         let snapshot = manager.load();
 
+        // Transaction-only monitors
         assert_eq!(snapshot.organized_monitors.transaction_only_monitors.len(), 1);
         assert_eq!(snapshot.organized_monitors.transaction_only_monitors[0].id, 1);
 
+        // Log-aware monitors
         assert_eq!(snapshot.organized_monitors.log_aware_monitors.len(), 2);
-        let addr_checksum = "0x0000000000000000000000000000000000000001".to_string();
-        assert_eq!(
-            snapshot.organized_monitors.log_aware_monitors.get(&addr_checksum).unwrap().len(),
-            1
-        );
-        assert_eq!(
-            snapshot.organized_monitors.log_aware_monitors.get(&addr_checksum).unwrap()[0].id,
-            2
-        );
-        assert_eq!(
-            snapshot.organized_monitors.log_aware_monitors.get(GLOBAL_MONITORS_KEY).unwrap().len(),
-            1
-        );
-        assert_eq!(
-            snapshot.organized_monitors.log_aware_monitors.get(GLOBAL_MONITORS_KEY).unwrap()[0].id,
-            3
-        );
+
+        // Address-specific log monitor
+        let addr = address!("0000000000000000000000000000000000000001");
+        let addr_checksum = addr.to_checksum(None);
+        let address_monitors =
+            snapshot.organized_monitors.log_aware_monitors.get(&addr_checksum).unwrap();
+        assert_eq!(address_monitors.len(), 1);
+        assert_eq!(address_monitors[0].id, 2);
+
+        // Global log monitors
+        let global_monitors =
+            snapshot.organized_monitors.log_aware_monitors.get(GLOBAL_MONITORS_KEY).unwrap();
+        assert_eq!(global_monitors.len(), 2);
+        let global_ids: HashSet<i64> = global_monitors.iter().map(|m| m.id).collect();
+        assert!(global_ids.contains(&3));
+        assert!(global_ids.contains(&4));
     }
 
     #[test]
-    fn test_interest_registry() {
-        let config = RhaiConfig::default();
-        let compiler = Arc::new(RhaiCompiler::new(config.clone()));
-        let abi_service = create_test_abi_service();
+    fn test_organize_monitors_requires_receipts() {
+        let (compiler, _) = setup();
 
-        let tx_monitor = MonitorBuilder::new().id(1).filter_script("tx.value > 100").build();
-        let log_monitor_address = MonitorBuilder::new()
-            .id(2)
-            .address("0x0000000000000000000000000000000000000001")
-            .filter_script(r#"log.name == "Transfer""#)
-            .build();
-        let log_monitor_global =
-            MonitorBuilder::new().id(3).filter_script(r#"log.name == "Approval""#).build();
+        let monitors = vec![
+            MonitorBuilder::new().id(1).filter_script("tx.gas_used > 1000").build(),
+            MonitorBuilder::new().id(2).filter_script("tx.value > 100").build(),
+        ];
+        let (_, requires_receipts) = MonitorManager::organize_monitors(&monitors, &compiler);
+        assert!(requires_receipts, "Should require receipts if 'tx.gas_used' is accessed");
+
+        let monitors = vec![MonitorBuilder::new().id(1).filter_script("tx.status == 1").build()];
+        let (_, requires_receipts) = MonitorManager::organize_monitors(&monitors, &compiler);
+        assert!(requires_receipts, "Should require receipts if 'tx.status' is accessed");
 
         let monitors =
-            vec![tx_monitor.clone(), log_monitor_address.clone(), log_monitor_global.clone()];
-
-        let manager = MonitorManager::new(monitors.clone(), compiler, abi_service);
-
-        let snapshot = manager.load();
-        let registry = &snapshot.interest_registry;
-
-        assert_eq!(registry.addresses.len(), 1); // Only one specific address
+            vec![MonitorBuilder::new().id(1).filter_script("tx.effective_gas_price > 100").build()];
+        let (_, requires_receipts) = MonitorManager::organize_monitors(&monitors, &compiler);
         assert!(
-            registry.addresses.contains(&address!("0x0000000000000000000000000000000000000001"))
+            requires_receipts,
+            "Should require receipts if 'tx.effective_gas_price' is accessed"
         );
-        assert_eq!(registry.global_event_signatures.len(), 0); // No ABI, so no event signatures
+
+        let monitors = vec![MonitorBuilder::new().id(1).filter_script("tx.value > 100").build()];
+        let (_, requires_receipts) = MonitorManager::organize_monitors(&monitors, &compiler);
+        assert!(!requires_receipts, "Should not require receipts for tx fields in transaction");
+    }
+
+    #[test]
+    fn test_build_interest_registry() {
+        let (compiler, _) = setup();
+        let temp_dir = tempdir().unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", simple_abi_json())]);
+
+        let monitored_address = address!("0000000000000000000000000000000000000001");
+
+        let log_monitor_address = MonitorBuilder::new()
+            .id(1)
+            .address(&monitored_address.to_string())
+            .filter_script(r#"log.name == "SomeEvent""#)
+            .build();
+
+        let global_monitor_with_abi = MonitorBuilder::new()
+            .id(2)
+            .filter_script(r#"log.name == "Transfer""#)
+            .abi("erc20")
+            .build();
+
+        let monitors = vec![log_monitor_address, global_monitor_with_abi];
+        let (organized_monitors, _) = MonitorManager::organize_monitors(&monitors, &compiler);
+        let registry = MonitorManager::build_interest_registry(&organized_monitors, &abi_service);
+
+        // Check addresses
+        assert_eq!(registry.addresses.len(), 1);
+        assert!(registry.addresses.contains(&monitored_address));
+
+        // Check global event signatures
+        assert_eq!(registry.global_event_signatures.len(), 1);
+        let transfer_event_signature =
+            b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef");
+        assert!(registry.global_event_signatures.contains(&transfer_event_signature));
+    }
+
+    #[test]
+    fn test_is_log_interesting() {
+        let monitored_address = address!("0000000000000000000000000000000000000001");
+        let other_address = address!("0000000000000000000000000000000000000002");
+        let monitored_event_sig =
+            b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef");
+        let other_event_sig =
+            b256!("8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925");
+
+        let registry = InterestRegistry {
+            addresses: Arc::new(HashSet::from([monitored_address])),
+            global_event_signatures: Arc::new(HashSet::from([monitored_event_sig])),
+        };
+
+        // Case 1: Log from a monitored address
+        let log1 = LogBuilder::new().address(monitored_address).build();
+        assert!(registry.is_log_interesting(&log1));
+
+        // Case 2: Log from an unmonitored address, but with a globally monitored
+        // event signature
+        let log2 = LogBuilder::new().address(other_address).topic(monitored_event_sig).build();
+        assert!(registry.is_log_interesting(&log2));
+
+        // Case 3: Log from a monitored address and with a globally monitored event
+        // signature
+        let log3 = LogBuilder::new().address(monitored_address).topic(monitored_event_sig).build();
+        assert!(registry.is_log_interesting(&log3));
+
+        // Case 4: Log from an unmonitored address with an unmonitored event
+        // signature
+        let log4 = LogBuilder::new().address(other_address).topic(other_event_sig).build();
+        assert!(!registry.is_log_interesting(&log4));
+
+        // Case 5: Log from a monitored address with an unmonitored event signature
+        let log5 = LogBuilder::new().address(monitored_address).topic(other_event_sig).build();
+        assert!(registry.is_log_interesting(&log5));
+
+        // Case 6: Log from an unmonitored address with no topics
+        let log6 = LogBuilder::new().address(other_address).build();
+        assert!(!registry.is_log_interesting(&log6));
+
+        // Case 7: Log from a monitored address with no topics
+        let log7 = LogBuilder::new().address(monitored_address).build();
+        assert!(registry.is_log_interesting(&log7));
+    }
+
+    #[test]
+    fn test_update_monitors() {
+        let (compiler, abi_service) = setup();
+
+        let initial_monitors =
+            vec![MonitorBuilder::new().id(1).filter_script("tx.value > 100").build()];
+        let manager = MonitorManager::new(initial_monitors, compiler.clone(), abi_service.clone());
+
+        // Check initial state
+        let snapshot1 = manager.load();
+        assert_eq!(snapshot1.organized_monitors.transaction_only_monitors.len(), 1);
+        assert_eq!(snapshot1.organized_monitors.transaction_only_monitors[0].id, 1);
+        assert!(snapshot1.organized_monitors.log_aware_monitors.is_empty());
+        drop(snapshot1);
+
+        // Update with new monitors
+        let updated_monitors = vec![
+            MonitorBuilder::new()
+                .id(2)
+                .address("0x0000000000000000000000000000000000000001")
+                .filter_script(r#"log.name == "Transfer""#)
+                .build(),
+            MonitorBuilder::new().id(3).filter_script("tx.value > 200").build(),
+        ];
+        manager.update(updated_monitors);
+
+        // Check updated state
+        let snapshot2 = manager.load();
+        assert_eq!(snapshot2.organized_monitors.transaction_only_monitors.len(), 1);
+        assert_eq!(snapshot2.organized_monitors.transaction_only_monitors[0].id, 3);
+        assert_eq!(snapshot2.organized_monitors.log_aware_monitors.len(), 1);
+        let addr = address!("0000000000000000000000000000000000000001");
+        let addr_checksum = addr.to_checksum(None);
+        assert!(snapshot2.organized_monitors.log_aware_monitors.contains_key(&addr_checksum));
+    }
+
+    #[test]
+    fn test_empty_monitor_list() {
+        let (compiler, abi_service) = setup();
+
+        // Test initialization with an empty list
+        let manager = MonitorManager::new(vec![], compiler.clone(), abi_service.clone());
+        let snapshot = manager.load();
+
+        assert!(snapshot.organized_monitors.transaction_only_monitors.is_empty());
+        assert!(snapshot.organized_monitors.log_aware_monitors.is_empty());
+        assert!(!snapshot.requires_receipts);
+        assert!(snapshot.interest_registry.addresses.is_empty());
+        assert!(snapshot.interest_registry.global_event_signatures.is_empty());
+        drop(snapshot);
+
+        // Test updating with an empty list
+        manager.update(vec![]);
+        let updated_snapshot = manager.load();
+        assert!(updated_snapshot.organized_monitors.transaction_only_monitors.is_empty());
+        assert!(updated_snapshot.organized_monitors.log_aware_monitors.is_empty());
+        assert!(!updated_snapshot.requires_receipts);
+        assert!(updated_snapshot.interest_registry.addresses.is_empty());
+        assert!(updated_snapshot.interest_registry.global_event_signatures.is_empty());
+    }
+
+    #[test]
+    fn test_global_monitor_with_missing_abi() {
+        let (compiler, abi_service) = setup(); // abi_service is empty
+
+        let monitor = MonitorBuilder::new()
+            .id(1)
+            .filter_script(r#"log.name == "Transfer""#)
+            .abi("non_existent_abi")
+            .build();
+
+        let manager = MonitorManager::new(vec![monitor], compiler, abi_service);
+        let snapshot = manager.load();
+
+        // The monitor should be organized as a global log-aware monitor.
+        assert_eq!(snapshot.organized_monitors.log_aware_monitors.len(), 1);
+        let global_monitors =
+            snapshot.organized_monitors.log_aware_monitors.get(GLOBAL_MONITORS_KEY).unwrap();
+        assert_eq!(global_monitors.len(), 1);
+
+        // No event signatures should be added because the ABI was not found.
+        assert!(snapshot.interest_registry.global_event_signatures.is_empty());
     }
 }
