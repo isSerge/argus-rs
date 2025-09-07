@@ -1,9 +1,12 @@
+//! Test helpers for ABI-related functionality.
+
 use std::{fs, sync::Arc};
 
 use tempfile::TempDir;
 
 use crate::abi::{AbiRepository, AbiService};
 
+/// A simple ABI JSON for testing purposes.
 pub fn simple_abi_json() -> &'static str {
     r#"[
         {
@@ -28,6 +31,7 @@ pub fn simple_abi_json() -> &'static str {
     ]"#
 }
 
+/// Creates a test `AbiService` with the given ABIs written to temporary files.
 pub fn create_test_abi_service(
     temp_dir: &TempDir,
     abis: &[(&str, &str)],

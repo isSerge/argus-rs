@@ -340,7 +340,6 @@ monitors:
 
         let result = initialization_service.run().await;
 
-        println!("Initialization result: {:?}", result);
         assert!(result.is_ok());
     }
 

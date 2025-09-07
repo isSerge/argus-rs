@@ -749,8 +749,6 @@ mod tests {
 
         let data = build_log_params_payload(&params);
 
-        println!("Log params payload: {}", data);
-
         assert_eq!(data["amount"], 5000);
         assert_eq!(data["recipient"], json!(address.to_checksum(None)));
     }
