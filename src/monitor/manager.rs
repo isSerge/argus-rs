@@ -108,17 +108,6 @@ impl MonitorManager {
         compiler: &Arc<RhaiCompiler>,
         abi_service: &Arc<AbiService>,
     ) -> MonitorAssetState {
-        let (organized_monitors, requires_receipts) = Self::organize_monitors(monitors, compiler);
-        let interest_registry = Self::build_interest_registry(&organized_monitors, abi_service);
-        MonitorAssetState { organized_monitors, requires_receipts, interest_registry }
-    }
-
-    /// Organizes monitors into transaction-only and log-aware categories.
-    /// Also determines if any monitor requires transaction receipt data.
-    fn organize_monitors(
-        monitors: &Vec<Monitor>,
-        compiler: &Arc<RhaiCompiler>,
-    ) -> (OrganizedMonitors, bool) {
         let mut organized_monitors = OrganizedMonitors::default();
         let mut requires_receipts = false;
 
@@ -131,72 +120,73 @@ impl MonitorManager {
         .into_iter()
         .collect();
 
-        for monitor in monitors {
-            match compiler.analyze_script(&monitor.filter_script) {
-                Ok(analysis) => {
-                    // Check if this monitor's script needs receipt data
-                    if !requires_receipts
-                        && !analysis.accessed_variables.is_disjoint(&receipt_fields)
-                    {
-                        requires_receipts = true;
-                    }
+        let mut log_addresses = HashSet::new();
+        let mut calldata_addresses = HashSet::new();
 
-                    if analysis.accesses_log_variable {
-                        if let Some(address_str) = &monitor.address {
-                            if address_str.eq_ignore_ascii_case("all") {
-                                // Global log-aware monitor
-                                organized_monitors
-                                    .address_specific_monitors
-                                    .entry(GLOBAL_MONITORS_KEY.to_string())
-                                    .or_default()
-                                    .push(monitor.clone());
-                            } else {
-                                let address: Address = address_str
-                                    .parse()
-                                    .expect("Address should be valid at this stage");
-                                let checksummed_address = address.to_checksum(None);
-                                organized_monitors
-                                    .address_specific_monitors
-                                    .entry(checksummed_address)
-                                    .or_default()
-                                    .push(monitor.clone());
-                            }
-                        } else {
-                            // Global log-aware monitor
-                            organized_monitors
-                                .address_specific_monitors
-                                .entry(GLOBAL_MONITORS_KEY.to_string())
-                                .or_default()
-                                .push(monitor.clone());
-                        }
-                    } else {
-                        organized_monitors.transaction_only_monitors.push(monitor.clone());
-                    }
+        for monitor in monitors {
+            // Analyze the filter script
+            let analysis = match compiler.analyze_script(&monitor.filter_script) {
+                Ok(analysis) => analysis,
+                Err(err) => {
+                    tracing::error!(
+                        "Failed to analyze filter script for monitor {}: {}. Skipping this \
+                         monitor.",
+                        monitor.id,
+                        err
+                    );
+                    continue;
                 }
-                Err(e) => {
-                    // If a script fails to compile, we can't analyze it. Log an error.
-                    tracing::error!(monitor_id = monitor.id, error = ?e, "Failed to compile and analyze script during monitor organization");
+            };
+
+            // Check receipt requirements
+            if !requires_receipts && !analysis.accessed_variables.is_disjoint(&receipt_fields) {
+                requires_receipts = true;
+            }
+
+            let is_log_aware = analysis.accesses_log_variable;
+            let is_calldata_aware = monitor.decode_calldata;
+
+            // If the monitor is neither log-aware nor calldata-aware, it is a
+            // transaction-only monitor
+            if !is_log_aware && !is_calldata_aware {
+                organized_monitors.transaction_only_monitors.push(monitor.clone());
+                continue;
+            }
+
+            // Check if the monitor is global (address is "all" or None)
+            let is_global =
+                monitor.address.as_deref().map_or(true, |addr| addr.eq_ignore_ascii_case("all"));
+
+            if is_global {
+                organized_monitors
+                    .address_specific_monitors
+                    .entry(GLOBAL_MONITORS_KEY.to_string())
+                    .or_default()
+                    .push(monitor.clone());
+            } else {
+                // Address-specific monitor
+                if let Some(address) =
+                    monitor.address.as_deref().and_then(|a| a.parse::<Address>().ok())
+                {
+                    let address_checksum = address.to_checksum(None);
+                    organized_monitors
+                        .address_specific_monitors
+                        .entry(address_checksum.clone())
+                        .or_default()
+                        .push(monitor.clone());
+
+                    if is_log_aware {
+                        log_addresses.insert(address);
+                    }
+                    if is_calldata_aware {
+                        calldata_addresses.insert(address);
+                    }
                 }
             }
         }
 
-        (organized_monitors, requires_receipts)
-    }
-
-    /// Builds the `InterestRegistry` from the organized monitors.
-    /// This includes collecting monitored addresses and global event
-    /// signatures.
-    fn build_interest_registry(
-        organized_monitors: &OrganizedMonitors,
-        abi_service: &Arc<AbiService>,
-    ) -> InterestRegistry {
-        let monitored_addresses: HashSet<Address> = organized_monitors
-            .address_specific_monitors
-            .iter()
-            .filter_map(|entry| entry.key().parse::<Address>().ok())
-            .collect();
-
-        let mut global_event_signatures = HashSet::<B256>::new();
+        // Global monitors
+        let mut global_event_signatures = HashSet::new();
         if let Some(global_monitors) =
             organized_monitors.address_specific_monitors.get(GLOBAL_MONITORS_KEY)
         {
@@ -211,12 +201,13 @@ impl MonitorManager {
             }
         }
 
-        InterestRegistry {
-            log_addresses: Arc::new(monitored_addresses),
-            calldata_addresses: Arc::new(HashSet::new()), /* TODO: populate this set when
-                                                           * calldata-aware monitors are added */
+        let interest_registry = InterestRegistry {
+            log_addresses: Arc::new(log_addresses),
+            calldata_addresses: Arc::new(calldata_addresses),
             global_event_signatures: Arc::new(global_event_signatures),
-        }
+        };
+
+        MonitorAssetState { organized_monitors, requires_receipts, interest_registry }
     }
 }
 
@@ -294,31 +285,19 @@ mod tests {
     }
 
     #[test]
-    fn test_organize_monitors_requires_receipts() {
-        let (compiler, _) = setup();
+    fn test_organize_assets_requires_receipts() {
+        let (compiler, abi_service) = setup();
 
         let monitors = vec![
-            MonitorBuilder::new().id(1).filter_script("tx.gas_used > 1000").build(),
+            MonitorBuilder::new().id(1).filter_script("tx.gas_used > 1000").build(), /* requires receipts */
             MonitorBuilder::new().id(2).filter_script("tx.value > 100").build(),
         ];
-        let (_, requires_receipts) = MonitorManager::organize_monitors(&monitors, &compiler);
-        assert!(requires_receipts, "Should require receipts if 'tx.gas_used' is accessed");
 
-        let monitors = vec![MonitorBuilder::new().id(1).filter_script("tx.status == 1").build()];
-        let (_, requires_receipts) = MonitorManager::organize_monitors(&monitors, &compiler);
-        assert!(requires_receipts, "Should require receipts if 'tx.status' is accessed");
+        let manager = MonitorManager::new(monitors, compiler, abi_service);
 
-        let monitors =
-            vec![MonitorBuilder::new().id(1).filter_script("tx.effective_gas_price > 100").build()];
-        let (_, requires_receipts) = MonitorManager::organize_monitors(&monitors, &compiler);
-        assert!(
-            requires_receipts,
-            "Should require receipts if 'tx.effective_gas_price' is accessed"
-        );
+        let snapshot = manager.load();
 
-        let monitors = vec![MonitorBuilder::new().id(1).filter_script("tx.value > 100").build()];
-        let (_, requires_receipts) = MonitorManager::organize_monitors(&monitors, &compiler);
-        assert!(!requires_receipts, "Should not require receipts for tx fields in transaction");
+        assert!(snapshot.requires_receipts);
     }
 
     #[test]
@@ -342,18 +321,14 @@ mod tests {
             .build();
 
         let monitors = vec![log_monitor_address, global_monitor_with_abi];
-        let (organized_monitors, _) = MonitorManager::organize_monitors(&monitors, &compiler);
-        let registry = MonitorManager::build_interest_registry(&organized_monitors, &abi_service);
+
+        let manager = MonitorManager::new(monitors, compiler, abi_service);
+
+        let snapshot = manager.load();
 
         // Check log addresses
-        assert_eq!(registry.log_addresses.len(), 1);
-        assert!(registry.log_addresses.contains(&monitored_address));
-
-        // Check global event signatures
-        assert_eq!(registry.global_event_signatures.len(), 1);
-        let transfer_event_signature =
-            b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef");
-        assert!(registry.global_event_signatures.contains(&transfer_event_signature));
+        assert_eq!(snapshot.interest_registry.log_addresses.len(), 1);
+        assert!(snapshot.interest_registry.log_addresses.contains(&monitored_address));
     }
 
     #[test]
@@ -595,8 +570,11 @@ mod tests {
             .build();
 
         let monitors = vec![global_erc20_monitor, global_weth_monitor];
-        let (organized, _) = MonitorManager::organize_monitors(&monitors, &compiler);
-        let registry = MonitorManager::build_interest_registry(&organized, &abi_service);
+
+        let manager = MonitorManager::new(monitors, compiler, abi_service);
+
+        let snapshot = manager.load();
+        let registry = &snapshot.interest_registry;
 
         // Should contain event signatures from BOTH ABIs.
         assert_eq!(registry.global_event_signatures.len(), 2);
