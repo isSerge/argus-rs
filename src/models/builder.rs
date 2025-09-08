@@ -95,6 +95,12 @@ impl MonitorBuilder {
         self
     }
 
+    /// Sets whether to decode calldata for the monitor.
+    pub fn decode_calldata(mut self, decode: bool) -> Self {
+        self.decode_calldata = Some(decode);
+        self
+    }
+
     /// Builds the `Monitor` instance.
     pub fn build(self) -> Monitor {
         Monitor {

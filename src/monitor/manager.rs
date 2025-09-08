@@ -73,6 +73,7 @@ impl MonitorManager {
         compiler: &Arc<RhaiCompiler>,
         abi_service: &Arc<AbiService>,
     ) -> MonitorAssetState {
+        tracing::debug!("Organizing assets for {} monitors", monitors.len());
         let mut organized_monitors = OrganizedMonitors::default();
         let mut requires_receipts = false;
 
@@ -166,11 +167,25 @@ impl MonitorManager {
             }
         }
 
+        tracing::debug!(
+            "Created interest registry with {} log addresses, {} calldata addresses, and {} \
+             global event signatures",
+            log_addresses.len(),
+            calldata_addresses.len(),
+            global_event_signatures.len()
+        );
+
         let interest_registry = InterestRegistry {
             log_addresses: Arc::new(log_addresses),
             calldata_addresses: Arc::new(calldata_addresses),
             global_event_signatures: Arc::new(global_event_signatures),
         };
+
+        tracing::debug!(
+            "Organized monitors: {} transaction-only, {} address-specific groups",
+            organized_monitors.transaction_only_monitors.len(),
+            organized_monitors.address_specific_monitors.len()
+        );
 
         MonitorAssetState { organized_monitors, requires_receipts, interest_registry }
     }
@@ -450,6 +465,34 @@ mod tests {
 
         // No event signatures should be added because the ABI was not found.
         assert!(snapshot.interest_registry.global_event_signatures.is_empty());
+    }
+
+    #[test]
+    fn test_organize_assets_calldata_aware() {
+        let (compiler, abi_service) = setup();
+
+        let calldata_aware_address = address!("0000000000000000000000000000000000000001");
+
+        let monitors = vec![
+            MonitorBuilder::new()
+                .id(1)
+                .address(&calldata_aware_address.to_string())
+                .decode_calldata(true)
+                .filter_script("true") // Just a placeholder script
+                .build(),
+            MonitorBuilder::new()
+                .id(2)
+                .address("0x0000000000000000000000000000000000000002")
+                .decode_calldata(false)
+                .filter_script("tx.value > 0")
+                .build(),
+        ];
+
+        let manager = MonitorManager::new(monitors, compiler, abi_service);
+        let snapshot = manager.load();
+
+        assert_eq!(snapshot.interest_registry.calldata_addresses.len(), 1);
+        assert!(snapshot.interest_registry.calldata_addresses.contains(&calldata_aware_address));
     }
 
     #[test]
