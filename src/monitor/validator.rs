@@ -319,6 +319,7 @@ mod tests {
             abi.map(String::from),
             script.to_string(),
             notifiers,
+            None,
         )
     }
 
