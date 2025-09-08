@@ -379,7 +379,7 @@ mod tests {
         let engine = setup_engine_with_monitors(monitors);
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
-        let item = CorrelatedBlockItem::new(tx, vec![log], None);
+        let item = CorrelatedBlockItem::new(tx, vec![log], None, None);
 
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert_eq!(matches.len(), 2);
@@ -401,7 +401,7 @@ mod tests {
 
         let tx = TransactionBuilder::new().value(U256::from(150)).build();
         // This item has no logs, but should still be evaluated by the tx monitor
-        let item = CorrelatedBlockItem::new(tx, vec![], None);
+        let item = CorrelatedBlockItem::new(tx, vec![], None, None);
 
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert_eq!(matches.len(), 1);
@@ -420,7 +420,7 @@ mod tests {
         let engine = setup_engine_with_monitors(monitors);
 
         let tx = TransactionBuilder::new().value(U256::from(150)).build();
-        let item = CorrelatedBlockItem::new(tx, vec![], None);
+        let item = CorrelatedBlockItem::new(tx, vec![], None, None);
 
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert!(matches.is_empty());
@@ -452,7 +452,7 @@ mod tests {
         let log = DecodedLog { name: "Transfer".to_string(), params: vec![], log: log_raw.into() };
 
         // The item contains both the transaction and the log
-        let item = CorrelatedBlockItem::new(tx.into(), vec![log], None);
+        let item = CorrelatedBlockItem::new(tx.into(), vec![log], None, None);
 
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert_eq!(matches.len(), 2);
@@ -480,7 +480,7 @@ mod tests {
             "ValueTransfered",
             vec![("value".to_string(), DynSolValue::Uint(U256::from(value), 256))],
         );
-        let item = CorrelatedBlockItem::new(tx, vec![log], None);
+        let item = CorrelatedBlockItem::new(tx, vec![log], None, None);
 
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert_eq!(matches.len(), 1);
@@ -498,7 +498,7 @@ mod tests {
         let engine = setup_engine_with_monitors(monitors);
 
         let tx = TransactionBuilder::new().build();
-        let item = CorrelatedBlockItem::new(tx, vec![], None);
+        let item = CorrelatedBlockItem::new(tx, vec![], None, None);
 
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert_eq!(matches.len(), 1);
@@ -594,13 +594,13 @@ mod tests {
         let tx_match = TransactionBuilder::new()
             .value(U256::from(2) * U256::from(10).pow(U256::from(18)))
             .build();
-        let item_match = CorrelatedBlockItem::new(tx_match.clone(), vec![], None);
+        let item_match = CorrelatedBlockItem::new(tx_match.clone(), vec![], None, None);
 
         // This transaction's value is 1 ETH, which should NOT trigger the monitor
         let tx_no_match = TransactionBuilder::new()
             .value(U256::from(1) * U256::from(10).pow(U256::from(18)))
             .build();
-        let item_no_match = CorrelatedBlockItem::new(tx_no_match.clone(), vec![], None);
+        let item_no_match = CorrelatedBlockItem::new(tx_no_match.clone(), vec![], None, None);
 
         // Test matching case
         let matches = engine.evaluate_item(&item_match).await.unwrap();
@@ -637,7 +637,7 @@ mod tests {
         // This log should be ignored by the monitor
         let (_, log3) = create_test_log_and_tx(addr1, "OtherEvent", vec![]);
 
-        let item = CorrelatedBlockItem::new(tx, vec![log1, log2, log3], None);
+        let item = CorrelatedBlockItem::new(tx, vec![log1, log2, log3], None, None);
 
         let matches = engine.evaluate_item(&item).await.unwrap();
 

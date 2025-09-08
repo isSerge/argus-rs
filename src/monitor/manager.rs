@@ -66,6 +66,16 @@ impl InterestRegistry {
                 .first()
                 .is_some_and(|topic0| self.global_event_signatures.contains(topic0))
     }
+
+    /// Checks if the given `to_address` is of interest for calldata-aware
+    /// monitors.
+    #[inline]
+    pub fn is_calldata_interesting(&self, to_address: &Option<Address>) -> bool {
+        match to_address {
+            Some(addr) => self.calldata_addresses.contains(addr),
+            None => false, // Contract creation - not interesting for calldata-aware monitors
+        }
+    }
 }
 
 /// Manages monitors, including organizing them for efficient execution and
