@@ -4,6 +4,9 @@ This example demonstrates a powerful Rhai script feature: using an array as a wa
 
 ### Configuration Files
 
+- [`app.yaml`](../../docs/src/user_guide/config_app.md): Basic application configuration, pointing to public RPC endpoints.
+- [`monitors.yaml`](../../docs/src/user_guide/config_monitors.md): Defines the "Large ETH Transfers" monitor.
+- [`notifiers.yaml`](../../docs/src/user_guide/config_notifiers.md): Defines "Telegram Large ETH Transfers" notifier.
 
 ### Environment Variables for Notifier Secrets
 
@@ -23,6 +26,7 @@ This example demonstrates a powerful Rhai script feature: using an array as a wa
 > ```
 >
 > See the example `notifiers.yaml` for all required variables for each notifier type.
+
 ### Monitor Configuration
 
 The `monitors.yaml` file defines a monitor that triggers for any transaction where the `from` or `to` address is in the predefined `watchlist`.

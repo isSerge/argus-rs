@@ -1,0 +1,10 @@
+monitors:
+  - name: "High Priority Fee Alert"
+    network: "ethereum"
+    filter_script: |
+      // A fee over 150 is highly unusual and indicates a strong desire for priority inclusion.
+      let priority_fee_threshold = gwei(150);
+
+      tx.max_priority_fee_per_gas > priority_fee_threshold
+    notifiers:
+      - "Telegram MEV"
