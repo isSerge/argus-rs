@@ -267,8 +267,8 @@ impl FilteringEngine for RhaiFilteringEngine {
             }
         }
 
-        // --- 2. Handle all log-aware monitors ---
-        if monitors.log_aware_monitors.is_empty() {
+        // --- 2. Handle all address-specific monitors ---
+        if monitors.address_specific_monitors.is_empty() {
             return Ok(matches);
         }
 
@@ -282,8 +282,8 @@ impl FilteringEngine for RhaiFilteringEngine {
                 build_transaction_details_payload(&item.transaction, item.receipt.as_ref());
 
             // Evaluate both address-specific and global log-aware monitors.
-            let address_monitors = monitors.log_aware_monitors.get(&log_address_str);
-            let global_monitors = monitors.log_aware_monitors.get(GLOBAL_MONITORS_KEY);
+            let address_monitors = monitors.address_specific_monitors.get(&log_address_str);
+            let global_monitors = monitors.address_specific_monitors.get(GLOBAL_MONITORS_KEY);
 
             let monitors_to_run = address_monitors
                 .iter()

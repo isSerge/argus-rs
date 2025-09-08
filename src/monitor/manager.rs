@@ -10,8 +10,8 @@ use crate::{
     models::{Log, monitor::Monitor},
 };
 
-/// The key used to store global log-aware monitors in the `log_aware_monitors`
-/// map.
+/// The key used to store global log-aware monitors in the
+/// `address_specific_monitors` map.
 pub const GLOBAL_MONITORS_KEY: &str = "*";
 
 /// A container for monitors that have been organized for efficient execution.
@@ -19,9 +19,9 @@ pub const GLOBAL_MONITORS_KEY: &str = "*";
 pub struct OrganizedMonitors {
     /// Monitors that only access transaction data.
     pub transaction_only_monitors: Vec<Monitor>,
-    /// Log-aware monitors, keyed by checksummed contract address or the global
-    /// key.
-    pub log_aware_monitors: DashMap<String, Vec<Monitor>>,
+    /// Log-aware and calldata-aware monitors, keyed by checksummed contract
+    /// address or the global key.
+    pub address_specific_monitors: DashMap<String, Vec<Monitor>>,
 }
 
 #[derive(Debug, Default)]
@@ -40,7 +40,10 @@ pub struct MonitorAssetState {
 #[derive(Debug, Default)]
 pub struct InterestRegistry {
     /// Set of addresses that have log-aware monitors.
-    addresses: Arc<HashSet<Address>>,
+    log_addresses: Arc<HashSet<Address>>,
+
+    /// Set of addresses that have calldata-aware monitors.
+    calldata_addresses: Arc<HashSet<Address>>,
 
     /// Set of event signatures that global monitors are interested in.
     global_event_signatures: Arc<HashSet<B256>>,
@@ -51,7 +54,7 @@ impl InterestRegistry {
     /// global event signatures.
     #[inline]
     pub fn is_log_interesting(&self, log: &Log) -> bool {
-        self.addresses.contains(&log.address()) || self.is_globally_monitored(log)
+        self.log_addresses.contains(&log.address()) || self.is_globally_monitored(log)
     }
 
     /// Checks if the log matches any global event signatures.
@@ -143,7 +146,7 @@ impl MonitorManager {
                             if address_str.eq_ignore_ascii_case("all") {
                                 // Global log-aware monitor
                                 organized_monitors
-                                    .log_aware_monitors
+                                    .address_specific_monitors
                                     .entry(GLOBAL_MONITORS_KEY.to_string())
                                     .or_default()
                                     .push(monitor.clone());
@@ -153,7 +156,7 @@ impl MonitorManager {
                                     .expect("Address should be valid at this stage");
                                 let checksummed_address = address.to_checksum(None);
                                 organized_monitors
-                                    .log_aware_monitors
+                                    .address_specific_monitors
                                     .entry(checksummed_address)
                                     .or_default()
                                     .push(monitor.clone());
@@ -161,7 +164,7 @@ impl MonitorManager {
                         } else {
                             // Global log-aware monitor
                             organized_monitors
-                                .log_aware_monitors
+                                .address_specific_monitors
                                 .entry(GLOBAL_MONITORS_KEY.to_string())
                                 .or_default()
                                 .push(monitor.clone());
@@ -188,14 +191,14 @@ impl MonitorManager {
         abi_service: &Arc<AbiService>,
     ) -> InterestRegistry {
         let monitored_addresses: HashSet<Address> = organized_monitors
-            .log_aware_monitors
+            .address_specific_monitors
             .iter()
             .filter_map(|entry| entry.key().parse::<Address>().ok())
             .collect();
 
         let mut global_event_signatures = HashSet::<B256>::new();
         if let Some(global_monitors) =
-            organized_monitors.log_aware_monitors.get(GLOBAL_MONITORS_KEY)
+            organized_monitors.address_specific_monitors.get(GLOBAL_MONITORS_KEY)
         {
             for monitor in global_monitors.value() {
                 if let Some(abi_name) = &monitor.abi
@@ -209,7 +212,9 @@ impl MonitorManager {
         }
 
         InterestRegistry {
-            addresses: Arc::new(monitored_addresses),
+            log_addresses: Arc::new(monitored_addresses),
+            calldata_addresses: Arc::new(HashSet::new()), /* TODO: populate this set when
+                                                           * calldata-aware monitors are added */
             global_event_signatures: Arc::new(global_event_signatures),
         }
     }
@@ -269,19 +274,19 @@ mod tests {
         assert_eq!(snapshot.organized_monitors.transaction_only_monitors[0].id, 1);
 
         // Log-aware monitors
-        assert_eq!(snapshot.organized_monitors.log_aware_monitors.len(), 2);
+        assert_eq!(snapshot.organized_monitors.address_specific_monitors.len(), 2);
 
         // Address-specific log monitor
         let addr = address!("0000000000000000000000000000000000000001");
         let addr_checksum = addr.to_checksum(None);
         let address_monitors =
-            snapshot.organized_monitors.log_aware_monitors.get(&addr_checksum).unwrap();
+            snapshot.organized_monitors.address_specific_monitors.get(&addr_checksum).unwrap();
         assert_eq!(address_monitors.len(), 1);
         assert_eq!(address_monitors[0].id, 2);
 
         // Global log monitors
         let global_monitors =
-            snapshot.organized_monitors.log_aware_monitors.get(GLOBAL_MONITORS_KEY).unwrap();
+            snapshot.organized_monitors.address_specific_monitors.get(GLOBAL_MONITORS_KEY).unwrap();
         assert_eq!(global_monitors.len(), 2);
         let global_ids: HashSet<i64> = global_monitors.iter().map(|m| m.id).collect();
         assert!(global_ids.contains(&3));
@@ -340,9 +345,9 @@ mod tests {
         let (organized_monitors, _) = MonitorManager::organize_monitors(&monitors, &compiler);
         let registry = MonitorManager::build_interest_registry(&organized_monitors, &abi_service);
 
-        // Check addresses
-        assert_eq!(registry.addresses.len(), 1);
-        assert!(registry.addresses.contains(&monitored_address));
+        // Check log addresses
+        assert_eq!(registry.log_addresses.len(), 1);
+        assert!(registry.log_addresses.contains(&monitored_address));
 
         // Check global event signatures
         assert_eq!(registry.global_event_signatures.len(), 1);
@@ -361,7 +366,9 @@ mod tests {
             b256!("8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925");
 
         let registry = InterestRegistry {
-            addresses: Arc::new(HashSet::from([monitored_address])),
+            log_addresses: Arc::new(HashSet::from([monitored_address])),
+            calldata_addresses: Arc::new(HashSet::new()), /* TODO: populate when calldata-aware
+                                                           * monitors are added */
             global_event_signatures: Arc::new(HashSet::from([monitored_event_sig])),
         };
 
@@ -409,7 +416,7 @@ mod tests {
         let snapshot1 = manager.load();
         assert_eq!(snapshot1.organized_monitors.transaction_only_monitors.len(), 1);
         assert_eq!(snapshot1.organized_monitors.transaction_only_monitors[0].id, 1);
-        assert!(snapshot1.organized_monitors.log_aware_monitors.is_empty());
+        assert!(snapshot1.organized_monitors.address_specific_monitors.is_empty());
         drop(snapshot1);
 
         // Update with new monitors
@@ -427,10 +434,12 @@ mod tests {
         let snapshot2 = manager.load();
         assert_eq!(snapshot2.organized_monitors.transaction_only_monitors.len(), 1);
         assert_eq!(snapshot2.organized_monitors.transaction_only_monitors[0].id, 3);
-        assert_eq!(snapshot2.organized_monitors.log_aware_monitors.len(), 1);
+        assert_eq!(snapshot2.organized_monitors.address_specific_monitors.len(), 1);
         let addr = address!("0000000000000000000000000000000000000001");
         let addr_checksum = addr.to_checksum(None);
-        assert!(snapshot2.organized_monitors.log_aware_monitors.contains_key(&addr_checksum));
+        assert!(
+            snapshot2.organized_monitors.address_specific_monitors.contains_key(&addr_checksum)
+        );
     }
 
     #[test]
@@ -448,11 +457,11 @@ mod tests {
         let manager = MonitorManager::new(initial_monitors, compiler.clone(), abi_service.clone());
 
         let snapshot1 = manager.load();
-        assert_eq!(snapshot1.interest_registry.addresses.len(), 1);
+        assert_eq!(snapshot1.interest_registry.log_addresses.len(), 1);
         assert!(
             snapshot1
                 .interest_registry
-                .addresses
+                .log_addresses
                 .contains(&address!("1111111111111111111111111111111111111111"))
         );
         assert!(snapshot1.interest_registry.global_event_signatures.is_empty());
@@ -482,17 +491,17 @@ mod tests {
 
         let snapshot2 = manager.load();
         // Address set should be completely replaced, not merged.
-        assert_eq!(snapshot2.interest_registry.addresses.len(), 1);
+        assert_eq!(snapshot2.interest_registry.log_addresses.len(), 1);
         assert!(
             !snapshot2
                 .interest_registry
-                .addresses
+                .log_addresses
                 .contains(&address!("1111111111111111111111111111111111111111"))
         );
         assert!(
             snapshot2
                 .interest_registry
-                .addresses
+                .log_addresses
                 .contains(&address!("2222222222222222222222222222222222222222"))
         );
 
@@ -512,9 +521,9 @@ mod tests {
         let snapshot = manager.load();
 
         assert!(snapshot.organized_monitors.transaction_only_monitors.is_empty());
-        assert!(snapshot.organized_monitors.log_aware_monitors.is_empty());
+        assert!(snapshot.organized_monitors.address_specific_monitors.is_empty());
         assert!(!snapshot.requires_receipts);
-        assert!(snapshot.interest_registry.addresses.is_empty());
+        assert!(snapshot.interest_registry.log_addresses.is_empty());
         assert!(snapshot.interest_registry.global_event_signatures.is_empty());
         drop(snapshot);
 
@@ -522,9 +531,9 @@ mod tests {
         manager.update(vec![]);
         let updated_snapshot = manager.load();
         assert!(updated_snapshot.organized_monitors.transaction_only_monitors.is_empty());
-        assert!(updated_snapshot.organized_monitors.log_aware_monitors.is_empty());
+        assert!(updated_snapshot.organized_monitors.address_specific_monitors.is_empty());
         assert!(!updated_snapshot.requires_receipts);
-        assert!(updated_snapshot.interest_registry.addresses.is_empty());
+        assert!(updated_snapshot.interest_registry.log_addresses.is_empty());
         assert!(updated_snapshot.interest_registry.global_event_signatures.is_empty());
     }
 
@@ -542,9 +551,9 @@ mod tests {
         let snapshot = manager.load();
 
         // The monitor should be organized as a global log-aware monitor.
-        assert_eq!(snapshot.organized_monitors.log_aware_monitors.len(), 1);
+        assert_eq!(snapshot.organized_monitors.address_specific_monitors.len(), 1);
         let global_monitors =
-            snapshot.organized_monitors.log_aware_monitors.get(GLOBAL_MONITORS_KEY).unwrap();
+            snapshot.organized_monitors.address_specific_monitors.get(GLOBAL_MONITORS_KEY).unwrap();
         assert_eq!(global_monitors.len(), 1);
 
         // No event signatures should be added because the ABI was not found.
@@ -610,7 +619,9 @@ mod tests {
 
         // Case 1: Registry with no global signatures
         let registry_no_globals = InterestRegistry {
-            addresses: Arc::new(HashSet::from([monitored_address])),
+            log_addresses: Arc::new(HashSet::from([monitored_address])),
+            calldata_addresses: Arc::new(HashSet::new()), /* TODO: populate when calldata-aware
+                                                           * monitors are added */
             global_event_signatures: Arc::new(HashSet::new()), // Empty set
         };
 
@@ -626,7 +637,9 @@ mod tests {
             LogBuilder::new().address(address!("3333333333333333333333333333333333333333")).build(); // No .topic() calls
 
         let registry_with_globals = InterestRegistry {
-            addresses: Arc::new(HashSet::new()),
+            log_addresses: Arc::new(HashSet::new()),
+            calldata_addresses: Arc::new(HashSet::new()), /* TODO: populate when calldata-aware
+                                                           * monitors are added */
             global_event_signatures: Arc::new(HashSet::from([monitored_event_sig])),
         };
 
