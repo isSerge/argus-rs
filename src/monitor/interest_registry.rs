@@ -4,7 +4,7 @@ use alloy::primitives::{Address, B256};
 
 use crate::models::Log;
 
-/// A registry for quickly determining if a log is of interest to any monitor.
+/// A registry for quickly determining if a log or calldata is of interest to any monitor.
 #[derive(Debug, Default)]
 pub struct InterestRegistry {
     /// Set of addresses that have log-aware monitors.
@@ -64,8 +64,7 @@ mod tests {
 
         let registry = InterestRegistry {
             log_addresses: Arc::new(HashSet::from([monitored_address])),
-            calldata_addresses: Arc::new(HashSet::new()), /* TODO: populate when calldata-aware
-                                                           * monitors are added */
+            calldata_addresses: Arc::new(HashSet::new()),
             global_event_signatures: Arc::new(HashSet::from([monitored_event_sig])),
         };
 
@@ -102,6 +101,31 @@ mod tests {
     }
 
     #[test]
+    fn test_is_calldata_interesting() {
+        let monitored_address = address!("0000000000000000000000000000000000000001");
+        let other_address = address!("0000000000000000000000000000000000000002");
+
+        let registry = InterestRegistry {
+            log_addresses: Arc::new(HashSet::new()),
+            calldata_addresses: Arc::new(HashSet::from([monitored_address])),
+            global_event_signatures: Arc::new(HashSet::new()),
+        };
+
+        // Case 1: Calldata to a monitored address
+        assert!(registry.is_calldata_interesting(&Some(monitored_address)));
+
+        // Case 2: Calldata to an unmonitored address
+        assert!(!registry.is_calldata_interesting(&Some(other_address)));
+
+        // Case 3: Contract creation (to: None)
+        assert!(!registry.is_calldata_interesting(&None));
+
+        // Case 4: Registry with no calldata-aware addresses
+        let empty_registry = InterestRegistry::default();
+        assert!(!empty_registry.is_calldata_interesting(&Some(monitored_address)));
+    }
+
+    #[test]
     fn test_is_log_interesting_edge_cases() {
         let monitored_address = address!("1111111111111111111111111111111111111111");
         let monitored_event_sig =
@@ -110,8 +134,7 @@ mod tests {
         // Case 1: Registry with no global signatures
         let registry_no_globals = InterestRegistry {
             log_addresses: Arc::new(HashSet::from([monitored_address])),
-            calldata_addresses: Arc::new(HashSet::new()), /* TODO: populate when calldata-aware
-                                                           * monitors are added */
+            calldata_addresses: Arc::new(HashSet::new()),
             global_event_signatures: Arc::new(HashSet::new()), // Empty set
         };
 
@@ -128,8 +151,7 @@ mod tests {
 
         let registry_with_globals = InterestRegistry {
             log_addresses: Arc::new(HashSet::new()),
-            calldata_addresses: Arc::new(HashSet::new()), /* TODO: populate when calldata-aware
-                                                           * monitors are added */
+            calldata_addresses: Arc::new(HashSet::new()),
             global_event_signatures: Arc::new(HashSet::from([monitored_event_sig])),
         };
 
