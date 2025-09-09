@@ -4,7 +4,8 @@ use alloy::primitives::{Address, B256};
 
 use crate::models::Log;
 
-/// A registry for quickly determining if a log or calldata is of interest to any monitor.
+/// A registry for quickly determining if a log or calldata is of interest to
+/// any monitor.
 #[derive(Debug, Default)]
 pub struct InterestRegistry {
     /// Set of addresses that have log-aware monitors.

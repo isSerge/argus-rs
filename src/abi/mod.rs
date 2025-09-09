@@ -219,6 +219,7 @@ impl AbiService {
         Err(AbiError::EventNotFound(*event_signature))
     }
 
+    /// Decodes an event log using a specific cached contract ABI.
     fn decode_log_with_contract(
         &self,
         log: &Log,
