@@ -284,6 +284,18 @@ pub fn build_log_map(log: &DecodedLog, params_map: Map) -> Map {
     log_map
 }
 
+// --- Decoded Call Static Fields ---
+const KEY_CALL_NAME: &str = "name";
+const KEY_CALL_PARAMS: &str = "params";
+
+/// Returns a set of valid Rhai paths for decoded call fields.
+/// Used for validating Rhai scripts.
+/// This includes all standard decoded call fields, prefixed with
+/// "decoded_call.", does not include any dynamic fields.
+pub fn get_valid_decoded_call_rhai_paths() -> HashSet<String> {
+    [KEY_CALL_NAME, KEY_CALL_PARAMS].iter().map(|s| format!("decoded_call.{}", s)).collect()
+}
+
 /// Converts a U256 value unconditionally to a Rhai `BigInt` dynamic type.
 pub fn u256_to_bigint_dynamic(value: U256) -> Dynamic {
     let (sign, bytes) = if value.is_zero() {
@@ -803,6 +815,15 @@ mod tests {
         .iter()
         .map(|s| s.to_string())
         .collect();
+
+        assert_eq!(valid_paths, expected_paths);
+    }
+
+    #[test]
+    fn test_get_valid_decoded_call_rhai_paths() {
+        let valid_paths = get_valid_decoded_call_rhai_paths();
+        let expected_paths: HashSet<String> =
+            ["decoded_call.name", "decoded_call.params"].iter().map(|s| s.to_string()).collect();
 
         assert_eq!(valid_paths, expected_paths);
     }

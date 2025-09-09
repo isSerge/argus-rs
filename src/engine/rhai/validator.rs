@@ -7,6 +7,7 @@ use super::{
     RhaiCompiler, RhaiCompilerError, ScriptAnalysis, get_valid_log_rhai_paths,
     get_valid_receipt_rhai_paths, get_valid_tx_rhai_paths,
 };
+use crate::engine::rhai::conversions::get_valid_decoded_call_rhai_paths;
 
 #[derive(Clone)]
 /// Validates Rhai scripts against allowed fields and ABI.
@@ -80,15 +81,28 @@ impl RhaiScriptValidator {
         let mut valid_static_fields = get_valid_tx_rhai_paths();
         valid_static_fields.extend(get_valid_receipt_rhai_paths());
         valid_static_fields.extend(get_valid_log_rhai_paths());
+        valid_static_fields.extend(get_valid_decoded_call_rhai_paths());
 
         // Create a set of valid log param fields (dynamic)
         let valid_dynamic_fields: HashSet<String> = if let Some(abi) = abi {
-            abi.events
+            // Get all log parameter fields from the ABI
+            let log_params = abi
+                .events
                 .values()
                 .flatten()
                 .flat_map(|event| &event.inputs)
-                .map(|param| format!("log.params.{}", param.name))
-                .collect()
+                .map(|param| format!("log.params.{}", param.name));
+
+            // Get all function parameter fields from the ABI
+            let function_params = abi
+                .functions
+                .values()
+                .flatten()
+                .flat_map(|func| &func.inputs)
+                .map(|param| format!("decoded_call.params.{}", param.name));
+
+            // Combine log and function parameter fields
+            log_params.chain(function_params).collect()
         } else {
             HashSet::new()
         };
@@ -104,12 +118,13 @@ impl RhaiScriptValidator {
             }
 
             let is_static = valid_static_fields.contains(field);
-            let is_dynamic = field.starts_with("log.params.");
+            let is_dynamic_log = field.starts_with("log.params.");
+            let is_dynamic_call = field.starts_with("decoded_call.params.");
 
             if is_static {
                 // Static field, always valid
                 continue;
-            } else if is_dynamic {
+            } else if is_dynamic_log || is_dynamic_call {
                 // Dynamic field, check against ABI fields
                 if !valid_dynamic_fields.contains(field) {
                     return Err(RhaiScriptValidationError::InvalidAbiField(field.clone()));
@@ -159,6 +174,15 @@ impl RhaiScriptValidator {
             }
             scope.push("log", log_map);
         }
+        // Check if 'decoded_call' object is needed
+        if ast_analysis.accessed_variables.iter().any(|v| v.starts_with("decoded_call.")) {
+            let mut call_map = rhai::Map::new();
+            if ast_analysis.accessed_variables.iter().any(|v| v.starts_with("decoded_call.params."))
+            {
+                call_map.insert("params".into(), rhai::Map::new().into());
+            }
+            scope.push("decoded_call", call_map);
+        }
 
         let value = self
             .compiler
@@ -188,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_return_type_valid() {
+    fn test_validate_tx_return_type_valid() {
         let validator = create_validator();
         let script = "tx.value > 100";
         let analysis = validator.compiler.analyze_script(script).unwrap();
@@ -196,9 +220,45 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_return_type_invalid() {
+    fn test_validate_tx_return_type_invalid() {
         let validator = create_validator();
         let script = "tx.value"; // Not a boolean expression
+        let analysis = validator.compiler.analyze_script(script).unwrap();
+        let result = validator.validate_return_type(&analysis);
+        assert!(result.is_err());
+        assert!(matches!(result.err().unwrap(), RhaiScriptValidationError::InvalidReturnType(_)));
+    }
+
+    #[test]
+    fn test_validate_log_return_type_valid() {
+        let validator = create_validator();
+        let script = "log.address == \"0x123\"";
+        let analysis = validator.compiler.analyze_script(script).unwrap();
+        assert!(validator.validate_return_type(&analysis).is_ok());
+    }
+
+    #[test]
+    fn test_validate_log_return_type_invalid() {
+        let validator = create_validator();
+        let script = "log.address"; // Not a boolean expression
+        let analysis = validator.compiler.analyze_script(script).unwrap();
+        let result = validator.validate_return_type(&analysis);
+        assert!(result.is_err());
+        assert!(matches!(result.err().unwrap(), RhaiScriptValidationError::InvalidReturnType(_)));
+    }
+
+    #[test]
+    fn test_validate_call_return_type_valid() {
+        let validator = create_validator();
+        let script = "decoded_call.name == \"transfer\"";
+        let analysis = validator.compiler.analyze_script(script).unwrap();
+        assert!(validator.validate_return_type(&analysis).is_ok());
+    }
+
+    #[test]
+    fn test_validate_call_return_type_invalid() {
+        let validator = create_validator();
+        let script = "decoded_call.name"; // Not a boolean expression
         let analysis = validator.compiler.analyze_script(script).unwrap();
         let result = validator.validate_return_type(&analysis);
         assert!(result.is_err());
@@ -255,6 +315,16 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_analysis_valid_decoded_call() {
+        let validator = create_validator();
+        let script = "decoded_call.name == \"transfer\" && decoded_call.params.to == \"0x456\"";
+        let analysis = validator.compiler.analyze_script(script).unwrap();
+        let abi = serde_json::from_str(simple_abi_json()).unwrap();
+        let result = validator.validate_analysis(analysis, Some(&abi));
+        assert!(result.is_ok());
+    }
+
+    #[test]
     fn test_validate_analysis_invalid_abi_field() {
         let validator = create_validator();
         let script = "log.params.nonexistent_field == 42"; // Field not in ABI
@@ -273,6 +343,27 @@ mod tests {
         let result = validator.validate_analysis(analysis, None);
         assert!(result.is_err());
         assert!(matches!(result.err().unwrap(), RhaiScriptValidationError::InvalidField(_)));
+    }
+
+    #[test]
+    fn test_validate_analysis_invalid_call_static_field() {
+        let validator = create_validator();
+        let script = "decoded_call.invalid_field == 42"; // Invalid static field
+        let analysis = validator.compiler.analyze_script(script).unwrap();
+        let result = validator.validate_analysis(analysis, None);
+        assert!(result.is_err());
+        assert!(matches!(result.err().unwrap(), RhaiScriptValidationError::InvalidField(_)));
+    }
+
+    #[test]
+    fn test_validate_analysis_invalid_call_dynamic_field() {
+        let validator = create_validator();
+        let script = "decoded_call.params.nonexistent_field == 42"; // Field not in ABI
+        let analysis = validator.compiler.analyze_script(script).unwrap();
+        let abi = serde_json::from_str(simple_abi_json()).unwrap();
+        let result = validator.validate_analysis(analysis, Some(&abi));
+        assert!(result.is_err());
+        assert!(matches!(result.err().unwrap(), RhaiScriptValidationError::InvalidAbiField(_)));
     }
 
     #[test]
