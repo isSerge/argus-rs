@@ -92,6 +92,16 @@ pub enum MonitorValidationError {
         /// The error that occurred during script validation.
         error: RhaiScriptValidationError,
     },
+
+    /// A monitor is configured to decode calldata but is missing a required
+    /// field.
+    #[error("Invalid configuration for calldata decoding on monitor '{monitor_name}': {reason}")]
+    InvalidCalldataConfig {
+        /// The name of the monitor.
+        monitor_name: String,
+        /// The reason for the validation failure.
+        reason: String,
+    },
 }
 
 impl<'a> MonitorValidator<'a> {
@@ -119,6 +129,7 @@ impl<'a> MonitorValidator<'a> {
         }
 
         self.validate_notifiers(monitor)?;
+        self.validate_calldata_rules(monitor)?;
 
         let (parsed_address, is_global_log_monitor) = self.parse_and_validate_address(monitor)?;
 
@@ -162,6 +173,51 @@ impl<'a> MonitorValidator<'a> {
         }
 
         Ok(())
+    }
+
+    /// Validates the calldata decoding rules for the monitor.
+    fn validate_calldata_rules(
+        &self,
+        monitor: &MonitorConfig,
+    ) -> Result<(), MonitorValidationError> {
+        println!("Validating calldata rules for monitor: {:?}", monitor);
+        // If calldata decoding is not enabled, no further checks are needed.
+        if !monitor.decode_calldata.unwrap_or_default() {
+            println!("Calldata decoding not enabled; skipping further checks.");
+            return Ok(());
+        }
+
+        // Check if ABI is provided when calldata decoding is enabled.
+        if monitor.abi.is_none() {
+            println!("Calldata decoding enabled but no ABI provided.");
+            return Err(MonitorValidationError::InvalidCalldataConfig {
+                monitor_name: monitor.name.clone(),
+                reason: "Calldata decoding is enabled, but no ABI is specified. Please provide an \
+                         ABI name."
+                    .to_string(),
+            });
+        }
+
+        // Check if address is provided when calldata decoding is enabled.
+        match monitor.address.as_deref() {
+            // Global address case
+            Some(addr) if addr.eq_ignore_ascii_case("all") =>
+                Err(MonitorValidationError::InvalidCalldataConfig {
+                    monitor_name: monitor.name.clone(),
+                    reason: "Calldata decoding cannot be enabled for global monitors (address: \
+                             all). Please specify a concrete contract address."
+                        .to_string(),
+                }),
+            // Specific address case
+            Some(_) => Ok(()),
+            // No address case
+            None => Err(MonitorValidationError::InvalidCalldataConfig {
+                monitor_name: monitor.name.clone(),
+                reason: "Calldata decoding is enabled, but no contract address is specified. \
+                         Please provide a contract address."
+                    .to_string(),
+            }),
+        }
     }
 
     /// Parses and validates the address for the monitor.
@@ -290,7 +346,10 @@ impl<'a> MonitorValidator<'a> {
 mod tests {
     use std::sync::Arc;
 
-    use alloy::{json_abi::JsonAbi, primitives::Address};
+    use alloy::{
+        json_abi::JsonAbi,
+        primitives::{Address, address},
+    };
     use tempfile::tempdir;
 
     use crate::{
@@ -793,5 +852,112 @@ mod tests {
                 error: RhaiScriptValidationError::InvalidAbiField(_)
             }
         ));
+    }
+
+    #[tokio::test]
+    async fn test_monitor_validation_failure_calldata_enabled_no_abi() {
+        let contract_address = address!("0x0000000000000000000000000000000000000123");
+        let validator =
+            create_monitor_validator(&[], Some((contract_address, "simple", simple_abi())));
+
+        let invalid_monitor = MonitorConfig {
+            name: "Test Monitor 1".into(),
+            network: "testnet".into(),
+            address: contract_address.to_string().into(),
+            abi: None, // No ABI provided
+            filter_script: "log.name == \"A\"".into(),
+            notifiers: vec![],
+            decode_calldata: Some(true),
+        };
+        let result = validator.validate(&invalid_monitor);
+
+        assert!(result.is_err());
+        if let Err(MonitorValidationError::InvalidCalldataConfig { monitor_name, reason }) = result
+        {
+            assert!(monitor_name.contains("Test Monitor 1"));
+            assert!(reason.contains(
+                "Calldata decoding is enabled, but no ABI is specified. Please provide an ABI \
+                 name."
+            ));
+        } else {
+            panic!("Expected MonitorValidationError::InvalidCalldataConfig");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_monitor_validation_failure_calldata_enabled_no_address() {
+        let validator = create_monitor_validator(&[], None);
+
+        let invalid_monitor = MonitorConfig {
+            name: "Test Monitor 1".into(),
+            network: "testnet".into(),
+            address: None, // No address provided
+            abi: Some("simple".into()),
+            filter_script: "log.name == \"A\"".into(),
+            notifiers: vec![],
+            decode_calldata: Some(true),
+        };
+        let result = validator.validate(&invalid_monitor);
+
+        assert!(result.is_err());
+        if let Err(MonitorValidationError::InvalidCalldataConfig { monitor_name, reason }) = result
+        {
+            assert!(monitor_name.contains("Test Monitor 1"));
+            assert!(reason.contains(
+                "Calldata decoding is enabled, but no contract address is specified. Please \
+                 provide a contract address."
+            ));
+        } else {
+            panic!("Expected MonitorValidationError::InvalidCalldataConfig");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_monitor_validation_failure_calldata_global_monitor() {
+        let validator = create_monitor_validator(&[], None);
+
+        let invalid_monitor = MonitorConfig {
+            name: "Test Monitor 1".into(),
+            network: "testnet".into(),
+            address: Some("all".into()), // Global monitor
+            abi: Some("simple".into()),
+            filter_script: "log.name == \"A\"".into(),
+            notifiers: vec![],
+            decode_calldata: Some(true),
+        };
+        let result = validator.validate(&invalid_monitor);
+
+        assert!(result.is_err());
+        if let Err(MonitorValidationError::InvalidCalldataConfig { monitor_name, reason }) = result
+        {
+            assert!(monitor_name.contains("Test Monitor 1"));
+            assert!(reason.contains(
+                "Calldata decoding cannot be enabled for global monitors (address: all). Please \
+                 specify a concrete contract address."
+            ));
+        } else {
+            panic!("Expected MonitorValidationError::InvalidCalldataConfig");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_monitor_validation_success_calldata_enabled_with_abi_and_address() {
+        let contract_address = address!("0x1234567890abcdef1234567890abcdef12345678");
+        let validator =
+            create_monitor_validator(&[], Some((contract_address, "simple", simple_abi())));
+
+        let invalid_monitor = MonitorConfig {
+            name: "Test Monitor 1".into(),
+            network: "testnet".into(),
+            address: Some(contract_address.to_string()),
+            abi: Some("simple".into()),
+            filter_script: "log.name == \"A\"".into(),
+            notifiers: vec![],
+            decode_calldata: Some(true),
+        };
+
+        let result = validator.validate(&invalid_monitor);
+
+        assert!(result.is_ok(), "Expected validation to succeed but got error: {:?}", result);
     }
 }
