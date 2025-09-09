@@ -17,7 +17,7 @@ use tokio::{sync::mpsc, time::timeout};
 
 use super::rhai::{
     conversions::{
-        build_log_map, build_log_params_map, build_log_params_payload,
+        build_log_map, build_log_params_payload, build_params_map,
         build_transaction_details_payload, build_transaction_map,
     },
     create_engine,
@@ -25,7 +25,10 @@ use super::rhai::{
 use crate::{
     abi::DecodedLog,
     config::RhaiConfig,
-    engine::rhai::compiler::{RhaiCompiler, RhaiCompilerError},
+    engine::rhai::{
+        compiler::{RhaiCompiler, RhaiCompilerError},
+        conversions::build_decoded_call_map,
+    },
     models::{
         correlated_data::CorrelatedBlockItem,
         decoded_block::DecodedBlockData,
@@ -139,6 +142,7 @@ impl RhaiFilteringEngine {
         monitor: Monitor,
         tx_map: rhai::Map,
         log_map: rhai::Map,
+        decoded_call_map: rhai::Dynamic,
         log_match_payload: serde_json::Value,
         tx_match_payload: serde_json::Value,
         decoded_log: &DecodedLog,
@@ -146,6 +150,7 @@ impl RhaiFilteringEngine {
         let mut scope = Scope::new();
         scope.push("tx", tx_map);
         scope.push("log", log_map);
+        scope.push("decoded_call", decoded_call_map);
 
         let ast = self.compiler.get_ast(&monitor.filter_script)?;
 
@@ -236,10 +241,16 @@ impl FilteringEngine for RhaiFilteringEngine {
         let assets = self.monitor_manager.load();
         let monitors = &assets.organized_monitors;
 
+        let decoded_call_map: rhai::Dynamic = match &item.decoded_call {
+            Some(call) => build_decoded_call_map(call).into(),
+            None => ().into(),
+        };
+
         // --- 1. Handle transaction-only monitors ---
         for monitor in &monitors.transaction_only_monitors {
             let mut scope = Scope::new();
             scope.push("tx", tx_map.clone());
+            scope.push("decoded_call", decoded_call_map.clone());
 
             let ast = self.compiler.get_ast(&monitor.filter_script)?;
 
@@ -275,7 +286,7 @@ impl FilteringEngine for RhaiFilteringEngine {
         for log in &item.decoded_logs {
             // Build log data payload for the match
             let log_address_str = log.log.address().to_checksum(None);
-            let params_map = build_log_params_map(&log.params);
+            let params_map = build_params_map(&log.params);
             let log_map = build_log_map(log, params_map);
             let log_match_payload = build_log_params_payload(&log.params);
             let tx_match_payload =
@@ -296,6 +307,7 @@ impl FilteringEngine for RhaiFilteringEngine {
                         monitor.clone(),
                         tx_map.clone(),
                         log_map.clone(),
+                        decoded_call_map.clone(),
                         log_match_payload.clone(),
                         tx_match_payload.clone(),
                         log,
