@@ -14,10 +14,12 @@ pub const GLOBAL_MONITORS_KEY: &str = "*";
 /// A container for monitors that have been organized for efficient execution.
 #[derive(Debug, Default)]
 pub struct OrganizedMonitors {
-    /// Monitors that only access transaction data.
-    pub transaction_only_monitors: Vec<Monitor>,
-    /// Log-aware and calldata-aware monitors, keyed by checksummed contract
-    /// address or the global key.
+    /// Monitors that run on every transaction and do not depend on log data.
+    pub global_tx_monitors: Vec<Monitor>,
+    /// Monitors that run on every log, regardless of its source address.
+    pub global_log_monitors: Vec<Monitor>,
+    /// Monitors that are tied to a specific contract address. These can be
+    /// either transaction-focused or log-focused.
     pub address_specific_monitors: DashMap<String, Vec<Monitor>>,
 }
 
@@ -90,7 +92,6 @@ impl MonitorManager {
         let mut calldata_addresses = HashSet::new();
 
         for monitor in monitors {
-            // Analyze the filter script
             let analysis = match compiler.analyze_script(&monitor.filter_script) {
                 Ok(analysis) => analysis,
                 Err(err) => {
@@ -104,62 +105,47 @@ impl MonitorManager {
                 }
             };
 
-            // Check receipt requirements
             if !requires_receipts && !analysis.accessed_variables.is_disjoint(&receipt_fields) {
                 requires_receipts = true;
             }
 
             let is_log_aware = analysis.accesses_log_variable;
-            let is_calldata_aware = monitor.decode_calldata;
+            let has_address = monitor.address.is_some()
+                && !monitor.address.as_deref().unwrap_or("").eq_ignore_ascii_case("all");
 
-            // If the monitor is neither log-aware nor calldata-aware, it is a
-            // transaction-only monitor
-            if !is_log_aware && !is_calldata_aware {
-                organized_monitors.transaction_only_monitors.push(monitor.clone());
-                continue;
-            }
-
-            // Check if the monitor is global (address is "all" or None)
-            let is_global =
-                monitor.address.as_deref().map_or(true, |addr| addr.eq_ignore_ascii_case("all"));
-
-            if is_global {
-                organized_monitors
-                    .address_specific_monitors
-                    .entry(GLOBAL_MONITORS_KEY.to_string())
-                    .or_default()
-                    .push(monitor.clone());
-            } else {
-                // Address-specific monitor
+            if has_address {
                 if let Some(address) =
                     monitor.address.as_deref().and_then(|a| a.parse::<Address>().ok())
                 {
                     let address_checksum = address.to_checksum(None);
                     organized_monitors
                         .address_specific_monitors
-                        .entry(address_checksum.clone())
+                        .entry(address_checksum)
                         .or_default()
                         .push(monitor.clone());
 
                     if is_log_aware {
                         log_addresses.insert(address);
                     }
-                    if is_calldata_aware {
+                    if monitor.decode_calldata {
                         calldata_addresses.insert(address);
                     }
+                }
+            } else {
+                // Global monitor
+                if is_log_aware {
+                    organized_monitors.global_log_monitors.push(monitor.clone());
+                } else {
+                    organized_monitors.global_tx_monitors.push(monitor.clone());
                 }
             }
         }
 
         // Global monitors
         let mut global_event_signatures = HashSet::new();
-        if let Some(global_monitors) =
-            organized_monitors.address_specific_monitors.get(GLOBAL_MONITORS_KEY)
-        {
-            for monitor in global_monitors.value() {
-                if let Some(abi_name) = &monitor.abi
-                    && let Some(abi) = abi_service.get_abi_by_name(abi_name)
-                {
+        for monitor in &organized_monitors.global_log_monitors {
+            if let Some(abi_name) = &monitor.abi {
+                if let Some(abi) = abi_service.get_abi_by_name(abi_name) {
                     for event in abi.events.values().flatten() {
                         global_event_signatures.insert(event.selector());
                     }
@@ -182,9 +168,14 @@ impl MonitorManager {
         };
 
         tracing::debug!(
-            "Organized monitors: {} transaction-only, {} address-specific groups",
-            organized_monitors.transaction_only_monitors.len(),
-            organized_monitors.address_specific_monitors.len()
+            "Organized monitors:
+            {} transaction-only, 
+            {} global log-aware,
+            {} address-specific groups
+            ",
+            organized_monitors.global_tx_monitors.len(),
+            organized_monitors.global_log_monitors.len(),
+            organized_monitors.address_specific_monitors.len(),
         );
 
         MonitorAssetState { organized_monitors, requires_receipts, interest_registry }
@@ -240,14 +231,12 @@ mod tests {
         let manager = MonitorManager::new(monitors, compiler, abi_service);
         let snapshot = manager.load();
 
-        // Transaction-only monitors
-        assert_eq!(snapshot.organized_monitors.transaction_only_monitors.len(), 1);
-        assert_eq!(snapshot.organized_monitors.transaction_only_monitors[0].id, 1);
+        // Global transaction-only monitors
+        assert_eq!(snapshot.organized_monitors.global_tx_monitors.len(), 1);
+        assert_eq!(snapshot.organized_monitors.global_tx_monitors[0].id, 1);
 
-        // Log-aware monitors
-        assert_eq!(snapshot.organized_monitors.address_specific_monitors.len(), 2);
-
-        // Address-specific log monitor
+        // Address-specific monitors
+        assert_eq!(snapshot.organized_monitors.address_specific_monitors.len(), 1);
         let addr = address!("0000000000000000000000000000000000000001");
         let addr_checksum = addr.to_checksum(None);
         let address_monitors =
@@ -256,12 +245,11 @@ mod tests {
         assert_eq!(address_monitors[0].id, 2);
 
         // Global log monitors
-        let global_monitors =
-            snapshot.organized_monitors.address_specific_monitors.get(GLOBAL_MONITORS_KEY).unwrap();
-        assert_eq!(global_monitors.len(), 2);
-        let global_ids: HashSet<i64> = global_monitors.iter().map(|m| m.id).collect();
-        assert!(global_ids.contains(&3));
-        assert!(global_ids.contains(&4));
+        assert_eq!(snapshot.organized_monitors.global_log_monitors.len(), 2);
+        let global_log_ids: HashSet<i64> =
+            snapshot.organized_monitors.global_log_monitors.iter().map(|m| m.id).collect();
+        assert!(global_log_ids.contains(&3));
+        assert!(global_log_ids.contains(&4));
     }
 
     #[test]
@@ -321,8 +309,8 @@ mod tests {
 
         // Check initial state
         let snapshot1 = manager.load();
-        assert_eq!(snapshot1.organized_monitors.transaction_only_monitors.len(), 1);
-        assert_eq!(snapshot1.organized_monitors.transaction_only_monitors[0].id, 1);
+        assert_eq!(snapshot1.organized_monitors.global_tx_monitors.len(), 1);
+        assert_eq!(snapshot1.organized_monitors.global_tx_monitors[0].id, 1);
         assert!(snapshot1.organized_monitors.address_specific_monitors.is_empty());
         drop(snapshot1);
 
@@ -339,8 +327,8 @@ mod tests {
 
         // Check updated state
         let snapshot2 = manager.load();
-        assert_eq!(snapshot2.organized_monitors.transaction_only_monitors.len(), 1);
-        assert_eq!(snapshot2.organized_monitors.transaction_only_monitors[0].id, 3);
+        assert_eq!(snapshot2.organized_monitors.global_tx_monitors.len(), 1);
+        assert_eq!(snapshot2.organized_monitors.global_tx_monitors[0].id, 3);
         assert_eq!(snapshot2.organized_monitors.address_specific_monitors.len(), 1);
         let addr = address!("0000000000000000000000000000000000000001");
         let addr_checksum = addr.to_checksum(None);
@@ -427,7 +415,8 @@ mod tests {
         let manager = MonitorManager::new(vec![], compiler.clone(), abi_service.clone());
         let snapshot = manager.load();
 
-        assert!(snapshot.organized_monitors.transaction_only_monitors.is_empty());
+        assert!(snapshot.organized_monitors.global_tx_monitors.is_empty());
+        assert!(snapshot.organized_monitors.global_log_monitors.is_empty());
         assert!(snapshot.organized_monitors.address_specific_monitors.is_empty());
         assert!(!snapshot.requires_receipts);
         assert!(snapshot.interest_registry.log_addresses.is_empty());
@@ -437,7 +426,8 @@ mod tests {
         // Test updating with an empty list
         manager.update(vec![]);
         let updated_snapshot = manager.load();
-        assert!(updated_snapshot.organized_monitors.transaction_only_monitors.is_empty());
+        assert!(updated_snapshot.organized_monitors.global_tx_monitors.is_empty());
+        assert!(updated_snapshot.organized_monitors.global_log_monitors.is_empty());
         assert!(updated_snapshot.organized_monitors.address_specific_monitors.is_empty());
         assert!(!updated_snapshot.requires_receipts);
         assert!(updated_snapshot.interest_registry.log_addresses.is_empty());
@@ -458,10 +448,8 @@ mod tests {
         let snapshot = manager.load();
 
         // The monitor should be organized as a global log-aware monitor.
-        assert_eq!(snapshot.organized_monitors.address_specific_monitors.len(), 1);
-        let global_monitors =
-            snapshot.organized_monitors.address_specific_monitors.get(GLOBAL_MONITORS_KEY).unwrap();
-        assert_eq!(global_monitors.len(), 1);
+        assert_eq!(snapshot.organized_monitors.global_log_monitors.len(), 1);
+        assert!(snapshot.organized_monitors.address_specific_monitors.is_empty());
 
         // No event signatures should be added because the ABI was not found.
         assert!(snapshot.interest_registry.global_event_signatures.is_empty());
