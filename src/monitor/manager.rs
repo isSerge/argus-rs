@@ -176,41 +176,32 @@ impl MonitorManager {
         for cm in classified_monitors {
             let monitor = &cm.monitor; // Get a reference to the inner Monitor
 
-            // Check if the monitor has a specific address.
-            if let Some(address_str) = &monitor.address {
-                if !address_str.eq_ignore_ascii_case("all") {
-                    if let Ok(address) = address_str.parse::<Address>() {
-                        // This is an address-specific monitor.
+            let is_log_aware = cm.caps.contains(MonitorCapabilities::LOG);
+            let is_global =
+                monitor.address.as_deref().map_or(true, |a| a.eq_ignore_ascii_case("all"));
 
-                        // If it's log-aware, add its address to the log interest set.
-                        if cm.caps.contains(MonitorCapabilities::LOG) {
-                            log_addresses.insert(address);
-                        }
-
-                        // If it decodes calldata, add its address to the calldata interest set.
-                        if monitor.decode_calldata {
-                            calldata_addresses.insert(address);
-                        }
-                    }
-                } else {
-                    // This is a global monitor with `address: "all"`.
-                    if cm.caps.contains(MonitorCapabilities::LOG)
-                        && let Some(abi_name) = &monitor.abi
-                        && let Some(abi) = abi_service.get_abi_by_name(abi_name)
-                    {
-                        for event in abi.events.values().flatten() {
-                            global_event_signatures.insert(event.selector());
+            if is_global {
+                // This is a global monitor (address is "all" or None).
+                if is_log_aware {
+                    if let Some(abi_name) = &monitor.abi {
+                        if let Some(abi) = abi_service.get_abi_by_name(abi_name) {
+                            for event in abi.events.values().flatten() {
+                                global_event_signatures.insert(event.selector());
+                            }
                         }
                     }
                 }
-            } else {
-                // This is a global monitor (address field is None).
-                if cm.caps.contains(MonitorCapabilities::LOG)
-                    && let Some(abi_name) = &monitor.abi
-                    && let Some(abi) = abi_service.get_abi_by_name(abi_name)
-                {
-                    for event in abi.events.values().flatten() {
-                        global_event_signatures.insert(event.selector());
+            } else if let Some(address_str) = &monitor.address {
+                // This is an address-specific monitor.
+                if let Ok(address) = address_str.parse::<Address>() {
+                    // If it's log-aware, add its address to the log interest set.
+                    if is_log_aware {
+                        log_addresses.insert(address);
+                    }
+
+                    // If it decodes calldata, add its address to the calldata interest set.
+                    if cm.caps.contains(MonitorCapabilities::CALL) {
+                        calldata_addresses.insert(address);
                     }
                 }
             }
@@ -513,13 +504,11 @@ mod tests {
             MonitorBuilder::new()
                 .id(1)
                 .address(&calldata_aware_address.to_string())
-                .decode_calldata(true)
-                .filter_script("true") // Just a placeholder script
+                .filter_script("decoded_call.name == \"approve\"") // script accesses decoded_call
                 .build(),
             MonitorBuilder::new()
                 .id(2)
                 .address("0x0000000000000000000000000000000000000002")
-                .decode_calldata(false)
                 .filter_script("tx.value > 0")
                 .build(),
         ];

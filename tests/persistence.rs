@@ -25,7 +25,6 @@ fn create_test_monitor(name: &str, network: &str) -> MonitorConfig {
         Some("test".to_string()),
         "log.name == \"Test\"".to_string(),
         vec![],
-        None,
     )
 }
 
