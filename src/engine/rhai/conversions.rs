@@ -296,7 +296,12 @@ const KEY_CALL_PARAMS: &str = "params";
 /// This includes all standard decoded call fields, prefixed with
 /// "decoded_call.", does not include any dynamic fields.
 pub fn get_valid_decoded_call_rhai_paths() -> HashSet<String> {
-    [KEY_CALL_NAME, KEY_CALL_PARAMS].iter().map(|s| format!("decoded_call.{}", s)).collect()
+    let mut set: HashSet<String> =
+        [KEY_CALL_NAME, KEY_CALL_PARAMS].iter().map(|s| format!("decoded_call.{}", s)).collect();
+
+    set.insert("decoded_call".to_string());
+
+    set
 }
 
 /// Converts a U256 value unconditionally to a Rhai `BigInt` dynamic type.
@@ -860,7 +865,10 @@ mod tests {
     fn test_get_valid_decoded_call_rhai_paths() {
         let valid_paths = get_valid_decoded_call_rhai_paths();
         let expected_paths: HashSet<String> =
-            ["decoded_call.name", "decoded_call.params"].iter().map(|s| s.to_string()).collect();
+            ["decoded_call.name", "decoded_call.params", "decoded_call"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
 
         assert_eq!(valid_paths, expected_paths);
     }

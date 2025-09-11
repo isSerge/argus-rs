@@ -262,7 +262,6 @@ impl StateRepository for SqliteStateRepository {
             abi: Option<String>,
             filter_script: String,
             notifiers: String,
-            decode_calldata: bool,
             created_at: NaiveDateTime,
             updated_at: NaiveDateTime,
         }
@@ -280,7 +279,6 @@ impl StateRepository for SqliteStateRepository {
                     abi, 
                     filter_script, 
                     notifiers,
-                    decode_calldata,
                     created_at as "created_at!", 
                     updated_at as "updated_at!"
                 FROM monitors 
@@ -312,7 +310,6 @@ impl StateRepository for SqliteStateRepository {
                     notifiers,
                     created_at,
                     updated_at,
-                    decode_calldata: row.decode_calldata,
                 })
             })
             .collect::<Result<Vec<_>, sqlx::Error>>()?;
@@ -357,18 +354,15 @@ impl StateRepository for SqliteStateRepository {
             let notifiers_str = serde_json::to_string(&monitor.notifiers)
                 .map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
 
-            let decode_calldata = monitor.decode_calldata.unwrap_or(false);
-
             sqlx::query!(
-                "INSERT INTO monitors (name, network, address, abi, filter_script, notifiers, \
-                 decode_calldata)VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO monitors (name, network, address, abi, filter_script, notifiers) \
+                 VALUES (?, ?, ?, ?, ?, ?)",
                 monitor.name,
                 monitor.network,
                 monitor.address,
                 monitor.abi,
                 monitor.filter_script,
                 notifiers_str,
-                decode_calldata,
             )
             .execute(&mut *tx)
             .await?;
@@ -714,7 +708,6 @@ mod tests {
                 r#"log.name == "Transfer" && bigint(log.params.value) > bigint("1000000000")"#
                     .to_string(),
                 vec!["test-notifier".to_string()],
-                None,
             ),
             MonitorConfig::from_config(
                 "Simple Transfer Monitor".to_string(),
@@ -723,7 +716,6 @@ mod tests {
                 Some("test".to_string()),
                 r#"log.name == "Transfer""#.to_string(),
                 vec![],
-                None,
             ),
             MonitorConfig::from_config(
                 "Native ETH Monitor".to_string(),
@@ -732,7 +724,6 @@ mod tests {
                 None,
                 r#"bigint(tx.value) > bigint("1000000000000000000")"#.to_string(),
                 vec!["eth-notifier".to_string(), "another-notifier".to_string()],
-                None,
             ),
         ];
 
@@ -786,7 +777,6 @@ mod tests {
             Some("test".to_string()),
             "true".to_string(),
             vec![],
-            None,
         )];
 
         let polygon_monitors = vec![MonitorConfig::from_config(
@@ -796,7 +786,6 @@ mod tests {
             Some("test".to_string()),
             "true".to_string(),
             vec![],
-            None,
         )];
 
         // Add monitors to different networks
@@ -835,7 +824,6 @@ mod tests {
             Some("test".to_string()),
             "true".to_string(),
             vec![],
-            None,
         )];
 
         // Should fail due to network mismatch
@@ -888,7 +876,6 @@ mod tests {
                 Some("test".to_string()),
                 "true".to_string(),
                 vec![],
-                None,
             ),
             MonitorConfig::from_config(
                 "Invalid Monitor".to_string(),
@@ -897,7 +884,6 @@ mod tests {
                 Some("test".to_string()),
                 "true".to_string(),
                 vec![],
-                None,
             ),
         ];
 
@@ -924,7 +910,6 @@ mod tests {
             Some("test".to_string()),
             large_script.clone(),
             vec![],
-            None,
         )];
 
         // Should handle large scripts

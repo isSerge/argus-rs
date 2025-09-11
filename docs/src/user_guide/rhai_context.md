@@ -69,3 +69,36 @@ log.name == "Transfer" && log.params.value > usdc(1_000_000)
 ```
 
 For more practical examples of using `tx` and `log` data in Rhai scripts, refer to the [Example Gallery](../examples/gallery.md).
+
+## The `decoded_call` Object (Decoded Calldata)
+
+The `decoded_call` object is available for monitors that have an `address`, an `abi`, and access `decoded_call` field, which contains the decoded data from the transaction's input data (calldata).
+
+If calldata cannot be decoded (e.g., the function selector is unknown), `decoded_call` will be `()`, which is Rhai's `null` equivalent.
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `name` | String | The name of the decoded function (e.g., "transfer", "approve"). |
+| `params` | Map | A map containing the function's parameters, accessed by name. |
+
+### The `decoded_call.params` Map
+
+Similar to `log.params`, this field allows you to access the function's parameters by their names as defined in the ABI.
+
+For a `transfer` function with the signature `transfer(address to, uint256 amount)`, the `decoded_call.params` map would contain:
+
+-   `decoded_call.params.to` (String)
+-   `decoded_call.params.amount` (BigInt)
+
+### Example Usage
+
+```rhai
+// Check for a call to a specific function
+decoded_call.name == "transfer"
+
+// Check for a function call with a large amount
+decoded_call.name == "transfer" && decoded_call.params.amount > ether(100)
+
+// Check if calldata decoding failed
+decoded_call == ()
+```

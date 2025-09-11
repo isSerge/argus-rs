@@ -20,7 +20,7 @@
   - [ABI Management](./user_guide/config_abis.md)
 - [Notifier Templating](./user_guide/notifier_templating.md)
 - [Writing Rhai Scripts](./user_guide/rhai_scripts.md)
-  - [Data Context (tx & log)](./user_guide/rhai_context.md)
+  - [Data Context (tx, log, & decoded_call)](./user_guide/rhai_context.md)
   - [Helpers (ether, usdc, etc)](./user_guide/rhai_helpers.md)
 
 ---
