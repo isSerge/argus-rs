@@ -219,40 +219,12 @@ impl FilteringEngine for RhaiFilteringEngine {
     ) -> Result<Vec<MonitorMatch>, RhaiError> {
         let mut matches = Vec::new();
         let assets = self.monitor_manager.load();
-        let mut matched_monitor_ids: HashSet<i64> = HashSet::new(); // Track matched monitor IDs to avoid duplicates
+        let mut matched_monitor_ids: HashSet<i64> = HashSet::new();
 
+        // --- First Pass: Evaluate log-aware monitors to get the most specific match
+        // --- A single monitor can match multiple logs in the same transaction.
         for cm in assets.monitors.iter() {
-            let id = cm.monitor.id;
-
-            // Transaction-level evaluation (TX and CALL capabilities)
-            if cm.caps.intersects(MonitorCapabilities::TX | MonitorCapabilities::CALL)
-                && !cm.caps.contains(MonitorCapabilities::LOG)
-            {
-                if self.does_monitor_match(&cm.monitor, item, None).await? {
-                    let tx_match_payload =
-                        build_transaction_details_payload(&item.transaction, item.receipt.as_ref());
-
-                    for notifier in &cm.monitor.notifiers {
-                        matches.push(MonitorMatch::new_tx_match(
-                            cm.monitor.id,
-                            cm.monitor.name.clone(),
-                            notifier.clone(),
-                            item.transaction.block_number().unwrap_or_default(),
-                            item.transaction.hash(),
-                            tx_match_payload.clone(),
-                        ));
-                    }
-                    matched_monitor_ids.insert(cm.monitor.id);
-                }
-            }
-
-            // Log-level evaluation (LOG capability)
             if cm.caps.contains(MonitorCapabilities::LOG) {
-                // Skip if this monitor has already matched for this item
-                if matched_monitor_ids.contains(&id) {
-                    continue;
-                }
-
                 for log in &item.decoded_logs {
                     if self.does_monitor_match(&cm.monitor, item, Some(log)).await? {
                         let log_match_payload = build_log_params_payload(&log.params);
@@ -275,7 +247,35 @@ impl FilteringEngine for RhaiFilteringEngine {
                                 log_match_payload.clone(),
                             ));
                         }
+                        // Mark this monitor as having found at least one log match.
+                        matched_monitor_ids.insert(cm.monitor.id);
                     }
+                }
+            }
+        }
+
+        // --- Second Pass: Evaluate any remaining monitors for transaction-only matches
+        for cm in assets.monitors.iter() {
+            // Skip if this monitor has already produced a log match.
+            if matched_monitor_ids.contains(&cm.monitor.id) {
+                continue;
+            }
+
+            // For any monitor (log-aware or not) that hasn't matched, evaluate it
+            // against the transaction context where `log` is null.
+            if self.does_monitor_match(&cm.monitor, item, None).await? {
+                let tx_match_payload =
+                    build_transaction_details_payload(&item.transaction, item.receipt.as_ref());
+
+                for notifier in &cm.monitor.notifiers {
+                    matches.push(MonitorMatch::new_tx_match(
+                        cm.monitor.id,
+                        cm.monitor.name.clone(),
+                        notifier.clone(),
+                        item.transaction.block_number().unwrap_or_default(),
+                        item.transaction.hash(),
+                        tx_match_payload.clone(),
+                    ));
                 }
             }
         }
@@ -734,5 +734,90 @@ mod tests {
         assert!(
             matches!(matches[1].match_data, MatchData::Log(LogMatchData { log_details: LogDetails { address, .. }, .. }) if address == addr2)
         );
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_item_hybrid_monitor_tx_match_no_logs() {
+        let temp_dir = tempdir().unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[]);
+
+        // This monitor should match on high-value transactions OR on "Transfer" logs.
+        let monitor = MonitorBuilder::new()
+            .id(1)
+            .filter_script(
+                r#"
+            tx.value > bigint(100) || (log != () && log.name == "Transfer")
+        "#,
+            )
+            .notifiers(vec!["test-notifier".to_string()])
+            .build();
+        let engine = setup_engine_with_monitors(vec![monitor], abi_service.clone());
+
+        // This transaction matches the `tx.value` part of the script and has NO logs.
+        let tx = TransactionBuilder::new().value(U256::from(150)).build();
+        let item = CorrelatedBlockItem::new(tx, vec![], None, None);
+
+        let matches = engine.evaluate_item(&item).await.unwrap();
+        assert_eq!(matches.len(), 1, "Should match on tx.value even with no logs");
+        assert_eq!(matches[0].monitor_id, 1);
+        assert!(matches!(matches[0].match_data, MatchData::Transaction(_)));
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_item_hybrid_monitor_log_match_only() {
+        let temp_dir = tempdir().unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
+        let addr = address!("0000000000000000000000000000000000000001");
+
+        let monitor = MonitorBuilder::new()
+            .id(1)
+            .filter_script(
+                r#"
+            tx.value > bigint(100) || (log != () && log.name == "Transfer")
+        "#,
+            )
+            .notifiers(vec!["test-notifier".to_string()])
+            .build();
+        let engine = setup_engine_with_monitors(vec![monitor], abi_service.clone());
+
+        // This transaction does NOT match the tx.value, but its log does.
+        let tx = TransactionBuilder::new().value(U256::from(50)).build();
+        let (_, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
+        let item = CorrelatedBlockItem::new(tx, vec![log], None, None);
+
+        let matches = engine.evaluate_item(&item).await.unwrap();
+        assert_eq!(matches.len(), 1, "Should match on log.name");
+        assert_eq!(matches[0].monitor_id, 1);
+        assert!(matches!(matches[0].match_data, MatchData::Log(_)));
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_item_hybrid_monitor_prefers_log_match() {
+        let temp_dir = tempdir().unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
+        let addr = address!("0000000000000000000000000000000000000001");
+
+        let monitor = MonitorBuilder::new()
+            .id(1)
+            .filter_script(
+                r#"
+            tx.value > bigint(100) || (log != () && log.name == "Transfer")
+        "#,
+            )
+            .notifiers(vec!["test-notifier".to_string()])
+            .build();
+        let engine = setup_engine_with_monitors(vec![monitor], abi_service.clone());
+
+        // This transaction matches BOTH the tx.value and the log.name.
+        let tx = TransactionBuilder::new().value(U256::from(150)).build();
+        let (_, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
+        let item = CorrelatedBlockItem::new(tx, vec![log], None, None);
+
+        let matches = engine.evaluate_item(&item).await.unwrap();
+        // It should only produce ONE match, and it should be the more specific
+        // LogMatch.
+        assert_eq!(matches.len(), 1, "Should only produce one match");
+        assert_eq!(matches[0].monitor_id, 1);
+        assert!(matches!(matches[0].match_data, MatchData::Log(_)), "Should prefer LogMatch");
     }
 }
