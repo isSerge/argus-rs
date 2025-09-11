@@ -247,7 +247,78 @@ mod tests {
 
     #[test]
     fn test_organize_monitors_categorization() {
-        // TODO
+        let address = address!("0000000000000000000000000000000000000001");
+        let (compiler, _) = setup();
+        let temp_dir = tempdir().unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
+        abi_service.link_abi(address, "simple").unwrap();
+
+        let monitors = vec![
+            // TX only
+            MonitorBuilder::new().id(1).filter_script("tx.value > 100").build(),
+            // LOG only
+            MonitorBuilder::new()
+                .id(2)
+                .filter_script("log.name == \"Transfer\"")
+                .abi("simple")
+                .address(address.to_string().as_str())
+                .build(),
+            // CALL only
+            MonitorBuilder::new().id(3).filter_script("decoded_call.name == \"approve\"").build(),
+            // TX and LOG
+            MonitorBuilder::new()
+                .id(4)
+                .filter_script("tx.value > 100 && log.name == \"Transfer\"")
+                .abi("simple")
+                .address(address.to_string().as_str())
+                .build(),
+            // TX and CALL
+            MonitorBuilder::new()
+                .id(5)
+                .filter_script("tx.value > 100 && decoded_call.name == \"approve\"")
+                .build(),
+            // LOG and CALL
+            MonitorBuilder::new()
+                .id(6)
+                .filter_script("log.name == \"Transfer\" && decoded_call.name == \"approve\"")
+                .abi("simple")
+                .address(address.to_string().as_str())
+                .build(),
+            // TX, LOG, and CALL
+            MonitorBuilder::new()
+                .id(7)
+                .filter_script(
+                    "tx.value > 100 && log.name == \"Transfer\" && decoded_call.name == \
+                     \"Transfer\"",
+                )
+                .abi("simple")
+                .address(address.to_string().as_str())
+                .build(),
+            // No context access (should default to TX)
+            MonitorBuilder::new().id(8).filter_script("true").build(),
+            // Accessing decoded_call directly (should be CALL)
+            MonitorBuilder::new().id(9).filter_script("decoded_call == ()").build(),
+        ];
+
+        let manager = MonitorManager::new(monitors, compiler, abi_service);
+        let snapshot = manager.load();
+
+        let get_caps = |id: i64| -> MonitorCapabilities {
+            snapshot.monitors.iter().find(|m| m.monitor.id == id).unwrap().caps
+        };
+
+        assert_eq!(get_caps(1), MonitorCapabilities::TX);
+        assert_eq!(get_caps(2), MonitorCapabilities::LOG);
+        assert_eq!(get_caps(3), MonitorCapabilities::CALL);
+        assert_eq!(get_caps(4), MonitorCapabilities::TX | MonitorCapabilities::LOG);
+        assert_eq!(get_caps(5), MonitorCapabilities::TX | MonitorCapabilities::CALL);
+        assert_eq!(get_caps(6), MonitorCapabilities::LOG | MonitorCapabilities::CALL);
+        assert_eq!(
+            get_caps(7),
+            MonitorCapabilities::TX | MonitorCapabilities::LOG | MonitorCapabilities::CALL
+        );
+        assert_eq!(get_caps(8), MonitorCapabilities::TX);
+        assert_eq!(get_caps(9), MonitorCapabilities::CALL);
     }
 
     #[test]
@@ -299,7 +370,26 @@ mod tests {
 
     #[test]
     fn test_update_monitors() {
-        // TODO
+        let (compiler, abi_service) = setup();
+        let manager = MonitorManager::new(vec![], compiler.clone(), abi_service.clone());
+
+        // Initial state: empty
+        let snapshot1 = manager.load();
+        assert!(snapshot1.monitors.is_empty());
+        drop(snapshot1);
+
+        // Update with new monitors
+        let monitors = vec![
+            MonitorBuilder::new().id(1).filter_script("tx.value > 100").build(),
+            MonitorBuilder::new().id(2).filter_script("true").build(),
+        ];
+        manager.update(monitors);
+
+        // Final state: updated
+        let snapshot2 = manager.load();
+        assert_eq!(snapshot2.monitors.len(), 2);
+        assert_eq!(snapshot2.monitors[0].monitor.id, 1);
+        assert_eq!(snapshot2.monitors[1].monitor.id, 2);
     }
 
     #[test]
