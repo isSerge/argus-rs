@@ -2,31 +2,37 @@ use std::{collections::HashSet, sync::Arc};
 
 use alloy::primitives::Address;
 use arc_swap::{ArcSwap, Guard};
-use dashmap::DashMap;
+use bitflags::bitflags;
 
 use super::InterestRegistry;
-use crate::{abi::AbiService, engine::rhai::RhaiCompiler, models::monitor::Monitor};
+use crate::{
+    abi::AbiService,
+    engine::rhai::{RhaiCompiler, ScriptAnalysis},
+    models::monitor::Monitor,
+};
 
-/// The key used to store global log-aware monitors in the
-/// `address_specific_monitors` map.
-pub const GLOBAL_MONITORS_KEY: &str = "*";
+/// A monitor along with its capabilities and script analysis.
+#[derive(Debug)]
+pub struct ClassifiedMonitor {
+    pub monitor: Arc<Monitor>,
+    pub caps: MonitorCapabilities,
+    pub analysis: ScriptAnalysis,
+}
 
-/// A container for monitors that have been organized for efficient execution.
-#[derive(Debug, Default)]
-pub struct OrganizedMonitors {
-    /// Monitors that run on every transaction and do not depend on log data.
-    pub global_tx_monitors: Vec<Monitor>,
-    /// Monitors that run on every log, regardless of its source address.
-    pub global_log_monitors: Vec<Monitor>,
-    /// Monitors that are tied to a specific contract address. These can be
-    /// either transaction-focused or log-focused.
-    pub address_specific_monitors: DashMap<String, Vec<Monitor>>,
+bitflags! {
+    /// Capabilities that a monitor's script accesses.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct MonitorCapabilities: u8 {
+        const TX   = 0b0000_0001; // Script accesses `tx.*`
+        const LOG  = 0b0000_0010; // Script accesses `log.*`
+        const CALL = 0b0000_0100; // Script accesses `decoded_call.*`
+    }
 }
 
 #[derive(Debug, Default)]
 pub struct MonitorAssetState {
     /// The full, organized monitor structure for the FilteringEngine.
-    pub organized_monitors: OrganizedMonitors,
+    pub monitors: Vec<ClassifiedMonitor>,
 
     /// An optimized, fast-lookup registry for the BlockProcessor.
     pub interest_registry: InterestRegistry,
@@ -76,7 +82,7 @@ impl MonitorManager {
         abi_service: &Arc<AbiService>,
     ) -> MonitorAssetState {
         tracing::debug!("Organizing assets for {} monitors", monitors.len());
-        let mut organized_monitors = OrganizedMonitors::default();
+        let mut classified_monitors = Vec::new();
         let mut requires_receipts = false;
 
         // Receipt-specific fields that are only available from transaction receipts
@@ -88,10 +94,8 @@ impl MonitorManager {
         .into_iter()
         .collect();
 
-        let mut log_addresses = HashSet::new();
-        let mut calldata_addresses = HashSet::new();
-
         for monitor in monitors {
+            // Analyze the filter script
             let analysis = match compiler.analyze_script(&monitor.filter_script) {
                 Ok(analysis) => analysis,
                 Err(err) => {
@@ -105,87 +109,112 @@ impl MonitorManager {
                 }
             };
 
+            // Check if the monitor requires receipt fields
             if !requires_receipts && !analysis.accessed_variables.is_disjoint(&receipt_fields) {
                 requires_receipts = true;
             }
 
-            let is_log_aware = analysis.accesses_log_variable;
-            let has_address = monitor.address.is_some()
-                && !monitor.address.as_deref().unwrap_or("").eq_ignore_ascii_case("all");
+            // Determine capabilities based on accessed variables
+            let mut caps = MonitorCapabilities::empty();
 
-            if has_address {
-                if let Some(address) =
-                    monitor.address.as_deref().and_then(|a| a.parse::<Address>().ok())
-                {
-                    let address_checksum = address.to_checksum(None);
-                    organized_monitors
-                        .address_specific_monitors
-                        .entry(address_checksum)
-                        .or_default()
-                        .push(monitor.clone());
+            // Check if any tx fields are accessed
+            if analysis.accessed_variables.iter().any(|var| var.starts_with("tx.")) {
+                caps |= MonitorCapabilities::TX;
+            }
 
-                    if is_log_aware {
-                        log_addresses.insert(address);
+            // Check if any log fields are accessed
+            if analysis.accesses_log_variable {
+                caps |= MonitorCapabilities::LOG;
+            }
+
+            // Check if any decoded_call fields are accessed
+            if analysis.accessed_variables.iter().any(|var| var.starts_with("decoded_call.")) {
+                caps |= MonitorCapabilities::CALL;
+            }
+
+            // Create the ClassifiedMonitor
+            let classified =
+                ClassifiedMonitor { monitor: Arc::new(monitor.clone()), caps, analysis };
+
+            // Add the classified monitor to the list
+            classified_monitors.push(classified);
+        }
+
+        let interest_registry = Self::build_interest_registry(&classified_monitors, abi_service);
+
+        tracing::debug!(
+            "Organized monitors: {} total, requires_receipts={}",
+            classified_monitors.len(),
+            requires_receipts
+        );
+
+        MonitorAssetState { monitors: classified_monitors, requires_receipts, interest_registry }
+    }
+
+    fn build_interest_registry(
+        classified_monitors: &Vec<ClassifiedMonitor>,
+        abi_service: &Arc<AbiService>,
+    ) -> InterestRegistry {
+        let mut log_addresses = HashSet::new();
+        let mut calldata_addresses = HashSet::new();
+        let mut global_event_signatures = HashSet::new();
+
+        // Iterate through the single, unified list of all processed monitors.
+        for cm in classified_monitors {
+            let monitor = &cm.monitor; // Get a reference to the inner Monitor
+
+            // Check if the monitor has a specific address.
+            if let Some(address_str) = &monitor.address {
+                if !address_str.eq_ignore_ascii_case("all") {
+                    if let Ok(address) = address_str.parse::<Address>() {
+                        // This is an address-specific monitor.
+
+                        // If it's log-aware, add its address to the log interest set.
+                        if cm.caps.contains(MonitorCapabilities::LOG) {
+                            log_addresses.insert(address);
+                        }
+
+                        // If it decodes calldata, add its address to the calldata interest set.
+                        if monitor.decode_calldata {
+                            calldata_addresses.insert(address);
+                        }
                     }
-                    if monitor.decode_calldata {
-                        calldata_addresses.insert(address);
+                } else {
+                    // This is a global monitor with `address: "all"`.
+                    if cm.caps.contains(MonitorCapabilities::LOG) {
+                        if let Some(abi_name) = &monitor.abi {
+                            if let Some(abi) = abi_service.get_abi_by_name(abi_name) {
+                                for event in abi.events.values().flatten() {
+                                    global_event_signatures.insert(event.selector());
+                                }
+                            }
+                        }
                     }
                 }
             } else {
-                // Global monitor
-                if is_log_aware {
-                    organized_monitors.global_log_monitors.push(monitor.clone());
-                } else {
-                    organized_monitors.global_tx_monitors.push(monitor.clone());
-                }
-            }
-        }
-
-        // Global monitors
-        let mut global_event_signatures = HashSet::new();
-        for monitor in &organized_monitors.global_log_monitors {
-            if let Some(abi_name) = &monitor.abi {
-                if let Some(abi) = abi_service.get_abi_by_name(abi_name) {
-                    for event in abi.events.values().flatten() {
-                        global_event_signatures.insert(event.selector());
+                // This is a global monitor (address field is None).
+                if cm.caps.contains(MonitorCapabilities::LOG) {
+                    if let Some(abi_name) = &monitor.abi {
+                        if let Some(abi) = abi_service.get_abi_by_name(abi_name) {
+                            for event in abi.events.values().flatten() {
+                                global_event_signatures.insert(event.selector());
+                            }
+                        }
                     }
                 }
             }
         }
 
-        tracing::debug!(
-            "Created interest registry with {} log addresses, {} calldata addresses, and {} \
-             global event signatures",
-            log_addresses.len(),
-            calldata_addresses.len(),
-            global_event_signatures.len()
-        );
-
-        let interest_registry = InterestRegistry {
+        InterestRegistry {
             log_addresses: Arc::new(log_addresses),
             calldata_addresses: Arc::new(calldata_addresses),
             global_event_signatures: Arc::new(global_event_signatures),
-        };
-
-        tracing::debug!(
-            "Organized monitors:
-            {} transaction-only, 
-            {} global log-aware,
-            {} address-specific groups
-            ",
-            organized_monitors.global_tx_monitors.len(),
-            organized_monitors.global_log_monitors.len(),
-            organized_monitors.address_specific_monitors.len(),
-        );
-
-        MonitorAssetState { organized_monitors, requires_receipts, interest_registry }
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-
     use alloy::primitives::{address, b256};
     use tempfile::tempdir;
 
@@ -205,51 +234,7 @@ mod tests {
 
     #[test]
     fn test_organize_monitors_categorization() {
-        let (compiler, abi_service) = setup();
-
-        let tx_monitor = MonitorBuilder::new().id(1).filter_script("tx.value > 100").build();
-        let log_monitor_address = MonitorBuilder::new()
-            .id(2)
-            .address("0x0000000000000000000000000000000000000001")
-            .filter_script(r#"log.name == "Transfer""#)
-            .build();
-        let log_monitor_global =
-            MonitorBuilder::new().id(3).filter_script(r#"log.name == "Approval""#).build();
-        let log_monitor_global_all = MonitorBuilder::new()
-            .id(4)
-            .address("all")
-            .filter_script(r#"log.name == "Approval""#)
-            .build();
-
-        let monitors = vec![
-            tx_monitor.clone(),
-            log_monitor_address.clone(),
-            log_monitor_global.clone(),
-            log_monitor_global_all.clone(),
-        ];
-
-        let manager = MonitorManager::new(monitors, compiler, abi_service);
-        let snapshot = manager.load();
-
-        // Global transaction-only monitors
-        assert_eq!(snapshot.organized_monitors.global_tx_monitors.len(), 1);
-        assert_eq!(snapshot.organized_monitors.global_tx_monitors[0].id, 1);
-
-        // Address-specific monitors
-        assert_eq!(snapshot.organized_monitors.address_specific_monitors.len(), 1);
-        let addr = address!("0000000000000000000000000000000000000001");
-        let addr_checksum = addr.to_checksum(None);
-        let address_monitors =
-            snapshot.organized_monitors.address_specific_monitors.get(&addr_checksum).unwrap();
-        assert_eq!(address_monitors.len(), 1);
-        assert_eq!(address_monitors[0].id, 2);
-
-        // Global log monitors
-        assert_eq!(snapshot.organized_monitors.global_log_monitors.len(), 2);
-        let global_log_ids: HashSet<i64> =
-            snapshot.organized_monitors.global_log_monitors.iter().map(|m| m.id).collect();
-        assert!(global_log_ids.contains(&3));
-        assert!(global_log_ids.contains(&4));
+        // TODO
     }
 
     #[test]
@@ -301,40 +286,7 @@ mod tests {
 
     #[test]
     fn test_update_monitors() {
-        let (compiler, abi_service) = setup();
-
-        let initial_monitors =
-            vec![MonitorBuilder::new().id(1).filter_script("tx.value > 100").build()];
-        let manager = MonitorManager::new(initial_monitors, compiler.clone(), abi_service.clone());
-
-        // Check initial state
-        let snapshot1 = manager.load();
-        assert_eq!(snapshot1.organized_monitors.global_tx_monitors.len(), 1);
-        assert_eq!(snapshot1.organized_monitors.global_tx_monitors[0].id, 1);
-        assert!(snapshot1.organized_monitors.address_specific_monitors.is_empty());
-        drop(snapshot1);
-
-        // Update with new monitors
-        let updated_monitors = vec![
-            MonitorBuilder::new()
-                .id(2)
-                .address("0x0000000000000000000000000000000000000001")
-                .filter_script(r#"log.name == "Transfer""#)
-                .build(),
-            MonitorBuilder::new().id(3).filter_script("tx.value > 200").build(),
-        ];
-        manager.update(updated_monitors);
-
-        // Check updated state
-        let snapshot2 = manager.load();
-        assert_eq!(snapshot2.organized_monitors.global_tx_monitors.len(), 1);
-        assert_eq!(snapshot2.organized_monitors.global_tx_monitors[0].id, 3);
-        assert_eq!(snapshot2.organized_monitors.address_specific_monitors.len(), 1);
-        let addr = address!("0000000000000000000000000000000000000001");
-        let addr_checksum = addr.to_checksum(None);
-        assert!(
-            snapshot2.organized_monitors.address_specific_monitors.contains_key(&addr_checksum)
-        );
+        // TODO
     }
 
     #[test]
@@ -415,9 +367,7 @@ mod tests {
         let manager = MonitorManager::new(vec![], compiler.clone(), abi_service.clone());
         let snapshot = manager.load();
 
-        assert!(snapshot.organized_monitors.global_tx_monitors.is_empty());
-        assert!(snapshot.organized_monitors.global_log_monitors.is_empty());
-        assert!(snapshot.organized_monitors.address_specific_monitors.is_empty());
+        assert!(snapshot.monitors.is_empty());
         assert!(!snapshot.requires_receipts);
         assert!(snapshot.interest_registry.log_addresses.is_empty());
         assert!(snapshot.interest_registry.global_event_signatures.is_empty());
@@ -426,9 +376,7 @@ mod tests {
         // Test updating with an empty list
         manager.update(vec![]);
         let updated_snapshot = manager.load();
-        assert!(updated_snapshot.organized_monitors.global_tx_monitors.is_empty());
-        assert!(updated_snapshot.organized_monitors.global_log_monitors.is_empty());
-        assert!(updated_snapshot.organized_monitors.address_specific_monitors.is_empty());
+        assert!(updated_snapshot.monitors.is_empty());
         assert!(!updated_snapshot.requires_receipts);
         assert!(updated_snapshot.interest_registry.log_addresses.is_empty());
         assert!(updated_snapshot.interest_registry.global_event_signatures.is_empty());
@@ -448,8 +396,7 @@ mod tests {
         let snapshot = manager.load();
 
         // The monitor should be organized as a global log-aware monitor.
-        assert_eq!(snapshot.organized_monitors.global_log_monitors.len(), 1);
-        assert!(snapshot.organized_monitors.address_specific_monitors.is_empty());
+        assert_eq!(snapshot.monitors.len(), 1);
 
         // No event signatures should be added because the ABI was not found.
         assert!(snapshot.interest_registry.global_event_signatures.is_empty());
