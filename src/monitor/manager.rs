@@ -178,17 +178,16 @@ impl MonitorManager {
 
             let is_log_aware = cm.caps.contains(MonitorCapabilities::LOG);
             let is_global =
-                monitor.address.as_deref().map_or(true, |a| a.eq_ignore_ascii_case("all"));
+                monitor.address.as_deref().is_none_or(|a| a.eq_ignore_ascii_case("all"));
 
             if is_global {
                 // This is a global monitor (address is "all" or None).
-                if is_log_aware {
-                    if let Some(abi_name) = &monitor.abi {
-                        if let Some(abi) = abi_service.get_abi_by_name(abi_name) {
-                            for event in abi.events.values().flatten() {
-                                global_event_signatures.insert(event.selector());
-                            }
-                        }
+                if is_log_aware
+                    && let Some(abi_name) = &monitor.abi
+                    && let Some(abi) = abi_service.get_abi_by_name(abi_name)
+                {
+                    for event in abi.events.values().flatten() {
+                        global_event_signatures.insert(event.selector());
                     }
                 }
             } else if let Some(address_str) = &monitor.address {
