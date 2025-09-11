@@ -5,7 +5,7 @@
 //! address-specific log-aware) is determined by the static analysis of its
 //! `filter_script`.
 
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use futures::future;
@@ -35,7 +35,7 @@ use crate::{
         monitor::Monitor,
         monitor_match::{LogDetails, MonitorMatch},
     },
-    monitor::{GLOBAL_MONITORS_KEY, MonitorManager},
+    monitor::{MonitorCapabilities, MonitorManager},
 };
 
 /// Rhai script execution errors that can occur during compilation or runtime
@@ -134,53 +134,35 @@ impl RhaiFilteringEngine {
         }
     }
 
-    /// Evaluates a single log-aware monitor against a decoded log and its
-    /// parent transaction.
-    #[tracing::instrument(skip(self, monitor, tx_map, log_map, log_match_payload, decoded_log))]
-    async fn evaluate_single_log_monitor(
+    async fn does_monitor_match(
         &self,
-        monitor: Monitor,
-        tx_map: rhai::Map,
-        log_map: rhai::Map,
-        decoded_call_map: rhai::Dynamic,
-        log_match_payload: serde_json::Value,
-        tx_match_payload: serde_json::Value,
-        decoded_log: &DecodedLog,
-    ) -> Result<Vec<MonitorMatch>, RhaiError> {
+        monitor: &Monitor,
+        item: &CorrelatedBlockItem,
+        log: Option<&DecodedLog>,
+    ) -> Result<bool, RhaiError> {
         let mut scope = Scope::new();
+
+        // Build the context for this specific evaluation
+        let tx_map = build_transaction_map(&item.transaction, item.receipt.as_ref());
         scope.push("tx", tx_map);
-        scope.push("log", log_map);
-        scope.push("decoded_call", decoded_call_map);
+
+        let decoded_call_dynamic: rhai::Dynamic = match &item.decoded_call {
+            Some(c) => build_decoded_call_map(c).into(),
+            None => ().into(),
+        };
+        scope.push("decoded_call", decoded_call_dynamic);
+
+        if let Some(l) = log {
+            let params_map = build_params_map(&l.params);
+            let log_map = build_log_map(l, params_map);
+            scope.push("log", log_map);
+        } else {
+            scope.push("log", ()); // Ensure `log` is null when not present
+        }
 
         let ast = self.compiler.get_ast(&monitor.filter_script)?;
 
-        let block_number = decoded_log.log.block_number().unwrap_or_default();
-        let transaction_hash = decoded_log.log.transaction_hash().unwrap_or_default();
-        let address = decoded_log.log.address();
-        let log_index = decoded_log.log.log_index().unwrap_or_default();
-
-        let mut monitor_matches = Vec::new();
-        if let Ok(true) = self.eval_ast_bool_secure(&ast, &mut scope).await {
-            for notifier_name in &monitor.notifiers {
-                let log_details = LogDetails {
-                    address,
-                    log_index,
-                    name: decoded_log.name.clone(),
-                    params: log_match_payload.clone(),
-                };
-
-                monitor_matches.push(MonitorMatch::new_log_match(
-                    monitor.id,
-                    monitor.name.clone(),
-                    notifier_name.clone(),
-                    block_number,
-                    transaction_hash,
-                    log_details,
-                    tx_match_payload.clone(),
-                ));
-            }
-        }
-        Ok(monitor_matches)
+        self.eval_ast_bool_secure(&ast, &mut scope).await
     }
 }
 
@@ -236,91 +218,63 @@ impl FilteringEngine for RhaiFilteringEngine {
         item: &CorrelatedBlockItem,
     ) -> Result<Vec<MonitorMatch>, RhaiError> {
         let mut matches = Vec::new();
-        let tx_map = build_transaction_map(&item.transaction, item.receipt.as_ref());
-
         let assets = self.monitor_manager.load();
-        let monitors = &assets.organized_monitors;
+        let mut matched_monitor_ids: HashSet<i64> = HashSet::new(); // Track matched monitor IDs to avoid duplicates
 
-        let decoded_call_map: rhai::Dynamic = match &item.decoded_call {
-            Some(call) => build_decoded_call_map(call).into(),
-            None => ().into(),
-        };
+        for cm in assets.monitors.iter() {
+            let id = cm.monitor.id;
 
-        // --- 1. Handle transaction-only monitors ---
-        for monitor in &monitors.transaction_only_monitors {
-            let mut scope = Scope::new();
-            scope.push("tx", tx_map.clone());
-            scope.push("decoded_call", decoded_call_map.clone());
+            // Transaction-level evaluation (TX and CALL capabilities)
+            if cm.caps.intersects(MonitorCapabilities::TX | MonitorCapabilities::CALL)
+                && !cm.caps.contains(MonitorCapabilities::LOG)
+            {
+                if self.does_monitor_match(&cm.monitor, item, None).await? {
+                    let tx_match_payload =
+                        build_transaction_details_payload(&item.transaction, item.receipt.as_ref());
 
-            let ast = self.compiler.get_ast(&monitor.filter_script)?;
-
-            if let Ok(true) = self.eval_ast_bool_secure(&ast, &mut scope).await {
-                tracing::debug!(
-                    monitor_id = monitor.id,
-                    tx_hash = %item.transaction.hash(),
-                    "Transaction-only monitor condition met."
-                );
-
-                // Build transaction data payload for the match
-                let tx_match_payload =
-                    build_transaction_details_payload(&item.transaction, item.receipt.as_ref());
-
-                for notifier_name in &monitor.notifiers {
-                    matches.push(MonitorMatch::new_tx_match(
-                        monitor.id,
-                        monitor.name.clone(),
-                        notifier_name.clone(),
-                        item.transaction.block_number().unwrap_or(0),
-                        item.transaction.hash(),
-                        tx_match_payload.clone(),
-                    ));
+                    for notifier in &cm.monitor.notifiers {
+                        matches.push(MonitorMatch::new_tx_match(
+                            cm.monitor.id,
+                            cm.monitor.name.clone(),
+                            notifier.clone(),
+                            item.transaction.block_number().unwrap_or_default(),
+                            item.transaction.hash(),
+                            tx_match_payload.clone(),
+                        ));
+                    }
+                    matched_monitor_ids.insert(cm.monitor.id);
                 }
             }
-        }
 
-        // --- 2. Handle all address-specific monitors ---
-        if monitors.address_specific_monitors.is_empty() {
-            return Ok(matches);
-        }
+            // Log-level evaluation (LOG capability)
+            if cm.caps.contains(MonitorCapabilities::LOG) {
+                // Skip if this monitor has already matched for this item
+                if matched_monitor_ids.contains(&id) {
+                    continue;
+                }
 
-        for log in &item.decoded_logs {
-            // Build log data payload for the match
-            let log_address_str = log.log.address().to_checksum(None);
-            let params_map = build_params_map(&log.params);
-            let log_map = build_log_map(log, params_map);
-            let log_match_payload = build_log_params_payload(&log.params);
-            let tx_match_payload =
-                build_transaction_details_payload(&item.transaction, item.receipt.as_ref());
+                for log in &item.decoded_logs {
+                    if self.does_monitor_match(&cm.monitor, item, Some(log)).await? {
+                        let log_match_payload = build_log_params_payload(&log.params);
 
-            // Evaluate both address-specific and global log-aware monitors.
-            let address_monitors = monitors.address_specific_monitors.get(&log_address_str);
-            let global_monitors = monitors.address_specific_monitors.get(GLOBAL_MONITORS_KEY);
+                        for notifier in &cm.monitor.notifiers {
+                            let log_details = LogDetails {
+                                log_index: log.log.log_index().unwrap_or_default(),
+                                address: log.log.address(),
+                                name: log.name.clone(),
+                                params: log_match_payload.clone(),
+                            };
 
-            let monitors_to_run = address_monitors
-                .iter()
-                .flat_map(|r| r.iter())
-                .chain(global_monitors.iter().flat_map(|r| r.iter()));
-
-            for monitor in monitors_to_run {
-                match self
-                    .evaluate_single_log_monitor(
-                        monitor.clone(),
-                        tx_map.clone(),
-                        log_map.clone(),
-                        decoded_call_map.clone(),
-                        log_match_payload.clone(),
-                        tx_match_payload.clone(),
-                        log,
-                    )
-                    .await
-                {
-                    Ok(new_matches) => matches.extend(new_matches),
-                    Err(e) => {
-                        tracing::error!(
-                            monitor_id = monitor.id,
-                            error = ?e,
-                            "Error evaluating log-aware monitor"
-                        );
+                            matches.push(MonitorMatch::new_log_match(
+                                cm.monitor.id,
+                                cm.monitor.name.clone(),
+                                notifier.clone(),
+                                item.transaction.block_number().unwrap_or_default(),
+                                item.transaction.hash(),
+                                log_details,
+                                log_match_payload.clone(),
+                            ));
+                        }
                     }
                 }
             }
@@ -340,19 +294,22 @@ impl FilteringEngine for RhaiFilteringEngine {
 mod tests {
     use alloy::{
         dyn_abi::DynSolValue,
-        primitives::{Address, U256, address},
+        primitives::{Address, U256, address, b256},
     };
     use tempfile::tempdir;
 
     use super::*;
     use crate::{
-        abi::DecodedLog,
+        abi::{AbiService, DecodedLog},
         config::RhaiConfig,
         models::{
             monitor_match::{LogDetails, LogMatchData, MatchData, TransactionMatchData},
             transaction::Transaction,
         },
-        test_helpers::{LogBuilder, MonitorBuilder, TransactionBuilder, create_test_abi_service},
+        test_helpers::{
+            LogBuilder, MonitorBuilder, TransactionBuilder, create_test_abi_service,
+            simple_abi_json,
+        },
     };
 
     fn create_test_log_and_tx(
@@ -367,11 +324,12 @@ mod tests {
         (tx.into(), log)
     }
 
-    fn setup_engine_with_monitors(monitors: Vec<Monitor>) -> RhaiFilteringEngine {
-        let temp_dir = tempdir().unwrap();
+    fn setup_engine_with_monitors(
+        monitors: Vec<Monitor>,
+        abi_service: Arc<AbiService>,
+    ) -> RhaiFilteringEngine {
         let config = RhaiConfig::default();
         let compiler = Arc::new(RhaiCompiler::new(config.clone()));
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("abi.json", "[]")]);
         let monitor_manager =
             Arc::new(MonitorManager::new(monitors, Arc::clone(&compiler), abi_service));
         RhaiFilteringEngine::new(compiler, config, monitor_manager)
@@ -379,16 +337,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_item_log_based_match() {
+        let temp_dir = tempdir().unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
+
         let addr = address!("0000000000000000000000000000000000000001");
         let monitor = MonitorBuilder::new()
             .id(1)
             .address(&addr.to_checksum(None))
-            .abi("abi.json")
+            .abi("simple")
             .filter_script("log.name == \"Transfer\"")
             .notifiers(vec!["notifier1".to_string(), "notifier2".to_string()])
             .build();
         let monitors = vec![monitor];
-        let engine = setup_engine_with_monitors(monitors);
+        let engine = setup_engine_with_monitors(monitors, abi_service);
 
         let (tx, log) = create_test_log_and_tx(addr, "Transfer", vec![]);
         let item = CorrelatedBlockItem::new(tx, vec![log], None, None);
@@ -403,13 +364,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_item_transaction_based_match() {
+        let temp_dir = tempdir().unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
         let monitor = MonitorBuilder::new()
             .id(1)
             .filter_script("tx.value > bigint(\"100\")")
             .notifiers(vec!["notifier1".to_string()])
             .build();
         let monitors = vec![monitor];
-        let engine = setup_engine_with_monitors(monitors);
+        let engine = setup_engine_with_monitors(monitors, abi_service);
 
         let tx = TransactionBuilder::new().value(U256::from(150)).build();
         // This item has no logs, but should still be evaluated by the tx monitor
@@ -423,13 +386,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_item_no_match_for_tx_monitor() {
+        let temp_dir = tempdir().unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
+
         let monitor = MonitorBuilder::new()
             .id(1)
             .filter_script("tx.value > bigint(\"200\")")
             .notifiers(vec!["notifier1".to_string()])
             .build();
         let monitors = vec![monitor];
-        let engine = setup_engine_with_monitors(monitors);
+        let engine = setup_engine_with_monitors(monitors, abi_service);
 
         let tx = TransactionBuilder::new().value(U256::from(150)).build();
         let item = CorrelatedBlockItem::new(tx, vec![], None, None);
@@ -440,11 +406,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_item_mixed_monitors_both_match() {
+        let temp_dir = tempdir().unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
         let addr = address!("0000000000000000000000000000000000000001");
         let log_monitor = MonitorBuilder::new()
             .id(1)
             .address(&addr.to_checksum(None))
-            .abi("abi.json")
+            .abi("simple")
             .filter_script("log.name == \"Transfer\"")
             .notifiers(vec!["log_notifier".to_string()])
             .build();
@@ -454,7 +422,7 @@ mod tests {
             .notifiers(vec!["tx_notifier".to_string()])
             .build();
         let monitors = vec![log_monitor.clone(), tx_monitor.clone()];
-        let engine = setup_engine_with_monitors(monitors);
+        let engine = setup_engine_with_monitors(monitors, abi_service);
 
         // Create a transaction that will match the transaction-level monitor
         let tx = TransactionBuilder::new().value(U256::from(120)).build();
@@ -475,16 +443,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_item_filter_by_log_param() {
+        let temp_dir = tempdir().unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
         let addr = address!("0000000000000000000000000000000000000001");
         let monitor = MonitorBuilder::new()
             .id(1)
             .address(&addr.to_checksum(None))
-            .abi("abi.json")
+            .abi("simple")
             .filter_script("log.name == \"ValueTransfered\" && log.params.value > bigint(\"100\")")
             .notifiers(vec!["notifier1".to_string()])
             .build();
         let monitors = vec![monitor];
-        let engine = setup_engine_with_monitors(monitors);
+        let engine = setup_engine_with_monitors(monitors, abi_service);
 
         let value = 130;
         let (tx, log) = create_test_log_and_tx(
@@ -505,10 +475,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_item_no_decoded_logs_still_triggers_tx_monitor() {
+        let temp_dir = tempdir().unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
         let monitor = MonitorBuilder::new().id(1).notifiers(vec!["notifier1".to_string()]).build();
         let monitors = vec![monitor];
-        let engine = setup_engine_with_monitors(monitors);
-
+        let engine = setup_engine_with_monitors(monitors, abi_service);
         let tx = TransactionBuilder::new().build();
         let item = CorrelatedBlockItem::new(tx, vec![], None, None);
 
@@ -518,7 +489,99 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_evaluate_item_tx_only_monitor_with_decoded_call_match() {
+        let temp_dir = tempdir().unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
+        let contract_address = address!("0000000000000000000000000000000000000001");
+        abi_service.link_abi(contract_address, "simple").unwrap();
+
+        // This monitor is specific to an address and cares about decoded calldata, but
+        // not logs.
+        let monitor = MonitorBuilder::new()
+            .id(1)
+            .address(&contract_address.to_checksum(None))
+            .decode_calldata(true)
+            .filter_script(
+                r#"decoded_call.name == "transfer" && decoded_call.params.amount > bigint(1000)"#,
+            )
+            .notifiers(vec!["test-notifier".to_string()])
+            .build();
+        let engine = setup_engine_with_monitors(vec![monitor], abi_service.clone());
+
+        // This transaction matches the monitor's script.
+        let matching_input_str = "0xa9059cbb00000000000000000000000011223344556677889900aabbccddeeff1122334400000000000000000000000000000000000000000000000000000000000005dc";
+        let tx = TransactionBuilder::new()
+            .to(Some(contract_address))
+            .input(matching_input_str.parse().unwrap())
+            .build();
+        let decoded_call = abi_service.decode_function_input(&tx).unwrap();
+        let item = CorrelatedBlockItem::new(tx, vec![], Some(decoded_call), None);
+
+        let matches = engine.evaluate_item(&item).await.unwrap();
+        assert_eq!(matches.len(), 1, "Should find one match for high-value transfer");
+        assert_eq!(matches[0].monitor_id, 1);
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_item_log_aware_monitor_with_decoded_call_match() {
+        let temp_dir = tempdir().unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
+        let contract_address = address!("0000000000000000000000000000000000000001");
+        abi_service.link_abi(contract_address, "simple").unwrap();
+
+        // This monitor cares about both logs and decoded calldata.
+        let monitor = MonitorBuilder::new()
+            .id(1)
+            .address(&contract_address.to_checksum(None))
+            .decode_calldata(true)
+            .filter_script(
+                r#"log.name == "Transfer" && decoded_call.name == "transfer" && decoded_call.params.amount > bigint(1000)"#,
+            )
+            .notifiers(vec!["test-notifier".to_string()])
+            .build();
+        let engine = setup_engine_with_monitors(vec![monitor], abi_service.clone());
+
+        // This transaction matches the monitor's script.
+        let matching_input_str = "0xa9059cbb00000000000000000000000011223344556677889900aabbccddeeff1122334400000000000000000000000000000000000000000000000000000000000005dc";
+        let tx = TransactionBuilder::new()
+            .to(Some(contract_address))
+            .input(matching_input_str.parse().unwrap())
+            .build();
+        let decoded_call = abi_service.decode_function_input(&tx).unwrap();
+        let (_, log) = create_test_log_and_tx(contract_address, "Transfer", vec![]);
+        let item = CorrelatedBlockItem::new(tx, vec![log], Some(decoded_call), None);
+
+        let matches = engine.evaluate_item(&item).await.unwrap();
+        assert_eq!(matches.len(), 1, "Should find one match for high-value transfer with log");
+        assert_eq!(matches[0].monitor_id, 1);
+    }
+
+    #[tokio::test]
+    async fn test_decoded_call_is_null_for_non_matching_selector() {
+        let temp_dir = tempdir().unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
+        let monitor = MonitorBuilder::new()
+            .id(1)
+            .filter_script("decoded_call == ()") // Check for null decoded_call
+            .notifiers(vec!["notifier1".to_string()])
+            .decode_calldata(true)
+            .build();
+        let monitors = vec![monitor];
+        let engine = setup_engine_with_monitors(monitors, abi_service);
+
+        let tx = TransactionBuilder::new()
+            .input(b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").into()) // Invalid selector
+            .build();
+        let item = CorrelatedBlockItem::new(tx, vec![], None, None);
+
+        let matches = engine.evaluate_item(&item).await.unwrap();
+        assert_eq!(matches.len(), 1, "Should match when decoded_call is null");
+    }
+
+    #[tokio::test]
     async fn test_requires_receipt_data_flag_set_correctly() {
+        let temp_dir = tempdir().unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
         // --- Scenario 1: A monitor explicitly uses a receipt field ---
         let monitor_no_receipt = MonitorBuilder::new()
             .id(1)
@@ -529,7 +592,7 @@ mod tests {
             .filter_script("tx.status == 1") // This requires receipt data
             .build();
         let monitors_with_receipt_field = vec![monitor_no_receipt, monitor_requires_receipt];
-        let engine = setup_engine_with_monitors(monitors_with_receipt_field);
+        let engine = setup_engine_with_monitors(monitors_with_receipt_field, abi_service.clone());
         assert_eq!(
             engine.requires_receipt_data(),
             true,
@@ -546,7 +609,8 @@ mod tests {
             .filter_script("log.name == \"Transfer\"") // No receipt needed
             .build();
         let monitors_without_receipt_field = vec![monitor_no_receipt, monitor_no_receipt_too];
-        let engine_no_receipts = setup_engine_with_monitors(monitors_without_receipt_field);
+        let engine_no_receipts =
+            setup_engine_with_monitors(monitors_without_receipt_field, abi_service.clone());
         assert_eq!(
             engine_no_receipts.requires_receipt_data(),
             false,
@@ -562,7 +626,8 @@ mod tests {
             .filter_script("tx.value > bigint(\"100\") && log.name == \"tx.gas_used\"")
             .build();
         let monitors_with_receipt_field_in_comment = vec![monitor_commented_field, monitor];
-        let engine_ast_check = setup_engine_with_monitors(monitors_with_receipt_field_in_comment);
+        let engine_ast_check =
+            setup_engine_with_monitors(monitors_with_receipt_field_in_comment, abi_service.clone());
         assert_eq!(
             engine_ast_check.requires_receipt_data(),
             false,
@@ -584,7 +649,7 @@ mod tests {
             .build();
         let monitors_mixed_validity =
             vec![monitor_valid_no_receipt, monitor_valid_requires_receipt, monitor_invalid];
-        let engine_mixed = setup_engine_with_monitors(monitors_mixed_validity);
+        let engine_mixed = setup_engine_with_monitors(monitors_mixed_validity, abi_service);
         assert_eq!(
             engine_mixed.requires_receipt_data(),
             true,
@@ -594,13 +659,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_item_with_evm_wrappers() {
+        let temp_dir = tempdir().unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
         let monitor = MonitorBuilder::new()
             .id(1)
             .filter_script("tx.value > ether(1.5)")
             .notifiers(vec!["notifier1".to_string()])
             .build();
         let monitors = vec![monitor];
-        let engine = setup_engine_with_monitors(monitors);
+        let engine = setup_engine_with_monitors(monitors, abi_service);
 
         // This transaction's value is 2 ETH, which should trigger the monitor
         let tx_match = TransactionBuilder::new()
@@ -631,6 +698,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_item_global_log_monitor_match() {
+        let temp_dir = tempdir().unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
         // This monitor has no address, so it should run on logs from ANY address.
         let global_monitor = MonitorBuilder::new()
             .id(100)
@@ -639,7 +708,7 @@ mod tests {
             .build();
 
         let monitors = vec![global_monitor];
-        let engine = setup_engine_with_monitors(monitors);
+        let engine = setup_engine_with_monitors(monitors, abi_service);
 
         let addr1 = address!("1111111111111111111111111111111111111111");
         let addr2 = address!("2222222222222222222222222222222222222222");

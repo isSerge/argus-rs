@@ -5,5 +5,5 @@ mod manager;
 mod validator;
 
 pub use interest_registry::InterestRegistry;
-pub use manager::{GLOBAL_MONITORS_KEY, MonitorManager};
+pub use manager::{MonitorCapabilities, MonitorManager};
 pub use validator::{MonitorValidationError, MonitorValidator};
