@@ -180,16 +180,13 @@ impl<'a> MonitorValidator<'a> {
         &self,
         monitor: &MonitorConfig,
     ) -> Result<(), MonitorValidationError> {
-        println!("Validating calldata rules for monitor: {:?}", monitor);
         // If calldata decoding is not enabled, no further checks are needed.
         if !monitor.decode_calldata.unwrap_or_default() {
-            println!("Calldata decoding not enabled; skipping further checks.");
             return Ok(());
         }
 
         // Check if ABI is provided when calldata decoding is enabled.
         if monitor.abi.is_none() {
-            println!("Calldata decoding enabled but no ABI provided.");
             return Err(MonitorValidationError::InvalidCalldataConfig {
                 monitor_name: monitor.name.clone(),
                 reason: "Calldata decoding is enabled, but no ABI is specified. Please provide an \
