@@ -151,6 +151,7 @@ mod tests {
             abi: Some(abi_name.to_string()),
             filter_script: "true".to_string(),
             notifiers: vec![],
+            decode_calldata: None,
         };
 
         let state_repo = Arc::new(setup_test_db().await);

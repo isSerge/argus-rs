@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO monitors (name, network, address, abi, filter_script, notifiers, decode_calldata)VALUES (?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "b681080e5545da0e860eaacfe3b16096fa3cf88c307abc09a26ba0fd72eddcdf"
+}

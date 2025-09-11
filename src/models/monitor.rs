@@ -33,6 +33,10 @@ pub struct MonitorConfig {
     /// Notifiers for the monitor (optional)
     #[serde(default)]
     pub notifiers: Vec<String>,
+
+    /// Whether to decode calldata for function calls (optional, default: false)
+    #[serde(default)]
+    pub decode_calldata: Option<bool>,
 }
 
 impl Loadable for MonitorConfig {
@@ -76,6 +80,9 @@ pub struct Monitor {
 
     /// Timestamp when the monitor was last updated
     pub updated_at: DateTime<Utc>,
+
+    /// Whether to decode calldata for function calls (default: false)
+    pub decode_calldata: bool,
 }
 
 impl MonitorConfig {
@@ -87,8 +94,9 @@ impl MonitorConfig {
         abi: Option<String>,
         filter_script: String,
         notifiers: Vec<String>,
+        decode_calldata: Option<bool>,
     ) -> Self {
-        Self { name, network, address, abi, filter_script, notifiers }
+        Self { name, network, address, abi, filter_script, notifiers, decode_calldata }
     }
 }
 
@@ -105,6 +113,7 @@ mod tests {
             Some("test".to_string()),
             "log.name == \"Test\"".to_string(),
             vec!["test-notifier".to_string()],
+            None,
         );
 
         assert_eq!(monitor.name, "Test Monitor");
@@ -123,6 +132,7 @@ mod tests {
             None,
             "bigint(tx.value) > bigint(1000)".to_string(),
             vec![],
+            None,
         );
 
         assert_eq!(monitor.name, "Native Transfer Monitor");

@@ -65,7 +65,7 @@ impl BlockProcessor {
                     let tx: Transaction = tx.into();
                     let tx_hash = tx.hash();
 
-                    // Get the logs for this transaction, if any.
+                    // --- 1. Decode logs for this transaction ---
                     let raw_logs_for_tx =
                         block_data.logs.get(&tx_hash).cloned().unwrap_or_default();
 
@@ -86,10 +86,29 @@ impl BlockProcessor {
                         }
                     }
 
+                    // --- 2. Decode calls for this transaction ---
+                    let mut decoded_call = None;
+                    if monitor_snapshot.interest_registry.is_calldata_interesting(&tx.to()) {
+                        match self.abi_service.decode_function_input(&tx) {
+                            Ok(call) => {
+                                decoded_call = Some(call);
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    tx_hash = %tx_hash,
+                                    error = %e,
+                                    "Could not decode calldata for a monitored address. Check if the ABI is correct."
+                                );
+                            }
+                        }
+                    }
+
                     // Get the receipt for this transaction, if available
                     let receipt = block_data.receipts.get(&tx_hash).cloned();
 
-                    let correlated_item = CorrelatedBlockItem::new(tx, decoded_logs, receipt);
+                    // --- 3. Create the correlated block item ---
+                    let correlated_item =
+                        CorrelatedBlockItem::new(tx, decoded_logs, decoded_call, receipt);
 
                     decoded_block.items.push(correlated_item);
                 }

@@ -15,7 +15,10 @@ use num_bigint::{BigInt, Sign};
 use rhai::{Dynamic, Map};
 use serde_json::{Value, json};
 
-use crate::{abi::DecodedLog, models::transaction::Transaction};
+use crate::{
+    abi::{DecodedCall, DecodedLog},
+    models::transaction::Transaction,
+};
 
 /// Converts a `DynSolValue` directly to a Rhai `Dynamic` value.
 ///
@@ -86,8 +89,8 @@ pub fn dyn_sol_value_to_json(value: &DynSolValue) -> Value {
     }
 }
 
-/// Builds a Rhai `Map` from log parameters using direct conversion.
-pub fn build_log_params_map(params: &[(String, DynSolValue)]) -> Map {
+/// Builds a Rhai `Map` from log and call parameters using direct conversion.
+pub fn build_params_map(params: &[(String, DynSolValue)]) -> Map {
     let mut map = Map::new();
     for (name, value) in params {
         map.insert(name.clone().into(), dyn_sol_value_to_rhai(value));
@@ -284,6 +287,18 @@ pub fn build_log_map(log: &DecodedLog, params_map: Map) -> Map {
     log_map
 }
 
+// --- Decoded Call Static Fields ---
+const KEY_CALL_NAME: &str = "name";
+const KEY_CALL_PARAMS: &str = "params";
+
+/// Returns a set of valid Rhai paths for decoded call fields.
+/// Used for validating Rhai scripts.
+/// This includes all standard decoded call fields, prefixed with
+/// "decoded_call.", does not include any dynamic fields.
+pub fn get_valid_decoded_call_rhai_paths() -> HashSet<String> {
+    [KEY_CALL_NAME, KEY_CALL_PARAMS].iter().map(|s| format!("decoded_call.{}", s)).collect()
+}
+
 /// Converts a U256 value unconditionally to a Rhai `BigInt` dynamic type.
 pub fn u256_to_bigint_dynamic(value: U256) -> Dynamic {
     let (sign, bytes) = if value.is_zero() {
@@ -372,6 +387,15 @@ pub fn build_transaction_details_payload(
     }
 
     Value::Object(map)
+}
+
+/// Builds a Rhai `Map` for a decoded call with name and parameters.
+pub fn build_decoded_call_map(call: &DecodedCall) -> Map {
+    let mut call_map = Map::new();
+    call_map.insert(KEY_CALL_NAME.into(), call.name.clone().into());
+    let params_map = build_params_map(&call.params);
+    call_map.insert(KEY_CALL_PARAMS.into(), params_map.into());
+    call_map
 }
 
 #[cfg(test)]
@@ -491,7 +515,7 @@ mod tests {
     }
 
     #[test]
-    fn test_build_log_params_map() {
+    fn test_build_params_map() {
         let params = vec![
             ("value".to_string(), DynSolValue::Uint(U256::from(150), 256)),
             (
@@ -500,7 +524,7 @@ mod tests {
             ),
         ];
 
-        let result = build_log_params_map(&params);
+        let result = build_params_map(&params);
 
         assert_eq!(result.len(), 2);
         assert_eq!(result.get("value").unwrap().clone().cast::<BigInt>(), BigInt::from(150));
@@ -508,6 +532,31 @@ mod tests {
             result.get("sender").unwrap().clone().cast::<String>(),
             "0x1111111111111111111111111111111111111111"
         );
+    }
+
+    #[test]
+    fn test_build_decoded_call_map() {
+        let to_address = address!("2222222222222222222222222222222222222222");
+        let tx = TransactionBuilder::new().build(); // Dummy transaction
+        let call = DecodedCall {
+            tx,
+            name: "transfer".to_string(),
+            params: vec![
+                ("to".to_string(), DynSolValue::Address(to_address)),
+                ("amount".to_string(), DynSolValue::Uint(U256::from(500), 256)),
+            ],
+        };
+        let result = build_decoded_call_map(&call);
+
+        assert_eq!(result.len(), 2, "Expected 2 fields in decoded call map");
+        assert_eq!(result.get("name").unwrap().clone().cast::<String>(), "transfer");
+        let params_map = result.get("params").unwrap().clone().cast::<Map>();
+        assert_eq!(params_map.len(), 2, "Expected 2 parameters in params map: to and amount");
+        assert_eq!(
+            params_map.get("to").unwrap().clone().cast::<String>(),
+            "0x2222222222222222222222222222222222222222"
+        );
+        assert_eq!(params_map.get("amount").unwrap().clone().cast::<BigInt>(), BigInt::from(500));
     }
 
     #[test]
@@ -803,6 +852,15 @@ mod tests {
         .iter()
         .map(|s| s.to_string())
         .collect();
+
+        assert_eq!(valid_paths, expected_paths);
+    }
+
+    #[test]
+    fn test_get_valid_decoded_call_rhai_paths() {
+        let valid_paths = get_valid_decoded_call_rhai_paths();
+        let expected_paths: HashSet<String> =
+            ["decoded_call.name", "decoded_call.params"].iter().map(|s| s.to_string()).collect();
 
         assert_eq!(valid_paths, expected_paths);
     }

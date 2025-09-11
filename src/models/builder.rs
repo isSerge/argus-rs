@@ -15,6 +15,7 @@ pub struct MonitorBuilder {
     notifiers: Option<Vec<String>>,
     created_at: Option<DateTime<Utc>>,
     updated_at: Option<DateTime<Utc>>,
+    decode_calldata: Option<bool>,
 }
 
 impl Default for MonitorBuilder {
@@ -36,6 +37,7 @@ impl MonitorBuilder {
             notifiers: None,
             created_at: None,
             updated_at: None,
+            decode_calldata: None,
         }
     }
 
@@ -93,6 +95,12 @@ impl MonitorBuilder {
         self
     }
 
+    /// Sets whether to decode calldata for the monitor.
+    pub fn decode_calldata(mut self, decode: bool) -> Self {
+        self.decode_calldata = Some(decode);
+        self
+    }
+
     /// Builds the `Monitor` instance.
     pub fn build(self) -> Monitor {
         Monitor {
@@ -105,6 +113,7 @@ impl MonitorBuilder {
             notifiers: self.notifiers.unwrap_or_default(),
             created_at: self.created_at.unwrap_or_default(),
             updated_at: self.updated_at.unwrap_or_default(),
+            decode_calldata: self.decode_calldata.unwrap_or(false),
         }
     }
 }
