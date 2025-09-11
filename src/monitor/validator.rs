@@ -129,7 +129,6 @@ impl<'a> MonitorValidator<'a> {
         }
 
         self.validate_notifiers(monitor)?;
-        self.validate_calldata_rules(monitor)?;
 
         let (parsed_address, is_global_log_monitor) = self.parse_and_validate_address(monitor)?;
 
@@ -149,6 +148,10 @@ impl<'a> MonitorValidator<'a> {
             is_global_log_monitor,
             abi_json.is_some(),
         )?;
+
+        if script_validation_result.ast_analysis.accesses_call_variable {
+            self.validate_calldata_rules(monitor)?;
+        }
 
         Ok(())
     }
@@ -180,11 +183,6 @@ impl<'a> MonitorValidator<'a> {
         &self,
         monitor: &MonitorConfig,
     ) -> Result<(), MonitorValidationError> {
-        // If calldata decoding is not enabled, no further checks are needed.
-        if !monitor.decode_calldata.unwrap_or_default() {
-            return Ok(());
-        }
-
         // Check if ABI is provided when calldata decoding is enabled.
         if monitor.abi.is_none() {
             return Err(MonitorValidationError::InvalidCalldataConfig {
@@ -375,7 +373,6 @@ mod tests {
             abi.map(String::from),
             script.to_string(),
             notifiers,
-            None,
         )
     }
 
@@ -822,7 +819,7 @@ mod tests {
                  ABI is loaded."
             ));
         } else {
-            panic!("Expected MonitorValidationError::MonitorRequiresAbi");
+            panic!("Expected MonitorValidationError::MonitorRequiresAbi got {:?}", result);
         }
     }
 
@@ -852,7 +849,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_monitor_validation_failure_calldata_enabled_no_abi() {
+    async fn test_monitor_validation_failure_calldata_aware_no_abi() {
         let contract_address = address!("0x0000000000000000000000000000000000000123");
         let validator =
             create_monitor_validator(&[], Some((contract_address, "simple", simple_abi())));
@@ -861,10 +858,9 @@ mod tests {
             name: "Test Monitor 1".into(),
             network: "testnet".into(),
             address: contract_address.to_string().into(),
-            abi: None, // No ABI provided
-            filter_script: "log.name == \"A\"".into(),
+            abi: None,                                          // No ABI provided
+            filter_script: "decoded_call.name == \"A\"".into(), // Accesses decoded_call
             notifiers: vec![],
-            decode_calldata: Some(true),
         };
         let result = validator.validate(&invalid_monitor);
 
@@ -882,7 +878,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_monitor_validation_failure_calldata_enabled_no_address() {
+    async fn test_monitor_validation_failure_calldata_aware_no_address() {
         let validator = create_monitor_validator(&[], None);
 
         let invalid_monitor = MonitorConfig {
@@ -890,9 +886,8 @@ mod tests {
             network: "testnet".into(),
             address: None, // No address provided
             abi: Some("simple".into()),
-            filter_script: "log.name == \"A\"".into(),
+            filter_script: "decoded_call.name == \"A\"".into(), // Accesses decoded_call
             notifiers: vec![],
-            decode_calldata: Some(true),
         };
         let result = validator.validate(&invalid_monitor);
 
@@ -918,9 +913,8 @@ mod tests {
             network: "testnet".into(),
             address: Some("all".into()), // Global monitor
             abi: Some("simple".into()),
-            filter_script: "log.name == \"A\"".into(),
+            filter_script: "decoded_call.name == \"A\"".into(),
             notifiers: vec![],
-            decode_calldata: Some(true),
         };
         let result = validator.validate(&invalid_monitor);
 
@@ -950,7 +944,6 @@ mod tests {
             abi: Some("simple".into()),
             filter_script: "log.name == \"A\"".into(),
             notifiers: vec![],
-            decode_calldata: Some(true),
         };
 
         let result = validator.validate(&invalid_monitor);
