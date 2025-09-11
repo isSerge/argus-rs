@@ -194,27 +194,23 @@ impl MonitorManager {
                     }
                 } else {
                     // This is a global monitor with `address: "all"`.
-                    if cm.caps.contains(MonitorCapabilities::LOG) {
-                        if let Some(abi_name) = &monitor.abi {
-                            if let Some(abi) = abi_service.get_abi_by_name(abi_name) {
+                    if cm.caps.contains(MonitorCapabilities::LOG)
+                        && let Some(abi_name) = &monitor.abi
+                            && let Some(abi) = abi_service.get_abi_by_name(abi_name) {
                                 for event in abi.events.values().flatten() {
                                     global_event_signatures.insert(event.selector());
                                 }
                             }
-                        }
-                    }
                 }
             } else {
                 // This is a global monitor (address field is None).
-                if cm.caps.contains(MonitorCapabilities::LOG) {
-                    if let Some(abi_name) = &monitor.abi {
-                        if let Some(abi) = abi_service.get_abi_by_name(abi_name) {
+                if cm.caps.contains(MonitorCapabilities::LOG)
+                    && let Some(abi_name) = &monitor.abi
+                        && let Some(abi) = abi_service.get_abi_by_name(abi_name) {
                             for event in abi.events.values().flatten() {
                                 global_event_signatures.insert(event.selector());
                             }
                         }
-                    }
-                }
             }
         }
 
