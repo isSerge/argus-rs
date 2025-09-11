@@ -145,9 +145,17 @@ fn walk_expr(expr: &Expr, result: &mut ScriptAnalysisResult) {
         if let Expr::Index(binary_expr, _, _) = expr
             && let Some(index_path) = get_full_variable_path(&binary_expr.rhs)
         {
+            // If the index path starts with "log", mark that we access the log variable
             if !result.accesses_log_variable && index_path.starts_with("log") {
                 result.accesses_log_variable = true;
             }
+
+            // If the index path starts with "decoded_call", mark that we access the call
+            // variable
+            if !result.accesses_call_variable && index_path.starts_with("decoded_call") {
+                result.accesses_call_variable = true;
+            }
+
             result.accessed_variables.insert(index_path);
         }
         return;
