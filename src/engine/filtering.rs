@@ -62,11 +62,15 @@ pub enum RhaiError {
 #[async_trait]
 pub trait FilteringEngine: Send + Sync {
     /// Evaluates the provided correlated block item against configured monitor
-    /// rules. The evaluation proceeds in two phases:
-    /// 1. Transaction-only monitors are evaluated once per transaction.
-    /// 2. Log-aware monitors (both global and address-specific) are evaluated
-    ///    for each decoded log within the transaction, with access to both
-    ///    transaction and log data.
+    /// rules. The evaluation proceeds in two phases to ensure correctness and
+    /// prevent duplicate notifications:
+    /// 1. Log-aware monitors are evaluated against each log in the transaction.
+    ///    If a monitor matches any log, it is marked as matched and will not be
+    ///    re-evaluated.
+    /// 2. Any monitor that did not match in the first pass is then evaluated
+    ///    against the transaction-level context.
+    /// This ensures that a monitor can match multiple logs, but a monitor that
+    /// matches on a log will not also produce a transaction-level match.
     /// Returns a vector of `MonitorMatch` if any conditions are met.
     async fn evaluate_item(
         &self,
@@ -500,7 +504,6 @@ mod tests {
         let monitor = MonitorBuilder::new()
             .id(1)
             .address(&contract_address.to_checksum(None))
-            .decode_calldata(true)
             .filter_script(
                 r#"decoded_call.name == "transfer" && decoded_call.params.amount > bigint(1000)"#,
             )
@@ -533,7 +536,6 @@ mod tests {
         let monitor = MonitorBuilder::new()
             .id(1)
             .address(&contract_address.to_checksum(None))
-            .decode_calldata(true)
             .filter_script(
                 r#"log.name == "Transfer" && decoded_call.name == "transfer" && decoded_call.params.amount > bigint(1000)"#,
             )
@@ -564,7 +566,6 @@ mod tests {
             .id(1)
             .filter_script("decoded_call == ()") // Check for null decoded_call
             .notifiers(vec!["notifier1".to_string()])
-            .decode_calldata(true)
             .build();
         let monitors = vec![monitor];
         let engine = setup_engine_with_monitors(monitors, abi_service);
