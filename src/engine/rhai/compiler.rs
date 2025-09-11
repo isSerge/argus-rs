@@ -27,6 +27,9 @@ pub struct ScriptAnalysis {
 
     /// A set of local variables defined within the script.
     pub local_variables: HashSet<String>,
+
+    /// True if the script accesses the `decoded_call` variable.
+    pub accesses_call_variable: bool,
 }
 
 /// A type alias for the hash of a Rhai script.
@@ -88,6 +91,7 @@ impl RhaiCompiler {
             accessed_variables: Arc::new(analysis_result.accessed_variables),
             accesses_log_variable: analysis_result.accesses_log_variable,
             local_variables: analysis_result.local_variables,
+            accesses_call_variable: analysis_result.accesses_call_variable,
         };
 
         // Store the analysis in the cache
