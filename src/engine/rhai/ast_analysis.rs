@@ -17,6 +17,9 @@ pub struct ScriptAnalysisResult {
 
     /// A set of local variables defined within the script using `let`.
     pub local_variables: HashSet<String>,
+
+    /// True if the script accesses the `decoded_call` variable.
+    pub accesses_call_variable: bool,
 }
 
 /// Traverses a compiled `AST` and returns a `ScriptAnalysisResult` containing
@@ -127,9 +130,16 @@ fn walk_stmt(stmt: &Stmt, result: &mut ScriptAnalysisResult) {
 /// paths.
 fn walk_expr(expr: &Expr, result: &mut ScriptAnalysisResult) {
     if let Some(path) = get_full_variable_path(expr) {
+        // If the path starts with "log", mark that we access the log variable
         if !result.accesses_log_variable && path.starts_with("log") {
             result.accesses_log_variable = true;
         }
+
+        // If the path starts with "decoded_call", mark that we access the call variable
+        if !result.accesses_call_variable && path.starts_with("decoded_call") {
+            result.accesses_call_variable = true;
+        }
+
         result.accessed_variables.insert(path);
         // For Index, also collect index variable if present
         if let Expr::Index(binary_expr, _, _) = expr
