@@ -23,9 +23,12 @@ bitflags! {
     /// Capabilities that a monitor's script accesses.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct MonitorCapabilities: u8 {
-        const TX   = 0b0000_0001; // Script accesses `tx.*`
-        const LOG  = 0b0000_0010; // Script accesses `log.*`
-        const CALL = 0b0000_0100; // Script accesses `decoded_call.*`
+        /// Script accesses `tx.*`
+        const TX   = 0b0000_0001;
+        /// Script accesses `log.*`
+        const LOG  = 0b0000_0010;
+        /// Script accesses `decoded_call.*`
+        const CALL = 0b0000_0100;
     }
 }
 
@@ -128,8 +131,18 @@ impl MonitorManager {
             }
 
             // Check if any decoded_call fields are accessed
-            if analysis.accessed_variables.iter().any(|var| var.starts_with("decoded_call.")) {
+            if analysis
+                .accessed_variables
+                .iter()
+                .any(|var| var.starts_with("decoded_call.") || var == "decoded_call")
+            {
                 caps |= MonitorCapabilities::CALL;
+            }
+
+            // If a script doesn't access any specific context, it's treated as a
+            // transaction-level monitor by default.
+            if caps.is_empty() {
+                caps = MonitorCapabilities::TX;
             }
 
             // Create the ClassifiedMonitor
