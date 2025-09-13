@@ -1,5 +1,7 @@
 # Argus EVM Monitor
 
+[![📖 Docs](https://img.shields.io/badge/📖_Docs-gray)](https://isserge.github.io/argus-rs/)
+
 ![alt text](banner.png)
 
 Argus Panoptes (“the All-Seeing”) was the sleepless giant of Greek mythology. With a hundred eyes, he could watch without rest, making him a perfect guardian.
