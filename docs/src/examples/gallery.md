@@ -59,3 +59,14 @@ Demonstrates how to use `aggregation` policy for notifiers as well as `sum` and 
 Shows how to use a Rhai array as a watchlist to get notifications for any transaction involving a specific set of addresses.
 
 **Features Demonstrated:** Rhai arrays, `let` variables, `in` operator.
+
+### [8.High Priority Fee](https://github.com/isSerge/argus-rs/tree/main/examples/8_high_priority_fee/README.md)
+
+Demonstrates how to monitor for transactions with unusually high priority fees, which can be an indicator of MEV (Maximal Extractable Value) activity, front-running, or other urgent on-chain actions.
+
+### [9. Admin Function Call Monitor](https://github.com/isSerge/argus-rs/tree/main/examples/9_admin_function_call/README.md)
+
+Demonstrates how to monitor for calls to a specific function on a contract using `decode_calldata` feature. This is the recommended approach for monitoring critical or administrative functions
+
+**Features Demonstrated:** `decode_calldata`, Elvis notation (`?.`) for safe property access.
+

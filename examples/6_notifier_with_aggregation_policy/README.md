@@ -100,7 +100,7 @@ Replace `23289380` and `23289383` with any Ethereum block numbers to test agains
 
 As blocks within the specified range are processed, you should receive notifications on Telegram (or another specified notifier) with aggregated values.
 
-![alt text](image.png)
+![Sample notification output (Telegram)](image.png)
 
 Once processing is complete, you should see the following output in your terminal, which is a JSON array with all detected monitor matches:
 

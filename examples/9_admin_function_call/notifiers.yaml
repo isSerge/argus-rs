@@ -1,0 +1,15 @@
+notifiers:
+  - name: "Telegram Admin"
+    telegram:
+      token: "${TELEGRAM_TOKEN}"
+      chat_id: "${TELEGRAM_CHAT_ID}"
+      disable_web_preview: true
+      message:
+        title: "Admin Function Called"
+        body: |
+          An admin function was called in monitor `{{ monitor_name }}`.
+          - **Tx Hash**: `{{ transaction_hash }}`
+          - **Caller**: `{{ tx.from }}`
+          - **Contract**: `{{ tx.to }}`
+          - **Function Signature**: `{{ tx.input }}`
+          [View on Etherscan](https://etherscan.io/tx/{{ transaction_hash }})

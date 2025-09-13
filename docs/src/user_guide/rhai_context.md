@@ -93,12 +93,12 @@ For a `transfer` function with the signature `transfer(address to, uint256 amoun
 ### Example Usage
 
 ```rhai
-// Check for a call to a specific function
-decoded_call.name == "transfer"
+// Check for a call to a specific function, even if decoded_call might be null.
+decoded_call?.name == "transfer"
 
-// Check for a function call with a large amount
-decoded_call.name == "transfer" && decoded_call.params.amount > ether(100)
+// Safely check a nested parameter.
+decoded_call?.params?.amount > ether(100)
 
-// Check if calldata decoding failed
+// Check if calldata decoding failed.
 decoded_call == ()
 ```

@@ -747,7 +747,7 @@ mod tests {
             .id(1)
             .filter_script(
                 r#"
-            tx.value > bigint(100) || (log != () && log.name == "Transfer")
+            tx.value > bigint(100) || log?.name == "Transfer"
         "#,
             )
             .notifiers(vec!["test-notifier".to_string()])
@@ -774,7 +774,7 @@ mod tests {
             .id(1)
             .filter_script(
                 r#"
-            tx.value > bigint(100) || (log != () && log.name == "Transfer")
+            tx.value > bigint(100) || log?.name == "Transfer"
         "#,
             )
             .notifiers(vec!["test-notifier".to_string()])
@@ -802,7 +802,7 @@ mod tests {
             .id(1)
             .filter_script(
                 r#"
-            tx.value > bigint(100) || (log != () && log.name == "Transfer")
+            tx.value > bigint(100) || log?.name == "Transfer"
         "#,
             )
             .notifiers(vec!["test-notifier".to_string()])
@@ -820,5 +820,80 @@ mod tests {
         assert_eq!(matches.len(), 1, "Should only produce one match");
         assert_eq!(matches[0].monitor_id, 1);
         assert!(matches!(matches[0].match_data, MatchData::Log(_)), "Should prefer LogMatch");
+    }
+
+    #[tokio::test]
+    async fn test_safe_null_access_on_decoded_call() {
+        let temp_dir = tempdir().unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[]);
+
+        // This script would fail at runtime if the dot operator on a null
+        // `decoded_call` was not handled safely.
+        let monitor = MonitorBuilder::new()
+            .id(1)
+            .filter_script(r#"decoded_call?.name == "nonexistent""#)
+            .notifiers(vec!["test-notifier".to_string()])
+            .build();
+        let engine = setup_engine_with_monitors(vec![monitor], abi_service.clone());
+
+        // This item has no decoded_call, so the variable will be `()`.
+        let tx = TransactionBuilder::new().build();
+        let item = CorrelatedBlockItem::new(tx, vec![], None, None);
+
+        // The script should evaluate to `false` and not error.
+        let matches = engine.evaluate_item(&item).await.unwrap();
+        assert!(matches.is_empty(), "Should not match and should not error");
+    }
+
+    #[tokio::test]
+    async fn test_safe_null_access_on_log() {
+        let temp_dir = tempdir().unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[]);
+
+        // This script would fail if `log.name` access on a null `log` errored.
+        // This is a transaction-only evaluation context.
+        let monitor = MonitorBuilder::new()
+            .id(1)
+            .filter_script(r#"log?.name == "nonexistent""#)
+            .notifiers(vec!["test-notifier".to_string()])
+            .build();
+        let engine = setup_engine_with_monitors(vec![monitor], abi_service.clone());
+
+        // This item has no logs, so `log` will be `()` during the tx-only pass.
+        let tx = TransactionBuilder::new().build();
+        let item = CorrelatedBlockItem::new(tx, vec![], None, None);
+
+        // The script should evaluate to `false` and not error.
+        let matches = engine.evaluate_item(&item).await.unwrap();
+        assert!(matches.is_empty(), "Should not match and should not error");
+    }
+
+    #[tokio::test]
+    async fn test_safe_null_access_on_decoded_call_with_valid_call() {
+        let temp_dir = tempdir().unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
+        let contract_address = address!("0000000000000000000000000000000000000001");
+        abi_service.link_abi(contract_address, "simple").unwrap();
+
+        let monitor = MonitorBuilder::new()
+            .id(1)
+            .address(&contract_address.to_checksum(None))
+            .filter_script(r#"decoded_call.name == "transfer""#)
+            .notifiers(vec!["test-notifier".to_string()])
+            .build();
+        let engine = setup_engine_with_monitors(vec![monitor], abi_service.clone());
+
+        // This transaction matches the monitor's script.
+        let matching_input_str = "0xa9059cbb00000000000000000000000011223344556677889900aabbccddeeff1122334400000000000000000000000000000000000000000000000000000000000005dc";
+        let tx = TransactionBuilder::new()
+            .to(Some(contract_address))
+            .input(matching_input_str.parse().unwrap())
+            .build();
+        let decoded_call = abi_service.decode_function_input(&tx).unwrap();
+        let item = CorrelatedBlockItem::new(tx, vec![], Some(decoded_call), None);
+
+        let matches = engine.evaluate_item(&item).await.unwrap();
+        assert_eq!(matches.len(), 1, "Should find one match for the transfer call");
+        assert_eq!(matches[0].monitor_id, 1);
     }
 }
