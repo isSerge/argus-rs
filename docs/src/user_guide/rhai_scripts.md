@@ -82,7 +82,7 @@ For a detailed breakdown of the available data, see the following pages:
 
 In many cases, context variables may be `()` (Rhai's version of `null`). For example, `decoded_call` is null if a transaction's input data cannot be decoded by a monitor's ABI.
 
-To simplify scripts and prevent runtime errors, use the Elvis operator (`?.`) for safe property access. This is similar to the optional chaining operator in JavaScript.
+To simplify scripts and prevent runtime errors, use the Elvis notation (`?.`) for safe property access. This is similar to the optional chaining operator in JavaScript.
 
 ### Example: `decoded_call` Check
 

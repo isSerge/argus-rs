@@ -96,7 +96,7 @@ Replace `23159290` and `23159300` with any Ethereum block numbers to test agains
 As blocks within the specified range are processed, you should receive only 5
 notifications (or another amount specified in notifier config) similar to this:
 
-![alt text](image.png)
+![Sample notification output (Telegram)](image.png)
 
 While the final JSON output should contain all 45 matches:
 

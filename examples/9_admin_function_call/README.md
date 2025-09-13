@@ -23,7 +23,7 @@ monitors:
 - **`address`**: The specific contract to monitor.
 - **`abi`**: The name of the ABI file (without the `.json` extension) located in the `abis/` directory. This is required for decoding.
 - **`filter_script`**: This [Rhai script](../../docs/src/user_guide/rhai_scripts.md) inspects the `decoded_call` object.
-    - **`decoded_call?.name == "execute"`**: This check is performed on the decoded function name. It's much clearer and less error-prone than comparing the raw function selector.
+- **`decoded_call?.name == "execute"`**: This check is performed on the decoded function name. It uses the Elvis notation (`?.`) for safe property access since `decoded_call` might not be available for all transactions
 
 ### How to Run ([Dry-Run Mode](../../docs/src/operations/cli.md#dry-run-mode))
 
@@ -46,7 +46,7 @@ Replace `18864956` with any Ethereum block numbers to test against.
 
 As blocks within the specified range are processed, you should receive notifications on Telegram (or another specified notifier) with aggregated values.
 
-![alt text](image.png)
+![Sample notification output (Telegram)](image.png)
 
 Once processing is complete, you should see the following output in your terminal, which is a JSON array with all detected monitor matches:
 
