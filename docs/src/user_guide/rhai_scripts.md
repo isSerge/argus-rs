@@ -78,6 +78,21 @@ For a detailed breakdown of the available data, see the following pages:
 -   [**Data Context (`tx` & `log`)**](./rhai_context.md)
 -   [**Helper Functions (`ether`, `usdc`, etc.)**](./rhai_helpers.md)
 
+## Safe Property Access (`?.`)
+
+In many cases, context variables may be `()` (Rhai's version of `null`). For example, `decoded_call` is null if a transaction's input data cannot be decoded by a monitor's ABI.
+
+To simplify scripts and prevent runtime errors, use the Elvis operator (`?.`) for safe property access. This is similar to the optional chaining operator in JavaScript.
+
+### Example: `decoded_call` Check
+
+```rhai
+// This script safely checks the function name, even if decoded_call is null.
+decoded_call?.name == "execute"
+```
+
+If `decoded_call` is `()`, the expression `decoded_call?.name` will also evaluate to `()` instead of erroring. The final comparison, `() == "execute"`, safely resolves to `false`. This feature makes your scripts cleaner, safer, and more intuitive.
+
 ## Scripting Best Practices
 
 1.  **Keep it Simple**: Your script is executed for every relevant transaction or log. Keep it as simple and efficient as possible.
