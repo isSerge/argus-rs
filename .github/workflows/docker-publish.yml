@@ -41,12 +41,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Extract metadata for the Docker image
+      # Extract metadata (tags and labels) for the Docker image
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v4
         with:
           images: ghcr.io/${{ env.REPO_PATH }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha
 
       # Build and push Docker image
       - name: Build and push Docker image
@@ -55,9 +58,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ghcr.io/${{ env.REPO_PATH }}:latest
-            ghcr.io/${{ env.REPO_PATH }}:${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
