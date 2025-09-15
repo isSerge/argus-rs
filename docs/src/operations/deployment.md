@@ -57,7 +57,7 @@ docker run --rm -d \
   --env-file .env \
   -v "$(pwd)/configs:/app/configs:ro" \
   -v "$(pwd)/abis:/app/abis:ro" \
-  -v "$(pwd)/data:/app" \
+  -v "$(pwd)/data:/app/data" \
   ghcr.io/isserge/argus-rs:latest run --config-dir /app/configs
 ```
 
