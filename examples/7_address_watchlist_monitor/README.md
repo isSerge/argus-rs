@@ -136,7 +136,7 @@ Using Docker image from GHCR:
 
 ```bash
 # First, create a data directory for this example
-mkdir -p examples/9_admin_function_call/data
+mkdir -p examples/7_address_watchlist_monitor/data
 
 # Run the container in detached mode
 docker run --rm -d \
