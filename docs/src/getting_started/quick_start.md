@@ -1,25 +1,14 @@
 # Quick Start
 
-This guide will walk you through the essential steps to configure and run your first Argus monitor. We'll create a simple monitor that watches for large ETH transfers on the Ethereum mainnet.
+This guide will walk you through the essential steps to configure and run your first Argus monitor using Docker Compose.
 
-## 1. Create Your Configuration
+## Prerequisites
 
-Argus is configured using [`app.yaml`](../user_guide/app_yaml.md), [`monitors.yaml`](../user_guide/monitors_yaml.md), and [`notifiers.yaml`](../user_guide/notifiers_yaml.md) located in a `configs` directory. The repository provides `monitors.example.yaml` and `notifiers.example.yaml` to serve as templates.
+Ensure you have completed the [Docker installation steps](./installation.md), including cloning the repository, creating your `.env` file, and creating the `data` directory.
 
-Let's create your local configuration files by copying the examples:
+## 1. Review Application Configuration (`app.yaml`)
 
-```bash
-cp configs/monitors.example.yaml configs/monitors.yaml
-cp configs/notifiers.example.yaml configs/notifiers.yaml
-```
-
-Now you will have your own `monitors.yaml` and `notifiers.yaml` that you can edit safely.
-
-## 2. Application Configuration ([`app.yaml`](../user_guide/app_yaml.md))
-
-The `app.yaml` file contains the core settings for the application. The most critical settings are the RPC endpoints.
-
-Open `configs/app.yaml` and ensure the `rpc_urls` list contains at least one valid Ethereum RPC endpoint. The default examples are good starting points.
+The `configs/app.yaml` file contains the core settings for the application. The most critical settings are the RPC endpoints. The default file includes public endpoints for Ethereum mainnet, which are fine for this quick start.
 
 ```yaml
 # configs/app.yaml
@@ -30,24 +19,18 @@ rpc_urls:
 network_id: "ethereum"
 # ... other settings
 ```
+**Note**: The `database_url` is relative to the container's working directory. The `docker compose.yml` file mounts the local `./data` directory to `/app`, so the database file will be created at `./data/argus.db` on your host machine.
 
-## 3. Database Setup
+## 2. Define a Monitor (`monitors.yaml`)
 
-Argus needs a local SQLite database to store its state. The `database_url` in [`app.yaml`](../user_guide/app_yaml.md) points to the file that will be used.
-
-Before running the application for the first time, you must run the database migrations. This will create the necessary tables.
-
-**Prerequisite**: Ensure you have `sqlx-cli` installed. If not, you can install it with `cargo install sqlx-cli`.
+The repository provides example configurations. Let's copy them to create your local, editable versions.
 
 ```bash
-sqlx migrate run
+cp configs/monitors.example.yaml configs/monitors.yaml
+cp configs/notifiers.example.yaml configs/notifiers.yaml
 ```
 
-You should see output indicating that the migrations have been successfully applied.
-
-## 4. Define a Monitor ([`monitors.yaml`](../user_guide/monitors_yaml.md))
-
-Now, let's define what we want to monitor. Open `configs/monitors.yaml`. For this example, we'll use the pre-configured "Large ETH Transfers" monitor.
+Now, open `configs/monitors.yaml`. For this example, we'll use the pre-configured "Large ETH Transfers" monitor.
 
 ```yaml
 # configs/monitors.yaml
@@ -60,39 +43,54 @@ monitors:
       - "my-webhook"
 ```
 
-This monitor will trigger for any transaction on the `ethereum` where more than 10 ETH is transferred. It will send a notification using the `my-webhook` notifier.
+This monitor will trigger for any transaction on `ethereum` where more than 10 ETH is transferred. It will send a notification using the `my-webhook` notifier.
 
-## 5. Configure a Notifier ([`notifiers.yaml`](../user_guide/notifiers_yaml.md))
+## 3. Configure a Notifier (`notifiers.yaml`)
 
 Finally, let's configure *how* we get notified. Open `configs/notifiers.yaml`.
 
 To receive alerts, you'll need a webhook endpoint. For testing, you can use a service like [Webhook.site](https://webhook.site/) to get a temporary URL.
 
-Update the `url` in the `my-webhook` notifier configuration with your actual webhook URL.
+Update the `url` in the `my-webhook` notifier configuration with your actual webhook URL. **Remember to use environment variables for secrets!**
 
 ```yaml
 # configs/notifiers.yaml
 notifiers:
   - name: "my-webhook"
     webhook:
-      url: "https://webhook.site/your-unique-url" # <-- CHANGE THIS
+      url: "${WEBHOOK_URL}" # <-- SET THIS IN YOUR .env FILE
       message:
         title: "Large ETH Transfer Detected"
         body: |
-          - **Amount**: {{ tx.value }} ETH
+          - **Amount**: {{ tx.value | ether }} ETH
           - **From**: `{{ tx.from }}`
           - **To**: `{{ tx.to }}`
           - **Tx Hash**: `{{ transaction_hash }}`
 ```
+Now, open your `.env` file and add the `WEBHOOK_URL`:
+```env
+# .env
+WEBHOOK_URL=https://webhook.site/your-unique-url
+```
 
-## 6. Run Argus
+## 4. Run Argus
 
 With the configuration in place, you are now ready to start the monitoring service.
 
 Run the following command from the root of the project:
 
 ```bash
-cargo run --release -- run
+docker compose up -d
 ```
 
-Argus will start, connect to the RPC endpoint, and begin processing new blocks. When a transaction matches your filter (a transfer of >10 ETH), a notification will be sent to the webhook URL you configured.
+Argus will start, automatically run database migrations, connect to the RPC endpoint, and begin processing new blocks. When a transaction matches your filter (a transfer of >10 ETH), a notification will be sent to the webhook URL you configured.
+
+You can view the application's logs with:
+```bash
+docker compose logs -f
+```
+
+To stop the service:
+```bash
+docker compose down
+```

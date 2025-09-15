@@ -6,7 +6,7 @@ The `app.yaml` file defines the global settings for the service, including how i
 
 ```yaml
 # The connection string for the SQLite database.
-database_url: "sqlite:monitor.db"
+database_url: "sqlite:data/monitor.db"
 
 # A list of RPC endpoint URLs. Argus will cycle through these if one fails.
 rpc_urls:
