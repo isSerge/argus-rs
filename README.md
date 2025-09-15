@@ -17,10 +17,11 @@ Argus is a next-generation, open-source, self-hosted monitoring tool for EVM cha
 -   **Real-Time EVM Monitoring**: Connects to an EVM RPC endpoint to monitor new blocks in real time, processing transactions and logs as they occur.
 -   **Flexible Filtering with Rhai**: Uses the embedded [Rhai](https://rhai.rs) scripting language to create highly specific and powerful filters for any on-chain event, from simple balance changes to complex DeFi interactions.
 -   **EVM Value Wrappers**: Convenient functions like `ether`, `gwei`, and `usdc` for handling common token denominations, plus a generic `decimals` function for custom tokens. This makes filter scripts more readable and less error-prone.
--   **Basic Webhook Notifications**: Supports webhook notifications, allowing for easy integration with services like Slack, Discord, or custom automation workflows.
+-   **Multi-Channel Notifications**: Supports webhook, Slack, Discord, and Telegram notifications, allowing for easy integration with your favorite services.
 -   **Advanced Notification Policies**: Support alert aggregation and throttling to reduce noise.
 -   **Stateful Processing**: Tracks its progress in a local SQLite database, allowing it to stop and resume from where it left off without missing any blocks.
 -   **CLI Dry-Run Mode**: A `dry-run` command allows you to test your monitor against a range of historical blocks to ensure it works as expected before deploying it live.
+-   **Docker Support**: Comes with a multi-stage `Dockerfile` and `docker compose.yml` for easy, portable deployments.
 
 ### Future Features (Planned)
 
@@ -60,7 +61,7 @@ This file contains the main application settings, such as the database connectio
 
 **Example `app.yaml`**
 ```yaml
-database_url: "sqlite:monitor.db"
+database_url: "sqlite:data/monitor.db"
 rpc_urls:
   - "https://eth.llamarpc.com"
   - "https://1rpc.io/eth"
@@ -191,6 +192,37 @@ Once the setup is complete, you can run the application.
     # To run a dry run with custom config directory
     cargo run --release -- dry-run --from <START> --to <END> --config-dir <CUSTOM CONFIG DIR>
     ```
+
+## Running with Docker
+
+The easiest way to run Argus is with Docker Compose. This method handles the database, configuration, and application lifecycle for you.
+
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/isSerge/argus-rs
+    cd argus-rs
+    ```
+
+2.  **Configure Secrets:**
+    Copy the example environment file and fill in your notifier secrets (e.g., Telegram token, Slack webhook URL).
+    ```bash
+    cp .env.example .env
+    # Now, edit .env with your secrets
+    ```
+
+3.  **Create Data Directory:**
+    Create a local directory to persist the database.
+    ```bash
+    mkdir -p data
+    ```
+
+4.  **Run the Application:**
+    Start the application in detached mode.
+    ```bash
+    docker compose up -d
+    ```
+
+You can view logs with `docker compose logs -f` and stop the application with `docker compose down`. For more details, see the [Deployment with Docker documentation](./docs/src/operations/deployment.md).
 
 ## Project Structure
 

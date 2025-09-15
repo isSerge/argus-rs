@@ -106,6 +106,17 @@ Run with `debug` logs:
 RUST_LOG=debug cargo run --release -- dry-run --from 23159290 --to 23159300 --config-dir examples/1_basic_eth_transfer/
 ```
 
+Run with Docker image from GHCR:
+
+```bash
+docker run --rm \
+  --env-file .env \
+  -v "$(pwd)/examples/1_basic_eth_transfer:/app/configs:ro" \
+  -v "$(pwd)/abis:/app/abis:ro" \
+  ghcr.io/isserge/argus-rs:latest \
+  dry-run --from 23159290 --to 23159300 --config-dir /app/configs
+```
+
 Replace `23159290` and `23159300` with any Ethereum block numbers to test
 against.
 
@@ -151,4 +162,21 @@ via the configured notifier when a match is found.
 
 ```bash
 cargo run --release -- run --config-dir examples/1_basic_eth_transfer/
+```
+
+Using Docker image from GHCR:
+
+```bash
+# First, create a data directory for this example
+mkdir -p examples/1_basic_eth_transfer/data
+
+# Run the container in detached mode
+docker run --rm -d \
+  --name argus_example_1 \
+  --env-file .env \
+  -v "$(pwd)/examples/1_basic_eth_transfer:/app/configs:ro" \
+  -v "$(pwd)/abis:/app/abis:ro" \
+  -v "$(pwd)/examples/1_basic_eth_transfer/data:/app/data" \
+  ghcr.io/isserge/argus-rs:latest \
+  run --config-dir /app/configs
 ```

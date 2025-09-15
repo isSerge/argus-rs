@@ -1,43 +1,9 @@
 # This is an example configuration file for defining monitors.
 # You can copy this file to `monitors.yaml` and update `config.yaml` to point to it.
-
 monitors:
-  # ------------------------------------------------------------------------------------
-  # EXAMPLE 1: Monitoring a Proxy Contract (USDC Transfers)
-  #
-  # This monitor tracks large transfers of the USDC stablecoin on the Ethereum network.
-  # USDC is a proxy contract, which is a very common pattern. This means:
-  #   1. The `address` you monitor is the PROXY address. This is the public address
-  #      that users interact with and where the event logs are emitted.
-  #   2. The ABI required to decode the events is from the IMPLEMENTATION contract.
-  #
-  # ------------------------------------------------------------------------------------
-  - name: "Large USDC Transfers (Ethereum)"
-    # The network ID must match the `network_id` specified in your main `config.yaml`.
+  - name: "Large ETH Transfers (Ethereum)"
     network: "ethereum"
-    # This is the PROXY contract address for USDC on Ethereum mainnet.
-    address: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
-    # The name of the ABI (Application Binary Interface) for the contract being monitored
-    abi: "usdc"
-    # The Rhai script to filter events.
-    # This script will be executed for every log emitted by the specified contract address.
-    #
-    # Available variables:
-    # - `log`: An object containing the decoded log data.
-    #   - `log.name`: The name of the event (e.g., "Transfer").
-    #   - `log.params`: A map of the event's parameters (e.g., `log.params.from`, `log.params.value`).
-    # - `tx`: An object containing the transaction data.
-    #   - `tx.hash`, `tx.from`, `tx.to`, `tx.value`, etc.
-    #
-    # This script checks for the "Transfer" event and ensures the transfer value is
-    # greater than 1,000,000 USDC.
-    # The `usdc` function is a wrapper that correctly scales the value by the
-    # token's 6 decimal places. `usdc(1_000_000)` is equivalent to
-    # `bigint("1000000000000")`.
     filter_script: |
-      log.name == "Transfer" && log.params.value > usdc(1_000_000)
-    # Notifiers are used to send notifications when the monitor triggers.
+      tx.value > ether("10")
     notifiers:
-      # This monitor will use the "discord-alerts" and "slack-with-aggregation" notifiers defined in `notifiers.yaml`.
-      - "discord-alerts"
-      - "slack-with-aggregation"
+      - "telegram big transfer"

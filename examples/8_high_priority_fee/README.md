@@ -56,6 +56,19 @@ To test this monitor against historical blocks, use the `dry-run` command with t
 cargo run --release -- dry-run  --from 23315052 --to 23315052 --config-dir examples/8_high_priority_fee/
 ```
 
+Run with Docker image from GHCR:
+
+```bash
+docker run --rm \
+  --env-file .env \
+  -v "$(pwd)/examples/8_high_priority_fee:/app/configs:ro" \
+  -v "$(pwd)/abis:/app/abis:ro" \
+  ghcr.io/isserge/argus-rs:latest \
+  dry-run --from 23315052 --to 23315052 --config-dir /app/configs
+```
+
+Replace `23315052` with any Ethereum block number to test against.
+
 Run with `debug` logs:
 
 ```bash
@@ -104,4 +117,21 @@ Once you have verified your monitor works against historical data in `dry-run` m
 
 ```bash
 cargo run --release -- run --config-dir examples/8_high_priority_fee/
+```
+
+Using Docker image from GHCR:
+
+```bash
+# First, create a data directory for this example
+mkdir -p examples/8_high_priority_fee/data
+
+# Run the container in detached mode
+docker run --rm -d \
+  --name argus_example_8 \
+  --env-file .env \
+  -v "$(pwd)/examples/8_high_priority_fee:/app/configs:ro" \
+  -v "$(pwd)/abis:/app/abis:ro" \
+  -v "$(pwd)/examples/8_high_priority_fee/data:/app/data" \
+  ghcr.io/isserge/argus-rs:latest \
+  run --config-dir /app/configs
 ```

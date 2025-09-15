@@ -1,6 +1,6 @@
 /target
 .env
-monitor.db
+data/
 configs/monitors.yaml
 configs/notifiers.yaml
 /docs/book/

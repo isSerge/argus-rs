@@ -1,0 +1,24 @@
+services:
+  argus:
+    image: ghcr.io/isserge/argus-rs:latest
+    container_name: argus_app
+    restart: unless-stopped
+
+    # The command to run inside the container.
+    # It points to the config directory mounted via the volumes section.
+    command: run --config-dir /app/configs
+
+    # Loads environment variables from a .env file in the same directory
+    env_file:
+      - .env
+
+    volumes:
+      # Mount local configs and ABIs as read-only
+      - ./configs:/app/configs:ro
+      - ./abis:/app/abis:ro
+      # Mount a local data directory to persist the SQLite database
+      - ./data:/app/data
+
+networks:
+  default:
+    name: argus_network

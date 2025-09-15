@@ -89,6 +89,17 @@ Run with `debug` logs:
 RUST_LOG=debug cargo run --release -- dry-run --from 23159290 --to 23159300 --config-dir examples/5_notifier_with_throttle_policy/
 ```
 
+Run with Docker image from GHCR:
+
+```bash
+docker run --rm \
+  --env-file .env \
+  -v "$(pwd)/examples/5_notifier_with_throttle_policy:/app/configs:ro" \
+  -v "$(pwd)/abis:/app/abis:ro" \
+  ghcr.io/isserge/argus-rs:latest \
+  dry-run --from 23159290 --to 23159300 --config-dir /app/configs
+```
+
 Replace `23159290` and `23159300` with any Ethereum block numbers to test against.
 
 #### Expected Output
@@ -133,4 +144,21 @@ via the configured notifier when a match is found.
 
 ```bash
 cargo run --release -- run --config-dir examples/5_notifier_with_throttle_policy/
+```
+
+Using Docker image from GHCR:
+
+```bash
+# First, create a data directory for this example
+mkdir -p examples/5_notifier_with_throttle_policy/data
+
+# Run the container in detached mode
+docker run --rm -d \
+  --name argus_example_5 \
+  --env-file .env \
+  -v "$(pwd)/examples/5_notifier_with_throttle_policy:/app/configs:ro" \
+  -v "$(pwd)/abis:/app/abis:ro" \
+  -v "$(pwd)/examples/5_notifier_with_throttle_policy/data:/app/data" \
+  ghcr.io/isserge/argus-rs:latest \
+  run --config-dir /app/configs
 ```
