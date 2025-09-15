@@ -1,4 +1,4 @@
-database_url: "sqlite:monitor.db"
+database_url: "sqlite:data/monitor.db"
 rpc_urls:
   - "https://eth.llamarpc.com"
   - "https://1rpc.io/eth"
