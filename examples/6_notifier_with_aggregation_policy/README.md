@@ -105,7 +105,7 @@ docker run --rm \
   dry-run --from 23289380 --to 23289383 --config-dir /app/configs
 ```
 
-Replace `23289380` and `18000010` with any Ethereum block numbers to test against.
+Replace `23289380` and `23289383` with any Ethereum block numbers to test against.
 
 #### Expected Output
 
