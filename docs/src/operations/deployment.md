@@ -30,7 +30,7 @@ The `docker compose.yml` file is the easiest way to run the application.
     ```bash
     mkdir -p data
     ```
-3.  **Configure `monitors.yaml`, `notifiers.yaml`, and `app.yaml`**: Edit the files in the `configs/` or other sepcified directory to define your monitors and notifiers.
+3.  **Configure `monitors.yaml`, `notifiers.yaml`, and `app.yaml`**: Edit the files in the `configs/` or other specified directory to define your monitors and notifiers.
 
 #### Commands
 
