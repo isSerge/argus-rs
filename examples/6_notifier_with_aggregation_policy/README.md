@@ -94,7 +94,18 @@ Run with `debug` logs:
 RUST_LOG=debug cargo run --release -- dry-run --from 23289380 --to 23289383 --config-dir examples/6_notifier_with_aggregation_policy/
 ```
 
-Replace `23289380` and `23289383` with any Ethereum block numbers to test against.
+Run with Docker image from GHCR:
+
+```bash
+docker run --rm \
+  --env-file .env \
+  -v "$(pwd)/examples/6_notifier_with_aggregation_policy:/app/configs:ro" \
+  -v "$(pwd)/abis:/app/abis:ro" \
+  ghcr.io/isserge/argus-rs:latest \
+  dry-run --from 23289380 --to 23289383 --config-dir /app/configs
+```
+
+Replace `23289380` and `18000010` with any Ethereum block numbers to test against.
 
 #### Expected Output
 
@@ -145,4 +156,21 @@ Once you have verified your monitor works against historical data in `dry-run` m
 
 ```bash
 cargo run --release -- run --config-dir examples/6_notifier_with_aggregation_policy/
+```
+
+Using Docker image from GHCR:
+
+```bash
+# First, create a data directory for this example
+mkdir -p examples/6_notifier_with_aggregation_policy/data
+
+# Run the container in detached mode
+docker run --rm -d \
+  --name argus_example_6 \
+  --env-file .env \
+  -v "$(pwd)/examples/6_notifier_with_aggregation_policy:/app/configs:ro" \
+  -v "$(pwd)/abis:/app/abis:ro" \
+  -v "$(pwd)/examples/6_notifier_with_aggregation_policy/data:/app/data" \
+  ghcr.io/isserge/argus-rs:latest \
+  run --config-dir /app/configs
 ```

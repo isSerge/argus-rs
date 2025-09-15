@@ -1,4 +1,4 @@
-database_url: "sqlite:monitor.db"
+database_url: "sqlite:data/monitor.db"
 rpc_urls:
   - "https://eth.llamarpc.com"
   - "https://1rpc.io/eth"
@@ -8,4 +8,4 @@ block_chunk_size: 5
 polling_interval_ms: 10000
 confirmation_blocks: 12
 notification_channel_capacity: 1024
-abi_config_path: examples/9_admin_function_call/abis
+abi_config_path: abis/

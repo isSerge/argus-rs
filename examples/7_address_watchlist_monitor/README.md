@@ -60,10 +60,15 @@ To test this monitor against historical blocks, use the `dry-run` command with t
 cargo run --release -- dry-run --from 22895951 --to 22895991 --config-dir examples/7_address_watchlist_monitor/
 ```
 
-Run with `debug` logs:
+Run with Docker image from GHCR:
 
 ```bash
-RUST_LOG=debug cargo run --release -- dry-run --from 22895951 --to 22895991 --config-dir examples/7_address_watchlist_monitor/
+docker run --rm \
+  --env-file .env \
+  -v "$(pwd)/examples/7_address_watchlist_monitor:/app/configs:ro" \
+  -v "$(pwd)/abis:/app/abis:ro" \
+  ghcr.io/isserge/argus-rs:latest \
+  dry-run --from 22895951 --to 22895991 --config-dir /app/configs
 ```
 
 Replace `22895951` and `22895991` with any Ethereum block numbers to test against.
@@ -125,4 +130,21 @@ Once you have verified your monitor works against historical data in `dry-run` m
 
 ```bash
 cargo run --release -- run --config-dir examples/7_address_watchlist_monitor/
+```
+
+Using Docker image from GHCR:
+
+```bash
+# First, create a data directory for this example
+mkdir -p examples/9_admin_function_call/data
+
+# Run the container in detached mode
+docker run --rm -d \
+  --name argus_example_7 \
+  --env-file .env \
+  -v "$(pwd)/examples/7_address_watchlist_monitor:/app/configs:ro" \
+  -v "$(pwd)/abis:/app/abis:ro" \
+  -v "$(pwd)/examples/7_address_watchlist_monitor/data:/app/data" \
+  ghcr.io/isserge/argus-rs:latest \
+  run --config-dir /app/configs
 ```
