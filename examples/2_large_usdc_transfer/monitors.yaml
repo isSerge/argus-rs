@@ -8,6 +8,6 @@ monitors:
     # In this case, the file should be named `usdc.json`
     abi: "usdc"
     filter_script: |
-      log?.name == "Transfer" && log?.params.value > usdc(1_000_000)
+      log.name == "Transfer" && log.params.value > usdc(1_000_000)
     notifiers:
       - "Telegram Large USDC Transfers"

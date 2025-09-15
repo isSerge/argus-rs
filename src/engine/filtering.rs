@@ -265,7 +265,18 @@ impl FilteringEngine for RhaiFilteringEngine {
                 continue;
             }
 
-            // For any monitor (log-aware or not) that hasn't matched, evaluate it
+            // A monitor is considered "log-only" if its script exclusively accesses log
+            // data. Such monitors should not be evaluated in a transaction-only context
+            // (i.e., when `log` is null).
+            let is_log_only = cm.caps.contains(MonitorCapabilities::LOG)
+                && !cm.caps.contains(MonitorCapabilities::TX)
+                && !cm.caps.contains(MonitorCapabilities::CALL);
+
+            if is_log_only {
+                continue;
+            }
+
+            // For any non-log-only monitor that hasn't matched, evaluate it
             // against the transaction context where `log` is null.
             if self.does_monitor_match(&cm.monitor, item, None).await? {
                 let tx_match_payload =
