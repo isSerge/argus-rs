@@ -23,7 +23,14 @@ pub fn create_test_monitor_manager(
         calldata_addresses: Arc::new(HashSet::new()),
         global_event_signatures: Arc::new(global_topics.into_iter().collect()),
     };
-    let state = MonitorAssetState { interest_registry, ..Default::default() };
+    let state = MonitorAssetState {
+        interest_registry,
+        // TODO: Explicitly initialize all other fields of MonitorAssetState here.
+        // For example:
+        // field1: Default::default(),
+        // field2: Default::default(),
+        // etc.
+    };
     manager.state.store(Arc::new(state));
     Arc::new(manager)
 }
