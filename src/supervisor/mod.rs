@@ -34,7 +34,7 @@ use crate::{
         block_processor::{BlockProcessor, BlockProcessorError},
         filtering::FilteringEngine,
     },
-    models::{BlockData, DecodedBlockData, monitor::Monitor, monitor_match::MonitorMatch},
+    models::{BlockData, CorrelatedBlockData, monitor::Monitor, monitor_match::MonitorMatch},
     monitor::{MonitorManager, MonitorValidationError},
     persistence::{sqlite::SqliteStateRepository, traits::StateRepository},
     providers::{
@@ -205,8 +205,8 @@ impl Supervisor {
 
         // Create the channel that connects the main logic (monitor_cycle) to the
         // filtering engine.
-        let (decoded_blocks_tx, decoded_blocks_rx) =
-            mpsc::channel::<DecodedBlockData>(self.config.block_chunk_size as usize * 2);
+        let (correlated_blocks_tx, correlated_blocks_rx) =
+            mpsc::channel::<CorrelatedBlockData>(self.config.block_chunk_size as usize * 2);
 
         // Create the channel that connects the filtering engine to the alert manager.
         let (monitor_matches_tx, mut monitor_matches_rx) =
@@ -215,7 +215,7 @@ impl Supervisor {
         // Spawn the filtering engine as a managed task.
         let filtering_engine_clone = Arc::clone(&self.filtering);
         self.join_set.spawn(async move {
-            filtering_engine_clone.run(decoded_blocks_rx, monitor_matches_tx).await;
+            filtering_engine_clone.run(correlated_blocks_rx, monitor_matches_tx).await;
         });
 
         // Add the AlertManager's main processing loop.
@@ -241,7 +241,7 @@ impl Supervisor {
 
         // This is the main application loop.
         loop {
-            let tx_clone = decoded_blocks_tx.clone();
+            let tx_clone = correlated_blocks_tx.clone();
             let polling_delay = tokio::time::sleep(self.config.polling_interval_ms);
 
             tokio::select! {
@@ -322,7 +322,7 @@ impl Supervisor {
     /// it to the filtering engine via the provided channel.
     async fn monitor_cycle(
         &self,
-        decoded_blocks_tx: mpsc::Sender<DecodedBlockData>,
+        correlated_blocks_tx: mpsc::Sender<CorrelatedBlockData>,
     ) -> Result<(), SupervisorError> {
         let network_id = &self.config.network_id;
         let last_processed_block = self.state.get_last_processed_block(network_id).await?;
@@ -372,10 +372,10 @@ impl Supervisor {
 
         if !blocks_to_process.is_empty() {
             match self.processor.process_blocks_batch(blocks_to_process).await {
-                Ok(decoded_blocks) =>
-                    for decoded_block in decoded_blocks {
-                        let block_num = decoded_block.block_number;
-                        if decoded_blocks_tx.send(decoded_block).await.is_err() {
+                Ok(correlated_blocks) =>
+                    for correlated_block in correlated_blocks {
+                        let block_num = correlated_block.block_number;
+                        if correlated_blocks_tx.send(correlated_block).await.is_err() {
                             tracing::warn!(
                                 "Decoded blocks channel closed, stopping further processing."
                             );

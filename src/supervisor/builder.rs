@@ -101,8 +101,12 @@ impl SupervisorBuilder {
         // Construct the internal services.
         let block_processor =
             BlockProcessor::new(Arc::clone(&abi_service), monitor_manager.clone());
-        let filtering_engine =
-            RhaiFilteringEngine::new(script_compiler, config.rhai.clone(), monitor_manager.clone());
+        let filtering_engine = RhaiFilteringEngine::new(
+            abi_service.clone(),
+            script_compiler,
+            config.rhai.clone(),
+            monitor_manager.clone(),
+        );
         let http_client_pool = Arc::new(HttpClientPool::new(config.http_base_config.clone()));
 
         // Set up the NotificationService and AlertManager

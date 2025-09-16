@@ -207,8 +207,12 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let notifiers: Arc<HashMap<String, NotifierConfig>> =
         Arc::new(notifiers.into_iter().map(|t| (t.name.clone(), t)).collect());
     let notification_service = Arc::new(NotificationService::new(notifiers.clone(), client_pool));
-    let filtering_engine =
-        RhaiFilteringEngine::new(rhai_compiler, config.rhai.clone(), monitor_manager.clone());
+    let filtering_engine = RhaiFilteringEngine::new(
+        abi_service.clone(),
+        rhai_compiler,
+        config.rhai.clone(),
+        monitor_manager.clone(),
+    );
 
     // Init a temporary, in-memory state repository for the dry run.
     let state_repo = Arc::new(SqliteStateRepository::new("sqlite::memory:").await?);
