@@ -1,7 +1,7 @@
 //! A builder for creating `Block` instances for testing.
 
 use alloy::{
-    primitives::B256,
+    primitives::{B256, Bloom},
     rpc::types::{Block, BlockTransactions, Header},
 };
 
@@ -35,6 +35,12 @@ impl BlockBuilder {
     /// Adds a transaction to the block.
     pub fn transaction(mut self, tx: Transaction) -> Self {
         self.transactions.push(tx);
+        self
+    }
+
+    /// Sets the bloom for the block.
+    pub fn bloom(mut self, bloom: Bloom) -> Self {
+        self.header.logs_bloom = bloom;
         self
     }
 
@@ -76,5 +82,48 @@ mod tests {
             assert_eq!(txs.len(), 1);
             assert_eq!(*txs[0].inner.hash(), tx_hash);
         }
+    }
+
+    #[test]
+    fn test_block_builder_empty() {
+        let block = BlockBuilder::new().build();
+        assert_eq!(block.header.number, 0);
+        assert_eq!(block.header.hash, B256::default());
+        assert!(matches!(block.transactions, BlockTransactions::Full(txs) if txs.is_empty()));
+    }
+
+    #[test]
+    fn test_block_builder_multiple_txs() {
+        let tx_hash1 = b256!("1111111111111111111111111111111111111111111111111111111111111111");
+        let tx_hash2 = b256!("2222222222222222222222222222222222222222222222222222222222222222");
+        let tx1 = TransactionBuilder::new().hash(tx_hash1).build();
+
+        let tx2 = TransactionBuilder::new().hash(tx_hash2).build();
+
+        let block = BlockBuilder::new()
+            .number(123)
+            .hash(B256::repeat_byte(0x42))
+            .transaction(tx1)
+            .transaction(tx2)
+            .build();
+
+        assert_eq!(block.header.number, 123);
+        assert_eq!(block.header.hash, B256::repeat_byte(0x42));
+        assert!(matches!(block.transactions, BlockTransactions::Full(_)));
+
+        if let BlockTransactions::Full(txs) = block.transactions {
+            assert_eq!(txs.len(), 2);
+            assert_eq!(*txs[0].inner.hash(), tx_hash1);
+            assert_eq!(*txs[1].inner.hash(), tx_hash2);
+        } else {
+            panic!("Expected full transactions");
+        }
+    }
+
+    #[test]
+    fn test_block_builder_bloom() {
+        let bloom = Bloom::repeat_byte(0xAB);
+        let block = BlockBuilder::new().bloom(bloom).build();
+        assert_eq!(block.header.logs_bloom, bloom);
     }
 }
