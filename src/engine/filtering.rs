@@ -23,15 +23,13 @@ use super::rhai::{
     create_engine,
 };
 use crate::{
-    abi::DecodedLog,
+    abi::AbiService,
     config::RhaiConfig,
-    engine::rhai::{
-        compiler::{RhaiCompiler, RhaiCompilerError},
-        conversions::build_decoded_call_map,
-    },
+    engine::rhai::compiler::{RhaiCompiler, RhaiCompilerError},
     models::{
         correlated_data::CorrelatedBlockItem,
-        decoded_block::DecodedBlockData,
+        decoded_block::CorrelatedBlockData,
+        log::Log,
         monitor::Monitor,
         monitor_match::{LogDetails, MonitorMatch},
     },
@@ -86,7 +84,7 @@ pub trait FilteringEngine: Send + Sync {
     /// sends matches to the notification queue.
     async fn run(
         &self,
-        mut receiver: mpsc::Receiver<DecodedBlockData>,
+        mut receiver: mpsc::Receiver<CorrelatedBlockData>,
         notifications_tx: mpsc::Sender<MonitorMatch>,
     );
 }
@@ -95,6 +93,9 @@ pub trait FilteringEngine: Send + Sync {
 /// security controls.
 #[derive(Debug)]
 pub struct RhaiFilteringEngine {
+    /// The ABI service for decoding logs and transactions.
+    abi_service: Arc<AbiService>,
+
     /// The Rhai script compiler.
     compiler: Arc<RhaiCompiler>,
 
@@ -112,6 +113,7 @@ impl RhaiFilteringEngine {
     /// Creates a new `RhaiFilteringEngine` with the given monitors and Rhai
     /// configuration.
     pub fn new(
+        abi_service: Arc<AbiService>,
         compiler: Arc<RhaiCompiler>,
         config: RhaiConfig,
         monitor_manager: Arc<MonitorManager>,
@@ -120,7 +122,7 @@ impl RhaiFilteringEngine {
         // adding more customizations later
         let engine = create_engine(config.clone());
 
-        Self { compiler, config, engine, monitor_manager }
+        Self { abi_service, compiler, config, engine, monitor_manager }
     }
 
     /// Execute a pre-compiled AST with security controls including timeout
@@ -142,7 +144,7 @@ impl RhaiFilteringEngine {
         &self,
         monitor: &Monitor,
         item: &CorrelatedBlockItem,
-        log: Option<&DecodedLog>,
+        log: Option<&Log>,
     ) -> Result<bool, RhaiError> {
         let mut scope = Scope::new();
 
@@ -150,16 +152,21 @@ impl RhaiFilteringEngine {
         let tx_map = build_transaction_map(&item.transaction, item.receipt.as_ref());
         scope.push("tx", tx_map);
 
-        let decoded_call_dynamic: rhai::Dynamic = match &item.decoded_call {
-            Some(c) => build_decoded_call_map(c).into(),
-            None => ().into(),
-        };
-        scope.push("decoded_call", decoded_call_dynamic);
+        // TODO: Implement lazy decoding for decoded_call
+        scope.push("decoded_call", ());
 
-        if let Some(l) = log {
-            let params_map = build_params_map(&l.params);
-            let log_map = build_log_map(l, params_map);
-            scope.push("log", log_map);
+        if let Some(raw_log) = log {
+            match self.abi_service.decode_log(raw_log) {
+                Ok(decoded_log) => {
+                    let params_map = build_params_map(&decoded_log.params);
+                    let log_map = build_log_map(&decoded_log, params_map);
+                    scope.push("log", log_map);
+                }
+                Err(_) => {
+                    // If decoding fails, the script sees `log` as `()`
+                    scope.push("log", ());
+                }
+            }
         } else {
             scope.push("log", ()); // Ensure `log` is null when not present
         }
@@ -174,11 +181,11 @@ impl RhaiFilteringEngine {
 impl FilteringEngine for RhaiFilteringEngine {
     async fn run(
         &self,
-        mut receiver: mpsc::Receiver<DecodedBlockData>,
+        mut receiver: mpsc::Receiver<CorrelatedBlockData>,
         notifications_tx: mpsc::Sender<MonitorMatch>,
     ) {
-        while let Some(decoded_block) = receiver.recv().await {
-            let futures = decoded_block.items.iter().map(|item| self.evaluate_item(item));
+        while let Some(correlated_block) = receiver.recv().await {
+            let futures = correlated_block.items.iter().map(|item| self.evaluate_item(item));
 
             let results = future::join_all(futures).await;
 
@@ -196,12 +203,12 @@ impl FilteringEngine for RhaiFilteringEngine {
 
             if all_matches.is_empty() {
                 tracing::debug!(
-                    block_number = decoded_block.block_number,
+                    block_number = correlated_block.block_number,
                     "No matches found for block."
                 );
             } else {
                 tracing::info!(
-                    block_number = decoded_block.block_number,
+                    block_number = correlated_block.block_number,
                     match_count = all_matches.len(),
                     "Found matches for block."
                 );
@@ -229,30 +236,33 @@ impl FilteringEngine for RhaiFilteringEngine {
         // --- A single monitor can match multiple logs in the same transaction.
         for cm in assets.monitors.iter() {
             if cm.caps.contains(MonitorCapabilities::LOG) {
-                for log in &item.decoded_logs {
+                for log in &item.logs {
                     if self.does_monitor_match(&cm.monitor, item, Some(log)).await? {
-                        let log_match_payload = build_log_params_payload(&log.params);
+                        // TODO: This is temporary. We need to decode the log to get the details.
+                        if let Ok(decoded_log) = self.abi_service.decode_log(log) {
+                            let log_match_payload = build_log_params_payload(&decoded_log.params);
 
-                        for notifier in &cm.monitor.notifiers {
-                            let log_details = LogDetails {
-                                log_index: log.log.log_index().unwrap_or_default(),
-                                address: log.log.address(),
-                                name: log.name.clone(),
-                                params: log_match_payload.clone(),
-                            };
+                            for notifier in &cm.monitor.notifiers {
+                                let log_details = LogDetails {
+                                    log_index: decoded_log.log.log_index().unwrap_or_default(),
+                                    address: decoded_log.log.address(),
+                                    name: decoded_log.name.clone(),
+                                    params: log_match_payload.clone(),
+                                };
 
-                            matches.push(MonitorMatch::new_log_match(
-                                cm.monitor.id,
-                                cm.monitor.name.clone(),
-                                notifier.clone(),
-                                item.transaction.block_number().unwrap_or_default(),
-                                item.transaction.hash(),
-                                log_details,
-                                log_match_payload.clone(),
-                            ));
+                                matches.push(MonitorMatch::new_log_match(
+                                    cm.monitor.id,
+                                    cm.monitor.name.clone(),
+                                    notifier.clone(),
+                                    item.transaction.block_number().unwrap_or_default(),
+                                    item.transaction.hash(),
+                                    log_details,
+                                    log_match_payload.clone(),
+                                ));
+                            }
+                            // Mark this monitor as having found at least one log match.
+                            matched_monitor_ids.insert(cm.monitor.id);
                         }
-                        // Mark this monitor as having found at least one log match.
-                        matched_monitor_ids.insert(cm.monitor.id);
                     }
                 }
             }
@@ -757,7 +767,7 @@ mod tests {
         let monitor = MonitorBuilder::new()
             .id(1)
             .filter_script(
-                r#"
+                r#" 
             tx.value > bigint(100) || log?.name == "Transfer"
         "#,
             )
@@ -784,7 +794,7 @@ mod tests {
         let monitor = MonitorBuilder::new()
             .id(1)
             .filter_script(
-                r#"
+                r#" 
             tx.value > bigint(100) || log?.name == "Transfer"
         "#,
             )
@@ -812,7 +822,7 @@ mod tests {
         let monitor = MonitorBuilder::new()
             .id(1)
             .filter_script(
-                r#"
+                r#" 
             tx.value > bigint(100) || log?.name == "Transfer"
         "#,
             )
