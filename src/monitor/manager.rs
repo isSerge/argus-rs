@@ -32,6 +32,8 @@ bitflags! {
     }
 }
 
+/// Represents the state of all monitors, including their capabilities and
+/// script analysis.
 #[derive(Debug, Default)]
 pub struct MonitorAssetState {
     /// The full, organized monitor structure for the FilteringEngine.
@@ -48,9 +50,13 @@ pub struct MonitorAssetState {
 /// providing atomic updates to the monitor state.
 #[derive(Debug)]
 pub struct MonitorManager {
+    /// The Rhai script compiler used for analyzing monitor scripts.
     compiler: Arc<RhaiCompiler>,
+    /// The ABI service used for resolving ABIs in monitors.
     abi_service: Arc<AbiService>,
-    state: ArcSwap<MonitorAssetState>,
+    /// The current state of monitors, wrapped in an `ArcSwap` for atomic
+    /// updates.
+    pub state: ArcSwap<MonitorAssetState>,
 }
 
 impl MonitorManager {
