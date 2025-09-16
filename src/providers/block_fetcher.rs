@@ -155,7 +155,7 @@ where
 mod tests {
     use alloy::{
         network::Ethereum,
-        primitives::{Address, B256, Bloom, U256},
+        primitives::{Address, B256, Bloom, U256, address, b256},
         providers::{Provider, ProviderBuilder},
         rpc::types::{Block, Log},
         transports::mock::Asserter,
@@ -193,6 +193,50 @@ mod tests {
 
         assert_eq!(fetched_block.header.number, block_number);
         assert_eq!(fetched_logs.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_block_and_logs_bloom_hit_topic() {
+        let (provider, asserter) = mock_provider();
+        let block_number = 123;
+        let monitored_topic =
+            b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"); // Transfer event topic
+
+        let mut bloom = Bloom::default();
+        bloom.accrue(BloomInput::Raw(monitored_topic.as_slice()));
+
+        let block = BlockBuilder::new().number(block_number).bloom(bloom).build();
+        let logs: Vec<Log> = vec![Log::default()];
+
+        asserter.push_success(&block);
+        asserter.push_success(&logs);
+
+        let monitor_manager = create_test_monitor_manager(vec![], vec![monitored_topic]);
+        let fetcher = BlockFetcher::new(provider, monitor_manager);
+        let (fetched_block, fetched_logs) =
+            fetcher.fetch_block_and_logs(block_number).await.unwrap();
+
+        assert_eq!(fetched_block.header.number, block_number);
+        assert_eq!(fetched_logs.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_block_and_logs_bloom_miss() {
+        let (provider, asserter) = mock_provider();
+        let block_number = 123;
+        let monitored_address = address!("1111111111111111111111111111111111111111");
+
+        let block = BlockBuilder::new().number(block_number).build(); // Default bloom is empty
+
+        asserter.push_success(&block);
+
+        let monitor_manager = create_test_monitor_manager(vec![monitored_address], vec![]);
+        let fetcher = BlockFetcher::new(provider, monitor_manager);
+        let (fetched_block, fetched_logs) =
+            fetcher.fetch_block_and_logs(block_number).await.unwrap();
+
+        assert_eq!(fetched_block.header.number, block_number);
+        assert!(fetched_logs.is_empty());
     }
 
     #[tokio::test]
