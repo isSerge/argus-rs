@@ -162,7 +162,10 @@ mod tests {
     };
 
     use super::*;
-    use crate::test_helpers::{BlockBuilder, ReceiptBuilder, create_test_monitor_manager};
+    use crate::{
+        models::monitor::Monitor,
+        test_helpers::{BlockBuilder, LogBuilder, ReceiptBuilder, create_test_monitor_manager},
+    };
 
     // Helper to create a provider and asserter from the user's example.
     fn mock_provider() -> (impl Provider<Ethereum>, Asserter) {
@@ -186,7 +189,15 @@ mod tests {
         asserter.push_success(&block);
         asserter.push_success(&logs);
 
-        let monitor_manager = create_test_monitor_manager(vec![monitored_address], vec![]);
+        let monitor = Monitor {
+            name: "Test Monitor".into(),
+            network: "testnet".into(),
+            address: Some(monitored_address.to_string()),
+            filter_script: "log != ()".to_string(), // should be log-aware monitor
+            ..Default::default()
+        };
+
+        let monitor_manager = create_test_monitor_manager(vec![monitor]);
         let fetcher = BlockFetcher::new(provider, monitor_manager);
         let (fetched_block, fetched_logs) =
             fetcher.fetch_block_and_logs(block_number).await.unwrap();
@@ -199,19 +210,28 @@ mod tests {
     async fn test_fetch_block_and_logs_bloom_hit_topic() {
         let (provider, asserter) = mock_provider();
         let block_number = 123;
-        let monitored_topic =
-            b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"); // Transfer event topic
+        let transfer_topic =
+            b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"); // keccak256("Transfer(address,address,uint256)")
 
         let mut bloom = Bloom::default();
-        bloom.accrue(BloomInput::Raw(monitored_topic.as_slice()));
+        bloom.accrue(BloomInput::Raw(transfer_topic.as_slice()));
 
         let block = BlockBuilder::new().number(block_number).bloom(bloom).build();
-        let logs: Vec<Log> = vec![Log::default()];
+        let log = LogBuilder::new().topics(vec![transfer_topic]).build();
 
         asserter.push_success(&block);
-        asserter.push_success(&logs);
+        asserter.push_success(&vec![log]);
 
-        let monitor_manager = create_test_monitor_manager(vec![], vec![monitored_topic]);
+        let monitor = Monitor {
+            name: "Test Monitor".into(),
+            network: "testnet".into(),
+            address: Some("all".to_string()), // 'all' indicates global event signature monitoring
+            abi: Some("simple".to_string()),  // ABI with Transfer event
+            filter_script: "log.name == \"Transfer\"".to_string(),
+            ..Default::default()
+        };
+
+        let monitor_manager = create_test_monitor_manager(vec![monitor]);
         let fetcher = BlockFetcher::new(provider, monitor_manager);
         let (fetched_block, fetched_logs) =
             fetcher.fetch_block_and_logs(block_number).await.unwrap();
@@ -230,7 +250,15 @@ mod tests {
 
         asserter.push_success(&block);
 
-        let monitor_manager = create_test_monitor_manager(vec![monitored_address], vec![]);
+        let monitor = Monitor {
+            name: "Test Monitor".into(),
+            network: "testnet".into(),
+            address: Some(monitored_address.to_string()),
+            filter_script: "true".to_string(),
+            ..Default::default()
+        };
+
+        let monitor_manager = create_test_monitor_manager(vec![monitor]);
         let fetcher = BlockFetcher::new(provider, monitor_manager);
         let (fetched_block, fetched_logs) =
             fetcher.fetch_block_and_logs(block_number).await.unwrap();
@@ -252,7 +280,7 @@ mod tests {
         asserter.push_success(&receipt1);
         asserter.push_success(&receipt2);
 
-        let monitor_manager = create_test_monitor_manager(vec![], vec![]);
+        let monitor_manager = create_test_monitor_manager(vec![]);
         let fetcher = BlockFetcher::new(provider, monitor_manager);
         let receipts = fetcher.fetch_receipts(&[tx_hash1, tx_hash2]).await.unwrap();
 
@@ -264,7 +292,7 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_receipts_empty() {
         let (provider, _) = mock_provider(); // Asserter is not needed as no calls are made.
-        let monitor_manager = create_test_monitor_manager(vec![], vec![]);
+        let monitor_manager = create_test_monitor_manager(vec![]);
         let fetcher = BlockFetcher::new(provider, monitor_manager);
         let receipts = fetcher.fetch_receipts(&[]).await.unwrap();
         assert!(receipts.is_empty());
@@ -277,7 +305,7 @@ mod tests {
 
         asserter.push_success(&U256::from(current_block));
 
-        let monitor_manager = create_test_monitor_manager(vec![], vec![]);
+        let monitor_manager = create_test_monitor_manager(vec![]);
         let fetcher = BlockFetcher::new(provider, monitor_manager);
         let result = fetcher.get_current_block_number().await.unwrap();
 
@@ -294,7 +322,7 @@ mod tests {
         // The logs request will still be made in the sequential test version.
         asserter.push_success(&Vec::<Log>::new());
 
-        let monitor_manager = create_test_monitor_manager(vec![], vec![]);
+        let monitor_manager = create_test_monitor_manager(vec![]);
         let fetcher = BlockFetcher::new(provider, monitor_manager);
         let result = fetcher.fetch_block_and_logs(block_number).await;
 
@@ -314,7 +342,7 @@ mod tests {
         // Push a `null` response for the second, which deserializes to `None`.
         asserter.push_success(&Option::<TransactionReceipt>::None);
 
-        let monitor_manager = create_test_monitor_manager(vec![], vec![]);
+        let monitor_manager = create_test_monitor_manager(vec![]);
         let fetcher = BlockFetcher::new(provider, monitor_manager);
         let receipts = fetcher.fetch_receipts(&[tx_hash1, tx_hash2]).await.unwrap();
 
@@ -330,7 +358,7 @@ mod tests {
         // Push a custom error response.
         asserter.push_failure_msg("test provider error");
 
-        let monitor_manager = create_test_monitor_manager(vec![], vec![]);
+        let monitor_manager = create_test_monitor_manager(vec![]);
         let fetcher = BlockFetcher::new(provider, monitor_manager);
         let result = fetcher.get_current_block_number().await;
 

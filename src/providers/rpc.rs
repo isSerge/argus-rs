@@ -150,8 +150,9 @@ mod tests {
     };
 
     use super::*;
-    use crate::test_helpers::{
-        BlockBuilder, LogBuilder, ReceiptBuilder, create_test_monitor_manager,
+    use crate::{
+        models::monitor::Monitor,
+        test_helpers::{BlockBuilder, LogBuilder, ReceiptBuilder, create_test_monitor_manager},
     };
 
     fn mock_provider() -> (impl Provider<Ethereum>, Asserter) {
@@ -177,7 +178,14 @@ mod tests {
         asserter.push_success(&block);
         asserter.push_success(&vec![alloy_log.clone()]);
 
-        let monitor_manager = create_test_monitor_manager(vec![monitored_address], vec![]);
+        let monitor = Monitor {
+            name: "Test Monitor".into(),
+            address: Some(monitored_address.to_string()),
+            filter_script: "log != ()".into(), // Should be log-aware monitor
+            ..Default::default()
+        };
+
+        let monitor_manager = create_test_monitor_manager(vec![monitor]);
         let source = EvmRpcSource::new(provider, monitor_manager);
 
         let (fetched_block, fetched_logs) = source.fetch_block_core_data(1).await.unwrap();
@@ -193,7 +201,7 @@ mod tests {
         asserter.push_success(&Option::<Block>::None);
         asserter.push_success(&Vec::<Log>::new());
 
-        let monitor_manager = create_test_monitor_manager(vec![], vec![]);
+        let monitor_manager = create_test_monitor_manager(vec![]);
         let source = EvmRpcSource::new(provider, monitor_manager);
 
         let result = source.fetch_block_core_data(1).await;
@@ -207,7 +215,7 @@ mod tests {
         asserter.push_failure_msg("RPC error");
         asserter.push_success(&Vec::<Log>::new());
 
-        let monitor_manager = create_test_monitor_manager(vec![], vec![]);
+        let monitor_manager = create_test_monitor_manager(vec![]);
         let source = EvmRpcSource::new(provider, monitor_manager);
 
         let result = source.fetch_block_core_data(1).await;
@@ -220,7 +228,7 @@ mod tests {
         let (provider, asserter) = mock_provider();
         asserter.push_success(&U256::from(1));
 
-        let monitor_manager = create_test_monitor_manager(vec![], vec![]);
+        let monitor_manager = create_test_monitor_manager(vec![]);
         let source = EvmRpcSource::new(provider, monitor_manager);
 
         let block_number = source.get_current_block_number().await.unwrap();
@@ -233,7 +241,7 @@ mod tests {
         let (provider, asserter) = mock_provider();
         asserter.push_failure_msg("RPC error");
 
-        let monitor_manager = create_test_monitor_manager(vec![], vec![]);
+        let monitor_manager = create_test_monitor_manager(vec![]);
         let source = EvmRpcSource::new(provider, monitor_manager);
 
         let result = source.get_current_block_number().await;
@@ -252,7 +260,7 @@ mod tests {
             .build();
         asserter.push_success(&receipt);
 
-        let monitor_manager = create_test_monitor_manager(vec![], vec![]);
+        let monitor_manager = create_test_monitor_manager(vec![]);
         let source = EvmRpcSource::new(provider, monitor_manager);
 
         let tx_hashes = &[receipt.transaction_hash];
@@ -271,7 +279,7 @@ mod tests {
         asserter.push_success(&Option::<TransactionReceipt>::None);
         asserter.push_success(&receipt);
 
-        let monitor_manager = create_test_monitor_manager(vec![], vec![]);
+        let monitor_manager = create_test_monitor_manager(vec![]);
         let source = EvmRpcSource::new(provider, monitor_manager);
 
         let tx_hashes = &[B256::default(), receipt.transaction_hash];
@@ -286,7 +294,7 @@ mod tests {
         let (provider, asserter) = mock_provider();
         asserter.push_failure_msg("RPC error");
 
-        let monitor_manager = create_test_monitor_manager(vec![], vec![]);
+        let monitor_manager = create_test_monitor_manager(vec![]);
         let source = EvmRpcSource::new(provider, monitor_manager);
 
         let tx_hashes = &[B256::default()];

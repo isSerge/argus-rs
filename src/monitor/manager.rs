@@ -56,7 +56,7 @@ pub struct MonitorManager {
     abi_service: Arc<AbiService>,
     /// The current state of monitors, wrapped in an `ArcSwap` for atomic
     /// updates.
-    pub state: ArcSwap<MonitorAssetState>,
+    state: ArcSwap<MonitorAssetState>,
 }
 
 impl MonitorManager {
