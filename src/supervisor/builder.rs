@@ -16,7 +16,7 @@ use crate::{
     monitor::MonitorManager,
     notification::NotificationService,
     persistence::{sqlite::SqliteStateRepository, traits::StateRepository},
-    providers::traits::DataSource,
+    providers::rpc::{EvmRpcSource, create_provider},
 };
 
 /// A builder for creating a `Supervisor` instance.
@@ -25,7 +25,7 @@ pub struct SupervisorBuilder {
     config: Option<AppConfig>,
     state: Option<Arc<SqliteStateRepository>>,
     abi_service: Option<Arc<AbiService>>,
-    data_source: Option<Box<dyn DataSource>>,
+    // data_source: Option<Box<dyn DataSource>>,
     script_compiler: Option<Arc<RhaiCompiler>>,
 }
 
@@ -53,11 +53,11 @@ impl SupervisorBuilder {
         self
     }
 
-    /// Sets the data source (e.g., RPC client) for the `Supervisor`.
-    pub fn data_source(mut self, data_source: Box<dyn DataSource>) -> Self {
-        self.data_source = Some(data_source);
-        self
-    }
+    // /// Sets the data source (e.g., RPC client) for the `Supervisor`.
+    // pub fn data_source(mut self, data_source: Box<dyn DataSource>) -> Self {
+    //     self.data_source = Some(data_source);
+    //     self
+    // }
 
     /// Sets the Rhai script compiler for the `Supervisor`.
     pub fn script_compiler(mut self, script_compiler: Arc<RhaiCompiler>) -> Self {
@@ -75,7 +75,8 @@ impl SupervisorBuilder {
         let config = self.config.ok_or(SupervisorError::MissingConfig)?;
         let state = self.state.ok_or(SupervisorError::MissingStateRepository)?;
         let abi_service = self.abi_service.ok_or(SupervisorError::MissingAbiService)?;
-        let data_source = self.data_source.ok_or(SupervisorError::MissingDataSource)?;
+        // let data_source =
+        // self.data_source.ok_or(SupervisorError::MissingDataSource)?;
         let script_compiler = self.script_compiler.ok_or(SupervisorError::MissingScriptCompiler)?;
 
         // The FilteringEngine is created here, loading its initial set of monitors
@@ -86,6 +87,11 @@ impl SupervisorBuilder {
 
         let monitor_manager =
             Arc::new(MonitorManager::new(monitors, script_compiler.clone(), abi_service.clone()));
+
+        tracing::debug!(rpc_urls = ?config.rpc_urls, "Initializing EVM data source...");
+        let provider = create_provider(config.rpc_urls.clone(), config.rpc_retry_config.clone())?;
+        let evm_data_source = EvmRpcSource::new(provider, monitor_manager.clone());
+        tracing::info!(retry_policy = ?config.rpc_retry_config, "EVM data source initialized with fallback and retry policy.");
 
         // Load notifiers from the database for the NotificationService.
         tracing::debug!(network_id = %config.network_id, "Loading notifiers from database for notification service...");
@@ -111,7 +117,7 @@ impl SupervisorBuilder {
         Ok(Supervisor::new(
             config,
             state,
-            data_source,
+            Box::new(evm_data_source),
             block_processor,
             Arc::new(filtering_engine),
             alert_manager,
@@ -126,8 +132,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        config::RhaiConfig, models::monitor::MonitorConfig, providers::traits::MockDataSource,
-        test_helpers::create_test_abi_service,
+        config::RhaiConfig, models::monitor::MonitorConfig, test_helpers::create_test_abi_service,
     };
 
     async fn setup_test_db() -> SqliteStateRepository {
@@ -144,6 +149,12 @@ mod tests {
         let abi_name = "abi";
         let dir = tempdir().unwrap();
 
+        let app_config = AppConfig::builder()
+            .rpc_urls(vec![
+                "http://localhost:8545".parse().unwrap(), // Cannot be empty to create provider
+            ])
+            .build();
+
         let monitor = MonitorConfig {
             name: "Valid Monitor".into(),
             network: network_id.into(),
@@ -159,14 +170,13 @@ mod tests {
         let (abi_service, _) = create_test_abi_service(&dir, &[(abi_name, "[]")]);
 
         let builder = SupervisorBuilder::new()
-            .config(AppConfig::default())
+            .config(app_config)
             .state(state_repo)
             .abi_service(abi_service)
-            .script_compiler(Arc::new(RhaiCompiler::new(RhaiConfig::default())))
-            .data_source(Box::new(MockDataSource::new()));
+            .script_compiler(Arc::new(RhaiCompiler::new(RhaiConfig::default())));
 
         let result = builder.build().await;
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "Expected build to succeed, but got error: {:?}", result.err());
     }
 
     #[tokio::test]
@@ -174,10 +184,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let (abi_service, _) = create_test_abi_service(&dir, &[]);
         let state_repo = Arc::new(setup_test_db().await);
-        let builder = SupervisorBuilder::new()
-            .state(state_repo)
-            .abi_service(abi_service)
-            .data_source(Box::new(MockDataSource::new()));
+        let builder = SupervisorBuilder::new().state(state_repo).abi_service(abi_service);
 
         let result = builder.build().await;
         assert!(matches!(result, Err(SupervisorError::MissingConfig)));
@@ -187,10 +194,8 @@ mod tests {
     async fn build_fails_if_state_repository_is_missing() {
         let dir = tempdir().unwrap();
         let (abi_service, _) = create_test_abi_service(&dir, &[]);
-        let builder = SupervisorBuilder::new()
-            .config(AppConfig::default())
-            .abi_service(abi_service)
-            .data_source(Box::new(MockDataSource::new()));
+        let builder =
+            SupervisorBuilder::new().config(AppConfig::default()).abi_service(abi_service);
 
         let result = builder.build().await;
         assert!(matches!(result, Err(SupervisorError::MissingStateRepository)));
@@ -199,26 +204,23 @@ mod tests {
     #[tokio::test]
     async fn build_fails_if_abi_service_is_missing() {
         let state_repo = Arc::new(setup_test_db().await);
-        let builder = SupervisorBuilder::new()
-            .config(AppConfig::default())
-            .state(state_repo)
-            .data_source(Box::new(MockDataSource::new()));
+        let builder = SupervisorBuilder::new().config(AppConfig::default()).state(state_repo);
 
         let result = builder.build().await;
         assert!(matches!(result, Err(SupervisorError::MissingAbiService)));
     }
 
-    #[tokio::test]
-    async fn build_fails_if_data_source_is_missing() {
-        let dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&dir, &[]);
-        let state_repo = Arc::new(setup_test_db().await);
-        let builder = SupervisorBuilder::new()
-            .config(AppConfig::default())
-            .state(state_repo)
-            .abi_service(abi_service);
+    // #[tokio::test]
+    // async fn build_fails_if_data_source_is_missing() {
+    //     let dir = tempdir().unwrap();
+    //     let (abi_service, _) = create_test_abi_service(&dir, &[]);
+    //     let state_repo = Arc::new(setup_test_db().await);
+    //     let builder = SupervisorBuilder::new()
+    //         .config(AppConfig::default())
+    //         .state(state_repo)
+    //         .abi_service(abi_service);
 
-        let result = builder.build().await;
-        assert!(matches!(result, Err(SupervisorError::MissingDataSource)));
-    }
+    //     let result = builder.build().await;
+    //     assert!(matches!(result, Err(SupervisorError::MissingDataSource)));
+    // }
 }

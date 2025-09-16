@@ -37,7 +37,10 @@ use crate::{
     models::{BlockData, DecodedBlockData, monitor::Monitor, monitor_match::MonitorMatch},
     monitor::{MonitorManager, MonitorValidationError},
     persistence::{sqlite::SqliteStateRepository, traits::StateRepository},
-    providers::traits::{DataSource, DataSourceError},
+    providers::{
+        rpc::ProviderError,
+        traits::{DataSource, DataSourceError},
+    },
 };
 
 /// Represents the set of errors that can occur during the supervisor's
@@ -89,6 +92,10 @@ pub enum SupervisorError {
     /// A script compiler was not provided to the `SupervisorBuilder`.
     #[error("Missing script compiler for Supervisor")]
     MissingScriptCompiler,
+
+    /// An error occurred while trying to create a provider.
+    #[error("Provider creation failed: {0}")]
+    ProviderError(#[from] ProviderError),
 }
 
 /// The primary runtime manager for the application.

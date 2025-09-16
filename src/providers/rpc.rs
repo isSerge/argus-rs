@@ -1,7 +1,7 @@
 //! This module provides functionality to create a provider for EVM RPC requests
 //! with retry logic and backoff strategies.
 
-use std::{collections::HashMap, num::NonZeroUsize};
+use std::{collections::HashMap, num::NonZeroUsize, sync::Arc};
 
 use alloy::{
     primitives::TxHash,
@@ -22,7 +22,7 @@ use super::{
     block_fetcher::{BlockFetcher, BlockFetcherError},
     traits::{DataSource, DataSourceError},
 };
-use crate::config::RpcRetryConfig;
+use crate::{config::RpcRetryConfig, monitor::MonitorManager};
 
 /// A `DataSource` implementation that fetches data from an EVM RPC endpoint.
 pub struct EvmRpcSource<P> {
@@ -35,8 +35,8 @@ where
 {
     /// Creates a new `EvmRpcSource`.
     #[tracing::instrument(skip(provider), level = "debug")]
-    pub fn new(provider: P) -> Self {
-        Self { block_fetcher: BlockFetcher::new(provider) }
+    pub fn new(provider: P, monitor_manager: Arc<MonitorManager>) -> Self {
+        Self { block_fetcher: BlockFetcher::new(provider, monitor_manager) }
     }
 }
 
@@ -144,13 +144,16 @@ mod tests {
 
     use alloy::{
         network::Ethereum,
-        primitives::{B256, U256, b256},
+        primitives::{B256, Bloom, BloomInput, U256, address, b256},
         providers::{Provider, ProviderBuilder},
         transports::mock::Asserter,
     };
 
     use super::*;
-    use crate::test_helpers::{BlockBuilder, LogBuilder, ReceiptBuilder};
+    use crate::{
+        models::monitor::Monitor,
+        test_helpers::{BlockBuilder, LogBuilder, ReceiptBuilder, create_test_monitor_manager},
+    };
 
     fn mock_provider() -> (impl Provider<Ethereum>, Asserter) {
         let asserter = Asserter::new();
@@ -161,14 +164,29 @@ mod tests {
     #[tokio::test]
     async fn test_fetch_block_core_data_success() {
         let (provider, asserter) = mock_provider();
-        let block = BlockBuilder::new().number(1).build();
-        let log: crate::models::Log = LogBuilder::new().block_number(1).build();
+
+        let monitored_address = address!("1111111111111111111111111111111111111111");
+
+        // Create a block with a bloom filter that includes the monitored address
+        let mut bloom = Bloom::default();
+        bloom.accrue(BloomInput::Raw(monitored_address.as_slice()));
+
+        let block = BlockBuilder::new().number(1).bloom(bloom).build();
+        let log = LogBuilder::new().block_number(1).address(monitored_address).build();
         let alloy_log: Log = log.into();
 
         asserter.push_success(&block);
         asserter.push_success(&vec![alloy_log.clone()]);
 
-        let source = EvmRpcSource::new(provider);
+        let monitor = Monitor {
+            name: "Test Monitor".into(),
+            address: Some(monitored_address.to_string()),
+            filter_script: "log != ()".into(), // Should be log-aware monitor
+            ..Default::default()
+        };
+
+        let monitor_manager = create_test_monitor_manager(vec![monitor]);
+        let source = EvmRpcSource::new(provider, monitor_manager);
 
         let (fetched_block, fetched_logs) = source.fetch_block_core_data(1).await.unwrap();
 
@@ -183,7 +201,8 @@ mod tests {
         asserter.push_success(&Option::<Block>::None);
         asserter.push_success(&Vec::<Log>::new());
 
-        let source = EvmRpcSource::new(provider);
+        let monitor_manager = create_test_monitor_manager(vec![]);
+        let source = EvmRpcSource::new(provider, monitor_manager);
 
         let result = source.fetch_block_core_data(1).await;
 
@@ -195,7 +214,9 @@ mod tests {
         let (provider, asserter) = mock_provider();
         asserter.push_failure_msg("RPC error");
         asserter.push_success(&Vec::<Log>::new());
-        let source = EvmRpcSource::new(provider);
+
+        let monitor_manager = create_test_monitor_manager(vec![]);
+        let source = EvmRpcSource::new(provider, monitor_manager);
 
         let result = source.fetch_block_core_data(1).await;
 
@@ -206,7 +227,9 @@ mod tests {
     async fn test_get_current_block_number() {
         let (provider, asserter) = mock_provider();
         asserter.push_success(&U256::from(1));
-        let source = EvmRpcSource::new(provider);
+
+        let monitor_manager = create_test_monitor_manager(vec![]);
+        let source = EvmRpcSource::new(provider, monitor_manager);
 
         let block_number = source.get_current_block_number().await.unwrap();
 
@@ -217,7 +240,9 @@ mod tests {
     async fn test_get_current_block_number_error_handling() {
         let (provider, asserter) = mock_provider();
         asserter.push_failure_msg("RPC error");
-        let source = EvmRpcSource::new(provider);
+
+        let monitor_manager = create_test_monitor_manager(vec![]);
+        let source = EvmRpcSource::new(provider, monitor_manager);
 
         let result = source.get_current_block_number().await;
 
@@ -234,7 +259,9 @@ mod tests {
             .block_number(1)
             .build();
         asserter.push_success(&receipt);
-        let source = EvmRpcSource::new(provider);
+
+        let monitor_manager = create_test_monitor_manager(vec![]);
+        let source = EvmRpcSource::new(provider, monitor_manager);
 
         let tx_hashes = &[receipt.transaction_hash];
         let receipts = source.fetch_receipts(tx_hashes).await.unwrap();
@@ -252,7 +279,8 @@ mod tests {
         asserter.push_success(&Option::<TransactionReceipt>::None);
         asserter.push_success(&receipt);
 
-        let source = EvmRpcSource::new(provider);
+        let monitor_manager = create_test_monitor_manager(vec![]);
+        let source = EvmRpcSource::new(provider, monitor_manager);
 
         let tx_hashes = &[B256::default(), receipt.transaction_hash];
         let receipts = source.fetch_receipts(tx_hashes).await.unwrap();
@@ -265,7 +293,9 @@ mod tests {
     async fn test_fetch_receipts_error_handling() {
         let (provider, asserter) = mock_provider();
         asserter.push_failure_msg("RPC error");
-        let source = EvmRpcSource::new(provider);
+
+        let monitor_manager = create_test_monitor_manager(vec![]);
+        let source = EvmRpcSource::new(provider, monitor_manager);
 
         let tx_hashes = &[B256::default()];
         let result = source.fetch_receipts(tx_hashes).await;
