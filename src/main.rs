@@ -7,7 +7,6 @@ use argus::{
     engine::rhai::{RhaiCompiler, RhaiScriptValidator},
     initialization::InitializationService,
     persistence::{sqlite::SqliteStateRepository, traits::StateRepository},
-    providers::rpc::{EvmRpcSource, create_provider},
     supervisor::Supervisor,
 };
 use clap::{Parser, Subcommand};
@@ -84,15 +83,9 @@ async fn run_supervisor(config_dir: Option<String>) -> Result<(), Box<dyn std::e
     initialization_service.run().await?;
     tracing::info!("Application state initialized.");
 
-    tracing::debug!(rpc_urls = ?config.rpc_urls, "Initializing EVM data source...");
-    let provider = create_provider(config.rpc_urls.clone(), config.rpc_retry_config.clone())?;
-    let evm_data_source = EvmRpcSource::new(provider);
-    tracing::info!(retry_policy = ?config.rpc_retry_config, "EVM data source initialized with fallback and retry policy.");
-
     let supervisor = Supervisor::builder()
         .config(config)
         .abi_service(abi_service)
-        .data_source(Box::new(evm_data_source))
         .script_compiler(script_compiler)
         .state(repo)
         .build()

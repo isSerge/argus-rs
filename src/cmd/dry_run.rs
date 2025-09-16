@@ -129,10 +129,6 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let config_dir = args.config_dir.as_deref().unwrap_or("configs");
     let config = AppConfig::new(config_dir.into())?;
 
-    // Init EVM data source for fetching blockchain data.
-    let provider = create_provider(config.rpc_urls.clone(), config.rpc_retry_config.clone())?;
-    let evm_source = EvmRpcSource::new(provider);
-
     // Init services for processing and decoding data.
     let abi_repository = Arc::new(AbiRepository::new(&config.abi_config_path)?);
     let abi_service = Arc::new(AbiService::new(abi_repository));
@@ -198,6 +194,10 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
 
     let monitor_manager =
         Arc::new(MonitorManager::new(monitors.clone(), rhai_compiler.clone(), abi_service.clone()));
+
+    // Init EVM data source for fetching blockchain data.
+    let provider = create_provider(config.rpc_urls.clone(), config.rpc_retry_config.clone())?;
+    let evm_source = EvmRpcSource::new(provider, monitor_manager.clone());
 
     // Init the block processor for decoding raw blockchain data.
     let block_processor = BlockProcessor::new(Arc::clone(&abi_service), monitor_manager.clone());
