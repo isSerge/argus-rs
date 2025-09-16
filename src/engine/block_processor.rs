@@ -12,8 +12,13 @@ use futures::future::join_all;
 use thiserror::Error;
 
 use crate::{
-    abi::{AbiError, AbiService, DecodedLog},
-    models::{BlockData, CorrelatedBlockItem, DecodedBlockData, transaction::Transaction},
+    abi::AbiService,
+    models::{
+        transaction::Transaction,
+        BlockData,
+        CorrelatedBlockData,
+        CorrelatedBlockItem,
+    },
     monitor::MonitorManager,
 };
 
@@ -28,14 +33,14 @@ pub enum BlockProcessorError {
 /// The `BlockProcessor` is responsible for in-memory processing of `BlockData`.
 /// This includes decoding logs and correlating data
 pub struct BlockProcessor {
-    abi_service: Arc<AbiService>,
-    monitor_manager: Arc<MonitorManager>,
+    _abi_service: Arc<AbiService>,
+    _monitor_manager: Arc<MonitorManager>,
 }
 
 impl BlockProcessor {
     /// Creates a new `BlockProcessor` with the provided `AbiService`.
     pub fn new(abi_service: Arc<AbiService>, monitor_manager: Arc<MonitorManager>) -> Self {
-        Self { abi_service, monitor_manager }
+        Self { _abi_service: abi_service, _monitor_manager: monitor_manager }
     }
 
     /// Processes the given `BlockData`, decodes logs, correlates data,
@@ -43,18 +48,15 @@ impl BlockProcessor {
     pub async fn process_block(
         &self,
         block_data: BlockData,
-    ) -> Result<DecodedBlockData, BlockProcessorError> {
+    ) -> Result<CorrelatedBlockData, BlockProcessorError> {
         tracing::debug!(block_number = block_data.block.header.number, "Processing block data.");
-
-        // Load the current monitor snapshot
-        let monitor_snapshot = self.monitor_manager.load();
 
         let num_txs = match &block_data.block.transactions {
             BlockTransactions::Full(txs) => txs.len(),
             _ => 0,
         };
 
-        let mut decoded_block = DecodedBlockData {
+        let mut correlated_block = CorrelatedBlockData {
             block_number: block_data.block.header.number,
             items: Vec::with_capacity(num_txs),
         };
@@ -65,60 +67,23 @@ impl BlockProcessor {
                     let tx: Transaction = tx.into();
                     let tx_hash = tx.hash();
 
-                    // --- 1. Decode logs for this transaction ---
-                    let raw_logs_for_tx =
-                        block_data.logs.get(&tx_hash).cloned().unwrap_or_default();
-
-                    let mut decoded_logs: Vec<DecodedLog> = Vec::new();
-                    for log in &raw_logs_for_tx {
-                        if monitor_snapshot.interest_registry.is_log_interesting(log) {
-                            match self.abi_service.decode_log(log) {
-                                Ok(decoded) => decoded_logs.push(decoded),
-                                Err(e) =>
-                                    if !matches!(e, AbiError::AbiNotFound(_)) {
-                                        tracing::warn!(
-                                            log_address = %log.address(),
-                                            error = %e,
-                                            "Could not decode log for a monitored address. Check if the ABI is correct."
-                                        );
-                                    },
-                            }
-                        }
-                    }
-
-                    // --- 2. Decode calls for this transaction ---
-                    let mut decoded_call = None;
-                    if monitor_snapshot.interest_registry.is_calldata_interesting(&tx.to()) {
-                        match self.abi_service.decode_function_input(&tx) {
-                            Ok(call) => {
-                                decoded_call = Some(call);
-                            }
-                            Err(e) => {
-                                tracing::warn!(
-                                    tx_hash = %tx_hash,
-                                    error = %e,
-                                    "Could not decode calldata for a monitored address. Check if the ABI is correct."
-                                );
-                            }
-                        }
-                    }
+                    let logs = block_data.logs.get(&tx_hash).cloned().unwrap_or_default();
 
                     // Get the receipt for this transaction, if available
                     let receipt = block_data.receipts.get(&tx_hash).cloned();
 
                     // --- 3. Create the correlated block item ---
-                    let correlated_item =
-                        CorrelatedBlockItem::new(tx, decoded_logs, decoded_call, receipt);
+                    let correlated_item = CorrelatedBlockItem::new(tx, logs, receipt);
 
-                    decoded_block.items.push(correlated_item);
+                    correlated_block.items.push(correlated_item);
                 }
 
-                Ok(decoded_block)
+                Ok(correlated_block)
             }
             BlockTransactions::Hashes(_) | BlockTransactions::Uncle => {
                 tracing::warn!("Full transactions are required for processing.");
                 // For now, we'll just skip processing this block.
-                Ok(decoded_block)
+                Ok(correlated_block)
             }
         }
     }
@@ -129,7 +94,7 @@ impl BlockProcessor {
     pub async fn process_blocks_batch(
         &self,
         blocks: Vec<BlockData>,
-    ) -> Result<Vec<DecodedBlockData>, BlockProcessorError> {
+    ) -> Result<Vec<CorrelatedBlockData>, BlockProcessorError> {
         if blocks.is_empty() {
             return Ok(Vec::new());
         }
@@ -148,12 +113,12 @@ impl BlockProcessor {
 
         let results = join_all(processing_futures).await;
 
-        let decoded_blocks =
+        let correlated_blocks =
             results.into_iter().collect::<result::Result<Vec<_>, BlockProcessorError>>();
 
-        tracing::info!(total_decoded_blocks = count, "Batch processing completed.");
+        tracing::info!(total_correlated_blocks = count, "Batch processing completed.");
 
-        decoded_blocks
+        correlated_blocks
     }
 }
 
@@ -169,10 +134,7 @@ mod tests {
         config::RhaiConfig,
         engine::rhai::RhaiCompiler,
         models::monitor::Monitor,
-        test_helpers::{
-            BlockBuilder, LogBuilder, MonitorBuilder, TransactionBuilder, create_test_abi_service,
-            simple_abi_json,
-        },
+        test_helpers::*,
     };
 
     fn setup_abi_service_with_abi(abi_name: &str, abi_content: &str) -> (Arc<AbiService>, Address) {
