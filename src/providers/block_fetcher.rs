@@ -365,4 +365,87 @@ mod tests {
         assert!(matches!(result, Err(BlockFetcherError::Provider(_))));
         assert!(result.unwrap_err().to_string().contains("test provider error"));
     }
+
+    #[tokio::test]
+    async fn test_fetch_block_and_logs_no_log_interest() {
+        let (provider, asserter) = mock_provider();
+        let block_number = 123;
+
+        // Block can have a bloom filter, it shouldn't matter.
+        let mut bloom = Bloom::default();
+        bloom.accrue(BloomInput::Raw(&[1; 32]));
+        let block = BlockBuilder::new().number(block_number).bloom(bloom).build();
+
+        // Only push the block response. The logs response should never be requested.
+        asserter.push_success(&block);
+
+        // Create a monitor that is NOT log-aware (e.g., it only checks tx.value)
+        let monitor = Monitor {
+            name: "TX Only Monitor".into(),
+            network: "testnet".into(),
+            filter_script: "tx.value > 100".to_string(),
+            ..Default::default()
+        };
+
+        let monitor_manager = create_test_monitor_manager(vec![monitor]);
+        let fetcher = BlockFetcher::new(provider, monitor_manager);
+        let (fetched_block, fetched_logs) =
+            fetcher.fetch_block_and_logs(block_number).await.unwrap();
+
+        assert_eq!(fetched_block.header.number, block_number);
+        // The key assertion: logs are empty because they were never fetched.
+        assert!(fetched_logs.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_fetch_block_and_logs_log_fetch_fails() {
+        let (provider, asserter) = mock_provider();
+        let block_number = 123;
+        let monitored_address = Address::default();
+
+        let mut bloom = Bloom::default();
+        bloom.accrue(BloomInput::Raw(monitored_address.as_slice()));
+        let block = BlockBuilder::new().number(block_number).bloom(bloom).build();
+
+        // Mock a successful block response.
+        asserter.push_success(&block);
+        // Mock a failure for the logs response.
+        asserter.push_failure_msg("failed to get logs");
+
+        let monitor = Monitor {
+            name: "Test Monitor".into(),
+            network: "testnet".into(),
+            address: Some(monitored_address.to_string()),
+            filter_script: "log != ()".to_string(),
+            ..Default::default()
+        };
+
+        let monitor_manager = create_test_monitor_manager(vec![monitor]);
+        let fetcher = BlockFetcher::new(provider, monitor_manager);
+        let result = fetcher.fetch_block_and_logs(block_number).await;
+
+        assert!(matches!(result, Err(BlockFetcherError::Provider(_))));
+        assert!(result.unwrap_err().to_string().contains("failed to get logs"));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_receipts_provider_error() {
+        let (provider, asserter) = mock_provider();
+        let tx_hash1 = B256::from_slice(&[1; 32]);
+        let tx_hash2 = B256::from_slice(&[2; 32]);
+
+        let receipt1 = ReceiptBuilder::new().transaction_hash(tx_hash1).build();
+
+        // Push a success for the first receipt.
+        asserter.push_success(&receipt1);
+        // Push a failure for the second receipt.
+        asserter.push_failure_msg("receipt unavailable");
+
+        let monitor_manager = create_test_monitor_manager(vec![]);
+        let fetcher = BlockFetcher::new(provider, monitor_manager);
+        let result = fetcher.fetch_receipts(&[tx_hash1, tx_hash2]).await;
+
+        assert!(matches!(result, Err(BlockFetcherError::Provider(_))));
+        assert!(result.unwrap_err().to_string().contains("receipt unavailable"));
+    }
 }
