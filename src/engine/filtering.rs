@@ -213,22 +213,28 @@ impl RhaiFilteringEngine {
                     cm.monitor.name
                 );
                 decoded_log_result = Some(cached.clone());
-            } else if let Ok(decoded) = self.abi_service.decode_log(raw_log) {
-                tracing::debug!(
-                    "Decoded log for monitor ID {}: {}",
-                    cm.monitor.id,
-                    cm.monitor.name
-                );
-                let arc_decoded = Arc::new(decoded);
-                context.decoded_logs_cache.insert(raw_log.clone(), arc_decoded.clone());
-                decoded_log_result = Some(arc_decoded);
-            } else if let Err(_e) = self.abi_service.decode_log(raw_log) {
-                tracing::debug!(
-                    "Log decoding failed for monitor ID {}: {}",
-                    cm.monitor.id,
-                    cm.monitor.name
-                );
-                // Log decoding failed, continue
+            } else {
+                match self.abi_service.decode_log(raw_log) {
+                    Ok(decoded) => {
+                        tracing::debug!(
+                            "Decoded log for monitor ID {}: {}",
+                            cm.monitor.id,
+                            cm.monitor.name
+                        );
+                        let arc_decoded = Arc::new(decoded);
+                        context.decoded_logs_cache.insert(raw_log.clone(), arc_decoded.clone());
+                        decoded_log_result = Some(arc_decoded);
+                    }
+                    Err(e) => {
+                        tracing::debug!(
+                            "Log decoding failed for monitor ID {}: {} - Error: {}",
+                            cm.monitor.id,
+                            cm.monitor.name,
+                            e
+                        );
+                        // Log decoding failed, continue
+                    }
+                }
             }
         }
 
