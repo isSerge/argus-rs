@@ -68,5 +68,5 @@ Demonstrates how to monitor for transactions with unusually high priority fees, 
 
 Demonstrates how to monitor for calls to a specific function on a contract using `decode_calldata` feature. This is the recommended approach for monitoring critical or administrative functions
 
-**Features Demonstrated:** `decode_calldata`, Elvis notation (`?.`) for safe property access.
+**Features Demonstrated:** `decode_calldata`.
 

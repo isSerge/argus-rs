@@ -94,10 +94,10 @@ For a `transfer` function with the signature `transfer(address to, uint256 amoun
 
 ```rhai
 // Check for a call to a specific function, even if decoded_call might be null.
-decoded_call?.name == "transfer"
+decoded_call.name == "transfer"
 
 // Safely check a nested parameter.
-decoded_call?.params?.amount > ether(100)
+decoded_call.params.amount > ether(100)
 
 // Check if calldata decoding failed.
 decoded_call == ()

@@ -15,7 +15,7 @@ monitors:
     address: "0xEC568fffba86c094cf06b22134B23074DFE2252c"
     abi: "aave_governance_v2"
     filter_script: |
-      decoded_call?.name == "execute"
+      decoded_callname == "execute"
     notifiers:
       - "Telegram Admin"
 ```
@@ -23,7 +23,7 @@ monitors:
 - **`address`**: The specific contract to monitor.
 - **`abi`**: The name of the ABI file (without the `.json` extension) located in the `abis/` directory. This is required for decoding.
 - **`filter_script`**: This [Rhai script](../../docs/src/user_guide/rhai_scripts.md) inspects the `decoded_call` object.
-- **`decoded_call?.name == "execute"`**: This check is performed on the decoded function name. It uses the Elvis notation (`?.`) for safe property access since `decoded_call` might not be available for all transactions
+- **`decoded_call.name == "execute"`**: This check is performed on the decoded function name.
 
 ### How to Run ([Dry-Run Mode](../../docs/src/operations/cli.md#dry-run-mode))
 
