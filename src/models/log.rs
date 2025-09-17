@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 /// A newtype wrapper around `alloy::rpc::types::Log` to create a stable
 /// API boundary for the rest of the application.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default, Hash)]
 pub struct Log(pub AlloyLog);
 
 impl Log {

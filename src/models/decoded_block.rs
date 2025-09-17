@@ -1,4 +1,5 @@
-//! This module defines the data structure for a block's worth of correlated data.
+//! This module defines the data structure for a block's worth of correlated
+//! data.
 
 use super::CorrelatedBlockItem;
 

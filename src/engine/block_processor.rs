@@ -13,12 +13,7 @@ use thiserror::Error;
 
 use crate::{
     abi::AbiService,
-    models::{
-        transaction::Transaction,
-        BlockData,
-        CorrelatedBlockData,
-        CorrelatedBlockItem,
-    },
+    models::{BlockData, CorrelatedBlockData, CorrelatedBlockItem, transaction::Transaction},
     monitor::MonitorManager,
 };
 
@@ -131,10 +126,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        config::RhaiConfig,
-        engine::rhai::RhaiCompiler,
-        models::monitor::Monitor,
-        test_helpers::*,
+        config::RhaiConfig, engine::rhai::RhaiCompiler, models::monitor::Monitor, test_helpers::*,
     };
 
     fn setup_abi_service_with_abi(abi_name: &str, abi_content: &str) -> (Arc<AbiService>, Address) {
