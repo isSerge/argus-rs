@@ -1,5 +1,9 @@
 use rhai::Engine;
 
+use super::{
+    bigint::register_bigint_with_rhai, evm_wrappers::register_evm_wrappers_with_rhai,
+    proxies::register_proxies,
+};
 use crate::config::RhaiConfig;
 
 /// Creates a Rhai engine with security features and custom configurations.
@@ -24,10 +28,13 @@ pub fn create_engine(rhai_config: RhaiConfig) -> Engine {
     }
 
     // Register BigInt wrapper for transparent big number handling
-    super::bigint::register_bigint_with_rhai(&mut engine);
+    register_bigint_with_rhai(&mut engine);
 
     // Register EVM wrappers for handling token values
-    super::evm_wrappers::register_evm_wrappers_with_rhai(&mut engine);
+    register_evm_wrappers_with_rhai(&mut engine);
+
+    // Register custom proxies for accessing decoded logs and calls
+    register_proxies(&mut engine);
 
     engine
 }

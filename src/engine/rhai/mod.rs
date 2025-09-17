@@ -6,6 +6,7 @@ pub mod compiler;
 pub mod conversions;
 mod create_engine;
 pub mod evm_wrappers;
+pub mod proxies;
 mod validator;
 
 pub use compiler::{RhaiCompiler, RhaiCompilerError, ScriptAnalysis};

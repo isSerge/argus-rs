@@ -21,10 +21,10 @@ use tokio::{sync::mpsc, time::timeout};
 
 use super::rhai::{
     conversions::{
-        build_decoded_call_map, build_log_map, build_log_params_payload, build_params_map,
-        build_transaction_details_payload, build_transaction_map,
+        build_log_params_payload, build_transaction_details_payload, build_transaction_map,
     },
     create_engine,
+    proxies::{CallProxy, LogProxy},
 };
 use crate::{
     abi::{AbiService, DecodedCall, DecodedLog},
@@ -129,7 +129,7 @@ impl<'a> EvaluationContext<'a> {
 }
 
 impl RhaiFilteringEngine {
-    /// Creates a new `RhaiFilteringEngine` instance with the given components.
+    /// Creates a new `RhaiFilteringEngine` instance.
     pub fn new(
         abi_service: Arc<AbiService>,
         compiler: Arc<RhaiCompiler>,
@@ -192,7 +192,7 @@ impl RhaiFilteringEngine {
         Ok(())
     }
 
-    /// Core script evaluation logic with lazy decoding and caching.
+    /// Core script evaluation logic with lazy decoding and proxy objects.
     async fn does_monitor_match<'a>(
         &self,
         context: &mut EvaluationContext<'a>,
@@ -214,14 +214,8 @@ impl RhaiFilteringEngine {
             }
         }
 
-        if let Some(decoded) = &decoded_log_result {
-            let params_map = build_params_map(&decoded.params);
-            scope.push("log", build_log_map(decoded, params_map));
-        } else {
-            scope.push("log", ()); // Log is null if not present or decoding failed.
-        }
-
         // --- Handle Calldata (Lazy Decoding) ---
+        let mut decoded_call_result = None;
         if cm.caps.contains(MonitorCapabilities::CALL) {
             if context.decoded_call_cache.is_none() {
                 context.decoded_call_cache = Some(
@@ -231,15 +225,13 @@ impl RhaiFilteringEngine {
                         .map(Arc::new),
                 );
             }
-
-            if let Some(Some(decoded_call)) = &context.decoded_call_cache {
-                scope.push("decoded_call", build_decoded_call_map(decoded_call));
-            } else {
-                scope.push("decoded_call", ());
-            }
-        } else {
-            scope.push("decoded_call", ());
+            decoded_call_result = context.decoded_call_cache.as_ref().unwrap().clone();
         }
+
+        // --- Push Proxies to Scope ---
+        // The proxies handle the `None` case internally, preventing script errors.
+        scope.push("log", LogProxy(decoded_log_result.clone()));
+        scope.push("decoded_call", CallProxy(decoded_call_result));
 
         let ast = self.compiler.get_ast(&cm.monitor.filter_script)?;
         let is_match = self.eval_ast_bool_secure(&ast, &mut scope).await?;
@@ -318,18 +310,12 @@ impl FilteringEngine for RhaiFilteringEngine {
 
             for result in results {
                 match result {
-                    Ok(matches) if !matches.is_empty() => {
-                        tracing::info!(
-                            block_number = correlated_block.block_number,
-                            match_count = matches.len(),
-                            "Found matches for block."
-                        );
+                    Ok(matches) if !matches.is_empty() =>
                         for monitor_match in matches {
                             if let Err(e) = notifications_tx.send(monitor_match).await {
                                 tracing::error!("Failed to send notification match: {}", e);
                             }
-                        }
-                    }
+                        },
                     Ok(_) => {} // No matches, do nothing.
                     Err(e) => {
                         tracing::error!("Error evaluating item: {}", e);
