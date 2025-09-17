@@ -30,11 +30,10 @@ use tokio::{signal, sync::mpsc};
 use crate::{
     config::AppConfig,
     engine::{
-        alert_manager::AlertManager,
-        block_processor::{BlockProcessor, BlockProcessorError},
+        alert_manager::AlertManager, block_processor::process_blocks_batch,
         filtering::FilteringEngine,
     },
-    models::{BlockData, DecodedBlockData, monitor::Monitor, monitor_match::MonitorMatch},
+    models::{BlockData, CorrelatedBlockData, monitor::Monitor, monitor_match::MonitorMatch},
     monitor::{MonitorManager, MonitorValidationError},
     persistence::{sqlite::SqliteStateRepository, traits::StateRepository},
     providers::{
@@ -115,9 +114,6 @@ pub struct Supervisor {
     /// endpoint).
     data_source: Box<dyn DataSource>,
 
-    /// The service responsible for decoding raw block data.
-    processor: BlockProcessor,
-
     /// The service responsible for matching decoded data against user-defined
     /// monitors.
     filtering: Arc<dyn FilteringEngine>,
@@ -145,7 +141,6 @@ impl Supervisor {
         config: AppConfig,
         state: Arc<SqliteStateRepository>,
         data_source: Box<dyn DataSource>,
-        processor: BlockProcessor,
         filtering: Arc<dyn FilteringEngine>,
         alert_manager: Arc<AlertManager<SqliteStateRepository>>,
         monitor_manager: Arc<MonitorManager>,
@@ -154,7 +149,6 @@ impl Supervisor {
             config,
             state,
             data_source,
-            processor,
             filtering,
             alert_manager,
             cancellation_token: tokio_util::sync::CancellationToken::new(),
@@ -205,8 +199,8 @@ impl Supervisor {
 
         // Create the channel that connects the main logic (monitor_cycle) to the
         // filtering engine.
-        let (decoded_blocks_tx, decoded_blocks_rx) =
-            mpsc::channel::<DecodedBlockData>(self.config.block_chunk_size as usize * 2);
+        let (correlated_blocks_tx, correlated_blocks_rx) =
+            mpsc::channel::<CorrelatedBlockData>(self.config.block_chunk_size as usize * 2);
 
         // Create the channel that connects the filtering engine to the alert manager.
         let (monitor_matches_tx, mut monitor_matches_rx) =
@@ -215,7 +209,7 @@ impl Supervisor {
         // Spawn the filtering engine as a managed task.
         let filtering_engine_clone = Arc::clone(&self.filtering);
         self.join_set.spawn(async move {
-            filtering_engine_clone.run(decoded_blocks_rx, monitor_matches_tx).await;
+            filtering_engine_clone.run(correlated_blocks_rx, monitor_matches_tx).await;
         });
 
         // Add the AlertManager's main processing loop.
@@ -241,7 +235,7 @@ impl Supervisor {
 
         // This is the main application loop.
         loop {
-            let tx_clone = decoded_blocks_tx.clone();
+            let tx_clone = correlated_blocks_tx.clone();
             let polling_delay = tokio::time::sleep(self.config.polling_interval_ms);
 
             tokio::select! {
@@ -322,7 +316,7 @@ impl Supervisor {
     /// it to the filtering engine via the provided channel.
     async fn monitor_cycle(
         &self,
-        decoded_blocks_tx: mpsc::Sender<DecodedBlockData>,
+        correlated_blocks_tx: mpsc::Sender<CorrelatedBlockData>,
     ) -> Result<(), SupervisorError> {
         let network_id = &self.config.network_id;
         let last_processed_block = self.state.get_last_processed_block(network_id).await?;
@@ -371,11 +365,11 @@ impl Supervisor {
         }
 
         if !blocks_to_process.is_empty() {
-            match self.processor.process_blocks_batch(blocks_to_process).await {
-                Ok(decoded_blocks) =>
-                    for decoded_block in decoded_blocks {
-                        let block_num = decoded_block.block_number;
-                        if decoded_blocks_tx.send(decoded_block).await.is_err() {
+            match process_blocks_batch(blocks_to_process).await {
+                Ok(correlated_blocks) =>
+                    for correlated_block in correlated_blocks {
+                        let block_num = correlated_block.block_number;
+                        if correlated_blocks_tx.send(correlated_block).await.is_err() {
                             tracing::warn!(
                                 "Decoded blocks channel closed, stopping further processing."
                             );
@@ -383,8 +377,8 @@ impl Supervisor {
                         }
                         last_processed = Some(block_num);
                     },
-                Err(BlockProcessorError::AbiService(e)) => {
-                    tracing::warn!(error = %e, "ABI service error during batch processing, will retry.");
+                Err(e) => {
+                    tracing::warn!(error = %e, "Error during batch processing, will retry.");
                 }
             }
         }
@@ -450,7 +444,6 @@ mod tests {
         state_repo: Arc<SqliteStateRepository>,
         mock_data_source: MockDataSource,
         mock_filtering_engine: MockFilteringEngine,
-        block_processor: BlockProcessor,
         alert_manager: Arc<AlertManager<SqliteStateRepository>>,
         monitor_manager: Arc<MonitorManager>,
     }
@@ -467,7 +460,6 @@ mod tests {
             let rhai_compiler = Arc::new(RhaiCompiler::new(config.rhai.clone()));
             let monitor_manager =
                 Arc::new(MonitorManager::new(vec![], rhai_compiler, Arc::clone(&abi_service)));
-            let block_processor = BlockProcessor::new(abi_service, monitor_manager.clone());
             let http_client_pool = Arc::new(HttpClientPool::default());
             let notification_service =
                 Arc::new(NotificationService::new(Arc::new(HashMap::new()), http_client_pool));
@@ -482,7 +474,6 @@ mod tests {
                 state_repo,
                 mock_data_source: MockDataSource::new(),
                 mock_filtering_engine: MockFilteringEngine::new(),
-                block_processor,
                 alert_manager,
                 monitor_manager,
             }
@@ -493,7 +484,6 @@ mod tests {
                 self.config,
                 self.state_repo,
                 Box::new(self.mock_data_source),
-                self.block_processor,
                 Arc::new(self.mock_filtering_engine),
                 self.alert_manager,
                 self.monitor_manager,

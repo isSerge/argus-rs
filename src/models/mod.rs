@@ -14,6 +14,6 @@ pub mod transaction;
 
 pub use block_data::BlockData;
 pub use correlated_data::CorrelatedBlockItem;
-pub use decoded_block::DecodedBlockData;
+pub use decoded_block::CorrelatedBlockData;
 pub use log::Log;
 pub use notification::NotificationMessage;

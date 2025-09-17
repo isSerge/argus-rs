@@ -20,8 +20,8 @@ The `src` directory is organized into several modules, each representing a key c
 -   **`providers`**: This component is responsible for fetching block data from the external EVM RPC nodes. It handles connection management, retries, and polling for new blocks.
 
 -   **`engine`**: This is the core data processing pipeline. It is divided into two main stages:
-    -   **`BlockProcessor`**: Receives raw block data from the providers and decodes it. It uses the `AbiService` to parse event logs and, if configured for a monitor, transaction calldata into a structured format.
-    -   **`FilteringEngine`**: Receives decoded block data from the `BlockProcessor`. It executes the appropriate Rhai filter scripts for each monitor against transaction, log, and decoded calldata, and upon a match, creates a `MonitorMatch` object.
+    -   **`BlockProcessor`**: Receives raw block data from the providers and correlates transactions with their corresponding logs and receipts into a structured format.
+    -   **`FilteringEngine`**: Receives correlated block data from the `BlockProcessor`. It executes the appropriate Rhai filter scripts for each monitor, lazily decoding event logs and transaction calldata as needed during script execution. Upon a match, it creates a `MonitorMatch` object.
 
 -   **`notification` (Alert Manager)**: This component receives `MonitorMatch`es from the `FilteringEngine`. It is responsible for managing notification policies (throttling, aggregation) and dispatching the final alerts to external services (e.g., webhooks).
 

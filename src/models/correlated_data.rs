@@ -2,10 +2,7 @@
 
 use alloy::{primitives::TxHash, rpc::types::TransactionReceipt};
 
-use crate::{
-    abi::{DecodedCall, DecodedLog},
-    models::transaction::Transaction,
-};
+use crate::models::{log::Log, transaction::Transaction};
 
 /// Represents a correlated set of data for a single transaction within a block.
 /// This is the unit of data that the `FilteringEngine` will evaluate.
@@ -14,11 +11,8 @@ pub struct CorrelatedBlockItem {
     /// The transaction itself.
     pub transaction: Transaction,
 
-    /// All logs associated with this transaction, including decoded versions.
-    pub decoded_logs: Vec<DecodedLog>,
-
-    /// The decoded function call, if available.
-    pub decoded_call: Option<DecodedCall>,
+    /// All logs associated with this transaction.
+    pub logs: Vec<Log>,
 
     /// The transaction receipt, if available and needed.
     pub receipt: Option<TransactionReceipt>,
@@ -29,11 +23,10 @@ impl CorrelatedBlockItem {
     /// Creates a new `CorrelatedBlockItem`.
     pub fn new(
         transaction: Transaction,
-        decoded_logs: Vec<DecodedLog>,
-        decoded_call: Option<DecodedCall>,
+        logs: Vec<Log>,
         receipt: Option<TransactionReceipt>,
     ) -> Self {
-        Self { transaction, decoded_logs, decoded_call, receipt }
+        Self { transaction, logs, receipt }
     }
 
     /// Returns the hash of the transaction.

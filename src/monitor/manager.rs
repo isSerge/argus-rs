@@ -14,8 +14,11 @@ use crate::{
 /// A monitor along with its capabilities and script analysis.
 #[derive(Debug)]
 pub struct ClassifiedMonitor {
+    /// The original monitor definition.
     pub monitor: Arc<Monitor>,
+    /// The capabilities of this monitor based on its script analysis.
     pub caps: MonitorCapabilities,
+    /// The detailed analysis of the monitor's filter script.
     pub analysis: ScriptAnalysis,
 }
 
