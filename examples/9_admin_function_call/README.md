@@ -15,7 +15,7 @@ monitors:
     address: "0xEC568fffba86c094cf06b22134B23074DFE2252c"
     abi: "aave_governance_v2"
     filter_script: |
-      decoded_callname == "execute"
+      decoded_call.name == "execute"
     notifiers:
       - "Telegram Admin"
 ```
