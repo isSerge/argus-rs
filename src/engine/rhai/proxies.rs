@@ -100,3 +100,54 @@ pub fn register_proxies(engine: &mut rhai::Engine) {
     engine.register_type::<ParamsProxy>();
     engine.register_indexer_get(ParamsProxy::index_get);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_helpers::{LogBuilder, TransactionBuilder};
+
+    #[test]
+    fn test_params_proxy_indexing() {
+        let mut params = Map::new();
+        params.insert("param1".into(), Dynamic::from(42_i64));
+        params.insert("param2".into(), Dynamic::from("value"));
+
+        let mut proxy = ParamsProxy(Some(params));
+
+        assert!(proxy.index_get("param1").is::<i64>());
+        assert!(proxy.index_get("param2").is::<String>());
+        assert!(proxy.index_get("nonexistent").is_unit());
+
+        let mut empty_proxy = ParamsProxy(None);
+        assert!(empty_proxy.index_get("any").is_unit());
+    }
+
+    #[test]
+    fn test_log_proxy_methods() {
+        let address = "0x0000000000000000000000000000000000000001";
+        let log = DecodedLog {
+            name: "Transfer".to_string(),
+            params: vec![],
+            log: LogBuilder::new().address(address.parse().unwrap()).log_index(5).build(),
+        };
+        let mut proxy = LogProxy(Some(Arc::new(log)));
+
+        assert_eq!(proxy.get_name(), "Transfer");
+        assert_eq!(proxy.get_address(), address);
+        assert_eq!(proxy.get_log_index(), 5);
+        assert!(proxy.get_params().0.is_some());
+    }
+
+    #[test]
+    fn test_call_proxy_methods() {
+        let call = DecodedCall {
+            name: "approve".to_string(),
+            params: vec![],
+            tx: TransactionBuilder::new().build(),
+        };
+        let mut proxy = CallProxy(Some(Arc::new(call)));
+
+        assert_eq!(proxy.get_name(), "approve");
+        assert!(proxy.get_params().0.is_some());
+    }
+}
