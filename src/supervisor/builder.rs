@@ -7,10 +7,7 @@ use super::{Supervisor, SupervisorError};
 use crate::{
     abi::AbiService,
     config::AppConfig,
-    engine::{
-        alert_manager::AlertManager, block_processor::BlockProcessor,
-        filtering::RhaiFilteringEngine, rhai::RhaiCompiler,
-    },
+    engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
     http_client::HttpClientPool,
     models::notifier::NotifierConfig,
     monitor::MonitorManager,
@@ -99,8 +96,6 @@ impl SupervisorBuilder {
         tracing::info!(count = notifiers.len(), network_id = %config.network_id, "Loaded notifiers from database for notification service.");
 
         // Construct the internal services.
-        let block_processor =
-            BlockProcessor::new(Arc::clone(&abi_service), monitor_manager.clone());
         let filtering_engine = RhaiFilteringEngine::new(
             abi_service.clone(),
             script_compiler,
@@ -122,7 +117,6 @@ impl SupervisorBuilder {
             config,
             state,
             Box::new(evm_data_source),
-            block_processor,
             Arc::new(filtering_engine),
             alert_manager,
             monitor_manager,

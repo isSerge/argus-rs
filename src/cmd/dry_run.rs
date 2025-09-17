@@ -12,7 +12,7 @@ use crate::{
     config::AppConfig,
     engine::{
         alert_manager::{AlertManager, AlertManagerError},
-        block_processor::{BlockProcessor, BlockProcessorError},
+        block_processor::process_blocks_batch,
         filtering::{FilteringEngine, RhaiError, RhaiFilteringEngine},
         rhai::{RhaiCompiler, RhaiScriptValidator},
     },
@@ -63,7 +63,7 @@ pub enum DryRunError {
 
     /// An error occurred during the block processing stage.
     #[error("Block processor error: {0}")]
-    BlockProcessor(#[from] BlockProcessorError),
+    BlockProcessor(#[from] Box<dyn std::error::Error + Send + Sync>),
 
     /// An error occurred within the filtering engine, likely during script
     /// execution.
@@ -199,9 +199,6 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let provider = create_provider(config.rpc_urls.clone(), config.rpc_retry_config.clone())?;
     let evm_source = EvmRpcSource::new(provider, monitor_manager.clone());
 
-    // Init the block processor for decoding raw blockchain data.
-    let block_processor = BlockProcessor::new(Arc::clone(&abi_service), monitor_manager.clone());
-
     // Init services for notifications and filtering logic.
     let client_pool = Arc::new(HttpClientPool::new(config.http_base_config.clone()));
     let notifiers: Arc<HashMap<String, NotifierConfig>> =
@@ -222,15 +219,9 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let alert_manager = Arc::new(AlertManager::new(notification_service, state_repo, notifiers));
 
     // Execute the core processing loop.
-    let matches = run_dry_run_loop(
-        args.from,
-        args.to,
-        Box::new(evm_source),
-        block_processor,
-        filtering_engine,
-        alert_manager,
-    )
-    .await?;
+    let matches =
+        run_dry_run_loop(args.from, args.to, Box::new(evm_source), filtering_engine, alert_manager)
+            .await?;
 
     // Serialize and print the final report.
     let report = serde_json::to_string_pretty(&matches)?;
@@ -259,7 +250,6 @@ async fn run_dry_run_loop(
     from_block: u64,
     to_block: u64,
     data_source: Box<dyn DataSource>,
-    block_processor: BlockProcessor,
     filtering_engine: RhaiFilteringEngine,
     alert_manager: Arc<AlertManager<SqliteStateRepository>>,
 ) -> Result<Vec<MonitorMatch>, DryRunError> {
@@ -304,8 +294,7 @@ async fn run_dry_run_loop(
         // Process the entire collected batch in one call.
         if !block_data_batch.is_empty() {
             tracing::info!(count = block_data_batch.len(), "Processing block batch...");
-            let decoded_blocks_batch =
-                block_processor.process_blocks_batch(block_data_batch).await?;
+            let decoded_blocks_batch = process_blocks_batch(block_data_batch).await?;
 
             // Evaluate each item from the entire batch of decoded blocks.
             for decoded_block in decoded_blocks_batch {
@@ -346,10 +335,7 @@ mod tests {
     use crate::{
         abi::{AbiRepository, AbiService},
         config::RhaiConfig,
-        engine::{
-            alert_manager::AlertManager, block_processor::BlockProcessor,
-            filtering::RhaiFilteringEngine, rhai::RhaiCompiler,
-        },
+        engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
         http_client::HttpClientPool,
         models::{
             NotificationMessage,
@@ -411,9 +397,12 @@ mod tests {
             rhai_compiler.clone(),
             abi_service.clone(),
         ));
-        let block_processor = BlockProcessor::new(abi_service.clone(), monitor_manager.clone());
-        let filtering_engine =
-            RhaiFilteringEngine::new(rhai_compiler, rhai_config, monitor_manager.clone());
+        let filtering_engine = RhaiFilteringEngine::new(
+            abi_service.clone(),
+            rhai_compiler,
+            rhai_config,
+            monitor_manager.clone(),
+        );
         let notifiers = HashMap::from([(
             "test-notifier".to_string(),
             NotifierConfig {
@@ -438,7 +427,6 @@ mod tests {
             from_block,
             to_block,
             Box::new(mock_data_source),
-            block_processor,
             filtering_engine,
             alert_manager,
         )
@@ -489,9 +477,12 @@ mod tests {
             rhai_compiler.clone(),
             abi_service.clone(),
         ));
-        let block_processor = BlockProcessor::new(abi_service.clone(), monitor_manager.clone());
-        let filtering_engine =
-            RhaiFilteringEngine::new(rhai_compiler, rhai_config, monitor_manager.clone());
+        let filtering_engine = RhaiFilteringEngine::new(
+            abi_service.clone(),
+            rhai_compiler,
+            rhai_config,
+            monitor_manager.clone(),
+        );
         let alert_manager = create_test_alert_manager(Arc::new(HashMap::new())).await;
 
         // Act
@@ -499,7 +490,6 @@ mod tests {
             from_block,
             to_block,
             Box::new(mock_data_source),
-            block_processor,
             filtering_engine,
             alert_manager,
         )
@@ -545,9 +535,12 @@ mod tests {
             rhai_compiler.clone(),
             abi_service.clone(),
         ));
-        let block_processor = BlockProcessor::new(abi_service.clone(), monitor_manager.clone());
-        let filtering_engine =
-            RhaiFilteringEngine::new(rhai_compiler, rhai_config, monitor_manager.clone());
+        let filtering_engine = RhaiFilteringEngine::new(
+            abi_service.clone(),
+            rhai_compiler,
+            rhai_config,
+            monitor_manager.clone(),
+        );
         let alert_manager = create_test_alert_manager(Arc::new(HashMap::new())).await;
 
         // Act
@@ -555,7 +548,6 @@ mod tests {
             from_block,
             to_block,
             Box::new(mock_data_source),
-            block_processor,
             filtering_engine,
             alert_manager,
         )
@@ -594,9 +586,12 @@ mod tests {
             rhai_compiler.clone(),
             abi_service.clone(),
         ));
-        let block_processor = BlockProcessor::new(abi_service.clone(), monitor_manager.clone());
-        let filtering_engine =
-            RhaiFilteringEngine::new(rhai_compiler, rhai_config, monitor_manager.clone());
+        let filtering_engine = RhaiFilteringEngine::new(
+            abi_service.clone(),
+            rhai_compiler,
+            rhai_config,
+            monitor_manager.clone(),
+        );
         let alert_manager = create_test_alert_manager(Arc::new(HashMap::new())).await;
 
         // Act
@@ -604,7 +599,6 @@ mod tests {
             from_block,
             to_block,
             Box::new(mock_data_source),
-            block_processor,
             filtering_engine,
             alert_manager,
         )
@@ -663,9 +657,12 @@ mod tests {
             rhai_compiler.clone(),
             abi_service.clone(),
         ));
-        let block_processor = BlockProcessor::new(abi_service.clone(), monitor_manager.clone());
-        let filtering_engine =
-            RhaiFilteringEngine::new(rhai_compiler, rhai_config, monitor_manager.clone());
+        let filtering_engine = RhaiFilteringEngine::new(
+            abi_service.clone(),
+            rhai_compiler,
+            rhai_config,
+            monitor_manager.clone(),
+        );
         let notifiers = HashMap::from([
             (
                 "test-notifier".to_string(),
@@ -692,7 +689,6 @@ mod tests {
             from_block,
             to_block,
             Box::new(mock_data_source),
-            block_processor,
             filtering_engine,
             alert_manager,
         )
