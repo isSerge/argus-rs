@@ -1,6 +1,15 @@
-use std::{collections::HashSet, sync::Arc};
+//! This module is responsible for classifying monitors, analyzing their
+//! scripts, and maintaining the overall state of the monitoring system.
 
-use alloy::primitives::Address;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
+
+use alloy::{
+    json_abi::JsonAbi,
+    primitives::{Address, B256},
+};
 use arc_swap::{ArcSwap, Guard};
 use bitflags::bitflags;
 
@@ -173,52 +182,102 @@ impl MonitorManager {
         MonitorAssetState { monitors: classified_monitors, requires_receipts, interest_registry }
     }
 
+    /// Builds the InterestRegistry from the classified monitors.
+    /// This method analyzes each monitor's capabilities and ABI to
+    /// determine the addresses and event signatures of interest.
     fn build_interest_registry(
         classified_monitors: &Vec<ClassifiedMonitor>,
         abi_service: &Arc<AbiService>,
     ) -> InterestRegistry {
-        let mut log_addresses = HashSet::new();
         let mut calldata_addresses = HashSet::new();
+        let mut log_interests: HashMap<Address, Option<HashSet<B256>>> = HashMap::new();
         let mut global_event_signatures = HashSet::new();
 
-        // Iterate through the single, unified list of all processed monitors.
         for cm in classified_monitors {
-            let monitor = &cm.monitor; // Get a reference to the inner Monitor
+            let monitor = &cm.monitor;
 
-            let is_log_aware = cm.caps.contains(MonitorCapabilities::LOG);
+            // Handle Calldata Interests
+            if cm.caps.contains(MonitorCapabilities::CALL) {
+                if let Some(Ok(address)) = monitor.address.as_ref().map(|a| a.parse::<Address>()) {
+                    calldata_addresses.insert(address);
+                }
+            }
+
+            // Skip to next monitor if it's not log-aware
+            if !cm.caps.contains(MonitorCapabilities::LOG) {
+                continue;
+            }
+
             let is_global =
-                monitor.address.as_deref().is_none_or(|a| a.eq_ignore_ascii_case("all"));
+                monitor.address.as_deref().is_some_and(|a| a.eq_ignore_ascii_case("all"));
 
             if is_global {
-                // This is a global monitor (address is "all" or None).
-                if is_log_aware
-                    && let Some(abi_name) = &monitor.abi
-                    && let Some(abi) = abi_service.get_abi_by_name(abi_name)
-                {
-                    for event in abi.events.values().flatten() {
-                        global_event_signatures.insert(event.selector());
+                // --- Handle Global Monitors ---
+                if let Some(abi_name) = &monitor.abi {
+                    if let Some(abi) = abi_service.get_abi_by_name(abi_name) {
+                        global_event_signatures.extend(Self::get_signatures_for_monitor(cm, abi));
                     }
                 }
-            } else if let Some(address_str) = &monitor.address {
-                // This is an address-specific monitor.
-                if let Ok(address) = address_str.parse::<Address>() {
-                    // If it's log-aware, add its address to the log interest set.
-                    if is_log_aware {
-                        log_addresses.insert(address);
-                    }
+            } else if let Some(Ok(address)) = monitor.address.as_ref().map(|a| a.parse::<Address>())
+            {
+                // --- Handle Address-Specific Monitors ---
+                if matches!(log_interests.get(&address), Some(&None)) {
+                    continue; // Already in broad mode, can't be more specific.
+                }
 
-                    // If it decodes calldata, add its address to the calldata interest set.
-                    if cm.caps.contains(MonitorCapabilities::CALL) {
-                        calldata_addresses.insert(address);
+                if let Some(abi_name) = &monitor.abi {
+                    if let Some(contract) = abi_service.get_abi(address) {
+                        // Ensure the correct ABI is linked.
+                        if let Some(repo_abi) = abi_service.get_abi_by_name(abi_name) {
+                            if !Arc::ptr_eq(&contract.abi, &repo_abi) {
+                                // Mismatch: monitor specifies an ABI different from the one linked.
+                                // For safety, fall back to broad mode.
+                                log_interests.insert(address, None);
+                                continue;
+                            }
+                        }
+
+                        let signatures =
+                            Self::get_signatures_for_monitor(&cm, contract.abi.clone());
+                        if let Some(interest_set) =
+                            log_interests.entry(address).or_insert_with(|| Some(HashSet::new()))
+                        {
+                            interest_set.extend(signatures);
+                        }
+                    } else {
+                        // Safety fallback: ABI not linked for this address, enter broad mode.
+                        log_interests.insert(address, None);
                     }
+                } else {
+                    // Safety fallback: Monitor has an address but no ABI, enter broad mode.
+                    log_interests.insert(address, None);
                 }
             }
         }
 
         InterestRegistry {
-            log_addresses: Arc::new(log_addresses),
+            log_interests: Arc::new(log_interests),
             calldata_addresses: Arc::new(calldata_addresses),
             global_event_signatures: Arc::new(global_event_signatures),
+        }
+    }
+
+    /// Extracts event signatures from the monitor's ABI based on accessed event
+    /// names.
+    fn get_signatures_for_monitor(cm: &ClassifiedMonitor, abi: Arc<JsonAbi>) -> HashSet<B256> {
+        let event_names = &cm.analysis.accessed_log_event_names;
+
+        if !event_names.is_empty() {
+            // SMART PATH: Add only the specific event signatures.
+            event_names
+                .iter()
+                .filter_map(|name| abi.event(name))
+                .flatten()
+                .map(|event| event.selector())
+                .collect()
+        } else {
+            // SAFE PATH: Add all event signatures from the ABI.
+            abi.events.values().flatten().map(|event| event.selector()).collect()
         }
     }
 }
@@ -360,9 +419,9 @@ mod tests {
 
         let snapshot = manager.load();
 
-        // Check log addresses
-        assert_eq!(snapshot.interest_registry.log_addresses.len(), 1);
-        assert!(snapshot.interest_registry.log_addresses.contains(&monitored_address));
+        // Check log interests
+        assert_eq!(snapshot.interest_registry.log_interests.len(), 1);
+        assert!(snapshot.interest_registry.log_interests.contains_key(&monitored_address));
     }
 
     #[test]
@@ -392,25 +451,22 @@ mod tests {
     #[test]
     fn test_update_rebuilds_interest_registry_correctly() {
         let (compiler, abi_service) = setup();
+        let address1 = address!("1111111111111111111111111111111111111111");
+        let address2 = address!("2222222222222222222222222222222222222222");
 
         // Initial state: One address-specific log monitor
         let initial_monitors = vec![
             MonitorBuilder::new()
                 .id(1)
-                .address("0x1111111111111111111111111111111111111111")
+                .address(&address1.to_checksum(None))
                 .filter_script("log.name == \"A\"")
                 .build(),
         ];
         let manager = MonitorManager::new(initial_monitors, compiler.clone(), abi_service.clone());
 
         let snapshot1 = manager.load();
-        assert_eq!(snapshot1.interest_registry.log_addresses.len(), 1);
-        assert!(
-            snapshot1
-                .interest_registry
-                .log_addresses
-                .contains(&address!("1111111111111111111111111111111111111111"))
-        );
+        assert_eq!(snapshot1.interest_registry.log_interests.len(), 1);
+        assert!(snapshot1.interest_registry.log_interests.contains_key(&address1));
         assert!(snapshot1.interest_registry.global_event_signatures.is_empty());
         drop(snapshot1);
 
@@ -418,7 +474,7 @@ mod tests {
         let updated_monitors = vec![
             MonitorBuilder::new()
                 .id(2)
-                .address("0x2222222222222222222222222222222222222222")
+                .address(&address2.to_checksum(None))
                 .filter_script("log.name == \"B\"")
                 .build(),
             MonitorBuilder::new()
@@ -438,19 +494,9 @@ mod tests {
 
         let snapshot2 = manager.load();
         // Address set should be completely replaced, not merged.
-        assert_eq!(snapshot2.interest_registry.log_addresses.len(), 1);
-        assert!(
-            !snapshot2
-                .interest_registry
-                .log_addresses
-                .contains(&address!("1111111111111111111111111111111111111111"))
-        );
-        assert!(
-            snapshot2
-                .interest_registry
-                .log_addresses
-                .contains(&address!("2222222222222222222222222222222222222222"))
-        );
+        assert_eq!(snapshot2.interest_registry.log_interests.len(), 1);
+        assert!(!snapshot2.interest_registry.log_interests.contains_key(&address1));
+        assert!(snapshot2.interest_registry.log_interests.contains_key(&address2));
 
         // Global signatures should now be populated with the Transfer event signature,
         // other signatures should be ignored.
@@ -470,7 +516,7 @@ mod tests {
 
         assert!(snapshot.monitors.is_empty());
         assert!(!snapshot.requires_receipts);
-        assert!(snapshot.interest_registry.log_addresses.is_empty());
+        assert!(snapshot.interest_registry.log_interests.is_empty());
         assert!(snapshot.interest_registry.global_event_signatures.is_empty());
         drop(snapshot);
 
@@ -479,7 +525,7 @@ mod tests {
         let updated_snapshot = manager.load();
         assert!(updated_snapshot.monitors.is_empty());
         assert!(!updated_snapshot.requires_receipts);
-        assert!(updated_snapshot.interest_registry.log_addresses.is_empty());
+        assert!(updated_snapshot.interest_registry.log_interests.is_empty());
         assert!(updated_snapshot.interest_registry.global_event_signatures.is_empty());
     }
 
