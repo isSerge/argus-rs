@@ -30,6 +30,14 @@ pub struct ScriptAnalysis {
 
     /// True if the script accesses the `decoded_call` variable.
     pub accesses_call_variable: bool,
+
+    /// A set of event names accessed in the `log` variable.
+    /// This is used to determine which event signatures are relevant.
+    /// For example, if the script accesses `log.name == "Transfer"`, then
+    /// "Transfer" will be included in this set.
+    /// This helps optimize event filtering by only considering relevant
+    /// event signatures.
+    pub accessed_log_event_names: HashSet<String>,
 }
 
 /// A type alias for the hash of a Rhai script.
@@ -92,6 +100,7 @@ impl RhaiCompiler {
             accesses_log_variable: analysis_result.accesses_log_variable,
             local_variables: analysis_result.local_variables,
             accesses_call_variable: analysis_result.accesses_call_variable,
+            accessed_log_event_names: analysis_result.accessed_log_event_names,
         };
 
         // Store the analysis in the cache
