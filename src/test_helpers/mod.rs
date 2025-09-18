@@ -8,7 +8,7 @@ mod monitor_manager;
 mod receipt;
 mod transaction;
 
-pub use abi::{create_test_abi_service, simple_abi_json};
+pub use abi::{create_test_abi_service, erc20_abi_json};
 pub use block::BlockBuilder;
 pub use http_client::create_test_http_client;
 pub use log::LogBuilder;

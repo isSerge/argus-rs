@@ -231,7 +231,7 @@ mod tests {
     use super::*;
     use crate::{
         config::RhaiConfig,
-        test_helpers::{MonitorBuilder, create_test_abi_service, simple_abi_json},
+        test_helpers::{MonitorBuilder, create_test_abi_service, erc20_abi_json},
     };
 
     fn setup() -> (Arc<RhaiCompiler>, Arc<AbiService>) {
@@ -247,8 +247,8 @@ mod tests {
         let address = address!("0000000000000000000000000000000000000001");
         let (compiler, _) = setup();
         let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
-        abi_service.link_abi(address, "simple").unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+        abi_service.link_abi(address, "erc20").unwrap();
 
         let monitors = vec![
             // TX only
@@ -257,7 +257,7 @@ mod tests {
             MonitorBuilder::new()
                 .id(2)
                 .filter_script("log.name == \"Transfer\"")
-                .abi("simple")
+                .abi("erc20")
                 .address(address.to_string().as_str())
                 .build(),
             // CALL only
@@ -266,7 +266,7 @@ mod tests {
             MonitorBuilder::new()
                 .id(4)
                 .filter_script("tx.value > 100 && log.name == \"Transfer\"")
-                .abi("simple")
+                .abi("erc20")
                 .address(address.to_string().as_str())
                 .build(),
             // TX and CALL
@@ -278,7 +278,7 @@ mod tests {
             MonitorBuilder::new()
                 .id(6)
                 .filter_script("log.name == \"Transfer\" && decoded_call.name == \"approve\"")
-                .abi("simple")
+                .abi("erc20")
                 .address(address.to_string().as_str())
                 .build(),
             // TX, LOG, and CALL
@@ -288,7 +288,7 @@ mod tests {
                     "tx.value > 100 && log.name == \"Transfer\" && decoded_call.name == \
                      \"Transfer\"",
                 )
-                .abi("simple")
+                .abi("erc20")
                 .address(address.to_string().as_str())
                 .build(),
             // No context access (should default to TX)
@@ -338,7 +338,7 @@ mod tests {
     fn test_build_interest_registry() {
         let (compiler, _) = setup();
         let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", simple_abi_json())]);
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
 
         let monitored_address = address!("0000000000000000000000000000000000000001");
 
@@ -424,14 +424,14 @@ mod tests {
             MonitorBuilder::new()
                 .id(3)
                 .address("all")
-                .abi("simple")
+                .abi("erc20")
                 .filter_script("log.name == \"Transfer\"")
                 .build(),
         ];
 
         let temp_dir = tempdir().unwrap();
         let (abi_service_with_abi, _) =
-            create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
+            create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
         let manager = MonitorManager::new(vec![], compiler.clone(), abi_service_with_abi);
 
         manager.update(updated_monitors);
@@ -452,7 +452,8 @@ mod tests {
                 .contains(&address!("2222222222222222222222222222222222222222"))
         );
 
-        // Global signatures should now be populated.
+        // Global signatures should now be populated with the Transfer event signature,
+        // other signatures should be ignored.
         assert_eq!(snapshot2.interest_registry.global_event_signatures.len(), 1);
         let transfer_event_sig =
             b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef");
@@ -543,15 +544,13 @@ mod tests {
             "anonymous":false
         }
     ]"#;
-        let (abi_service, _) = create_test_abi_service(
-            &temp_dir,
-            &[("simple", simple_abi_json()), ("weth", weth_abi)],
-        );
+        let (abi_service, _) =
+            create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json()), ("weth", weth_abi)]);
 
         let global_erc20_monitor = MonitorBuilder::new()
             .id(1)
             .address("all")
-            .abi("simple")
+            .abi("erc20")
             .filter_script("log.name == \"Transfer\"")
             .build();
 
@@ -569,7 +568,8 @@ mod tests {
         let snapshot = manager.load();
         let registry = &snapshot.interest_registry;
 
-        // Should contain event signatures from BOTH ABIs.
+        // Should contain only 2 event signatures from BOTH ABIs, it should ignore other
+        // signatures that are not relevant for current monitors
         assert_eq!(registry.global_event_signatures.len(), 2);
 
         // Keccak256 hash of "Transfer(address,address,uint256)"

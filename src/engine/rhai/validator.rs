@@ -203,7 +203,7 @@ impl RhaiScriptValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{config::RhaiConfig, test_helpers::simple_abi_json};
+    use crate::{config::RhaiConfig, test_helpers::erc20_abi_json};
 
     fn create_validator() -> RhaiScriptValidator {
         let config = RhaiConfig::default();
@@ -279,7 +279,7 @@ mod tests {
         let validator = create_validator();
         let script = "log.name == \"Transfer\" && log.address == \"0xabc\""; // Valid log fields
         let analysis = validator.compiler.analyze_script(script).unwrap();
-        let abi = serde_json::from_str(simple_abi_json()).unwrap();
+        let abi = serde_json::from_str(erc20_abi_json()).unwrap();
         let result = validator.validate_analysis(analysis, Some(&abi));
         assert!(result.is_ok());
     }
@@ -287,11 +287,11 @@ mod tests {
     #[test]
     fn test_validate_analysis_valid_dynamic_log() {
         let validator = create_validator();
-        let script = "log.params.amount > usdc(10)"; // Valid dynamic log field
+        let script = "log.params.value > usdc(10)"; // Valid dynamic log field
         let analysis = validator.compiler.analyze_script(script).unwrap();
-        let abi = serde_json::from_str(simple_abi_json()).unwrap();
+        let abi = serde_json::from_str(erc20_abi_json()).unwrap();
         let result = validator.validate_analysis(analysis, Some(&abi));
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "Expected valid analysis, got error: {:?}", result.err());
     }
 
     #[test]
@@ -299,7 +299,7 @@ mod tests {
         let validator = create_validator();
         let script = "tx.value > 100 && log.name == \"Transfer\""; // Valid tx and log fields
         let analysis = validator.compiler.analyze_script(script).unwrap();
-        let abi = serde_json::from_str(simple_abi_json()).unwrap();
+        let abi = serde_json::from_str(erc20_abi_json()).unwrap();
         let result = validator.validate_analysis(analysis, Some(&abi));
         assert!(result.is_ok());
     }
@@ -309,7 +309,7 @@ mod tests {
         let validator = create_validator();
         let script = "log.address == \"0xabc\" && log.params.from == \"0x123\"";
         let analysis = validator.compiler.analyze_script(script).unwrap();
-        let abi = serde_json::from_str(simple_abi_json()).unwrap();
+        let abi = serde_json::from_str(erc20_abi_json()).unwrap();
         let result = validator.validate_analysis(analysis, Some(&abi));
         assert!(result.is_ok());
     }
@@ -317,11 +317,11 @@ mod tests {
     #[test]
     fn test_validate_analysis_valid_decoded_call() {
         let validator = create_validator();
-        let script = "decoded_call.name == \"transfer\" && decoded_call.params.to == \"0x456\"";
+        let script = "decoded_call.name == \"transfer\" && decoded_call.params._to == \"0x456\"";
         let analysis = validator.compiler.analyze_script(script).unwrap();
-        let abi = serde_json::from_str(simple_abi_json()).unwrap();
+        let abi = serde_json::from_str(erc20_abi_json()).unwrap();
         let result = validator.validate_analysis(analysis, Some(&abi));
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "Expected valid analysis, got error: {:?}", result.err());
     }
 
     #[test]
@@ -329,7 +329,7 @@ mod tests {
         let validator = create_validator();
         let script = "log.params.nonexistent_field == 42"; // Field not in ABI
         let analysis = validator.compiler.analyze_script(script).unwrap();
-        let abi = serde_json::from_str(simple_abi_json()).unwrap();
+        let abi = serde_json::from_str(erc20_abi_json()).unwrap();
         let result = validator.validate_analysis(analysis, Some(&abi));
         assert!(result.is_err());
         assert!(matches!(result.err().unwrap(), RhaiScriptValidationError::InvalidAbiField(_)));
@@ -360,7 +360,7 @@ mod tests {
         let validator = create_validator();
         let script = "decoded_call.params.nonexistent_field == 42"; // Field not in ABI
         let analysis = validator.compiler.analyze_script(script).unwrap();
-        let abi = serde_json::from_str(simple_abi_json()).unwrap();
+        let abi = serde_json::from_str(erc20_abi_json()).unwrap();
         let result = validator.validate_analysis(analysis, Some(&abi));
         assert!(result.is_err());
         assert!(matches!(result.err().unwrap(), RhaiScriptValidationError::InvalidAbiField(_)));
@@ -370,7 +370,7 @@ mod tests {
     fn test_validate_analysis_invalid_static_field_with_abi() {
         let validator = create_validator();
         let script = "tx.nonexistent_field > 100";
-        let abi = serde_json::from_str(simple_abi_json()).unwrap();
+        let abi = serde_json::from_str(erc20_abi_json()).unwrap();
         let result = validator.validate_script(script, Some(&abi));
 
         assert!(result.is_err());

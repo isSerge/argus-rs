@@ -250,6 +250,8 @@ impl RhaiFilteringEngine {
             decoded_call_result = context.decoded_call_cache.as_ref().unwrap().clone();
         }
 
+        println!("log decoded: {:?}", decoded_log_result);
+        println!("decoded_call: {:?}", decoded_call_result.clone());
         // --- Push Proxies to Scope ---
         // The proxies handle the `None` case internally, preventing script errors.
         scope.push("log", LogProxy(decoded_log_result.clone()));
@@ -386,8 +388,7 @@ mod tests {
             transaction::Transaction,
         },
         test_helpers::{
-            LogBuilder, MonitorBuilder, TransactionBuilder, create_test_abi_service,
-            simple_abi_json,
+            LogBuilder, MonitorBuilder, TransactionBuilder, create_test_abi_service, erc20_abi_json,
         },
     };
 
@@ -424,14 +425,14 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_item_log_based_match() {
         let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
 
-        abi_service.link_abi(CONTRACT_ADDRESS, "simple").unwrap();
+        abi_service.link_abi(CONTRACT_ADDRESS, "erc20").unwrap();
 
         let monitor = MonitorBuilder::new()
             .id(1)
             .address(&CONTRACT_ADDRESS.to_checksum(None))
-            .abi("simple")
+            .abi("erc20")
             .filter_script("log.name == \"Transfer\" ")
             .notifiers(vec!["notifier1".to_string(), "notifier2".to_string()])
             .build();
@@ -457,7 +458,7 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_item_transaction_based_match() {
         let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
         let monitor = MonitorBuilder::new()
             .id(1)
             .filter_script("tx.value > bigint(\"100\")")
@@ -479,7 +480,7 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_item_no_match_for_tx_monitor() {
         let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
 
         let monitor = MonitorBuilder::new()
             .id(1)
@@ -499,13 +500,13 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_item_mixed_monitors_both_match() {
         let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
-        abi_service.link_abi(CONTRACT_ADDRESS, "simple").unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+        abi_service.link_abi(CONTRACT_ADDRESS, "erc20").unwrap();
 
         let log_monitor = MonitorBuilder::new()
             .id(1)
             .address(&CONTRACT_ADDRESS.to_checksum(None))
-            .abi("simple")
+            .abi("erc20")
             .filter_script("log.name == \"Transfer\" ")
             .notifiers(vec!["log_notifier".to_string()])
             .build();
@@ -541,14 +542,14 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_item_filter_by_log_param() {
         let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
-        abi_service.link_abi(CONTRACT_ADDRESS, "simple").unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+        abi_service.link_abi(CONTRACT_ADDRESS, "erc20").unwrap();
 
         let monitor = MonitorBuilder::new()
             .id(1)
             .address(&CONTRACT_ADDRESS.to_checksum(None))
-            .abi("simple")
-            .filter_script("log.name == \"Transfer\" && log.params.amount > bigint(\"100\")")
+            .abi("erc20")
+            .filter_script("log.name == \"Transfer\" && log.params.value > bigint(\"100\")")
             .notifiers(vec!["notifier1".to_string()])
             .build();
         let monitors = vec![monitor];
@@ -576,7 +577,7 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_item_no_decoded_logs_still_triggers_tx_monitor() {
         let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
         let monitor = MonitorBuilder::new().id(1).notifiers(vec!["notifier1".to_string()]).build();
         let monitors = vec![monitor];
         let engine = setup_engine_with_monitors(monitors, abi_service);
@@ -591,17 +592,17 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_item_tx_only_monitor_with_decoded_call_match() {
         let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
-        abi_service.link_abi(CONTRACT_ADDRESS, "simple").unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+        abi_service.link_abi(CONTRACT_ADDRESS, "erc20").unwrap();
 
         // This monitor is specific to an address and cares about decoded calldata, but
         // not logs.
         let monitor = MonitorBuilder::new()
             .id(1)
             .address(&CONTRACT_ADDRESS.to_checksum(None))
-            .abi("simple")
+            .abi("erc20")
             .filter_script(
-                r#"decoded_call.name == "transfer" && decoded_call.params.amount > bigint(1000)"#,
+                r#"decoded_call.name == "transfer" && decoded_call.params._value > bigint(1000)"#,
             )
             .notifiers(vec!["test-notifier".to_string()])
             .build();
@@ -622,16 +623,16 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_item_log_aware_monitor_with_decoded_call_match() {
         let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
-        abi_service.link_abi(CONTRACT_ADDRESS, "simple").unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+        abi_service.link_abi(CONTRACT_ADDRESS, "erc20").unwrap();
 
         // This monitor cares about both logs and decoded calldata.
         let monitor = MonitorBuilder::new()
             .id(1)
             .address(&CONTRACT_ADDRESS.to_checksum(None))
-            .abi("simple")
+            .abi("erc20")
             .filter_script(
-                r#"log.name == "Transfer" && decoded_call.name == "transfer" && decoded_call.params.amount > bigint(1000)"#,
+                r#"log.name == "Transfer" && decoded_call.name == "transfer" && decoded_call.params._value > bigint(1000)"#,
             )
             .notifiers(vec!["test-notifier".to_string()])
             .build();
@@ -658,8 +659,8 @@ mod tests {
     #[tokio::test]
     async fn test_decoded_call_is_null_for_non_matching_selector() {
         let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
-        abi_service.link_abi(CONTRACT_ADDRESS, "simple").unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+        abi_service.link_abi(CONTRACT_ADDRESS, "erc20").unwrap();
 
         let monitor = MonitorBuilder::new()
             .id(1)
@@ -684,7 +685,7 @@ mod tests {
     #[tokio::test]
     async fn test_requires_receipt_data_flag_set_correctly() {
         let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
         // --- Scenario 1: A monitor explicitly uses a receipt field ---
         let monitor_no_receipt = MonitorBuilder::new()
             .id(1)
@@ -763,7 +764,7 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_item_with_evm_wrappers() {
         let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
         let monitor = MonitorBuilder::new()
             .id(1)
             .filter_script("tx.value > ether(1.5)")
@@ -802,19 +803,19 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_item_global_log_monitor_match() {
         let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
 
         let addr1 = address!("1111111111111111111111111111111111111111");
         let addr2 = address!("2222222222222222222222222222222222222222");
 
         // Link ABIs to the addresses so logs can be decoded
-        abi_service.link_abi(addr1, "simple").unwrap();
-        abi_service.link_abi(addr2, "simple").unwrap();
+        abi_service.link_abi(addr1, "erc20").unwrap();
+        abi_service.link_abi(addr2, "erc20").unwrap();
 
         // This monitor has no address, so it should run on logs from ANY address.
         let global_monitor = MonitorBuilder::new()
             .id(100)
-            .abi("simple")
+            .abi("erc20")
             .filter_script("log.name == \"Transfer\" ")
             .notifiers(vec!["global_notifier".to_string()])
             .build();
@@ -868,7 +869,7 @@ mod tests {
         // This monitor should match on high-value transactions OR on "Transfer" logs.
         let monitor = MonitorBuilder::new()
             .id(1)
-            .abi("simple")
+            .abi("erc20")
             .filter_script(
                 r#" 
             tx.value > bigint(100) || log.name == "Transfer"
@@ -891,12 +892,12 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_item_hybrid_monitor_log_match_only() {
         let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
-        abi_service.link_abi(CONTRACT_ADDRESS, "simple").unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+        abi_service.link_abi(CONTRACT_ADDRESS, "erc20").unwrap();
 
         let monitor = MonitorBuilder::new()
             .id(1)
-            .abi("simple")
+            .abi("erc20")
             .filter_script(
                 r#" 
             tx.value > bigint(100) || log.name == "Transfer"
@@ -925,12 +926,12 @@ mod tests {
     #[tokio::test]
     async fn test_evaluate_item_hybrid_monitor_prefers_log_match() {
         let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
-        abi_service.link_abi(CONTRACT_ADDRESS, "simple").unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+        abi_service.link_abi(CONTRACT_ADDRESS, "erc20").unwrap();
 
         let monitor = MonitorBuilder::new()
             .id(1)
-            .abi("simple")
+            .abi("erc20")
             .filter_script(
                 r#" 
             tx.value > bigint(100) || log.name == "Transfer"
@@ -1007,13 +1008,13 @@ mod tests {
     #[tokio::test]
     async fn test_safe_null_access_on_decoded_call_with_valid_call() {
         let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
-        abi_service.link_abi(CONTRACT_ADDRESS, "simple").unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+        abi_service.link_abi(CONTRACT_ADDRESS, "erc20").unwrap();
 
         let monitor = MonitorBuilder::new()
             .id(1)
             .address(&CONTRACT_ADDRESS.to_checksum(None))
-            .abi("simple")
+            .abi("erc20")
             .filter_script(r#"decoded_call.name == "transfer""#)
             .notifiers(vec!["test-notifier".to_string()])
             .build();

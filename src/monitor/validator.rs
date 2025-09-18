@@ -341,10 +341,7 @@ impl<'a> MonitorValidator<'a> {
 mod tests {
     use std::sync::Arc;
 
-    use alloy::{
-        json_abi::JsonAbi,
-        primitives::{Address, address},
-    };
+    use alloy::primitives::{Address, address};
     use tempfile::tempdir;
 
     use crate::{
@@ -357,6 +354,7 @@ mod tests {
             notifier::{NotifierConfig, NotifierTypeConfig, WebhookConfig},
         },
         monitor::{MonitorValidationError, MonitorValidator},
+        test_helpers::erc20_abi_json,
     };
 
     fn create_test_monitor(
@@ -388,27 +386,9 @@ mod tests {
         }
     }
 
-    fn simple_abi() -> JsonAbi {
-        serde_json::from_str(
-            r#"[
-            {
-                "type": "event",
-                "name": "Transfer",
-                "inputs": [
-                    {"name": "from", "type": "address", "indexed": true},
-                    {"name": "to", "type": "address", "indexed": true},
-                    {"name": "amount", "type": "uint256", "indexed": false}
-                ],
-                "anonymous": false
-            }
-        ]"#,
-        )
-        .unwrap()
-    }
-
     fn create_monitor_validator<'a>(
         notifiers: &'a [NotifierConfig],
-        abi_to_preload: Option<(Address, &'static str, JsonAbi)>,
+        abi_to_preload: Option<(Address, &'static str, &'static str)>,
     ) -> MonitorValidator<'a> {
         let config = RhaiConfig::default();
         let compiler = Arc::new(RhaiCompiler::new(config));
@@ -418,9 +398,9 @@ mod tests {
         let abi_dir_path = temp_dir.path().to_path_buf();
 
         // Create and populate AbiRepository
-        if let Some((_, abi_name, abi_json)) = &abi_to_preload {
+        if let Some((_, abi_name, abi_json_str)) = &abi_to_preload {
             let file_path = abi_dir_path.join(format!("{}.json", abi_name));
-            std::fs::write(&file_path, serde_json::to_string(abi_json).unwrap()).unwrap();
+            std::fs::write(&file_path, abi_json_str).unwrap();
         }
         let abi_repository = Arc::new(AbiRepository::new(&abi_dir_path).unwrap());
 
@@ -437,14 +417,16 @@ mod tests {
     async fn test_monitor_validation_success_log_monitor() {
         let notifiers = vec![create_test_notifier("notifier1")];
         let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
-        let validator =
-            create_monitor_validator(&notifiers, Some((contract_address, "simple", simple_abi())));
+        let validator = create_monitor_validator(
+            &notifiers,
+            Some((contract_address, "erc20", erc20_abi_json())),
+        );
 
         // Valid: log monitor accesses log and has address + ABI
         let monitor = create_test_monitor(
             1,
             Some("0x0000000000000000000000000000000000000123"),
-            Some("simple"),
+            Some("erc20"),
             "log.name == \"Transfer\"",
             vec!["notifier1".to_string()],
         );
@@ -480,10 +462,10 @@ mod tests {
     async fn test_monitor_validation_failure_requires_address_for_log_access() {
         let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
         let validator =
-            create_monitor_validator(&[], Some((contract_address, "simple", simple_abi())));
+            create_monitor_validator(&[], Some((contract_address, "erc20", erc20_abi_json())));
         // Invalid: accesses log data but has no address
         let invalid_monitor =
-            create_test_monitor(1, None, Some("simple"), "log.name == \"A\"", vec![]);
+            create_test_monitor(1, None, Some("erc20"), "log.name == \"A\"", vec![]);
         let result = validator.validate(&invalid_monitor);
         assert!(result.is_err());
         assert!(matches!(
@@ -522,11 +504,11 @@ mod tests {
     async fn test_monitor_validation_failure_invalid_address_for_log_access() {
         let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
         let validator =
-            create_monitor_validator(&[], Some((contract_address, "simple", simple_abi())));
+            create_monitor_validator(&[], Some((contract_address, "erc20", erc20_abi_json())));
         // Invalid: address is not a valid hex string, and log data is accessed
         let invalid_addr = "not-a-valid-address";
         let invalid_monitor =
-            create_test_monitor(1, Some(invalid_addr), Some("simple"), "log.name == \"A\"", vec![]);
+            create_test_monitor(1, Some(invalid_addr), Some("erc20"), "log.name == \"A\"", vec![]);
         let result = validator.validate(&invalid_monitor);
 
         assert!(result.is_err());
@@ -543,7 +525,7 @@ mod tests {
         let mut invalid_monitor = create_test_monitor(
             1,
             Some("0x0000000000000000000000000000000000000123"),
-            Some("simple"),
+            Some("erc20"),
             "log.name == \"A\"",
             vec![],
         );
@@ -586,12 +568,12 @@ mod tests {
     async fn test_monitor_validation_failure_script_syntax_error() {
         let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
         let validator =
-            create_monitor_validator(&[], Some((contract_address, "simple", simple_abi())));
+            create_monitor_validator(&[], Some((contract_address, "erc20", erc20_abi_json())));
         // Invalid script: syntax error
         let invalid_monitor = create_test_monitor(
             1,
             Some("0x0000000000000000000000000000000000000123"),
-            Some("simple"),
+            Some("erc20"),
             "log.name == (", // Syntax error
             vec![],
         );
@@ -608,12 +590,12 @@ mod tests {
     async fn test_monitor_validation_failure_script_invalid_field_access() {
         let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
         let validator =
-            create_monitor_validator(&[], Some((contract_address, "simple", simple_abi())));
+            create_monitor_validator(&[], Some((contract_address, "erc20", erc20_abi_json())));
         // Invalid script: accesses a non-existent field
         let invalid_monitor = create_test_monitor(
             1,
             Some("0x0000000000000000000000000000000000000123"),
-            Some("simple"),
+            Some("erc20"),
             "tx.non_existent_field == 1",
             vec![],
         );
@@ -630,12 +612,12 @@ mod tests {
     async fn test_monitor_validation_failure_script_invalid_return_type() {
         let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
         let validator =
-            create_monitor_validator(&[], Some((contract_address, "simple", simple_abi())));
+            create_monitor_validator(&[], Some((contract_address, "erc20", erc20_abi_json())));
         // Invalid script: does not return a boolean
         let invalid_monitor = create_test_monitor(
             1,
             Some("0x0000000000000000000000000000000000000123"),
-            Some("simple"),
+            Some("erc20"),
             "tx.value", // Not a boolean expression
             vec![],
         );
@@ -660,12 +642,12 @@ mod tests {
     async fn test_monitor_validation_success_log_access_with_abi_and_address() {
         let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
         let validator =
-            create_monitor_validator(&[], Some((contract_address, "simple", simple_abi())));
+            create_monitor_validator(&[], Some((contract_address, "erc20", erc20_abi_json())));
         // Valid: log access, with address and ABI
         let monitor = create_test_monitor(
             1,
             Some("0x0000000000000000000000000000000000000123"),
-            Some("simple"),
+            Some("erc20"),
             "log.name == \"Transfer\"",
             vec![],
         );
@@ -677,7 +659,7 @@ mod tests {
     async fn test_monitor_validation_failure_requires_abi_for_log_access_no_abi_file() {
         let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
         let validator =
-            create_monitor_validator(&[], Some((contract_address, "simple", simple_abi())));
+            create_monitor_validator(&[], Some((contract_address, "erc20", erc20_abi_json())));
         // Invalid: accesses log data, has address, but no abi file specified in monitor
         // config
         let invalid_monitor = create_test_monitor(
@@ -707,13 +689,13 @@ mod tests {
         let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
         // Create validator without linking the ABI to the address
         let validator =
-            create_monitor_validator(&[], Some((contract_address, "simple", simple_abi())));
+            create_monitor_validator(&[], Some((contract_address, "erc20", erc20_abi_json())));
 
         // Invalid: accesses log data, has address and abi name, but ABI is not linked
         let invalid_monitor = create_test_monitor(
             1,
             Some("0x0000000000000000000000000000000000000123"),
-            Some("simple"), // ABI name provided
+            Some("erc20"), // ABI name provided
             "log.name == \"A\"",
             vec![],
         );
@@ -726,7 +708,7 @@ mod tests {
         if let Err(MonitorValidationError::MonitorRequiresAbi { monitor_name, reason }) = result {
             assert!(monitor_name.contains("Test Monitor 1"));
             assert!(reason.contains(
-                "ABI 'simple' could not be retrieved for address \
+                "ABI 'erc20' could not be retrieved for address \
                  '0x0000000000000000000000000000000000000123'. Ensure the ABI is loaded and \
                  linked."
             ));
@@ -739,10 +721,10 @@ mod tests {
     async fn test_monitor_validation_failure_requires_address_for_log_access_no_address() {
         let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
         let validator =
-            create_monitor_validator(&[], Some((contract_address, "simple", simple_abi())));
+            create_monitor_validator(&[], Some((contract_address, "erc20", erc20_abi_json())));
         // Invalid: accesses log data, has abi file, but no address specified
         let invalid_monitor =
-            create_test_monitor(1, None, Some("simple"), "log.name == \"A\"", vec![]);
+            create_test_monitor(1, None, Some("erc20"), "log.name == \"A\"", vec![]);
         let result = validator.validate(&invalid_monitor);
 
         assert!(result.is_err());
@@ -771,10 +753,10 @@ mod tests {
     #[tokio::test]
     async fn test_monitor_validation_success_global_log_monitor() {
         let validator =
-            create_monitor_validator(&[], Some((Address::default(), "simple", simple_abi())));
+            create_monitor_validator(&[], Some((Address::default(), "erc20", erc20_abi_json())));
         // Valid: global log monitor accesses log and has address: "all" + ABI
         let monitor =
-            create_test_monitor(1, Some("all"), Some("simple"), "log.name == \"Transfer\"", vec![]);
+            create_test_monitor(1, Some("all"), Some("erc20"), "log.name == \"Transfer\"", vec![]);
         let result = validator.validate(&monitor);
         assert!(result.is_ok());
     }
@@ -827,12 +809,12 @@ mod tests {
     async fn test_monitor_validation_failure_script_invalid_abi_field_access() {
         let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
         let validator =
-            create_monitor_validator(&[], Some((contract_address, "simple", simple_abi())));
+            create_monitor_validator(&[], Some((contract_address, "erc20", erc20_abi_json())));
         // Invalid script: accesses a log.params field not in the ABI
         let invalid_monitor = create_test_monitor(
             1,
             Some("0x0000000000000000000000000000000000000123"),
-            Some("simple"),
+            Some("erc20"),
             "log.params.non_existent_param == 1",
             vec![],
         );
@@ -852,7 +834,7 @@ mod tests {
     async fn test_monitor_validation_failure_calldata_aware_no_abi() {
         let contract_address = address!("0x0000000000000000000000000000000000000123");
         let validator =
-            create_monitor_validator(&[], Some((contract_address, "simple", simple_abi())));
+            create_monitor_validator(&[], Some((contract_address, "erc20", erc20_abi_json())));
 
         let invalid_monitor = MonitorConfig {
             name: "Test Monitor 1".into(),
@@ -885,7 +867,7 @@ mod tests {
             name: "Test Monitor 1".into(),
             network: "testnet".into(),
             address: None, // No address provided
-            abi: Some("simple".into()),
+            abi: Some("erc20".into()),
             filter_script: "decoded_call.name == \"A\"".into(), // Accesses decoded_call
             notifiers: vec![],
         };
@@ -912,7 +894,7 @@ mod tests {
             name: "Test Monitor 1".into(),
             network: "testnet".into(),
             address: Some("all".into()), // Global monitor
-            abi: Some("simple".into()),
+            abi: Some("erc20".into()),
             filter_script: "decoded_call.name == \"A\"".into(),
             notifiers: vec![],
         };
@@ -935,13 +917,13 @@ mod tests {
     async fn test_monitor_validation_success_calldata_enabled_with_abi_and_address() {
         let contract_address = address!("0x1234567890abcdef1234567890abcdef12345678");
         let validator =
-            create_monitor_validator(&[], Some((contract_address, "simple", simple_abi())));
+            create_monitor_validator(&[], Some((contract_address, "erc20", erc20_abi_json())));
 
         let invalid_monitor = MonitorConfig {
             name: "Test Monitor 1".into(),
             network: "testnet".into(),
             address: Some(contract_address.to_string()),
-            abi: Some("simple".into()),
+            abi: Some("erc20".into()),
             filter_script: "log.name == \"A\"".into(),
             notifiers: vec![],
         };

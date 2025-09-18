@@ -359,7 +359,7 @@ mod tests {
 
     use super::*;
     use crate::test_helpers::{
-        LogBuilder, TransactionBuilder, create_test_abi_service, simple_abi_json,
+        LogBuilder, TransactionBuilder, create_test_abi_service, erc20_abi_json,
     };
 
     fn setup_abi_service_with_abi(abi_name: &str, abi_content: &str) -> (Arc<AbiService>, Address) {
@@ -373,13 +373,13 @@ mod tests {
     #[test]
     fn test_link_abi_success() {
         let temp_dir = tempdir().unwrap();
-        let (service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
+        let (service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
         let address = Address::default();
 
         assert!(!service.is_monitored(&address));
         assert_eq!(service.cache_size(), 0);
 
-        let result = service.link_abi(address, "simple");
+        let result = service.link_abi(address, "erc20");
         assert!(result.is_ok());
         assert!(service.is_monitored(&address));
         assert_eq!(service.cache_size(), 1);
@@ -400,7 +400,7 @@ mod tests {
 
     #[test]
     fn test_remove_abi() {
-        let (service, address) = setup_abi_service_with_abi("simple", simple_abi_json());
+        let (service, address) = setup_abi_service_with_abi("erc20", erc20_abi_json());
 
         assert!(service.is_monitored(&address));
         assert_eq!(service.cache_size(), 1);
@@ -412,7 +412,7 @@ mod tests {
 
     #[test]
     fn test_decode_known_event() {
-        let (service, contract_address) = setup_abi_service_with_abi("simple", simple_abi_json());
+        let (service, contract_address) = setup_abi_service_with_abi("erc20", erc20_abi_json());
 
         let from = address!("1111111111111111111111111111111111111111");
         let to = address!("2222222222222222222222222222222222222222");
@@ -434,13 +434,13 @@ mod tests {
         assert_eq!(decoded.params[0].1, from.into());
         assert_eq!(decoded.params[1].0, "to");
         assert_eq!(decoded.params[1].1, to.into());
-        assert_eq!(decoded.params[2].0, "amount");
+        assert_eq!(decoded.params[2].0, "value");
         assert_eq!(decoded.params[2].1, amount.into());
     }
 
     #[test]
     fn test_decode_known_function() {
-        let (service, contract_address) = setup_abi_service_with_abi("simple", simple_abi_json());
+        let (service, contract_address) = setup_abi_service_with_abi("erc20", erc20_abi_json());
 
         let to_addr = address!("2222222222222222222222222222222222222222");
         let amount = U256::from(100);
@@ -460,9 +460,9 @@ mod tests {
         let decoded = service.decode_function_input(&tx).unwrap();
         assert_eq!(decoded.name, "transfer");
         assert_eq!(decoded.params.len(), 2);
-        assert_eq!(decoded.params[0].0, "to");
+        assert_eq!(decoded.params[0].0, "_to");
         assert_eq!(decoded.params[0].1, to_addr.into());
-        assert_eq!(decoded.params[1].0, "amount");
+        assert_eq!(decoded.params[1].0, "_value");
         assert_eq!(decoded.params[1].1, amount.into());
     }
 
@@ -482,8 +482,8 @@ mod tests {
     #[test]
     fn test_decode_log_global_abi() {
         let temp_dir = tempdir().unwrap();
-        let (service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
-        service.add_global_abi("simple").unwrap();
+        let (service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+        service.add_global_abi("erc20").unwrap();
 
         let from = address!("1111111111111111111111111111111111111111");
         let to = address!("2222222222222222222222222222222222222222");
@@ -515,7 +515,7 @@ mod tests {
 
     #[test]
     fn test_decode_function_for_unknown_selector() {
-        let (service, contract_address) = setup_abi_service_with_abi("simple", simple_abi_json());
+        let (service, contract_address) = setup_abi_service_with_abi("erc20", erc20_abi_json());
 
         let tx = TransactionBuilder::new()
             .to(Some(contract_address))
@@ -528,7 +528,7 @@ mod tests {
 
     #[test]
     fn test_decode_function_input_too_short() {
-        let (service, contract_address) = setup_abi_service_with_abi("simple", simple_abi_json());
+        let (service, contract_address) = setup_abi_service_with_abi("erc20", erc20_abi_json());
 
         // Default transaction has no input data
         let tx = TransactionBuilder::new().to(Some(contract_address)).build();
@@ -539,7 +539,7 @@ mod tests {
 
     #[test]
     fn test_decode_log_for_unknown_event() {
-        let (service, contract_address) = setup_abi_service_with_abi("simple", simple_abi_json());
+        let (service, contract_address) = setup_abi_service_with_abi("erc20", erc20_abi_json());
 
         let log = LogBuilder::new()
             .address(contract_address)
@@ -551,7 +551,7 @@ mod tests {
 
     #[test]
     fn test_decode_log_with_no_topics() {
-        let (service, contract_address) = setup_abi_service_with_abi("simple", simple_abi_json());
+        let (service, contract_address) = setup_abi_service_with_abi("erc20", erc20_abi_json());
         let log = LogBuilder::new().address(contract_address).build();
         let err = service.decode_log(&log).unwrap_err();
         assert!(matches!(err, AbiError::LogHasNoTopics));
@@ -560,7 +560,7 @@ mod tests {
     #[test]
     fn test_decode_contract_creation() {
         let temp_dir = tempdir().unwrap();
-        let (service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
+        let (service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
 
         // Contract creation transactions have `to` as None.
         let tx = TransactionBuilder::new().to(None).build();
@@ -571,7 +571,7 @@ mod tests {
 
     #[test]
     fn test_decode_function_with_malformed_input() {
-        let (service, contract_address) = setup_abi_service_with_abi("simple", simple_abi_json());
+        let (service, contract_address) = setup_abi_service_with_abi("erc20", erc20_abi_json());
 
         // `transfer` selector, but the data is just a single byte.
         let input_data = bytes!("a9059cbb00").to_vec();
@@ -587,7 +587,7 @@ mod tests {
 
     #[test]
     fn test_decode_log_with_malformed_data() {
-        let (service, contract_address) = setup_abi_service_with_abi("simple", simple_abi_json());
+        let (service, contract_address) = setup_abi_service_with_abi("erc20", erc20_abi_json());
 
         let from = address!("1111111111111111111111111111111111111111");
         let to = address!("2222222222222222222222222222222222222222");
@@ -606,20 +606,20 @@ mod tests {
 
     #[test]
     fn test_get_abi() {
-        let (service, contract_address) = setup_abi_service_with_abi("simple", simple_abi_json());
+        let (service, contract_address) = setup_abi_service_with_abi("erc20", erc20_abi_json());
 
         let cached_contract = service.get_abi(contract_address).unwrap();
-        assert_eq!(cached_contract.abi.functions().next().unwrap().name, "transfer");
+        assert_eq!(cached_contract.abi.functions().count(), 9); // ERC-20 has 9 functions
     }
 
     #[test]
     fn test_get_abi_by_name() {
         let temp_dir = tempdir().unwrap();
-        let (service, _) = create_test_abi_service(&temp_dir, &[("test_abi", simple_abi_json())]);
+        let (service, _) = create_test_abi_service(&temp_dir, &[("test_abi", erc20_abi_json())]);
 
         // Test with an existing ABI name
         let abi = service.get_abi_by_name("test_abi").unwrap();
-        assert_eq!(abi.functions().next().unwrap().name, "transfer");
+        assert_eq!(abi.functions().count(), 9); // ERC-20 has 9 functions
 
         // Test with a non-existent ABI name
         let non_existent_abi = service.get_abi_by_name("nonexistent");
@@ -636,13 +636,13 @@ mod tests {
                     "specific",
                     r#"[{"type": "event", "name": "SpecificEvent", "inputs": [], "anonymous": false}]"#,
                 ),
-                ("simple", simple_abi_json()),
+                ("erc20", erc20_abi_json()),
             ],
         );
 
         let contract_address = address!("0000000000000000000000000000000000000001");
         service.link_abi(contract_address, "specific").unwrap();
-        service.add_global_abi("simple").unwrap();
+        service.add_global_abi("erc20").unwrap();
 
         let from = address!("1111111111111111111111111111111111111111");
         let to = address!("2222222222222222222222222222222222222222");
@@ -666,8 +666,8 @@ mod tests {
     #[test]
     fn test_decode_log_global_abi_decoding_error() {
         let temp_dir = tempdir().unwrap();
-        let (service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
-        service.add_global_abi("simple").unwrap();
+        let (service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+        service.add_global_abi("erc20").unwrap();
 
         // Log with correct "Transfer" signature but malformed data
         let log = LogBuilder::new()
@@ -690,13 +690,13 @@ mod tests {
                     "specific",
                     r#"[{"type": "function", "name": "specificFunction", "inputs": [], "outputs": []}]"#,
                 ),
-                ("simple", simple_abi_json()),
+                ("erc20", erc20_abi_json()),
             ],
         );
 
         let contract_address = address!("0000000000000000000000000000000000000001");
         service.link_abi(contract_address, "specific").unwrap();
-        service.add_global_abi("simple").unwrap();
+        service.add_global_abi("erc20").unwrap();
 
         let to_addr = address!("2222222222222222222222222222222222222222");
         let amount = U256::from(100);
