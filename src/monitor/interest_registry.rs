@@ -1,4 +1,7 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use alloy::primitives::{Address, B256};
 
@@ -8,8 +11,11 @@ use crate::models::Log;
 /// any monitor.
 #[derive(Debug, Default)]
 pub struct InterestRegistry {
-    /// Set of addresses that have log-aware monitors.
-    pub log_addresses: Arc<HashSet<Address>>,
+    /// Map of log interests by address.
+    /// Some(HashSet<B256>) = Precise Mode: Only logs with these event
+    /// signatures are of interest. None = Broad Mode: All logs from this
+    /// address are of interest.
+    pub log_interests: Arc<HashMap<Address, Option<HashSet<B256>>>>,
 
     /// Set of addresses that have calldata-aware monitors.
     pub calldata_addresses: Arc<HashSet<Address>>,
@@ -23,7 +29,24 @@ impl InterestRegistry {
     /// global event signatures.
     #[inline]
     pub fn is_log_interesting(&self, log: &Log) -> bool {
-        self.log_addresses.contains(&log.address()) || self.is_globally_monitored(log)
+        // 1. Check for specific address interests.
+        if let Some(interest_mode) = self.log_interests.get(&log.address()) {
+            match interest_mode {
+                // Precise Mode: Check if the log's signature is in our set.
+                Some(specific_signatures) => {
+                    return log
+                        .topics()
+                        .first()
+                        .is_some_and(|topic0| specific_signatures.contains(topic0));
+                }
+                // Broad Mode: A generic monitor exists for this address, so all its logs are
+                // interesting.
+                None => return true,
+            }
+        }
+
+        // 2. If no specific address match, fall back to checking global signatures.
+        self.is_globally_monitored(log)
     }
 
     /// Checks if the log matches any global event signatures.
@@ -47,6 +70,7 @@ impl InterestRegistry {
     }
 }
 
+// TODO: add tests for both precise and broad modes
 #[cfg(test)]
 mod tests {
     use alloy::primitives::{address, b256};
@@ -64,7 +88,10 @@ mod tests {
             b256!("8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925");
 
         let registry = InterestRegistry {
-            log_addresses: Arc::new(HashSet::from([monitored_address])),
+            log_interests: Arc::new(HashMap::from([(
+                monitored_address,
+                None, // Broad mode for this address
+            )])),
             calldata_addresses: Arc::new(HashSet::new()),
             global_event_signatures: Arc::new(HashSet::from([monitored_event_sig])),
         };
@@ -107,7 +134,7 @@ mod tests {
         let other_address = address!("0000000000000000000000000000000000000002");
 
         let registry = InterestRegistry {
-            log_addresses: Arc::new(HashSet::new()),
+            log_interests: Arc::new(HashMap::new()),
             calldata_addresses: Arc::new(HashSet::from([monitored_address])),
             global_event_signatures: Arc::new(HashSet::new()),
         };
@@ -134,7 +161,10 @@ mod tests {
 
         // Case 1: Registry with no global signatures
         let registry_no_globals = InterestRegistry {
-            log_addresses: Arc::new(HashSet::from([monitored_address])),
+            log_interests: Arc::new(HashMap::from([(
+                monitored_address,
+                None, // Broad mode for this address
+            )])),
             calldata_addresses: Arc::new(HashSet::new()),
             global_event_signatures: Arc::new(HashSet::new()), // Empty set
         };
@@ -151,7 +181,7 @@ mod tests {
             LogBuilder::new().address(address!("3333333333333333333333333333333333333333")).build(); // No .topic() calls
 
         let registry_with_globals = InterestRegistry {
-            log_addresses: Arc::new(HashSet::new()),
+            log_interests: Arc::new(HashMap::new()),
             calldata_addresses: Arc::new(HashSet::new()),
             global_event_signatures: Arc::new(HashSet::from([monitored_event_sig])),
         };
