@@ -20,6 +20,10 @@ use crate::{
     models::monitor::Monitor,
 };
 
+const TX_GAS_USED: &str = "tx.gas_used";
+const TX_STATUS: &str = "tx.status";
+const TX_EFFECTIVE_GAS_PRICE: &str = "tx.effective_gas_price";
+
 /// A monitor along with its capabilities and script analysis.
 #[derive(Debug)]
 pub struct ClassifiedMonitor {
@@ -103,83 +107,86 @@ impl MonitorManager {
         abi_service: &Arc<AbiService>,
     ) -> MonitorAssetState {
         tracing::debug!("Organizing assets for {} monitors", monitors.len());
-        let mut classified_monitors = Vec::new();
-        let mut requires_receipts = false;
 
-        // Receipt-specific fields that are only available from transaction receipts
-        let receipt_fields: HashSet<String> = [
-            "tx.gas_used".to_string(),
-            "tx.status".to_string(),
-            "tx.effective_gas_price".to_string(),
-        ]
-        .into_iter()
-        .collect();
+        let (classified, failed): (Vec<_>, Vec<_>) =
+            monitors.iter().map(|m| Self::classify_monitor(compiler, m)).partition(Result::is_ok);
 
-        for monitor in monitors {
-            // Analyze the filter script
-            let analysis = match compiler.analyze_script(&monitor.filter_script) {
-                Ok(analysis) => analysis,
-                Err(err) => {
-                    tracing::error!(
-                        "Failed to analyze filter script for monitor {}: {}. Skipping this \
-                         monitor.",
-                        monitor.id,
-                        err
-                    );
-                    continue;
-                }
-            };
+        let classified_monitors =
+            classified.into_iter().map(Result::unwrap).collect::<Vec<(ClassifiedMonitor, bool)>>();
 
-            // Check if the monitor requires receipt fields
-            if !requires_receipts && !analysis.accessed_variables.is_disjoint(&receipt_fields) {
-                requires_receipts = true;
-            }
-
-            // Determine capabilities based on accessed variables
-            let mut caps = MonitorCapabilities::empty();
-
-            // Check if any tx fields are accessed
-            if analysis.accessed_variables.iter().any(|var| var.starts_with("tx.")) {
-                caps |= MonitorCapabilities::TX;
-            }
-
-            // Check if any log fields are accessed
-            if analysis.accesses_log_variable {
-                caps |= MonitorCapabilities::LOG;
-            }
-
-            // Check if any decoded_call fields are accessed
-            if analysis
-                .accessed_variables
-                .iter()
-                .any(|var| var.starts_with("decoded_call.") || var == "decoded_call")
-            {
-                caps |= MonitorCapabilities::CALL;
-            }
-
-            // If a script doesn't access any specific context, it's treated as a
-            // transaction-level monitor by default.
-            if caps.is_empty() {
-                caps = MonitorCapabilities::TX;
-            }
-
-            // Create the ClassifiedMonitor
-            let classified =
-                ClassifiedMonitor { monitor: Arc::new(monitor.clone()), caps, analysis };
-
-            // Add the classified monitor to the list
-            classified_monitors.push(classified);
+        if !failed.is_empty() {
+            tracing::warn!(
+                count = failed.len(),
+                "Failed to classify {} monitors due to script analysis errors.",
+                failed.len()
+            );
         }
 
-        let interest_registry = Self::build_interest_registry(&classified_monitors, abi_service);
+        let requires_receipts = classified_monitors.iter().any(|(_, needs_receipt)| *needs_receipt);
+        let monitors = classified_monitors.into_iter().map(|(cm, _)| cm).collect::<Vec<_>>();
+
+        let interest_registry = Self::build_interest_registry(&monitors, abi_service);
 
         tracing::debug!(
             "Organized monitors: {} total, requires_receipts={}",
-            classified_monitors.len(),
+            monitors.len(),
             requires_receipts
         );
 
-        MonitorAssetState { monitors: classified_monitors, requires_receipts, interest_registry }
+        MonitorAssetState { monitors, requires_receipts, interest_registry }
+    }
+
+    /// Classifies a single monitor by analyzing its script and determining its
+    /// capabilities.
+    /// Returns the classified monitor and a flag indicating if it requires
+    /// receipts.
+    fn classify_monitor(
+        compiler: &Arc<RhaiCompiler>,
+        monitor: &Monitor,
+    ) -> Result<(ClassifiedMonitor, bool), Box<dyn std::error::Error>> {
+        // Analyze the filter script
+        let analysis = compiler.analyze_script(&monitor.filter_script)?;
+
+        // Receipt-specific fields that are only available from transaction receipts
+        let receipt_fields: HashSet<String> =
+            [TX_GAS_USED.to_string(), TX_STATUS.to_string(), TX_EFFECTIVE_GAS_PRICE.to_string()]
+                .into_iter()
+                .collect();
+
+        let needs_receipt =
+            analysis.accessed_variables.iter().any(|v| receipt_fields.contains(v.as_str()));
+
+        // Determine capabilities based on accessed variables
+        let mut caps = MonitorCapabilities::empty();
+
+        // Check if any tx fields are accessed
+        if analysis.accessed_variables.iter().any(|var| var.starts_with("tx.")) {
+            caps |= MonitorCapabilities::TX;
+        }
+
+        // Check if any log fields are accessed
+        if analysis.accesses_log_variable {
+            caps |= MonitorCapabilities::LOG;
+        }
+
+        // Check if any decoded_call fields are accessed
+        if analysis
+            .accessed_variables
+            .iter()
+            .any(|var| var.starts_with("decoded_call.") || var == "decoded_call")
+        {
+            caps |= MonitorCapabilities::CALL;
+        }
+
+        // If a script doesn't access any specific context, it's treated as a
+        // transaction-level monitor by default.
+        if caps.is_empty() {
+            caps = MonitorCapabilities::TX;
+        }
+
+        let cm = ClassifiedMonitor { monitor: Arc::new(monitor.clone()), caps, analysis };
+
+        Ok((cm, needs_receipt))
     }
 
     /// Builds the InterestRegistry from the classified monitors.
