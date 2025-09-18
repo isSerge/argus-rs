@@ -250,8 +250,6 @@ impl RhaiFilteringEngine {
             decoded_call_result = context.decoded_call_cache.as_ref().unwrap().clone();
         }
 
-        println!("log decoded: {:?}", decoded_log_result);
-        println!("decoded_call: {:?}", decoded_call_result.clone());
         // --- Push Proxies to Scope ---
         // The proxies handle the `None` case internally, preventing script errors.
         scope.push("log", LogProxy(decoded_log_result.clone()));
