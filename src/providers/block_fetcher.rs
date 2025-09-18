@@ -64,30 +64,43 @@ where
         // If not, skip fetching logs to save RPC calls
         let block_bloom = &block.header.logs_bloom;
         let monitor_snapshot = self.monitor_manager.load();
-        let has_log_interest = !monitor_snapshot.interest_registry.log_addresses.is_empty()
-            || !monitor_snapshot.interest_registry.global_event_signatures.is_empty();
+        let interest_registry = &monitor_snapshot.interest_registry;
 
-        if !has_log_interest {
+        // Early exit if there are absolutely no log-aware monitors of any kind.
+        if interest_registry.log_interests.is_empty()
+            && interest_registry.global_event_signatures.is_empty()
+        {
             tracing::debug!(block_number = number, "No log-aware monitors. Skipping log fetch.");
             return Ok((block, Vec::new()));
         }
 
-        // If there is log interest, check the bloom filter
-        // Check if any monitored address is possibly in the block's logs.
-        let has_any_monitored_address = monitor_snapshot
-            .interest_registry
-            .log_addresses
-            .iter()
-            .any(|addr| block_bloom.contains_input(BloomInput::Raw(addr.as_slice())));
-
-        // Check if any globally monitored topic is possibly in the block's logs.
-        let has_any_monitored_topic = monitor_snapshot
-            .interest_registry
+        // Check 1: Do any globally monitored topics appear in the bloom?
+        let might_have_global_logs = interest_registry
             .global_event_signatures
             .iter()
             .any(|topic| block_bloom.contains_input(BloomInput::Raw(topic.as_slice())));
 
-        let might_contain_relevant_logs = has_any_monitored_address || has_any_monitored_topic;
+        // Check 2: Do any address-specific interests appear in the bloom?
+        let might_have_address_logs =
+            interest_registry.log_interests.iter().any(|(addr, interest_mode)| {
+                // All address-specific checks must first match the address in the bloom.
+                if !block_bloom.contains_input(BloomInput::Raw(addr.as_slice())) {
+                    return false;
+                }
+
+                match interest_mode {
+                    // Precise Mode: Address is present, now check if any of its specific topics are
+                    // also present.
+                    Some(specific_signatures) => specific_signatures
+                        .iter()
+                        .any(|topic| block_bloom.contains_input(BloomInput::Raw(topic.as_slice()))),
+                    // Broad Mode: Address is present, and since we can't be more specific, we must
+                    // fetch.
+                    None => true,
+                }
+            });
+
+        let might_contain_relevant_logs = might_have_global_logs || might_have_address_logs;
 
         // Conditionally call eth_getLogs based on the bloom filter check.
         let logs = if might_contain_relevant_logs {
