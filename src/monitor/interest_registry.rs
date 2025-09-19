@@ -3,9 +3,16 @@ use std::{
     sync::Arc,
 };
 
-use alloy::primitives::{Address, B256};
+use alloy::{
+    json_abi::JsonAbi,
+    primitives::{Address, B256},
+};
 
-use crate::models::Log;
+use crate::{
+    abi::AbiService,
+    models::Log,
+    monitor::{ClassifiedMonitor, MonitorCapabilities},
+};
 
 /// A registry for quickly determining if a log or calldata is of interest to
 /// any monitor.
@@ -66,6 +73,122 @@ impl InterestRegistry {
         match to_address {
             Some(addr) => self.calldata_addresses.contains(addr),
             None => false, // Contract creation - not interesting for calldata-aware monitors
+        }
+    }
+}
+
+/// A builder for constructing an `InterestRegistry` from classified monitors.
+#[derive(Debug, Default)]
+pub struct InterestRegistryBuilder {
+    log_interests: HashMap<Address, Option<HashSet<B256>>>,
+    calldata_addresses: HashSet<Address>,
+    global_event_signatures: HashSet<B256>,
+}
+
+impl InterestRegistryBuilder {
+    /// Adds calldata interest if the monitor has CALL capability and a valid
+    /// address.
+    fn add_calldata_interest(&mut self, cm: &ClassifiedMonitor) {
+        if cm.caps.contains(MonitorCapabilities::CALL) {
+            if let Some(Ok(addr)) = cm.monitor.address.as_ref().map(|a| a.parse::<Address>()) {
+                self.calldata_addresses.insert(addr);
+            }
+        }
+    }
+
+    /// Adds log interest based on the monitor's address and ABI
+    /// if it has LOG capability.
+    fn add_log_interest(&mut self, cm: &ClassifiedMonitor, abi_service: &Arc<AbiService>) {
+        if !cm.caps.contains(MonitorCapabilities::LOG) {
+            return;
+        }
+
+        let monitor = &cm.monitor;
+        let is_global = monitor.address.as_deref().is_some_and(|a| a.eq_ignore_ascii_case("all"));
+
+        if is_global {
+            self.add_global_event_signature(cm, abi_service);
+        } else if let Some(Ok(address)) = monitor.address.as_ref().map(|a| a.parse::<Address>()) {
+            // --- Handle Address-Specific Monitors ---
+            if matches!(self.log_interests.get(&address), Some(&None)) {
+                return; // Already in broad mode, can't be more specific.
+            }
+
+            if let Some(abi_name) = &monitor.abi {
+                if let Some(contract) = abi_service.get_abi(address) {
+                    // Ensure the correct ABI is linked.
+                    if let Some(repo_abi) = abi_service.get_abi_by_name(abi_name) {
+                        if !Arc::ptr_eq(&contract.abi, &repo_abi) {
+                            // Mismatch: monitor specifies an ABI different from the one linked.
+                            // For safety, fall back to broad mode.
+                            self.log_interests.insert(address, None);
+                            return;
+                        }
+                    }
+
+                    let signatures = Self::get_signatures_for_monitor(cm, contract.abi.clone());
+                    if let Some(interest_set) =
+                        self.log_interests.entry(address).or_insert_with(|| Some(HashSet::new()))
+                    {
+                        interest_set.extend(signatures);
+                    }
+                } else {
+                    // Safety fallback: ABI not linked for this address, enter broad mode.
+                    self.log_interests.insert(address, None);
+                }
+            } else {
+                // Safety fallback: Monitor has an address but no ABI, enter broad mode.
+                self.log_interests.insert(address, None);
+            }
+        }
+    }
+
+    /// Adds global event signatures from a global monitor.
+    /// A global monitor is one that specifies "all" as its address.
+    fn add_global_event_signature(
+        &mut self,
+        cm: &ClassifiedMonitor,
+        abi_service: &Arc<AbiService>,
+    ) {
+        if let Some(abi_name) = &cm.monitor.abi {
+            if let Some(abi) = abi_service.get_abi_by_name(abi_name) {
+                self.global_event_signatures.extend(Self::get_signatures_for_monitor(cm, abi));
+            }
+        }
+    }
+
+    /// Adds a classified monitor to the registry builder.
+    /// This processes both calldata and log interests.
+    pub fn add(&mut self, cm: &ClassifiedMonitor, abi_service: &Arc<AbiService>) {
+        self.add_calldata_interest(cm);
+        self.add_log_interest(cm, abi_service);
+    }
+
+    /// Builds the `InterestRegistry` from the accumulated interests.
+    pub fn build(self) -> InterestRegistry {
+        InterestRegistry {
+            log_interests: Arc::new(self.log_interests),
+            calldata_addresses: Arc::new(self.calldata_addresses),
+            global_event_signatures: Arc::new(self.global_event_signatures),
+        }
+    }
+
+    /// Extracts event signatures from the monitor's ABI based on accessed event
+    /// names.
+    fn get_signatures_for_monitor(cm: &ClassifiedMonitor, abi: Arc<JsonAbi>) -> HashSet<B256> {
+        let event_names = &cm.analysis.accessed_log_event_names;
+
+        if !event_names.is_empty() {
+            // SMART PATH: Add only the specific event signatures.
+            event_names
+                .iter()
+                .filter_map(|name| abi.event(name))
+                .flatten()
+                .map(|event| event.selector())
+                .collect()
+        } else {
+            // SAFE PATH: Add all event signatures from the ABI.
+            abi.events.values().flatten().map(|event| event.selector()).collect()
         }
     }
 }

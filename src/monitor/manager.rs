@@ -1,19 +1,12 @@
 //! This module is responsible for classifying monitors, analyzing their
 //! scripts, and maintaining the overall state of the monitoring system.
 
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashSet, sync::Arc};
 
-use alloy::{
-    json_abi::JsonAbi,
-    primitives::{Address, B256},
-};
 use arc_swap::{ArcSwap, Guard};
 use bitflags::bitflags;
 
-use super::InterestRegistry;
+use super::{InterestRegistry, InterestRegistryBuilder};
 use crate::{
     abi::AbiService,
     engine::rhai::{RhaiCompiler, ScriptAnalysis},
@@ -196,96 +189,13 @@ impl MonitorManager {
         classified_monitors: &Vec<ClassifiedMonitor>,
         abi_service: &Arc<AbiService>,
     ) -> InterestRegistry {
-        let mut calldata_addresses = HashSet::new();
-        let mut log_interests: HashMap<Address, Option<HashSet<B256>>> = HashMap::new();
-        let mut global_event_signatures = HashSet::new();
-
-        for cm in classified_monitors {
-            let monitor = &cm.monitor;
-
-            // Handle Calldata Interests
-            if cm.caps.contains(MonitorCapabilities::CALL) {
-                if let Some(Ok(address)) = monitor.address.as_ref().map(|a| a.parse::<Address>()) {
-                    calldata_addresses.insert(address);
-                }
-            }
-
-            // Skip to next monitor if it's not log-aware
-            if !cm.caps.contains(MonitorCapabilities::LOG) {
-                continue;
-            }
-
-            let is_global =
-                monitor.address.as_deref().is_some_and(|a| a.eq_ignore_ascii_case("all"));
-
-            if is_global {
-                // --- Handle Global Monitors ---
-                if let Some(abi_name) = &monitor.abi {
-                    if let Some(abi) = abi_service.get_abi_by_name(abi_name) {
-                        global_event_signatures.extend(Self::get_signatures_for_monitor(cm, abi));
-                    }
-                }
-            } else if let Some(Ok(address)) = monitor.address.as_ref().map(|a| a.parse::<Address>())
-            {
-                // --- Handle Address-Specific Monitors ---
-                if matches!(log_interests.get(&address), Some(&None)) {
-                    continue; // Already in broad mode, can't be more specific.
-                }
-
-                if let Some(abi_name) = &monitor.abi {
-                    if let Some(contract) = abi_service.get_abi(address) {
-                        // Ensure the correct ABI is linked.
-                        if let Some(repo_abi) = abi_service.get_abi_by_name(abi_name) {
-                            if !Arc::ptr_eq(&contract.abi, &repo_abi) {
-                                // Mismatch: monitor specifies an ABI different from the one linked.
-                                // For safety, fall back to broad mode.
-                                log_interests.insert(address, None);
-                                continue;
-                            }
-                        }
-
-                        let signatures =
-                            Self::get_signatures_for_monitor(&cm, contract.abi.clone());
-                        if let Some(interest_set) =
-                            log_interests.entry(address).or_insert_with(|| Some(HashSet::new()))
-                        {
-                            interest_set.extend(signatures);
-                        }
-                    } else {
-                        // Safety fallback: ABI not linked for this address, enter broad mode.
-                        log_interests.insert(address, None);
-                    }
-                } else {
-                    // Safety fallback: Monitor has an address but no ABI, enter broad mode.
-                    log_interests.insert(address, None);
-                }
-            }
-        }
-
-        InterestRegistry {
-            log_interests: Arc::new(log_interests),
-            calldata_addresses: Arc::new(calldata_addresses),
-            global_event_signatures: Arc::new(global_event_signatures),
-        }
-    }
-
-    /// Extracts event signatures from the monitor's ABI based on accessed event
-    /// names.
-    fn get_signatures_for_monitor(cm: &ClassifiedMonitor, abi: Arc<JsonAbi>) -> HashSet<B256> {
-        let event_names = &cm.analysis.accessed_log_event_names;
-
-        if !event_names.is_empty() {
-            // SMART PATH: Add only the specific event signatures.
-            event_names
-                .iter()
-                .filter_map(|name| abi.event(name))
-                .flatten()
-                .map(|event| event.selector())
-                .collect()
-        } else {
-            // SAFE PATH: Add all event signatures from the ABI.
-            abi.events.values().flatten().map(|event| event.selector()).collect()
-        }
+        classified_monitors
+            .iter()
+            .fold(InterestRegistryBuilder::default(), |mut builder, cm| {
+                builder.add(cm, abi_service);
+                builder
+            })
+            .build()
     }
 }
 
