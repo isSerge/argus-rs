@@ -120,12 +120,24 @@ impl AbiRepository {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
+    use std::{collections::HashSet, io::Write};
 
     use tempfile::tempdir;
 
     use super::*;
     use crate::test_helpers::erc20_abi_json;
+
+    const REQUIRED_ERC20_FUNCTIONS: &[&str] = &[
+        "transfer",
+        "approve",
+        "balanceOf",
+        "transferFrom",
+        "totalSupply",
+        "allowance",
+        "decimals",
+        "symbol",
+        "name",
+    ];
 
     fn create_test_abi_file(dir: &tempfile::TempDir, filename: &str, content: &str) -> PathBuf {
         let file_path = dir.path().join(filename);
@@ -160,7 +172,14 @@ mod tests {
         assert!(repo.get_abi("nonexistent").is_none());
 
         let erc20_abi = repo.get_abi("erc20").unwrap();
-        assert_eq!(erc20_abi.functions().count(), 9); // ERC-20 has 9 functions
+        let function_names: HashSet<_> = erc20_abi.functions().map(|f| f.name.clone()).collect();
+        for required in REQUIRED_ERC20_FUNCTIONS {
+            assert!(
+                function_names.contains(*required),
+                "Missing required ERC-20 function: {}",
+                required
+            );
+        }
     }
 
     #[test]
@@ -201,7 +220,14 @@ mod tests {
         let abi = repo.get_abi("test_abi");
         assert!(abi.is_some());
         let abi = abi.unwrap();
-        assert_eq!(abi.functions().count(), 9); // ERC-20 has 9 functions
+        let function_names: HashSet<_> = abi.functions().map(|f| f.name.clone()).collect();
+        for required in REQUIRED_ERC20_FUNCTIONS {
+            assert!(
+                function_names.contains(*required),
+                "Missing required ERC-20 function: {}",
+                required
+            );
+        }
 
         let non_existent_abi = repo.get_abi("another_abi");
         assert!(non_existent_abi.is_none());

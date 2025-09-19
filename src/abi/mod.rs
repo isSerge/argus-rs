@@ -362,6 +362,18 @@ mod tests {
         LogBuilder, TransactionBuilder, create_test_abi_service, erc20_abi_json,
     };
 
+    const REQUIRED_ERC20_FUNCTIONS: &[&str] = &[
+        "transfer",
+        "approve",
+        "balanceOf",
+        "transferFrom",
+        "totalSupply",
+        "allowance",
+        "decimals",
+        "symbol",
+        "name",
+    ];
+
     fn setup_abi_service_with_abi(abi_name: &str, abi_content: &str) -> (Arc<AbiService>, Address) {
         let temp_dir = tempdir().unwrap();
         let (abi_service, _) = create_test_abi_service(&temp_dir, &[(abi_name, abi_content)]);
@@ -609,17 +621,33 @@ mod tests {
         let (service, contract_address) = setup_abi_service_with_abi("erc20", erc20_abi_json());
 
         let cached_contract = service.get_abi(contract_address).unwrap();
-        assert_eq!(cached_contract.abi.functions().count(), 9); // ERC-20 has 9 functions
+
+        let function_names: HashSet<_> =
+            cached_contract.abi.functions().map(|f| f.name.clone()).collect();
+        for required in REQUIRED_ERC20_FUNCTIONS {
+            assert!(
+                function_names.contains(*required),
+                "Missing required ERC-20 function: {}",
+                required
+            );
+        }
     }
 
     #[test]
     fn test_get_abi_by_name() {
         let temp_dir = tempdir().unwrap();
-        let (service, _) = create_test_abi_service(&temp_dir, &[("test_abi", erc20_abi_json())]);
+        let (service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
 
         // Test with an existing ABI name
-        let abi = service.get_abi_by_name("test_abi").unwrap();
-        assert_eq!(abi.functions().count(), 9); // ERC-20 has 9 functions
+        let abi = service.get_abi_by_name("erc20").unwrap();
+        let function_names: HashSet<_> = abi.functions().map(|f| f.name.clone()).collect();
+        for required in REQUIRED_ERC20_FUNCTIONS {
+            assert!(
+                function_names.contains(*required),
+                "Missing required ERC-20 function: {}",
+                required
+            );
+        }
 
         // Test with a non-existent ABI name
         let non_existent_abi = service.get_abi_by_name("nonexistent");
