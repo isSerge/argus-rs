@@ -13,7 +13,7 @@ use super::{ast_analysis, create_engine};
 use crate::config::RhaiConfig;
 
 /// Represents the result of analyzing a Rhai script.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct ScriptAnalysis {
     /// The compiled AST of the Rhai script.
     pub ast: Arc<AST>,
