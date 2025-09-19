@@ -32,6 +32,15 @@ pub enum DataSourceError {
     /// Indicates that the requested block was not found.
     #[error("Block not found: {0}")]
     BlockNotFound(u64),
+
+    /// The channel for communicating with a downstream service was closed
+    /// unexpectedly.
+    #[error("Channel closed")]
+    ChannelClosed,
+
+    /// An error occurred while interacting with the state repository.
+    #[error("State repository error: {0}")]
+    StateRepository(#[from] sqlx::Error),
 }
 
 /// A trait for a data source that can fetch blockchain data.

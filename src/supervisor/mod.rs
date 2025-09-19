@@ -21,7 +21,7 @@
 
 mod builder;
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use builder::SupervisorBuilder;
 use thiserror::Error;
@@ -30,8 +30,8 @@ use tokio::{signal, sync::mpsc};
 use crate::{
     config::AppConfig,
     engine::{
-        alert_manager::AlertManager, block_processor::process_blocks_batch,
-        filtering::FilteringEngine,
+        alert_manager::AlertManager, block_ingestor::BlockIngestor,
+        block_processor::BlockProcessor, filtering::FilteringEngine,
     },
     models::{BlockData, CorrelatedBlockData, monitor::Monitor, monitor_match::MonitorMatch},
     monitor::{MonitorManager, MonitorValidationError},
@@ -105,14 +105,14 @@ pub enum SupervisorError {
 //  the main process loop for the entire application.
 pub struct Supervisor {
     /// Shared application configuration.
-    config: AppConfig,
+    config: Arc<AppConfig>,
 
     /// The persistent state repository for managing application state.
     state: Arc<dyn StateRepository>,
 
     /// The data source for fetching new blockchain data (e.g., from an RPC
     /// endpoint).
-    data_source: Box<dyn DataSource>,
+    data_source: Arc<dyn DataSource>,
 
     /// The service responsible for matching decoded data against user-defined
     /// monitors.
@@ -146,9 +146,9 @@ impl Supervisor {
         monitor_manager: Arc<MonitorManager>,
     ) -> Self {
         Self {
-            config,
+            config: Arc::new(config),
             state,
-            data_source,
+            data_source: Arc::from(data_source),
             filtering,
             alert_manager,
             cancellation_token: tokio_util::sync::CancellationToken::new(),
@@ -197,22 +197,54 @@ impl Supervisor {
             cancellation_token.cancel();
         });
 
-        // Create the channel that connects the main logic (monitor_cycle) to the
-        // filtering engine.
+        // --- Service Initialization ---
+
+        // Create the channel that connects the BlockIngestor to the BlockProcessor.
+        let (raw_blocks_tx, raw_blocks_rx) =
+            mpsc::channel::<BlockData>(self.config.block_chunk_size as usize * 2);
+
+        // Create the channel that connects the BlockProcessor to the FilteringEngine.
         let (correlated_blocks_tx, correlated_blocks_rx) =
             mpsc::channel::<CorrelatedBlockData>(self.config.block_chunk_size as usize * 2);
 
-        // Create the channel that connects the filtering engine to the alert manager.
+        // Create the channel that connects the FilteringEngine to the AlertManager.
         let (monitor_matches_tx, mut monitor_matches_rx) =
             mpsc::channel::<MonitorMatch>(self.config.notification_channel_capacity as usize);
 
-        // Spawn the filtering engine as a managed task.
+        // --- Task Spawning ---
+
+        // Spawn the BlockIngestor service.
+        let block_ingestor = BlockIngestor::new(
+            Arc::clone(&self.config),
+            Arc::clone(&self.state),
+            Arc::clone(&self.data_source),
+            Arc::clone(&self.filtering),
+            raw_blocks_tx,
+            self.cancellation_token.clone(),
+        );
+        self.join_set.spawn(async move {
+            block_ingestor.run().await;
+        });
+
+        // Spawn the BlockProcessor service.
+        let block_processor = BlockProcessor::new(
+            Arc::clone(&self.config),
+            Arc::clone(&self.state),
+            raw_blocks_rx,
+            correlated_blocks_tx,
+            self.cancellation_token.clone(),
+        );
+        self.join_set.spawn(async move {
+            block_processor.run().await;
+        });
+
+        // Spawn the FilteringEngine service.
         let filtering_engine_clone = Arc::clone(&self.filtering);
         self.join_set.spawn(async move {
             filtering_engine_clone.run(correlated_blocks_rx, monitor_matches_tx).await;
         });
 
-        // Add the AlertManager's main processing loop.
+        // Spawn the AlertManager's main processing loop.
         let alert_manager_clone = Arc::clone(&self.alert_manager);
         self.join_set.spawn(async move {
             while let Some(monitor_match) = monitor_matches_rx.recv().await {
@@ -226,49 +258,44 @@ impl Supervisor {
             }
         });
 
-        // Add the AlertManager's background aggregation dispatcher.
+        // Spawn the AlertManager's background aggregation dispatcher.
         let dispatcher_alert_manager = Arc::clone(&self.alert_manager);
         let aggregation_check_interval = self.config.aggregation_check_interval_secs;
         self.join_set.spawn(async move {
             dispatcher_alert_manager.run_aggregation_dispatcher(aggregation_check_interval).await;
         });
 
-        // This is the main application loop.
+        // --- Main Supervisor Loop ---
+        // This loop is now only responsible for monitoring task health and shutdown
+        // signals.
+
         loop {
-            let tx_clone = correlated_blocks_tx.clone();
-            let polling_delay = tokio::time::sleep(self.config.polling_interval_ms);
-
             tokio::select! {
-              // Use `biased` to ensure the shutdown signal is always checked first.
-              biased;
-
-              // Branch 1: A shutdown has been requested.
-              _ = self.cancellation_token.cancelled() => {
-                tracing::info!("Supervisor cancellation signal received, shutting down...");
-                break; // Exit the main loop.
-              }
-
-              // Branch 2: A supervised task has terminated.
-              Some(result) = self.join_set.join_next() => {
-                if let Err(e) = result {
-                  tracing::error!("A critical task failed: {:?}. Initiating shutdown.", e);
-                  self.cancellation_token.cancel();
+                maybe_result = self.join_set.join_next() => {
+                    match maybe_result {
+                        Some(Ok(_)) => {
+                            // Task completed successfully, continue monitoring.
+                        }
+                        Some(Err(e)) => {
+                            tracing::error!("A critical task failed: {:?}. Initiating shutdown.", e);
+                            self.cancellation_token.cancel();
+                        }
+                        None => {
+                            // All tasks have completed.
+                            break;
+                        }
+                    }
                 }
-                continue; // Check for shutdown or continue polling.
-              }
-
-              // Branch 3: The polling interval has elapsed, time for a new cycle.
-              _ = polling_delay => {
-                if let Err(e) = self.monitor_cycle(tx_clone).await {
-                    tracing::error!(error = %e, "Error in monitoring cycle. Retrying after delay...");
+                _ = self.cancellation_token.cancelled() => {
+                    // Cancellation requested externally, break the loop.
+                    break;
                 }
-              }
             }
         }
 
         // --- Graceful Shutdown ---
 
-        // Wait for all spawned tasks to complete.
+        // Ensure all spawned tasks are properly awaited before cleanup.
         self.join_set.shutdown().await;
         tracing::info!("All supervised tasks have completed.");
 
@@ -308,94 +335,6 @@ impl Supervisor {
         Ok(())
     }
 
-    /// Performs one cycle of fetching, processing, and dispatching block data.
-    ///
-    /// This method encapsulates the core logic that was previously in
-    /// `main.rs`. It determines the range of blocks to process based on the
-    /// last known state, fetches the required data, processes it, and sends
-    /// it to the filtering engine via the provided channel.
-    async fn monitor_cycle(
-        &self,
-        correlated_blocks_tx: mpsc::Sender<CorrelatedBlockData>,
-    ) -> Result<(), SupervisorError> {
-        let network_id = &self.config.network_id;
-        let last_processed_block = self.state.get_last_processed_block(network_id).await?;
-        let current_block = self.data_source.get_current_block_number().await?;
-
-        if current_block < self.config.confirmation_blocks {
-            tracing::debug!(
-                "Chain is shorter than the confirmation buffer. Waiting for more blocks."
-            );
-            return Ok(());
-        }
-
-        let from_block = last_processed_block
-            .map_or_else(|| current_block.saturating_sub(100), |block| block + 1);
-        let safe_to_block = current_block.saturating_sub(self.config.confirmation_blocks);
-
-        if from_block > safe_to_block {
-            tracing::debug!("Caught up to confirmation buffer. Waiting for more blocks.");
-            return Ok(());
-        }
-
-        let to_block = std::cmp::min(from_block + self.config.block_chunk_size, safe_to_block);
-        tracing::info!(from_block = from_block, to_block = to_block, "Processing block range.");
-
-        let mut last_processed = last_processed_block;
-        let mut blocks_to_process = Vec::new();
-        for block_num in from_block..=to_block {
-            if self.cancellation_token.is_cancelled() {
-                tracing::info!("Cancellation requested, stopping block processing.");
-                break;
-            }
-
-            let (block, logs) = self.data_source.fetch_block_core_data(block_num).await?;
-            let needs_receipts = self.filtering.requires_receipt_data();
-            let receipts = if needs_receipts {
-                let tx_hashes: Vec<_> = block.transactions.hashes().collect();
-                if tx_hashes.is_empty() {
-                    HashMap::new()
-                } else {
-                    self.data_source.fetch_receipts(&tx_hashes).await?
-                }
-            } else {
-                HashMap::new()
-            };
-            blocks_to_process.push(BlockData::from_raw_data(block, receipts, logs));
-        }
-
-        if !blocks_to_process.is_empty() {
-            match process_blocks_batch(blocks_to_process).await {
-                Ok(correlated_blocks) =>
-                    for correlated_block in correlated_blocks {
-                        let block_num = correlated_block.block_number;
-                        if correlated_blocks_tx.send(correlated_block).await.is_err() {
-                            tracing::warn!(
-                                "Decoded blocks channel closed, stopping further processing."
-                            );
-                            return Err(SupervisorError::ChannelClosed);
-                        }
-                        last_processed = Some(block_num);
-                    },
-                Err(e) => {
-                    tracing::warn!(error = %e, "Error during batch processing, will retry.");
-                }
-            }
-        }
-
-        if let Some(valid_last_processed) = last_processed
-            && Some(valid_last_processed) > last_processed_block
-        {
-            self.state.set_last_processed_block(network_id, valid_last_processed).await?;
-            tracing::info!(
-                last_processed_block = valid_last_processed,
-                "Last processed block updated successfully."
-            );
-        }
-
-        Ok(())
-    }
-
     /// Returns a new `SupervisorBuilder` instance.
     ///
     /// This is the public entry point for creating a supervisor.
@@ -406,345 +345,5 @@ impl Supervisor {
     /// Updates the monitors managed by the `MonitorManager`
     pub fn update_monitors(&self, monitors: Vec<Monitor>) {
         self.monitor_manager.update(monitors)
-    }
-}
-
-/// This module contains the integration tests for the Supervisor.
-#[cfg(test)]
-mod tests {
-    use std::{collections::HashMap, sync::Arc};
-
-    use alloy::primitives::B256;
-    use mockall::predicate::eq;
-    use tempfile::tempdir;
-
-    use super::*;
-    use crate::{
-        abi::{AbiRepository, AbiService},
-        engine::{filtering::MockFilteringEngine, rhai::RhaiCompiler},
-        http_client::HttpClientPool,
-        notification::NotificationService,
-        providers::traits::MockDataSource,
-        test_helpers::{BlockBuilder, ReceiptBuilder, TransactionBuilder},
-    };
-
-    const TEST_NETWORK_ID: &str = "testnet";
-
-    async fn setup_test_db() -> SqliteStateRepository {
-        let repo = SqliteStateRepository::new("sqlite::memory:")
-            .await
-            .expect("Failed to connect to in-memory db");
-        repo.run_migrations().await.expect("Failed to run migrations");
-        repo
-    }
-
-    /// A test harness to simplify supervisor testing by holding common mocks.
-    struct SupervisorTestHarness {
-        config: AppConfig,
-        state_repo: Arc<SqliteStateRepository>,
-        mock_data_source: MockDataSource,
-        mock_filtering_engine: MockFilteringEngine,
-        alert_manager: Arc<AlertManager<SqliteStateRepository>>,
-        monitor_manager: Arc<MonitorManager>,
-    }
-
-    impl SupervisorTestHarness {
-        async fn new() -> Self {
-            let config =
-                AppConfig::builder().network_id(TEST_NETWORK_ID).confirmation_blocks(1).build();
-
-            let state_repo = Arc::new(setup_test_db().await);
-            let dir = tempdir().unwrap();
-            let abi_repository = Arc::new(AbiRepository::new(dir.path()).unwrap());
-            let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
-            let rhai_compiler = Arc::new(RhaiCompiler::new(config.rhai.clone()));
-            let monitor_manager =
-                Arc::new(MonitorManager::new(vec![], rhai_compiler, Arc::clone(&abi_service)));
-            let http_client_pool = Arc::new(HttpClientPool::default());
-            let notification_service =
-                Arc::new(NotificationService::new(Arc::new(HashMap::new()), http_client_pool));
-            let alert_manager = Arc::new(AlertManager::new(
-                Arc::clone(&notification_service),
-                state_repo.clone(),
-                Arc::new(HashMap::new()),
-            ));
-
-            Self {
-                config,
-                state_repo,
-                mock_data_source: MockDataSource::new(),
-                mock_filtering_engine: MockFilteringEngine::new(),
-                alert_manager,
-                monitor_manager,
-            }
-        }
-
-        fn build(self) -> Supervisor {
-            Supervisor::new(
-                self.config,
-                self.state_repo,
-                Box::new(self.mock_data_source),
-                Arc::new(self.mock_filtering_engine),
-                self.alert_manager,
-                self.monitor_manager,
-            )
-        }
-    }
-
-    #[tokio::test]
-    async fn test_monitor_cycle_succeeds_without_fetching_receipts_when_not_required() {
-        // Arrange
-        let mut harness = SupervisorTestHarness::new().await;
-
-        // This test verifies the scenario where no monitor requires transaction
-        // receipts.
-        harness.mock_filtering_engine.expect_requires_receipt_data().returning(|| false);
-        // Set the last processed block to 121.
-        let _ = harness.state_repo.set_last_processed_block(TEST_NETWORK_ID, 121).await;
-        // Simulate the current chain head is at block 123.
-        harness.mock_data_source.expect_get_current_block_number().returning(|| Ok(123));
-        // We expect the cycle to process the next safe block, which is 122.
-        harness
-            .mock_data_source
-            .expect_fetch_block_core_data()
-            .with(eq(122))
-            .returning(|block_num| Ok((BlockBuilder::new().number(block_num).build(), vec![])));
-        // The core assertion of this test: fetch_receipts should never be called.
-        harness.mock_data_source.expect_fetch_receipts().times(0);
-
-        let supervisor = harness.build();
-        let (tx, _rx) = mpsc::channel(10);
-
-        // Act
-        let result = supervisor.monitor_cycle(tx).await;
-
-        // Assert
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_monitor_cycle_skips_receipt_fetch_for_empty_block() {
-        // Arrange
-        let mut harness = SupervisorTestHarness::new().await;
-
-        // Even if monitors require receipts, the fetch should be skipped for blocks
-        // with no transactions.
-        harness.mock_filtering_engine.expect_requires_receipt_data().returning(|| true);
-        // Set processing block to 121
-        let _ = harness.state_repo.set_last_processed_block(TEST_NETWORK_ID, 121).await;
-        harness.mock_data_source.expect_get_current_block_number().returning(|| Ok(123));
-        // Return a block that has no transactions.
-        harness
-            .mock_data_source
-            .expect_fetch_block_core_data()
-            .with(eq(122))
-            .returning(|block_num| Ok((BlockBuilder::new().number(block_num).build(), vec![])));
-        // The core assertion: fetch_receipts is not called because there are no
-        // transaction hashes.
-        harness.mock_data_source.expect_fetch_receipts().times(0);
-
-        let supervisor = harness.build();
-        let (tx, _rx) = mpsc::channel(10);
-
-        // Act
-        let result = supervisor.monitor_cycle(tx).await;
-
-        // Assert
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_monitor_cycle_fetches_receipts_successfully_when_required() {
-        // Arrange
-        let mut harness = SupervisorTestHarness::new().await;
-        let tx_hash = B256::from([1u8; 32]);
-        let block =
-            BlockBuilder::new().transaction(TransactionBuilder::new().hash(tx_hash).build());
-        let receipt = ReceiptBuilder::new().transaction_hash(tx_hash).build();
-        let mut expected_receipts = HashMap::new();
-        expected_receipts.insert(tx_hash, receipt);
-
-        // Simulate that monitors require receipts.
-        harness.mock_filtering_engine.expect_requires_receipt_data().returning(|| true);
-
-        // Set the last processed block to 121.
-        let _ = harness.state_repo.set_last_processed_block(TEST_NETWORK_ID, 121).await;
-        harness.mock_data_source.expect_get_current_block_number().returning(|| Ok(123));
-        // Return a block with one transaction.
-        harness
-            .mock_data_source
-            .expect_fetch_block_core_data()
-            .with(eq(122))
-            .returning(move |block_num| Ok((block.clone().number(block_num).build(), vec![])));
-        // The core assertion: fetch_receipts is called once with the correct
-        // transaction hash.
-        harness
-            .mock_data_source
-            .expect_fetch_receipts()
-            .with(eq(vec![tx_hash]))
-            .returning(move |_| Ok(expected_receipts.clone()));
-
-        let supervisor = harness.build();
-        let (tx, _rx) = mpsc::channel(10);
-
-        // Act
-        let result = supervisor.monitor_cycle(tx).await;
-
-        // Assert
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_monitor_cycle_fails_when_receipt_fetch_fails() {
-        // Arrange
-        let mut harness = SupervisorTestHarness::new().await;
-        let tx_hash = B256::from([1u8; 32]);
-        let block =
-            BlockBuilder::new().transaction(TransactionBuilder::new().hash(tx_hash).build());
-
-        // Simulate that monitors require receipts.
-        harness.mock_filtering_engine.expect_requires_receipt_data().returning(|| true);
-        // Set the last processed block to 121.
-        let _ = harness.state_repo.set_last_processed_block(TEST_NETWORK_ID, 121).await;
-        harness.mock_data_source.expect_get_current_block_number().returning(|| Ok(123));
-        harness
-            .mock_data_source
-            .expect_fetch_block_core_data()
-            .with(eq(122))
-            .returning(move |block_num| Ok((block.clone().number(block_num).build(), vec![])));
-        // The core assertion: fetch_receipts is called, but it returns an error.
-        harness.mock_data_source.expect_fetch_receipts().with(eq(vec![tx_hash])).returning(|_| {
-            Err(DataSourceError::Provider(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "RPC error",
-            ))))
-        });
-
-        let supervisor = harness.build();
-        let (tx, _rx) = mpsc::channel(10);
-
-        // Act
-        let result = supervisor.monitor_cycle(tx).await;
-
-        // Assert
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_monitor_cycle_handles_multiple_transactions_successfully() {
-        // Arrange
-        let mut harness = SupervisorTestHarness::new().await;
-        let tx_hash1 = B256::from([1u8; 32]);
-        let tx_hash2 = B256::from([2u8; 32]);
-        let block = BlockBuilder::new()
-            .transaction(TransactionBuilder::new().hash(tx_hash1).build())
-            .transaction(TransactionBuilder::new().hash(tx_hash2).build());
-
-        let mut expected_receipts = HashMap::new();
-        expected_receipts
-            .insert(tx_hash1, ReceiptBuilder::new().transaction_hash(tx_hash1).build());
-        expected_receipts
-            .insert(tx_hash2, ReceiptBuilder::new().transaction_hash(tx_hash2).build());
-
-        // Simulate that monitors require receipts.
-        harness.mock_filtering_engine.expect_requires_receipt_data().returning(|| true);
-        // Set the last processed block to 121.
-        let _ = harness.state_repo.set_last_processed_block(TEST_NETWORK_ID, 121).await;
-        harness.mock_data_source.expect_get_current_block_number().returning(|| Ok(123));
-        // Return a block with two transactions.
-        harness
-            .mock_data_source
-            .expect_fetch_block_core_data()
-            .with(eq(122))
-            .returning(move |block_num| Ok((block.clone().number(block_num).build(), vec![])));
-        // The core assertion: fetch_receipts is called with both transaction hashes.
-        harness
-            .mock_data_source
-            .expect_fetch_receipts()
-            .with(eq(vec![tx_hash1, tx_hash2]))
-            .returning(move |_| Ok(expected_receipts.clone()));
-
-        let supervisor = harness.build();
-        let (tx, _rx) = mpsc::channel(10);
-
-        // Act
-        let result = supervisor.monitor_cycle(tx).await;
-
-        // Assert
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_monitor_cycle_waits_when_chain_is_shorter_than_confirmation_buffer() {
-        // Arrange
-        let mut harness = SupervisorTestHarness::new().await;
-        harness.config.confirmation_blocks = 5;
-
-        // Simulate the current chain head is at block 4, which is less than the
-        // confirmation buffer.
-        harness.mock_data_source.expect_get_current_block_number().returning(|| Ok(4));
-        harness.mock_data_source.expect_fetch_block_core_data().times(0);
-
-        let supervisor = harness.build();
-        let (tx, _rx) = mpsc::channel(10);
-
-        // Act
-        let result = supervisor.monitor_cycle(tx).await;
-
-        // Assert
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_monitor_cycle_waits_when_caught_up_to_confirmation_buffer() {
-        // Arrange
-        let mut harness = SupervisorTestHarness::new().await;
-        harness.config.confirmation_blocks = 5;
-
-        // Set the last processed block to 95.
-        let _ = harness.state_repo.set_last_processed_block(TEST_NETWORK_ID, 95).await;
-        // Current chain head is 100. The safe block is 100 - 5 = 95.
-        harness.mock_data_source.expect_get_current_block_number().returning(|| Ok(100));
-        // The next block to process would be 96, which is greater than the safe block.
-        // The cycle should wait.
-        harness.mock_data_source.expect_fetch_block_core_data().times(0);
-
-        let supervisor = harness.build();
-        let (tx, _rx) = mpsc::channel(10);
-
-        // Act
-        let result = supervisor.monitor_cycle(tx).await;
-
-        // Assert
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_monitor_cycle_stops_when_channel_is_closed() {
-        // Arrange
-        let mut harness = SupervisorTestHarness::new().await;
-
-        harness.mock_filtering_engine.expect_requires_receipt_data().returning(|| false);
-        // Set the last processed block to 121.
-        let _ = harness.state_repo.set_last_processed_block(TEST_NETWORK_ID, 121).await;
-        harness.mock_data_source.expect_get_current_block_number().returning(|| Ok(123));
-        harness
-            .mock_data_source
-            .expect_fetch_block_core_data()
-            .with(eq(122))
-            .returning(|block_num| Ok((BlockBuilder::new().number(block_num).build(), vec![])));
-
-        let supervisor = harness.build();
-        let (tx, rx) = mpsc::channel(10);
-
-        // Drop the receiver to immediately close the channel.
-        drop(rx);
-
-        // Act
-        let result = supervisor.monitor_cycle(tx).await;
-
-        // Assert
-        assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), SupervisorError::ChannelClosed));
     }
 }
