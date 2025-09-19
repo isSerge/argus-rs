@@ -89,10 +89,10 @@ impl InterestRegistryBuilder {
     /// Adds calldata interest if the monitor has CALL capability and a valid
     /// address.
     fn add_calldata_interest(&mut self, cm: &ClassifiedMonitor) {
-        if cm.caps.contains(MonitorCapabilities::CALL) {
-            if let Some(Ok(addr)) = cm.monitor.address.as_ref().map(|a| a.parse::<Address>()) {
-                self.calldata_addresses.insert(addr);
-            }
+        if cm.caps.contains(MonitorCapabilities::CALL)
+            && let Some(Ok(addr)) = cm.monitor.address.as_ref().map(|a| a.parse::<Address>())
+        {
+            self.calldata_addresses.insert(addr);
         }
     }
 
@@ -117,13 +117,13 @@ impl InterestRegistryBuilder {
             if let Some(abi_name) = &monitor.abi {
                 if let Some(contract) = abi_service.get_abi(address) {
                     // Ensure the correct ABI is linked.
-                    if let Some(repo_abi) = abi_service.get_abi_by_name(abi_name) {
-                        if !Arc::ptr_eq(&contract.abi, &repo_abi) {
-                            // Mismatch: monitor specifies an ABI different from the one linked.
-                            // For safety, fall back to broad mode.
-                            self.log_interests.insert(address, None);
-                            return;
-                        }
+                    if let Some(repo_abi) = abi_service.get_abi_by_name(abi_name)
+                        && !Arc::ptr_eq(&contract.abi, &repo_abi)
+                    {
+                        // Mismatch: monitor specifies an ABI different from the one linked.
+                        // For safety, fall back to broad mode.
+                        self.log_interests.insert(address, None);
+                        return;
                     }
 
                     let signatures = Self::get_signatures_for_monitor(cm, contract.abi.clone());
@@ -150,10 +150,10 @@ impl InterestRegistryBuilder {
         cm: &ClassifiedMonitor,
         abi_service: &Arc<AbiService>,
     ) {
-        if let Some(abi_name) = &cm.monitor.abi {
-            if let Some(abi) = abi_service.get_abi_by_name(abi_name) {
-                self.global_event_signatures.extend(Self::get_signatures_for_monitor(cm, abi));
-            }
+        if let Some(abi_name) = &cm.monitor.abi
+            && let Some(abi) = abi_service.get_abi_by_name(abi_name)
+        {
+            self.global_event_signatures.extend(Self::get_signatures_for_monitor(cm, abi));
         }
     }
 

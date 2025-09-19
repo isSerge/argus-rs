@@ -357,12 +357,11 @@ fn extract_log_event_name_from_comparison(
     result: &mut ScriptAnalysisResult,
 ) {
     // Check if left side is log.name and right side is a string literal
-    if let Some(var_path) = get_full_variable_path(left) {
-        if var_path == "log.name" {
-            if let Expr::StringConstant(string_val, _) = right {
-                result.accessed_log_event_names.insert(string_val.to_string());
-            }
-        }
+    if let Some(var_path) = get_full_variable_path(left)
+        && var_path == "log.name"
+        && let Expr::StringConstant(string_val, _) = right
+    {
+        result.accessed_log_event_names.insert(string_val.to_string());
     }
 }
 

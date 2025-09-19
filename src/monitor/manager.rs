@@ -95,7 +95,7 @@ impl MonitorManager {
     /// Organizes monitors into the `MonitorAssetState`, categorizing them and
     /// building the interest registry.
     fn organize_assets(
-        monitors: &Vec<Monitor>,
+        monitors: &[Monitor],
         compiler: &Arc<RhaiCompiler>,
         abi_service: &Arc<AbiService>,
     ) -> MonitorAssetState {
@@ -186,7 +186,7 @@ impl MonitorManager {
     /// This method analyzes each monitor's capabilities and ABI to
     /// determine the addresses and event signatures of interest.
     fn build_interest_registry(
-        classified_monitors: &Vec<ClassifiedMonitor>,
+        classified_monitors: &[ClassifiedMonitor],
         abi_service: &Arc<AbiService>,
     ) -> InterestRegistry {
         classified_monitors
