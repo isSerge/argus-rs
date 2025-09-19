@@ -269,10 +269,27 @@ impl Supervisor {
         // This loop is now only responsible for monitoring task health and shutdown
         // signals.
 
-        while let Some(result) = self.join_set.join_next().await {
-            if let Err(e) = result {
-                tracing::error!("A critical task failed: {:?}. Initiating shutdown.", e);
-                self.cancellation_token.cancel();
+        loop {
+            tokio::select! {
+                maybe_result = self.join_set.join_next() => {
+                    match maybe_result {
+                        Some(Ok(_)) => {
+                            // Task completed successfully, continue monitoring.
+                        }
+                        Some(Err(e)) => {
+                            tracing::error!("A critical task failed: {:?}. Initiating shutdown.", e);
+                            self.cancellation_token.cancel();
+                        }
+                        None => {
+                            // All tasks have completed.
+                            break;
+                        }
+                    }
+                }
+                _ = self.cancellation_token.cancelled() => {
+                    // Cancellation requested externally, break the loop.
+                    break;
+                }
             }
         }
 
