@@ -295,6 +295,8 @@ impl Supervisor {
 
         // --- Graceful Shutdown ---
 
+        // Ensure all spawned tasks are properly awaited before cleanup.
+        self.join_set.shutdown().await;
         tracing::info!("All supervised tasks have completed.");
 
         // Perform final cleanup of resources, with a timeout.
