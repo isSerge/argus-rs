@@ -3,17 +3,14 @@
 //! filtering engine.
 
 use std::sync::Arc;
+
+use alloy::rpc::types::BlockTransactions;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use alloy::rpc::types::BlockTransactions;
-
 use crate::{
     config::AppConfig,
-    models::{
-        BlockData, CorrelatedBlockData, CorrelatedBlockItem,
-        transaction::Transaction,
-    },
+    models::{BlockData, CorrelatedBlockData, CorrelatedBlockItem, transaction::Transaction},
     persistence::traits::StateRepository,
 };
 
@@ -46,13 +43,7 @@ impl<S: StateRepository + ?Sized> BlockProcessor<S> {
         correlated_blocks_tx: mpsc::Sender<CorrelatedBlockData>,
         cancellation_token: CancellationToken,
     ) -> Self {
-        Self {
-            config,
-            state,
-            raw_blocks_rx,
-            correlated_blocks_tx,
-            cancellation_token,
-        }
+        Self { config, state, raw_blocks_rx, correlated_blocks_tx, cancellation_token }
     }
 
     /// Starts the long-running service loop.
@@ -94,17 +85,26 @@ impl<S: StateRepository + ?Sized> BlockProcessor<S> {
                 for correlated_block in correlated_blocks {
                     let block_num = correlated_block.block_number;
                     if self.correlated_blocks_tx.send(correlated_block).await.is_err() {
-                        tracing::warn!("Correlated blocks channel closed, stopping further processing.");
+                        tracing::warn!(
+                            "Correlated blocks channel closed, stopping further processing."
+                        );
                         return;
                     }
                     last_processed = Some(block_num);
                 }
 
                 if let Some(valid_last_processed) = last_processed {
-                    if let Err(e) = self.state.set_last_processed_block(&self.config.network_id, valid_last_processed).await {
+                    if let Err(e) = self
+                        .state
+                        .set_last_processed_block(&self.config.network_id, valid_last_processed)
+                        .await
+                    {
                         tracing::error!(error = %e, "Failed to set last processed block.");
                     } else {
-                        tracing::info!(last_processed_block = valid_last_processed, "Last processed block updated successfully.");
+                        tracing::info!(
+                            last_processed_block = valid_last_processed,
+                            "Last processed block updated successfully."
+                        );
                     }
                 }
             }
@@ -174,13 +174,15 @@ fn process_block(block_data: BlockData) -> CorrelatedBlockData {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
+    use mockall::predicate::eq;
+
     use super::*;
     use crate::{
         persistence::traits::MockStateRepository,
         test_helpers::{BlockBuilder, TransactionBuilder},
     };
-    use std::collections::HashMap;
-    use mockall::predicate::eq;
 
     const TEST_NETWORK_ID: &str = "testnet";
 
@@ -220,7 +222,10 @@ mod tests {
         let processor = harness.build(raw_rx, correlated_tx, CancellationToken::new());
 
         let block_number = 100;
-        let block = BlockBuilder::new().number(block_number).transaction(TransactionBuilder::new().build()).build();
+        let block = BlockBuilder::new()
+            .number(block_number)
+            .transaction(TransactionBuilder::new().build())
+            .build();
         let block_data = BlockData::from_raw_data(block, HashMap::new(), vec![]);
 
         processor.process_and_dispatch(vec![block_data]).await;

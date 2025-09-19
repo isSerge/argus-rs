@@ -2,6 +2,7 @@
 //! from a DataSource and ingesting it into the processing pipeline.
 
 use std::{collections::HashMap, sync::Arc};
+
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -49,14 +50,7 @@ impl<S: StateRepository + ?Sized, D: DataSource + ?Sized, F: FilteringEngine + ?
         raw_blocks_tx: mpsc::Sender<BlockData>,
         cancellation_token: CancellationToken,
     ) -> Self {
-        Self {
-            config,
-            state,
-            data_source,
-            filtering,
-            raw_blocks_tx,
-            cancellation_token,
-        }
+        Self { config, state, data_source, filtering, raw_blocks_tx, cancellation_token }
     }
 
     /// Starts the long-running service loop.
@@ -89,12 +83,14 @@ impl<S: StateRepository + ?Sized, D: DataSource + ?Sized, F: FilteringEngine + ?
         let current_block = self.data_source.get_current_block_number().await?;
 
         if current_block < self.config.confirmation_blocks {
-            tracing::debug!("Chain is shorter than the confirmation buffer. Waiting for more blocks.");
+            tracing::debug!(
+                "Chain is shorter than the confirmation buffer. Waiting for more blocks."
+            );
             return Ok(());
         }
 
-        let from_block =
-            last_processed_block.map_or_else(|| current_block.saturating_sub(100), |block| block + 1);
+        let from_block = last_processed_block
+            .map_or_else(|| current_block.saturating_sub(100), |block| block + 1);
         let safe_to_block = current_block.saturating_sub(self.config.confirmation_blocks);
 
         if from_block > safe_to_block {
@@ -138,6 +134,9 @@ impl<S: StateRepository + ?Sized, D: DataSource + ?Sized, F: FilteringEngine + ?
 
 #[cfg(test)]
 mod tests {
+    use alloy::primitives::B256;
+    use mockall::predicate::eq;
+
     use super::*;
     use crate::{
         engine::filtering::MockFilteringEngine,
@@ -145,8 +144,6 @@ mod tests {
         providers::traits::MockDataSource,
         test_helpers::{BlockBuilder, ReceiptBuilder, TransactionBuilder},
     };
-    use alloy::primitives::B256;
-    use mockall::predicate::eq;
 
     const TEST_NETWORK_ID: &str = "testnet";
 
@@ -230,7 +227,8 @@ mod tests {
     async fn test_ingest_blocks_fetches_receipts_successfully_when_required() {
         let mut harness = TestHarness::new();
         let tx_hash = B256::from([1u8; 32]);
-        let block = BlockBuilder::new().transaction(TransactionBuilder::new().hash(tx_hash).build());
+        let block =
+            BlockBuilder::new().transaction(TransactionBuilder::new().hash(tx_hash).build());
         let receipt = ReceiptBuilder::new().transaction_hash(tx_hash).build();
         let mut expected_receipts = HashMap::new();
         expected_receipts.insert(tx_hash, receipt);
