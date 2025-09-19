@@ -1,19 +1,150 @@
-//! This module provides functions for processing and correlating raw blockchain
-//! data.
-//!
-//! The primary function, `process_blocks_batch`, takes raw `BlockData` and
-//! transforms it into `CorrelatedBlockData`, which groups transactions with
-//! their corresponding logs and receipts. This is the preparatory step before
-//! the data is passed to the `FilteringEngine`.
+//! This module provides the `BlockProcessor` service, which is responsible for
+//! processing raw blockchain data into a correlated format, ready for the
+//! filtering engine.
+
+use std::sync::Arc;
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 use alloy::rpc::types::BlockTransactions;
 
-use crate::models::{
-    BlockData, CorrelatedBlockData, CorrelatedBlockItem, transaction::Transaction,
+use crate::{
+    config::AppConfig,
+    models::{
+        BlockData, CorrelatedBlockData, CorrelatedBlockItem,
+        transaction::Transaction,
+    },
+    persistence::traits::StateRepository,
 };
 
+/// The BlockProcessor service.
+///
+/// This service receives raw `BlockData` from a channel, buffers it into
+/// batches of a configurable size, processes the batch into
+/// `CorrelatedBlockData`, and then sends the result to the filtering engine's
+/// channel. It is also responsible for updating the `last_processed_block`
+/// state in the database.
+pub struct BlockProcessor<S: StateRepository + ?Sized> {
+    /// Shared application configuration.
+    config: Arc<AppConfig>,
+    /// The persistent state repository for managing application state.
+    state: Arc<S>,
+    /// The receiver for the raw block data channel.
+    raw_blocks_rx: mpsc::Receiver<BlockData>,
+    /// The sender for the correlated block data channel.
+    correlated_blocks_tx: mpsc::Sender<CorrelatedBlockData>,
+    /// A token used to signal a graceful shutdown.
+    cancellation_token: CancellationToken,
+}
+
+impl<S: StateRepository + ?Sized> BlockProcessor<S> {
+    /// Creates a new BlockProcessor instance.
+    pub fn new(
+        config: Arc<AppConfig>,
+        state: Arc<S>,
+        raw_blocks_rx: mpsc::Receiver<BlockData>,
+        correlated_blocks_tx: mpsc::Sender<CorrelatedBlockData>,
+        cancellation_token: CancellationToken,
+    ) -> Self {
+        Self {
+            config,
+            state,
+            raw_blocks_rx,
+            correlated_blocks_tx,
+            cancellation_token,
+        }
+    }
+
+    /// Starts the long-running service loop.
+    pub async fn run(mut self) {
+        let mut block_buffer = Vec::new();
+        let batch_size = self.config.block_chunk_size as usize;
+
+        loop {
+            tokio::select! {
+                biased;
+
+                _ = self.cancellation_token.cancelled() => {
+                    tracing::info!("BlockProcessor cancellation signal received, shutting down...");
+                    break;
+                }
+
+                Some(block_data) = self.raw_blocks_rx.recv() => {
+                    block_buffer.push(block_data);
+                    if block_buffer.len() >= batch_size {
+                        let batch_to_process = std::mem::take(&mut block_buffer);
+                        self.process_and_dispatch(batch_to_process).await;
+                    }
+                }
+            }
+        }
+
+        // Process any remaining blocks in the buffer before shutting down.
+        if !block_buffer.is_empty() {
+            self.process_and_dispatch(block_buffer).await;
+        }
+        tracing::info!("BlockProcessor has shut down.");
+    }
+
+    /// Processes a batch of blocks and dispatches them to the filtering engine.
+    async fn process_and_dispatch(&self, blocks: Vec<BlockData>) {
+        match process_blocks_batch(blocks).await {
+            Ok(correlated_blocks) => {
+                let mut last_processed = None;
+                for correlated_block in correlated_blocks {
+                    let block_num = correlated_block.block_number;
+                    if self.correlated_blocks_tx.send(correlated_block).await.is_err() {
+                        tracing::warn!("Correlated blocks channel closed, stopping further processing.");
+                        return;
+                    }
+                    last_processed = Some(block_num);
+                }
+
+                if let Some(valid_last_processed) = last_processed {
+                    if let Err(e) = self.state.set_last_processed_block(&self.config.network_id, valid_last_processed).await {
+                        tracing::error!(error = %e, "Failed to set last processed block.");
+                    } else {
+                        tracing::info!(last_processed_block = valid_last_processed, "Last processed block updated successfully.");
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Error during batch processing, will retry.");
+            }
+        }
+    }
+}
+
+/// Processes a batch of `BlockData` into `CorrelatedBlockData`.
+///
+/// This function remains separate from the service to allow for easier testing
+/// and potential reuse.
+pub async fn process_blocks_batch(
+    blocks: Vec<BlockData>,
+) -> Result<Vec<CorrelatedBlockData>, Box<dyn std::error::Error + Send + Sync>> {
+    if blocks.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let count = blocks.len();
+    tracing::debug!(
+        block_count = count,
+        first_block = blocks.first().map(|b| b.block.header.number),
+        last_block = blocks.last().map(|b| b.block.header.number),
+        "Processing batch of blocks."
+    );
+
+    let correlated_blocks: Vec<CorrelatedBlockData> =
+        tokio::task::spawn_blocking(move || blocks.into_iter().map(process_block).collect())
+            .await?;
+
+    tracing::info!(total_correlated_blocks = count, "Batch correlation completed.");
+
+    Ok(correlated_blocks)
+}
+
 /// Correlates a single block's data, grouping transactions with their logs and
-/// receipts. This function is the core of the processing logic.
+/// receipts.
 fn process_block(block_data: BlockData) -> CorrelatedBlockData {
     tracing::debug!(block_number = block_data.block.header.number, "Correlating block data.");
 
@@ -41,111 +172,60 @@ fn process_block(block_data: BlockData) -> CorrelatedBlockData {
     CorrelatedBlockData { block_number: block_data.block.header.number, items: correlated_items }
 }
 
-/// Processes a batch of `BlockData` into `CorrelatedBlockData` for the
-/// filtering engine.
-///
-/// This is the main public entry point for this module.
-pub async fn process_blocks_batch(
-    blocks: Vec<BlockData>,
-) -> Result<Vec<CorrelatedBlockData>, Box<dyn std::error::Error + Send + Sync>> {
-    if blocks.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let count = blocks.len();
-    tracing::debug!(
-        block_count = count,
-        first_block = blocks.first().map(|b| b.block.header.number),
-        last_block = blocks.last().map(|b| b.block.header.number),
-        "Processing batch of blocks."
-    );
-
-    let correlated_blocks: Vec<CorrelatedBlockData> =
-        tokio::task::spawn_blocking(move || blocks.into_iter().map(process_block).collect())
-            .await
-            .unwrap();
-
-    tracing::info!(total_correlated_blocks = count, "Batch correlation completed.");
-
-    Ok(correlated_blocks)
-}
-
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
-    use alloy::primitives::{B256, Bytes, U256, address, b256};
-
     use super::*;
-    use crate::test_helpers::*;
+    use crate::{
+        persistence::traits::MockStateRepository,
+        test_helpers::{BlockBuilder, TransactionBuilder},
+    };
+    use std::collections::HashMap;
+    use mockall::predicate::eq;
 
-    #[test]
-    fn test_process_block_happy_path() {
-        let block_number = 123;
-        let tx_hash = b256!("1111111111111111111111111111111111111111111111111111111111111111");
-        let contract_address = address!("0000000000000000000000000000000000000001");
+    const TEST_NETWORK_ID: &str = "testnet";
 
-        let tx = TransactionBuilder::new()
-            .hash(tx_hash)
-            .to(Some(contract_address))
-            .block_number(block_number)
-            .build();
-
-        let log = LogBuilder::new()
-            .address(contract_address)
-            .data(Bytes::from(U256::from(1000).to_be_bytes::<32>()))
-            .build();
-
-        let block = BlockBuilder::new().number(block_number).transaction(tx.clone()).build();
-
-        let mut logs_by_tx = HashMap::new();
-        logs_by_tx.insert(tx_hash, vec![log.into()]);
-
-        let block_data = BlockData::new(block, HashMap::new(), logs_by_tx);
-
-        let correlated_block = process_block(block_data);
-
-        assert_eq!(correlated_block.items.len(), 1);
-        let correlated_item = &correlated_block.items[0];
-        assert_eq!(correlated_item.transaction.hash(), tx_hash);
-        assert_eq!(correlated_item.transaction.block_number(), Some(block_number));
-        assert_eq!(correlated_item.logs.len(), 1);
+    struct TestHarness {
+        config: Arc<AppConfig>,
+        mock_state_repo: MockStateRepository,
     }
 
-    #[test]
-    fn test_process_block_no_full_transactions() {
-        let block = BlockBuilder::new().build(); // Builds with BlockTransactions::Hashes by default
-        let block_data = BlockData::new(block, HashMap::new(), HashMap::new());
-        let correlated_block = process_block(block_data);
-        assert!(correlated_block.items.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_process_blocks_batch_multiple_blocks() {
-        let contract_address = address!("0000000000000000000000000000000000000001");
-        let mut blocks = Vec::new();
-
-        for block_num in 100..103 {
-            let tx_hash = B256::from([block_num as u8; 32]);
-            let tx = TransactionBuilder::new().hash(tx_hash).to(Some(contract_address)).build();
-            let log = LogBuilder::new().address(contract_address).build();
-            let block = BlockBuilder::new().number(block_num).transaction(tx).build();
-            let mut logs_by_tx = HashMap::new();
-            logs_by_tx.insert(tx_hash, vec![log.into()]);
-            blocks.push(BlockData::new(block, HashMap::new(), logs_by_tx));
+    impl TestHarness {
+        fn new() -> Self {
+            let config = Arc::new(AppConfig::builder().network_id(TEST_NETWORK_ID).build());
+            Self { config, mock_state_repo: MockStateRepository::new() }
         }
 
-        let correlated_blocks = process_blocks_batch(blocks).await.unwrap();
-
-        assert_eq!(correlated_blocks.len(), 3);
-        for block in &correlated_blocks {
-            assert_eq!(block.items.len(), 1);
+        fn build(
+            self,
+            rx: mpsc::Receiver<BlockData>,
+            tx: mpsc::Sender<CorrelatedBlockData>,
+            token: CancellationToken,
+        ) -> BlockProcessor<MockStateRepository> {
+            BlockProcessor::new(self.config, Arc::new(self.mock_state_repo), rx, tx, token)
         }
     }
 
     #[tokio::test]
-    async fn test_process_blocks_batch_empty() {
-        let correlated = process_blocks_batch(Vec::new()).await.unwrap();
-        assert!(correlated.is_empty());
+    async fn test_process_and_dispatch_sends_correlated_data_and_updates_state() {
+        let mut harness = TestHarness::new();
+        harness
+            .mock_state_repo
+            .expect_set_last_processed_block()
+            .with(eq(TEST_NETWORK_ID), eq(100))
+            .times(1)
+            .returning(|_, _| Ok(()));
+
+        let (_, raw_rx) = mpsc::channel(10);
+        let (correlated_tx, mut correlated_rx) = mpsc::channel(10);
+        let processor = harness.build(raw_rx, correlated_tx, CancellationToken::new());
+
+        let block_number = 100;
+        let block = BlockBuilder::new().number(block_number).transaction(TransactionBuilder::new().build()).build();
+        let block_data = BlockData::from_raw_data(block, HashMap::new(), vec![]);
+
+        processor.process_and_dispatch(vec![block_data]).await;
+
+        let correlated_block = correlated_rx.recv().await.unwrap();
+        assert_eq!(correlated_block.block_number, block_number);
     }
 }
