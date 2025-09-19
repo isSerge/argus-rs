@@ -253,4 +253,146 @@ mod tests {
         let result = ingestor.ingest_blocks().await;
         assert!(result.is_ok());
     }
+
+    #[tokio::test]
+    async fn test_ingestor_waits_when_caught_up_to_confirmation_head() {
+        // This test ensures that if `from_block` > `safe_to_block`, we fetch nothing.
+        let mut harness = TestHarness::new();
+        // last processed is 121, next should be 122
+        harness.mock_state_repo.expect_get_last_processed_block().returning(|_| Ok(Some(121)));
+        // current is 122, so safe_to_block is 121
+        harness.mock_data_source.expect_get_current_block_number().returning(|| Ok(122));
+        // We should not attempt to fetch any block data
+        harness.mock_data_source.expect_fetch_block_core_data().times(0);
+
+        let (tx, _rx) = mpsc::channel(10);
+        let ingestor = harness.build(tx, CancellationToken::new());
+
+        let result = ingestor.ingest_blocks().await;
+        assert!(result.is_ok(), "Should return Ok(()) even if no blocks are processed");
+    }
+
+    #[tokio::test]
+    async fn test_ingestor_handles_data_source_error_gracefully() {
+        let mut harness = TestHarness::new();
+        harness.mock_state_repo.expect_get_last_processed_block().returning(|_| Ok(Some(100)));
+        harness
+            .mock_data_source
+            .expect_get_current_block_number()
+            .returning(|| Err(DataSourceError::BlockNotFound(123)));
+
+        let (tx, _rx) = mpsc::channel(10);
+        let ingestor = harness.build(tx, CancellationToken::new());
+
+        let result = ingestor.ingest_blocks().await;
+        assert!(matches!(result, Err(DataSourceError::BlockNotFound(_))));
+    }
+
+    #[tokio::test]
+    async fn test_ingestor_starts_from_calculated_block_on_first_run() {
+        let mut harness = TestHarness::new();
+        // No last processed block in state
+        harness.mock_state_repo.expect_get_last_processed_block().returning(|_| Ok(None));
+        // Chain head is at 200
+        harness.mock_data_source.expect_get_current_block_number().returning(|| Ok(200));
+        // We expect it to start fetching from 100 (200 - 100)
+        harness
+            .mock_data_source
+            .expect_fetch_block_core_data()
+            .with(eq(100)) // Assert we start from the correct calculated block
+            .times(1)
+            .returning(|n| Ok((BlockBuilder::new().number(n).build(), vec![])));
+        harness.mock_filtering_engine.expect_requires_receipt_data().returning(|| false);
+
+        let (tx, _rx) = mpsc::channel(10);
+        let ingestor = harness.build(tx, CancellationToken::new());
+
+        // We only care about the first block fetch, so we ignore the result.
+        let _ = ingestor.ingest_blocks().await;
+    }
+
+    #[tokio::test]
+    async fn test_ingestor_stops_before_fetching_on_cancellation() {
+        let mut harness = TestHarness::new();
+        harness.mock_state_repo.expect_get_last_processed_block().returning(|_| Ok(Some(100)));
+        harness.mock_data_source.expect_get_current_block_number().returning(|| Ok(120));
+
+        // We expect no block fetches since we cancel before starting
+        harness.mock_data_source.expect_fetch_block_core_data().times(0);
+
+        let (tx, _rx) = mpsc::channel(10);
+        let token = CancellationToken::new();
+
+        // Cancel the token before calling the function
+        token.cancel();
+
+        let ingestor = harness.build(tx, token);
+
+        let result = ingestor.ingest_blocks().await;
+        assert!(result.is_ok(), "Should return Ok even if cancelled before starting");
+    }
+
+    #[tokio::test]
+    async fn test_ingestor_run_loop_stops_on_cancellation() {
+        use mockall::Sequence;
+
+        let mut harness = TestHarness::new();
+        harness.config = Arc::new(
+            AppConfig::builder()
+                .network_id(TEST_NETWORK_ID)
+                .confirmation_blocks(1)
+                .polling_interval(10) // Fast polling
+                .build(),
+        );
+
+        let mut seq = Sequence::new();
+
+        // --- Expectations for ONLY ONE successful run loop iteration ---
+        harness
+            .mock_state_repo
+            .expect_get_last_processed_block()
+            .times(1)
+            .in_sequence(&mut seq)
+            .returning(|_| Ok(Some(100)));
+        harness
+            .mock_data_source
+            .expect_get_current_block_number()
+            .times(1)
+            .in_sequence(&mut seq)
+            .returning(|| Ok(102));
+        harness
+            .mock_data_source
+            .expect_fetch_block_core_data()
+            .with(eq(101))
+            .times(1)
+            .in_sequence(&mut seq)
+            .returning(|n| Ok((BlockBuilder::new().number(n).build(), vec![])));
+        harness
+            .mock_filtering_engine
+            .expect_requires_receipt_data()
+            .times(1)
+            .in_sequence(&mut seq)
+            .returning(|| false);
+
+        let (tx, mut rx) = mpsc::channel(10);
+        let token = CancellationToken::new();
+
+        let ingestor = harness.build(tx, token.clone());
+        let ingestor_handle = tokio::spawn(ingestor.run());
+
+        // Wait for the first block to be processed and sent, confirming the first loop
+        // ran.
+        let received_block = rx.recv().await.expect("Should receive one block");
+        assert_eq!(received_block.block.header.number, 101);
+
+        // Signal the shutdown.
+        token.cancel();
+
+        // The run() loop should now exit gracefully.
+        match tokio::time::timeout(std::time::Duration::from_secs(1), ingestor_handle).await {
+            Ok(Ok(_)) => { /* Task completed successfully, which is what we want */ }
+            Ok(Err(e)) => panic!("Ingestor task panicked: {:?}", e),
+            Err(_) => panic!("Ingestor task did not shut down within the timeout"),
+        }
+    }
 }

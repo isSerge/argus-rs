@@ -179,6 +179,11 @@ impl AppConfigBuilder {
         self.config.abi_config_path = path.into();
         self
     }
+
+    pub fn polling_interval(mut self, interval_ms: u64) -> Self {
+        self.config.polling_interval_ms = Duration::from_millis(interval_ms);
+        self
+    }
 }
 
 #[cfg(test)]

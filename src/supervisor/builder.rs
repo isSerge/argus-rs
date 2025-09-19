@@ -22,7 +22,6 @@ pub struct SupervisorBuilder {
     config: Option<AppConfig>,
     state: Option<Arc<SqliteStateRepository>>,
     abi_service: Option<Arc<AbiService>>,
-    // data_source: Option<Box<dyn DataSource>>,
     script_compiler: Option<Arc<RhaiCompiler>>,
 }
 
@@ -50,12 +49,6 @@ impl SupervisorBuilder {
         self
     }
 
-    // /// Sets the data source (e.g., RPC client) for the `Supervisor`.
-    // pub fn data_source(mut self, data_source: Box<dyn DataSource>) -> Self {
-    //     self.data_source = Some(data_source);
-    //     self
-    // }
-
     /// Sets the Rhai script compiler for the `Supervisor`.
     pub fn script_compiler(mut self, script_compiler: Arc<RhaiCompiler>) -> Self {
         self.script_compiler = Some(script_compiler);
@@ -72,8 +65,6 @@ impl SupervisorBuilder {
         let config = self.config.ok_or(SupervisorError::MissingConfig)?;
         let state = self.state.ok_or(SupervisorError::MissingStateRepository)?;
         let abi_service = self.abi_service.ok_or(SupervisorError::MissingAbiService)?;
-        // let data_source =
-        // self.data_source.ok_or(SupervisorError::MissingDataSource)?;
         let script_compiler = self.script_compiler.ok_or(SupervisorError::MissingScriptCompiler)?;
 
         // The FilteringEngine is created here, loading its initial set of monitors
@@ -207,18 +198,4 @@ mod tests {
         let result = builder.build().await;
         assert!(matches!(result, Err(SupervisorError::MissingAbiService)));
     }
-
-    // #[tokio::test]
-    // async fn build_fails_if_data_source_is_missing() {
-    //     let dir = tempdir().unwrap();
-    //     let (abi_service, _) = create_test_abi_service(&dir, &[]);
-    //     let state_repo = Arc::new(setup_test_db().await);
-    //     let builder = SupervisorBuilder::new()
-    //         .config(AppConfig::default())
-    //         .state(state_repo)
-    //         .abi_service(abi_service);
-
-    //     let result = builder.build().await;
-    //     assert!(matches!(result, Err(SupervisorError::MissingDataSource)));
-    // }
 }
