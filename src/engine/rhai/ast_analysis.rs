@@ -20,6 +20,10 @@ pub struct ScriptAnalysisResult {
 
     /// True if the script accesses the `decoded_call` variable.
     pub accesses_call_variable: bool,
+
+    /// A set of accessed log event names, if any (e.g., "Transfer",
+    /// "Approval").
+    pub accessed_log_event_names: HashSet<String>,
 }
 
 /// Traverses a compiled `AST` and returns a `ScriptAnalysisResult` containing
@@ -28,14 +32,31 @@ pub struct ScriptAnalysisResult {
 /// This is the primary entry point for the analyzer.
 pub fn analyze_ast(ast: &AST) -> ScriptAnalysisResult {
     let mut result = ScriptAnalysisResult::default();
+
     for stmt in ast.statements() {
         walk_stmt(stmt, &mut result);
     }
+
     result
 }
 
-/// Recursively walks a statement (`Stmt`) to find expressions.
+/// Recursively walks a statement (`Stmt`) to find and record variable access
+/// paths.
 fn walk_stmt(stmt: &Stmt, result: &mut ScriptAnalysisResult) {
+    // Check for log.name comparisons at the statement level using proper expression
+    // analysis
+    match stmt {
+        Stmt::Expr(expr) => {
+            check_for_log_name_comparison(expr, result);
+        }
+        Stmt::FnCall(fn_call_expr, _) => {
+            // Convert FnCall statement to expression and analyze it
+            let expr = Expr::FnCall(fn_call_expr.clone(), rhai::Position::NONE);
+            check_for_log_name_comparison(&expr, result);
+        }
+        _ => {}
+    }
+
     match stmt {
         Stmt::Expr(expr) => walk_expr(expr, result),
         Stmt::Block(stmt_block) =>
@@ -118,10 +139,8 @@ fn walk_stmt(stmt: &Stmt, result: &mut ScriptAnalysisResult) {
         | Stmt::Share(_) => {}
 
         _ => {
-            // For all other statements, we do not track them as variable paths.
-            // This includes comments, empty statements, etc.
-            // The main walker will handle these cases by recursing into their
-            // components.
+            // Handle expression statements and other statement types
+            // that contain expressions we need to analyze
         }
     }
 }
@@ -129,6 +148,10 @@ fn walk_stmt(stmt: &Stmt, result: &mut ScriptAnalysisResult) {
 /// Recursively walks an expression (`Expr`) to find and record variable access
 /// paths.
 fn walk_expr(expr: &Expr, result: &mut ScriptAnalysisResult) {
+    // Check if this expression represents a log.name comparison before processing
+    // its parts
+    check_for_log_name_comparison(expr, result);
+
     if let Some(path) = get_full_variable_path(expr) {
         // If the path starts with "log", mark that we access the log variable
         if !result.accesses_log_variable && path.starts_with("log") {
@@ -207,16 +230,11 @@ fn walk_expr(expr: &Expr, result: &mut ScriptAnalysisResult) {
             for e in &custom_expr.inputs {
                 walk_expr(e, result);
             },
-        Expr::Variable(_, _, _) | Expr::Property(_, _) => {}
-        Expr::DynamicConstant(_, _)
-        | Expr::BoolConstant(_, _)
-        | Expr::IntegerConstant(_, _)
-        | Expr::CharConstant(_, _)
-        | Expr::StringConstant(_, _)
-        | Expr::Unit(_)
-        | Expr::ThisPtr(_)
-        | Expr::FloatConstant(_, _) => {}
-        _ => {}
+        _ => {
+            // For expressions we don't handle specifically, we don't track them
+            // as variable paths. This includes string literals,
+            // numeric literals, etc.
+        }
     }
 }
 
@@ -249,6 +267,101 @@ fn get_full_variable_path(expr: &Expr) -> Option<String> {
         Some(path_parts.join("."))
     } else {
         None
+    }
+}
+
+/// Checks if an expression represents a log.name comparison and extracts event
+/// names. This handles FnCall representations (equality, inequality) and
+/// recursive analysis.
+fn check_for_log_name_comparison(expr: &Expr, result: &mut ScriptAnalysisResult) {
+    match expr {
+        // Handle FnCall comparison operations
+        Expr::FnCall(fn_call_expr, _) => {
+            if fn_call_expr.namespace.is_empty() && fn_call_expr.args.len() == 2 {
+                match fn_call_expr.name.as_str() {
+                    // Handle equality comparisons
+                    "==" => {
+                        extract_log_event_name_from_comparison(
+                            &fn_call_expr.args[0],
+                            &fn_call_expr.args[1],
+                            result,
+                        );
+                        extract_log_event_name_from_comparison(
+                            &fn_call_expr.args[1],
+                            &fn_call_expr.args[0],
+                            result,
+                        );
+                    }
+                    // Handle inequality comparisons (we still want to know the event names being
+                    // checked)
+                    "!=" => {
+                        extract_log_event_name_from_comparison(
+                            &fn_call_expr.args[0],
+                            &fn_call_expr.args[1],
+                            result,
+                        );
+                        extract_log_event_name_from_comparison(
+                            &fn_call_expr.args[1],
+                            &fn_call_expr.args[0],
+                            result,
+                        );
+                    }
+                    _ => {
+                        // For other function calls, recursively check arguments
+                        for arg in &fn_call_expr.args {
+                            check_for_log_name_comparison(arg, result);
+                        }
+                    }
+                }
+            } else {
+                // For function calls with different arity, recursively check arguments
+                for arg in &fn_call_expr.args {
+                    check_for_log_name_comparison(arg, result);
+                }
+            }
+        }
+        // Recursively analyze complex expressions
+        Expr::And(expr_vec, _) | Expr::Or(expr_vec, _) =>
+            for e in &**expr_vec {
+                check_for_log_name_comparison(e, result);
+            },
+        Expr::Dot(binary_expr, _, _) | Expr::Index(binary_expr, _, _) => {
+            check_for_log_name_comparison(&binary_expr.lhs, result);
+            check_for_log_name_comparison(&binary_expr.rhs, result);
+        }
+        Expr::MethodCall(method_call_expr, _) =>
+            for arg in &method_call_expr.args {
+                check_for_log_name_comparison(arg, result);
+            },
+        Expr::Array(expr_vec, _) =>
+            for e in expr_vec {
+                check_for_log_name_comparison(e, result);
+            },
+        Expr::Stmt(stmt_block) =>
+            for s in stmt_block.statements() {
+                if let Stmt::Expr(inner_expr) = s {
+                    check_for_log_name_comparison(inner_expr, result);
+                }
+            },
+        _ => {
+            // For other expression types, no recursion needed
+        }
+    }
+}
+
+/// Attempts to extract an event name from a comparison where one side is
+/// log.name and the other side is a string literal.
+fn extract_log_event_name_from_comparison(
+    left: &Expr,
+    right: &Expr,
+    result: &mut ScriptAnalysisResult,
+) {
+    // Check if left side is log.name and right side is a string literal
+    if let Some(var_path) = get_full_variable_path(left)
+        && var_path == "log.name"
+        && let Expr::StringConstant(string_val, _) = right
+    {
+        result.accessed_log_event_names.insert(string_val.to_string());
     }
 }
 
@@ -465,6 +578,45 @@ mod tests {
     fn test_log_variable_only() {
         let script = "log.name == \"Transfer\"";
         let result = analyze_script(script).unwrap();
+        assert_eq!(result.accessed_variables, HashSet::from(["log.name".to_string()]));
+        assert!(result.accesses_log_variable);
+    }
+
+    #[test]
+    fn test_extract_event_name_simple_comparison() {
+        let result = analyze_script(r#"log.name == "Transfer""#).unwrap();
+        assert_eq!(result.accessed_log_event_names, HashSet::from(["Transfer".to_string()]));
+        assert_eq!(result.accessed_variables, HashSet::from(["log.name".to_string()]));
+        assert!(result.accesses_log_variable);
+    }
+
+    #[test]
+    fn test_extract_event_name_reversed_comparison() {
+        let result = analyze_script(r#""Approval" == log.name"#).unwrap();
+        assert_eq!(result.accessed_log_event_names, HashSet::from(["Approval".to_string()]));
+        assert_eq!(result.accessed_variables, HashSet::from(["log.name".to_string()]));
+        assert!(result.accesses_log_variable);
+    }
+
+    #[test]
+    fn test_extract_event_name_from_logical_or() {
+        let result = analyze_script(r#"tx.value > 100 || log.name == "Deposit""#).unwrap();
+        assert_eq!(result.accessed_log_event_names, HashSet::from(["Deposit".to_string()]));
+    }
+
+    #[test]
+    fn test_extract_multiple_event_names() {
+        let result = analyze_script(r#"log.name == "Transfer" || log.name == "Approval""#).unwrap();
+        assert_eq!(
+            result.accessed_log_event_names,
+            HashSet::from(["Transfer".to_string(), "Approval".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_extract_event_name_from_inequality() {
+        let result = analyze_script(r#"log.name != "Transfer""#).unwrap();
+        assert_eq!(result.accessed_log_event_names, HashSet::from(["Transfer".to_string()]));
         assert_eq!(result.accessed_variables, HashSet::from(["log.name".to_string()]));
         assert!(result.accesses_log_variable);
     }

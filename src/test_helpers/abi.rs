@@ -7,28 +7,9 @@ use tempfile::TempDir;
 use crate::abi::{AbiRepository, AbiService};
 
 /// A simple ABI JSON for testing purposes.
-pub fn simple_abi_json() -> &'static str {
-    r#"[
-        {
-            "type": "function",
-            "name": "transfer",
-            "inputs": [
-                {"name": "to", "type": "address"},
-                {"name": "amount", "type": "uint256"}
-            ],
-            "outputs": [{"name": "success", "type": "bool"}]
-        },
-        {
-            "type": "event",
-            "name": "Transfer",
-            "inputs": [
-                {"name": "from", "type": "address", "indexed": true},
-                {"name": "to", "type": "address", "indexed": true},
-                {"name": "amount", "type": "uint256", "indexed": false}
-            ],
-            "anonymous": false
-        }
-    ]"#
+pub fn erc20_abi_json() -> &'static str {
+    // get abi from abis/erc20.json
+    include_str!("../../abis/erc20.json")
 }
 
 /// Creates a test `AbiService` with the given ABIs written to temporary files.

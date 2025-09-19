@@ -120,12 +120,24 @@ impl AbiRepository {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
+    use std::{collections::HashSet, io::Write};
 
     use tempfile::tempdir;
 
     use super::*;
-    use crate::test_helpers::simple_abi_json;
+    use crate::test_helpers::erc20_abi_json;
+
+    const REQUIRED_ERC20_FUNCTIONS: &[&str] = &[
+        "transfer",
+        "approve",
+        "balanceOf",
+        "transferFrom",
+        "totalSupply",
+        "allowance",
+        "decimals",
+        "symbol",
+        "name",
+    ];
 
     fn create_test_abi_file(dir: &tempfile::TempDir, filename: &str, content: &str) -> PathBuf {
         let file_path = dir.path().join(filename);
@@ -148,7 +160,7 @@ mod tests {
     #[test]
     fn test_abi_repository_new_success() {
         let temp_dir = tempdir().unwrap();
-        create_test_abi_file(&temp_dir, "erc20.json", simple_abi_json());
+        create_test_abi_file(&temp_dir, "erc20.json", erc20_abi_json());
         create_test_abi_file(&temp_dir, "weth.json", weth_abi_content());
         create_test_abi_file(&temp_dir, "not_an_abi.txt", "some text"); // Should be ignored
 
@@ -160,8 +172,14 @@ mod tests {
         assert!(repo.get_abi("nonexistent").is_none());
 
         let erc20_abi = repo.get_abi("erc20").unwrap();
-        assert_eq!(erc20_abi.functions().count(), 1);
-        assert_eq!(erc20_abi.functions().next().unwrap().name, "transfer");
+        let function_names: HashSet<_> = erc20_abi.functions().map(|f| f.name.clone()).collect();
+        for required in REQUIRED_ERC20_FUNCTIONS {
+            assert!(
+                function_names.contains(*required),
+                "Missing required ERC-20 function: {}",
+                required
+            );
+        }
     }
 
     #[test]
@@ -196,12 +214,20 @@ mod tests {
     #[test]
     fn test_abi_repository_get_abi() {
         let temp_dir = tempdir().unwrap();
-        create_test_abi_file(&temp_dir, "test_abi.json", simple_abi_json());
+        create_test_abi_file(&temp_dir, "test_abi.json", erc20_abi_json());
         let repo = AbiRepository::new(temp_dir.path()).unwrap();
 
         let abi = repo.get_abi("test_abi");
         assert!(abi.is_some());
-        assert_eq!(abi.unwrap().functions().next().unwrap().name, "transfer");
+        let abi = abi.unwrap();
+        let function_names: HashSet<_> = abi.functions().map(|f| f.name.clone()).collect();
+        for required in REQUIRED_ERC20_FUNCTIONS {
+            assert!(
+                function_names.contains(*required),
+                "Missing required ERC-20 function: {}",
+                required
+            );
+        }
 
         let non_existent_abi = repo.get_abi("another_abi");
         assert!(non_existent_abi.is_none());
@@ -214,7 +240,7 @@ mod tests {
         assert_eq!(repo_empty.len(), 0);
         assert!(repo_empty.is_empty());
 
-        create_test_abi_file(&temp_dir, "one.json", simple_abi_json());
+        create_test_abi_file(&temp_dir, "one.json", erc20_abi_json());
         let repo_one = AbiRepository::new(temp_dir.path()).unwrap();
         assert_eq!(repo_one.len(), 1);
         assert!(!repo_one.is_empty());

@@ -1,15 +1,21 @@
+//! This module is responsible for classifying monitors, analyzing their
+//! scripts, and maintaining the overall state of the monitoring system.
+
 use std::{collections::HashSet, sync::Arc};
 
-use alloy::primitives::Address;
 use arc_swap::{ArcSwap, Guard};
 use bitflags::bitflags;
 
-use super::InterestRegistry;
+use super::{InterestRegistry, InterestRegistryBuilder};
 use crate::{
     abi::AbiService,
     engine::rhai::{RhaiCompiler, ScriptAnalysis},
     models::monitor::Monitor,
 };
+
+const TX_GAS_USED: &str = "tx.gas_used";
+const TX_STATUS: &str = "tx.status";
+const TX_EFFECTIVE_GAS_PRICE: &str = "tx.effective_gas_price";
 
 /// A monitor along with its capabilities and script analysis.
 #[derive(Debug)]
@@ -89,137 +95,107 @@ impl MonitorManager {
     /// Organizes monitors into the `MonitorAssetState`, categorizing them and
     /// building the interest registry.
     fn organize_assets(
-        monitors: &Vec<Monitor>,
+        monitors: &[Monitor],
         compiler: &Arc<RhaiCompiler>,
         abi_service: &Arc<AbiService>,
     ) -> MonitorAssetState {
         tracing::debug!("Organizing assets for {} monitors", monitors.len());
-        let mut classified_monitors = Vec::new();
-        let mut requires_receipts = false;
 
-        // Receipt-specific fields that are only available from transaction receipts
-        let receipt_fields: HashSet<String> = [
-            "tx.gas_used".to_string(),
-            "tx.status".to_string(),
-            "tx.effective_gas_price".to_string(),
-        ]
-        .into_iter()
-        .collect();
+        let (classified, failed): (Vec<_>, Vec<_>) =
+            monitors.iter().map(|m| Self::classify_monitor(compiler, m)).partition(Result::is_ok);
 
-        for monitor in monitors {
-            // Analyze the filter script
-            let analysis = match compiler.analyze_script(&monitor.filter_script) {
-                Ok(analysis) => analysis,
-                Err(err) => {
-                    tracing::error!(
-                        "Failed to analyze filter script for monitor {}: {}. Skipping this \
-                         monitor.",
-                        monitor.id,
-                        err
-                    );
-                    continue;
-                }
-            };
+        let classified_monitors =
+            classified.into_iter().map(Result::unwrap).collect::<Vec<(ClassifiedMonitor, bool)>>();
 
-            // Check if the monitor requires receipt fields
-            if !requires_receipts && !analysis.accessed_variables.is_disjoint(&receipt_fields) {
-                requires_receipts = true;
-            }
-
-            // Determine capabilities based on accessed variables
-            let mut caps = MonitorCapabilities::empty();
-
-            // Check if any tx fields are accessed
-            if analysis.accessed_variables.iter().any(|var| var.starts_with("tx.")) {
-                caps |= MonitorCapabilities::TX;
-            }
-
-            // Check if any log fields are accessed
-            if analysis.accesses_log_variable {
-                caps |= MonitorCapabilities::LOG;
-            }
-
-            // Check if any decoded_call fields are accessed
-            if analysis
-                .accessed_variables
-                .iter()
-                .any(|var| var.starts_with("decoded_call.") || var == "decoded_call")
-            {
-                caps |= MonitorCapabilities::CALL;
-            }
-
-            // If a script doesn't access any specific context, it's treated as a
-            // transaction-level monitor by default.
-            if caps.is_empty() {
-                caps = MonitorCapabilities::TX;
-            }
-
-            // Create the ClassifiedMonitor
-            let classified =
-                ClassifiedMonitor { monitor: Arc::new(monitor.clone()), caps, analysis };
-
-            // Add the classified monitor to the list
-            classified_monitors.push(classified);
+        if !failed.is_empty() {
+            tracing::warn!(
+                count = failed.len(),
+                "Failed to classify {} monitors due to script analysis errors.",
+                failed.len()
+            );
         }
 
-        let interest_registry = Self::build_interest_registry(&classified_monitors, abi_service);
+        let requires_receipts = classified_monitors.iter().any(|(_, needs_receipt)| *needs_receipt);
+        let monitors = classified_monitors.into_iter().map(|(cm, _)| cm).collect::<Vec<_>>();
+
+        let interest_registry = Self::build_interest_registry(&monitors, abi_service);
 
         tracing::debug!(
             "Organized monitors: {} total, requires_receipts={}",
-            classified_monitors.len(),
+            monitors.len(),
             requires_receipts
         );
 
-        MonitorAssetState { monitors: classified_monitors, requires_receipts, interest_registry }
+        MonitorAssetState { monitors, requires_receipts, interest_registry }
     }
 
+    /// Classifies a single monitor by analyzing its script and determining its
+    /// capabilities.
+    /// Returns the classified monitor and a flag indicating if it requires
+    /// receipts.
+    fn classify_monitor(
+        compiler: &Arc<RhaiCompiler>,
+        monitor: &Monitor,
+    ) -> Result<(ClassifiedMonitor, bool), Box<dyn std::error::Error>> {
+        // Analyze the filter script
+        let analysis = compiler.analyze_script(&monitor.filter_script)?;
+
+        // Receipt-specific fields that are only available from transaction receipts
+        let receipt_fields: HashSet<String> =
+            [TX_GAS_USED.to_string(), TX_STATUS.to_string(), TX_EFFECTIVE_GAS_PRICE.to_string()]
+                .into_iter()
+                .collect();
+
+        let needs_receipt =
+            analysis.accessed_variables.iter().any(|v| receipt_fields.contains(v.as_str()));
+
+        // Determine capabilities based on accessed variables
+        let mut caps = MonitorCapabilities::empty();
+
+        // Check if any tx fields are accessed
+        if analysis.accessed_variables.iter().any(|var| var.starts_with("tx.")) {
+            caps |= MonitorCapabilities::TX;
+        }
+
+        // Check if any log fields are accessed
+        if analysis.accesses_log_variable {
+            caps |= MonitorCapabilities::LOG;
+        }
+
+        // Check if any decoded_call fields are accessed
+        if analysis
+            .accessed_variables
+            .iter()
+            .any(|var| var.starts_with("decoded_call.") || var == "decoded_call")
+        {
+            caps |= MonitorCapabilities::CALL;
+        }
+
+        // If a script doesn't access any specific context, it's treated as a
+        // transaction-level monitor by default.
+        if caps.is_empty() {
+            caps = MonitorCapabilities::TX;
+        }
+
+        let cm = ClassifiedMonitor { monitor: Arc::new(monitor.clone()), caps, analysis };
+
+        Ok((cm, needs_receipt))
+    }
+
+    /// Builds the InterestRegistry from the classified monitors.
+    /// This method analyzes each monitor's capabilities and ABI to
+    /// determine the addresses and event signatures of interest.
     fn build_interest_registry(
-        classified_monitors: &Vec<ClassifiedMonitor>,
+        classified_monitors: &[ClassifiedMonitor],
         abi_service: &Arc<AbiService>,
     ) -> InterestRegistry {
-        let mut log_addresses = HashSet::new();
-        let mut calldata_addresses = HashSet::new();
-        let mut global_event_signatures = HashSet::new();
-
-        // Iterate through the single, unified list of all processed monitors.
-        for cm in classified_monitors {
-            let monitor = &cm.monitor; // Get a reference to the inner Monitor
-
-            let is_log_aware = cm.caps.contains(MonitorCapabilities::LOG);
-            let is_global =
-                monitor.address.as_deref().is_none_or(|a| a.eq_ignore_ascii_case("all"));
-
-            if is_global {
-                // This is a global monitor (address is "all" or None).
-                if is_log_aware
-                    && let Some(abi_name) = &monitor.abi
-                    && let Some(abi) = abi_service.get_abi_by_name(abi_name)
-                {
-                    for event in abi.events.values().flatten() {
-                        global_event_signatures.insert(event.selector());
-                    }
-                }
-            } else if let Some(address_str) = &monitor.address {
-                // This is an address-specific monitor.
-                if let Ok(address) = address_str.parse::<Address>() {
-                    // If it's log-aware, add its address to the log interest set.
-                    if is_log_aware {
-                        log_addresses.insert(address);
-                    }
-
-                    // If it decodes calldata, add its address to the calldata interest set.
-                    if cm.caps.contains(MonitorCapabilities::CALL) {
-                        calldata_addresses.insert(address);
-                    }
-                }
-            }
-        }
-
-        InterestRegistry {
-            log_addresses: Arc::new(log_addresses),
-            calldata_addresses: Arc::new(calldata_addresses),
-            global_event_signatures: Arc::new(global_event_signatures),
-        }
+        classified_monitors
+            .iter()
+            .fold(InterestRegistryBuilder::default(), |mut builder, cm| {
+                builder.add(cm, abi_service);
+                builder
+            })
+            .build()
     }
 }
 
@@ -231,7 +207,7 @@ mod tests {
     use super::*;
     use crate::{
         config::RhaiConfig,
-        test_helpers::{MonitorBuilder, create_test_abi_service, simple_abi_json},
+        test_helpers::{MonitorBuilder, create_test_abi_service, erc20_abi_json},
     };
 
     fn setup() -> (Arc<RhaiCompiler>, Arc<AbiService>) {
@@ -247,8 +223,8 @@ mod tests {
         let address = address!("0000000000000000000000000000000000000001");
         let (compiler, _) = setup();
         let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
-        abi_service.link_abi(address, "simple").unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+        abi_service.link_abi(address, "erc20").unwrap();
 
         let monitors = vec![
             // TX only
@@ -257,7 +233,7 @@ mod tests {
             MonitorBuilder::new()
                 .id(2)
                 .filter_script("log.name == \"Transfer\"")
-                .abi("simple")
+                .abi("erc20")
                 .address(address.to_string().as_str())
                 .build(),
             // CALL only
@@ -266,7 +242,7 @@ mod tests {
             MonitorBuilder::new()
                 .id(4)
                 .filter_script("tx.value > 100 && log.name == \"Transfer\"")
-                .abi("simple")
+                .abi("erc20")
                 .address(address.to_string().as_str())
                 .build(),
             // TX and CALL
@@ -278,7 +254,7 @@ mod tests {
             MonitorBuilder::new()
                 .id(6)
                 .filter_script("log.name == \"Transfer\" && decoded_call.name == \"approve\"")
-                .abi("simple")
+                .abi("erc20")
                 .address(address.to_string().as_str())
                 .build(),
             // TX, LOG, and CALL
@@ -288,7 +264,7 @@ mod tests {
                     "tx.value > 100 && log.name == \"Transfer\" && decoded_call.name == \
                      \"Transfer\"",
                 )
-                .abi("simple")
+                .abi("erc20")
                 .address(address.to_string().as_str())
                 .build(),
             // No context access (should default to TX)
@@ -338,7 +314,7 @@ mod tests {
     fn test_build_interest_registry() {
         let (compiler, _) = setup();
         let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", simple_abi_json())]);
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
 
         let monitored_address = address!("0000000000000000000000000000000000000001");
 
@@ -360,9 +336,9 @@ mod tests {
 
         let snapshot = manager.load();
 
-        // Check log addresses
-        assert_eq!(snapshot.interest_registry.log_addresses.len(), 1);
-        assert!(snapshot.interest_registry.log_addresses.contains(&monitored_address));
+        // Check log interests
+        assert_eq!(snapshot.interest_registry.log_interests.len(), 1);
+        assert!(snapshot.interest_registry.log_interests.contains_key(&monitored_address));
     }
 
     #[test]
@@ -392,25 +368,22 @@ mod tests {
     #[test]
     fn test_update_rebuilds_interest_registry_correctly() {
         let (compiler, abi_service) = setup();
+        let address1 = address!("1111111111111111111111111111111111111111");
+        let address2 = address!("2222222222222222222222222222222222222222");
 
         // Initial state: One address-specific log monitor
         let initial_monitors = vec![
             MonitorBuilder::new()
                 .id(1)
-                .address("0x1111111111111111111111111111111111111111")
+                .address(&address1.to_checksum(None))
                 .filter_script("log.name == \"A\"")
                 .build(),
         ];
         let manager = MonitorManager::new(initial_monitors, compiler.clone(), abi_service.clone());
 
         let snapshot1 = manager.load();
-        assert_eq!(snapshot1.interest_registry.log_addresses.len(), 1);
-        assert!(
-            snapshot1
-                .interest_registry
-                .log_addresses
-                .contains(&address!("1111111111111111111111111111111111111111"))
-        );
+        assert_eq!(snapshot1.interest_registry.log_interests.len(), 1);
+        assert!(snapshot1.interest_registry.log_interests.contains_key(&address1));
         assert!(snapshot1.interest_registry.global_event_signatures.is_empty());
         drop(snapshot1);
 
@@ -418,41 +391,32 @@ mod tests {
         let updated_monitors = vec![
             MonitorBuilder::new()
                 .id(2)
-                .address("0x2222222222222222222222222222222222222222")
+                .address(&address2.to_checksum(None))
                 .filter_script("log.name == \"B\"")
                 .build(),
             MonitorBuilder::new()
                 .id(3)
                 .address("all")
-                .abi("simple")
+                .abi("erc20")
                 .filter_script("log.name == \"Transfer\"")
                 .build(),
         ];
 
         let temp_dir = tempdir().unwrap();
         let (abi_service_with_abi, _) =
-            create_test_abi_service(&temp_dir, &[("simple", simple_abi_json())]);
+            create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
         let manager = MonitorManager::new(vec![], compiler.clone(), abi_service_with_abi);
 
         manager.update(updated_monitors);
 
         let snapshot2 = manager.load();
         // Address set should be completely replaced, not merged.
-        assert_eq!(snapshot2.interest_registry.log_addresses.len(), 1);
-        assert!(
-            !snapshot2
-                .interest_registry
-                .log_addresses
-                .contains(&address!("1111111111111111111111111111111111111111"))
-        );
-        assert!(
-            snapshot2
-                .interest_registry
-                .log_addresses
-                .contains(&address!("2222222222222222222222222222222222222222"))
-        );
+        assert_eq!(snapshot2.interest_registry.log_interests.len(), 1);
+        assert!(!snapshot2.interest_registry.log_interests.contains_key(&address1));
+        assert!(snapshot2.interest_registry.log_interests.contains_key(&address2));
 
-        // Global signatures should now be populated.
+        // Global signatures should now be populated with the Transfer event signature,
+        // other signatures should be ignored.
         assert_eq!(snapshot2.interest_registry.global_event_signatures.len(), 1);
         let transfer_event_sig =
             b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef");
@@ -469,7 +433,7 @@ mod tests {
 
         assert!(snapshot.monitors.is_empty());
         assert!(!snapshot.requires_receipts);
-        assert!(snapshot.interest_registry.log_addresses.is_empty());
+        assert!(snapshot.interest_registry.log_interests.is_empty());
         assert!(snapshot.interest_registry.global_event_signatures.is_empty());
         drop(snapshot);
 
@@ -478,7 +442,7 @@ mod tests {
         let updated_snapshot = manager.load();
         assert!(updated_snapshot.monitors.is_empty());
         assert!(!updated_snapshot.requires_receipts);
-        assert!(updated_snapshot.interest_registry.log_addresses.is_empty());
+        assert!(updated_snapshot.interest_registry.log_interests.is_empty());
         assert!(updated_snapshot.interest_registry.global_event_signatures.is_empty());
     }
 
@@ -543,15 +507,13 @@ mod tests {
             "anonymous":false
         }
     ]"#;
-        let (abi_service, _) = create_test_abi_service(
-            &temp_dir,
-            &[("simple", simple_abi_json()), ("weth", weth_abi)],
-        );
+        let (abi_service, _) =
+            create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json()), ("weth", weth_abi)]);
 
         let global_erc20_monitor = MonitorBuilder::new()
             .id(1)
             .address("all")
-            .abi("simple")
+            .abi("erc20")
             .filter_script("log.name == \"Transfer\"")
             .build();
 
@@ -569,7 +531,8 @@ mod tests {
         let snapshot = manager.load();
         let registry = &snapshot.interest_registry;
 
-        // Should contain event signatures from BOTH ABIs.
+        // Should contain only 2 event signatures from BOTH ABIs, it should ignore other
+        // signatures that are not relevant for current monitors
         assert_eq!(registry.global_event_signatures.len(), 2);
 
         // Keccak256 hash of "Transfer(address,address,uint256)"
