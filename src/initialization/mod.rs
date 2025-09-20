@@ -114,6 +114,7 @@ impl InitializationService {
             self.abi_service.clone(),
             network_id,
             &notifiers,
+            &actions,
         );
         for monitor in &monitors {
             validator.validate(monitor).map_err(|e| {

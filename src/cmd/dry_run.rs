@@ -164,6 +164,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
         abi_service.clone(),
         &config.network_id,
         &notifiers,
+        &actions,
     );
     for monitor in monitors.iter() {
         tracing::debug!(monitor = %monitor.name, "Validating monitor...");

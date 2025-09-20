@@ -7,6 +7,7 @@ use thiserror::Error;
 
 use crate::{
     abi::AbiService,
+    config::ActionConfig,
     engine::rhai::{RhaiScriptValidationError, RhaiScriptValidationResult, RhaiScriptValidator},
     models::{monitor::MonitorConfig, notifier::NotifierConfig},
 };
@@ -24,6 +25,9 @@ pub struct MonitorValidator<'a> {
 
     /// The ABI service for retrieving contract ABIs.
     abi_service: Arc<AbiService>,
+
+    /// The list of available actions.
+    actions: &'a [ActionConfig],
 }
 
 /// An error that occurs during monitor validation.
@@ -102,6 +106,15 @@ pub enum MonitorValidationError {
         /// The reason for the validation failure.
         reason: String,
     },
+
+    /// An action referenced in the monitor's `on_match` does not exist.
+    #[error("Monitor '{monitor_name}' references an unknown action: '{action_name}'")]
+    UnknownAction {
+        /// The name of the monitor.
+        monitor_name: String,
+        /// The name of the unknown action.
+        action_name: String,
+    },
 }
 
 impl<'a> MonitorValidator<'a> {
@@ -111,8 +124,9 @@ impl<'a> MonitorValidator<'a> {
         abi_service: Arc<AbiService>,
         network_id: &'a str,
         notifiers: &'a [NotifierConfig],
+        actions: &'a [ActionConfig],
     ) -> Self {
-        MonitorValidator { network_id, notifiers, script_validator, abi_service }
+        MonitorValidator { network_id, notifiers, script_validator, abi_service, actions }
     }
 
     /// Validates the given monitor configuration.
@@ -128,6 +142,7 @@ impl<'a> MonitorValidator<'a> {
             });
         }
 
+        self.validate_actions(monitor)?;
         self.validate_notifiers(monitor)?;
 
         let (parsed_address, is_global_log_monitor) = self.parse_and_validate_address(monitor)?;
@@ -175,6 +190,21 @@ impl<'a> MonitorValidator<'a> {
             }
         }
 
+        Ok(())
+    }
+
+    /// Validates that all actions referenced by the monitor exist.
+    fn validate_actions(&self, monitor: &MonitorConfig) -> Result<(), MonitorValidationError> {
+        if let Some(on_match) = &monitor.on_match {
+            for action_name in on_match {
+                if !self.actions.iter().any(|a| a.name == *action_name) {
+                    return Err(MonitorValidationError::UnknownAction {
+                        monitor_name: monitor.name.clone(),
+                        action_name: action_name.clone(),
+                    });
+                }
+            }
+        }
         Ok(())
     }
 
@@ -346,7 +376,7 @@ mod tests {
 
     use crate::{
         abi::{AbiService, repository::AbiRepository},
-        config::RhaiConfig,
+        config::{ActionConfig, RhaiConfig},
         engine::rhai::{RhaiCompiler, RhaiScriptValidationError, RhaiScriptValidator},
         models::{
             NotificationMessage,
@@ -389,6 +419,7 @@ mod tests {
 
     fn create_monitor_validator<'a>(
         notifiers: &'a [NotifierConfig],
+        actions: &'a [ActionConfig],
         abi_to_preload: Option<(Address, &'static str, &'static str)>,
     ) -> MonitorValidator<'a> {
         let config = RhaiConfig::default();
@@ -411,7 +442,7 @@ mod tests {
             abi_service.link_abi(address, abi_name).unwrap();
         }
 
-        MonitorValidator::new(script_validator, abi_service, "testnet", notifiers)
+        MonitorValidator::new(script_validator, abi_service, "testnet", notifiers, actions)
     }
 
     #[tokio::test]
@@ -420,6 +451,7 @@ mod tests {
         let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
         let validator = create_monitor_validator(
             &notifiers,
+            &[],
             Some((contract_address, "erc20", erc20_abi_json())),
         );
 
@@ -437,7 +469,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_monitor_validation_success_tx_monitor() {
-        let validator = create_monitor_validator(&[], None);
+        let validator = create_monitor_validator(&[], &[], None);
         // Valid: tx monitor accesses tx, no address/ABI required
         let monitor = create_test_monitor(2, None, None, "tx.value > 0", vec![]);
         let result = validator.validate(&monitor);
@@ -446,7 +478,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_monitor_validation_success_tx_only_log_monitor() {
-        let validator = create_monitor_validator(&[], None);
+        let validator = create_monitor_validator(&[], &[], None);
         // Valid: log monitor accesses tx only, no address/ABI required
         let monitor = create_test_monitor(
             3,
@@ -463,7 +495,7 @@ mod tests {
     async fn test_monitor_validation_failure_requires_address_for_log_access() {
         let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
         let validator =
-            create_monitor_validator(&[], Some((contract_address, "erc20", erc20_abi_json())));
+            create_monitor_validator(&[], &[], Some((contract_address, "erc20", erc20_abi_json())));
         // Invalid: accesses log data but has no address
         let invalid_monitor =
             create_test_monitor(1, None, Some("erc20"), "log.name == \"A\"", vec![]);
@@ -477,7 +509,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_monitor_validation_failure_requires_abi_for_log_access() {
-        let validator = create_monitor_validator(&[], None);
+        let validator = create_monitor_validator(&[], &[], None);
         // Invalid: accesses log data but has no ABI
         let invalid_monitor = create_test_monitor(
             1,
@@ -505,7 +537,7 @@ mod tests {
     async fn test_monitor_validation_failure_invalid_address_for_log_access() {
         let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
         let validator =
-            create_monitor_validator(&[], Some((contract_address, "erc20", erc20_abi_json())));
+            create_monitor_validator(&[], &[], Some((contract_address, "erc20", erc20_abi_json())));
         // Invalid: address is not a valid hex string, and log data is accessed
         let invalid_addr = "not-a-valid-address";
         let invalid_monitor =
@@ -521,7 +553,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_monitor_validation_failure_invalid_network() {
-        let validator = create_monitor_validator(&[], None);
+        let validator = create_monitor_validator(&[], &[], None);
         // Invalid: monitor is on a different network ("other_network")
         let mut invalid_monitor = create_test_monitor(
             1,
@@ -548,7 +580,7 @@ mod tests {
     #[tokio::test]
     async fn test_monitor_validation_failure_unknown_notifier() {
         let notifiers = vec![create_test_notifier("existing_notifier")];
-        let validator = create_monitor_validator(&notifiers, None);
+        let validator = create_monitor_validator(&notifiers, &[], None);
         let invalid_monitor = create_test_monitor(
             1,
             None,
@@ -569,7 +601,7 @@ mod tests {
     async fn test_monitor_validation_failure_script_syntax_error() {
         let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
         let validator =
-            create_monitor_validator(&[], Some((contract_address, "erc20", erc20_abi_json())));
+            create_monitor_validator(&[], &[], Some((contract_address, "erc20", erc20_abi_json())));
         // Invalid script: syntax error
         let invalid_monitor = create_test_monitor(
             1,
@@ -591,7 +623,7 @@ mod tests {
     async fn test_monitor_validation_failure_script_invalid_field_access() {
         let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
         let validator =
-            create_monitor_validator(&[], Some((contract_address, "erc20", erc20_abi_json())));
+            create_monitor_validator(&[], &[], Some((contract_address, "erc20", erc20_abi_json())));
         // Invalid script: accesses a non-existent field
         let invalid_monitor = create_test_monitor(
             1,
@@ -613,7 +645,7 @@ mod tests {
     async fn test_monitor_validation_failure_script_invalid_return_type() {
         let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
         let validator =
-            create_monitor_validator(&[], Some((contract_address, "erc20", erc20_abi_json())));
+            create_monitor_validator(&[], &[], Some((contract_address, "erc20", erc20_abi_json())));
         // Invalid script: does not return a boolean
         let invalid_monitor = create_test_monitor(
             1,
@@ -633,7 +665,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_monitor_validation_success_no_log_access_no_abi_no_address() {
-        let validator = create_monitor_validator(&[], None);
+        let validator = create_monitor_validator(&[], &[], None);
         // Valid: no log access, so no address/ABI required
         let monitor = create_test_monitor(1, None, None, "tx.value > 100", vec![]);
         assert!(validator.validate(&monitor).is_ok());
@@ -643,7 +675,7 @@ mod tests {
     async fn test_monitor_validation_success_log_access_with_abi_and_address() {
         let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
         let validator =
-            create_monitor_validator(&[], Some((contract_address, "erc20", erc20_abi_json())));
+            create_monitor_validator(&[], &[], Some((contract_address, "erc20", erc20_abi_json())));
         // Valid: log access, with address and ABI
         let monitor = create_test_monitor(
             1,
@@ -660,7 +692,7 @@ mod tests {
     async fn test_monitor_validation_failure_requires_abi_for_log_access_no_abi_file() {
         let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
         let validator =
-            create_monitor_validator(&[], Some((contract_address, "erc20", erc20_abi_json())));
+            create_monitor_validator(&[], &[], Some((contract_address, "erc20", erc20_abi_json())));
         // Invalid: accesses log data, has address, but no abi file specified in monitor
         // config
         let invalid_monitor = create_test_monitor(
@@ -690,7 +722,7 @@ mod tests {
         let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
         // Create validator without linking the ABI to the address
         let validator =
-            create_monitor_validator(&[], Some((contract_address, "erc20", erc20_abi_json())));
+            create_monitor_validator(&[], &[], Some((contract_address, "erc20", erc20_abi_json())));
 
         // Invalid: accesses log data, has address and abi name, but ABI is not linked
         let invalid_monitor = create_test_monitor(
@@ -722,7 +754,7 @@ mod tests {
     async fn test_monitor_validation_failure_requires_address_for_log_access_no_address() {
         let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
         let validator =
-            create_monitor_validator(&[], Some((contract_address, "erc20", erc20_abi_json())));
+            create_monitor_validator(&[], &[], Some((contract_address, "erc20", erc20_abi_json())));
         // Invalid: accesses log data, has abi file, but no address specified
         let invalid_monitor =
             create_test_monitor(1, None, Some("erc20"), "log.name == \"A\"", vec![]);
@@ -737,7 +769,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_monitor_validation_failure_invalid_address_no_log_access() {
-        let validator = create_monitor_validator(&[], None);
+        let validator = create_monitor_validator(&[], &[], None);
         // Invalid: address is not a valid hex string, but no log data is accessed
         let invalid_addr = "not-a-valid-address";
         let invalid_monitor =
@@ -753,8 +785,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_monitor_validation_success_global_log_monitor() {
-        let validator =
-            create_monitor_validator(&[], Some((Address::default(), "erc20", erc20_abi_json())));
+        let validator = create_monitor_validator(
+            &[],
+            &[],
+            Some((Address::default(), "erc20", erc20_abi_json())),
+        );
         // Valid: global log monitor accesses log and has address: "all" + ABI
         let monitor =
             create_test_monitor(1, Some("all"), Some("erc20"), "log.name == \"Transfer\"", vec![]);
@@ -764,7 +799,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_monitor_validation_failure_global_log_monitor_requires_abi() {
-        let validator = create_monitor_validator(&[], None);
+        let validator = create_monitor_validator(&[], &[], None);
         // Invalid: global log monitor accesses log but has no ABI
         let invalid_monitor =
             create_test_monitor(1, Some("all"), None, "log.name == \"A\"", vec![]);
@@ -783,7 +818,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_monitor_validation_failure_global_log_monitor_abi_not_retrieved() {
-        let validator = create_monitor_validator(&[], None);
+        let validator = create_monitor_validator(&[], &[], None);
         // Invalid: global log monitor accesses log, has abi name, but ABI is not loaded
         let invalid_monitor = create_test_monitor(
             1,
@@ -810,7 +845,7 @@ mod tests {
     async fn test_monitor_validation_failure_script_invalid_abi_field_access() {
         let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
         let validator =
-            create_monitor_validator(&[], Some((contract_address, "erc20", erc20_abi_json())));
+            create_monitor_validator(&[], &[], Some((contract_address, "erc20", erc20_abi_json())));
         // Invalid script: accesses a log.params field not in the ABI
         let invalid_monitor = create_test_monitor(
             1,
@@ -835,7 +870,7 @@ mod tests {
     async fn test_monitor_validation_failure_calldata_aware_no_abi() {
         let contract_address = address!("0x0000000000000000000000000000000000000123");
         let validator =
-            create_monitor_validator(&[], Some((contract_address, "erc20", erc20_abi_json())));
+            create_monitor_validator(&[], &[], Some((contract_address, "erc20", erc20_abi_json())));
 
         let invalid_monitor = MonitorConfig {
             name: "Test Monitor 1".into(),
@@ -862,7 +897,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_monitor_validation_failure_calldata_aware_no_address() {
-        let validator = create_monitor_validator(&[], None);
+        let validator = create_monitor_validator(&[], &[], None);
 
         let invalid_monitor = MonitorConfig {
             name: "Test Monitor 1".into(),
@@ -890,7 +925,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_monitor_validation_failure_calldata_global_monitor() {
-        let validator = create_monitor_validator(&[], None);
+        let validator = create_monitor_validator(&[], &[], None);
 
         let invalid_monitor = MonitorConfig {
             name: "Test Monitor 1".into(),
@@ -919,7 +954,7 @@ mod tests {
     async fn test_monitor_validation_success_calldata_enabled_with_abi_and_address() {
         let contract_address = address!("0x1234567890abcdef1234567890abcdef12345678");
         let validator =
-            create_monitor_validator(&[], Some((contract_address, "erc20", erc20_abi_json())));
+            create_monitor_validator(&[], &[], Some((contract_address, "erc20", erc20_abi_json())));
 
         let invalid_monitor = MonitorConfig {
             name: "Test Monitor 1".into(),
@@ -933,5 +968,66 @@ mod tests {
         let result = validator.validate(&invalid_monitor);
 
         assert!(result.is_ok(), "Expected validation to succeed but got error: {:?}", result);
+    }
+
+    #[tokio::test]
+    async fn test_monitor_validation_on_match_action_validation() {
+        let temp_action_file = tempfile::NamedTempFile::with_suffix(".js").unwrap();
+        let action_file_path = temp_action_file.path().to_path_buf();
+
+        let actions = vec![ActionConfig { name: "test_action".into(), file: action_file_path }];
+        let validator = create_monitor_validator(&[], &actions, None);
+
+        let monitor_with_no_actions = MonitorConfig {
+            name: "Monitor with no actions".into(),
+            network: "testnet".into(),
+            filter_script: "tx.value > 0".into(),
+            on_match: None,
+            ..Default::default()
+        };
+
+        let monitor_with_actions = MonitorConfig {
+            name: "Monitor with actions".into(),
+            network: "testnet".into(),
+            filter_script: "tx.value > 0".into(),
+            on_match: Some(vec!["test_action".to_string()]),
+            ..Default::default()
+        };
+
+        let monitor_with_unknown_action = MonitorConfig {
+            name: "Monitor with unknown action".into(),
+            network: "testnet".into(),
+            filter_script: "tx.value > 0".into(),
+            on_match: Some(vec!["unknown_action".to_string()]),
+            ..Default::default()
+        };
+
+        // Validate monitor without actions - should pass
+        let result_no_actions = validator.validate(&monitor_with_no_actions);
+        assert!(
+            result_no_actions.is_ok(),
+            "Expected validation to succeed but got error: {:?}",
+            result_no_actions.unwrap_err()
+        );
+
+        // Validate monitor with actions - should pass as action exists
+        let result_with_actions = validator.validate(&monitor_with_actions);
+        assert!(
+            result_with_actions.is_ok(),
+            "Expected validation to succeed but got error: {:?}",
+            result_with_actions.unwrap_err()
+        );
+
+        // Validate monitor with unknown action - should fail
+        let result_unknown_action = validator.validate(&monitor_with_unknown_action);
+        assert!(result_unknown_action.is_err(), "Expected validation to fail but it succeeded");
+        if let Err(MonitorValidationError::UnknownAction { monitor_name, action_name }) =
+            result_unknown_action
+        {
+            assert!(monitor_name.contains("Monitor with unknown action"));
+            assert_eq!(action_name, "unknown_action");
+        } else {
+            panic!("Expected MonitorValidationError::UnknownAction");
+        }
     }
 }
