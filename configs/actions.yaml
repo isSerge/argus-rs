@@ -1,0 +1,3 @@
+actions:
+  - name: Test action
+    file: "../actions/action.js" # Relative path to the action file

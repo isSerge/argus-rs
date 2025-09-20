@@ -1,0 +1,3 @@
+# Ignore user-provided JavaScript and TypeScript action files
+*.js
+*.ts

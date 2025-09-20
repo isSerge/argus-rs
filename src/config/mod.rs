@@ -1,5 +1,6 @@
 //! Configuration module for Argus.
 
+mod actions;
 mod app_config;
 mod helpers;
 mod http_base;
