@@ -8,8 +8,8 @@ use crate::{
     abi::AbiService,
     config::{ActionConfig, AppConfig},
     engine::{
-        alert_manager::AlertManager, filtering::RhaiFilteringEngine, js::JavaScriptRunner,
-        rhai::RhaiCompiler,
+        action_handler::ActionHandler, alert_manager::AlertManager, filtering::RhaiFilteringEngine,
+        js::JavaScriptRunner, rhai::RhaiCompiler,
     },
     http_client::HttpClientPool,
     models::notifier::NotifierConfig,
@@ -117,14 +117,14 @@ impl SupervisorBuilder {
             .into_iter()
             .map(|a| (a.name.clone(), a))
             .collect::<HashMap<_, _>>();
+        let action_handler =
+            Arc::new(ActionHandler::new(js_runner, Arc::new(actions), monitor_manager.clone()));
 
         let alert_manager = Arc::new(AlertManager::new(
             notification_service,
             state.clone(),
             notifiers_map,
-            js_runner,
-            Arc::new(actions),
-            monitor_manager.clone(),
+            Some(action_handler),
         ));
 
         // Finally, construct the Supervisor with all its components.
