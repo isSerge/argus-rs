@@ -20,16 +20,27 @@ impl Loadable for ActionConfig {
 
     fn validate(&self) -> Result<(), Self::Error> {
         if self.name.trim().is_empty() {
-            return Err(LoaderError::ValidationError(
-                "Action name cannot be empty".into(),
-            ));
+            return Err(LoaderError::ValidationError("Action name cannot be empty".into()));
         }
         if self.file.as_os_str().is_empty() {
-            return Err(LoaderError::ValidationError(
-                "Action file path cannot be empty".into(),
-            ));
+            return Err(LoaderError::ValidationError("Action file path cannot be empty".into()));
         }
-        Ok(())
+
+        // Verify file exists
+        match self.file.try_exists() {
+            Ok(true) => Ok(()),
+            Ok(false) =>
+                return Err(LoaderError::ValidationError(format!(
+                    "Action file does not exist: {}",
+                    self.file.display()
+                ))),
+            Err(e) =>
+                return Err(LoaderError::ValidationError(format!(
+                    "Failed to access action file {}: {}",
+                    self.file.display(),
+                    e
+                ))),
+        }
     }
 }
 
@@ -39,16 +50,27 @@ mod tests {
 
     #[test]
     fn test_action_config_validation() {
-        let valid_config = ActionConfig {
-            name: "Valid Action".into(),
-            file: "actions/valid_action.rs".into(),
-        };
+        let valid_config =
+            ActionConfig { name: "Valid Action".into(), file: "actions/action.js".into() };
         assert!(valid_config.validate().is_ok());
 
-        let invalid_config = ActionConfig {
-            name: "".into(),
-            file: "".into(),
-        };
+        let invalid_config = ActionConfig { name: "".into(), file: "".into() };
         assert!(invalid_config.validate().is_err());
+    }
+
+    #[test]
+    fn test_action_config_file_existence() {
+        let non_existent_file_config =
+            ActionConfig { name: "NonExistent".into(), file: "non_existent_file.rs".into() };
+        assert!(non_existent_file_config.validate().is_err());
+
+        // Create a temporary file to test existence
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_action_file = temp_dir.path().join("temp_action.js");
+        std::fs::write(&temp_action_file, "console.log('Hello, world!');").unwrap();
+
+        let existent_file_config =
+            ActionConfig { name: "Existent".into(), file: temp_action_file.into() };
+        assert!(existent_file_config.validate().is_ok());
     }
 }
