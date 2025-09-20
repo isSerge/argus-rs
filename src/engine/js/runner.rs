@@ -12,19 +12,19 @@ use crate::{config::ActionConfig, models::monitor_match::MonitorMatch};
 pub enum JsRunnerError {
     /// An error occurred while reading the action file.
     #[error("Failed to read action file '{file_path}': {error}")]
-    FileReadError { file_path: String, error: std::io::Error },
+    FileRead { file_path: String, error: std::io::Error },
 
     /// An error occurred during script execution.
     #[error("Script execution error: {0}")]
-    ScriptExecutionError(#[from] Box<deno_core::error::JsError>),
+    ScriptExecution(#[from] Box<deno_core::error::JsError>),
 
     /// An error occurred during serialization or deserialization.
     #[error("Serialization/Deserialization error: {0}")]
-    SerializationError(#[from] serde_json::Error),
+    Serialization(#[from] serde_json::Error),
 
     /// An error occurred in the runtime task.
     #[error("Runtime task error: {0}")]
-    RuntimeError(#[from] Box<dyn std::error::Error + Send + Sync>),
+    Runtime(#[from] Box<dyn std::error::Error + Send + Sync>),
 }
 
 /// A runner for executing JavaScript actions.
@@ -58,18 +58,17 @@ impl JavaScriptRunner {
             let mut runtime = JsRuntime::new(RuntimeOptions::default());
 
             // Read the script file synchronously in the blocking thread
-            let script = std::fs::read_to_string(&action_file).map_err(|e| {
-                JsRunnerError::FileReadError {
+            let script =
+                std::fs::read_to_string(&action_file).map_err(|e| JsRunnerError::FileRead {
                     file_path: action_file.to_string_lossy().to_string(),
                     error: e,
-                }
-            })?;
+                })?;
 
             // Bootstrap the runtime with the context
             let bootstrap_script = format!("const match = {};", context_json);
             runtime
                 .execute_script("<bootstrap>", bootstrap_script)
-                .map_err(|e| JsRunnerError::ScriptExecutionError(e))?;
+                .map_err(JsRunnerError::ScriptExecution)?;
 
             // Execute the user's action script
             let result = runtime.execute_script("<action>", script);
@@ -80,13 +79,13 @@ impl JavaScriptRunner {
                     action_file.to_string_lossy(),
                     e
                 );
-                return Err(JsRunnerError::ScriptExecutionError(e));
+                return Err(JsRunnerError::ScriptExecution(e));
             }
 
             Ok(())
         })
         .await
-        .map_err(|e| JsRunnerError::RuntimeError(Box::new(e)))??;
+        .map_err(|e| JsRunnerError::Runtime(Box::new(e)))??;
 
         Ok(())
     }
@@ -149,10 +148,10 @@ mod tests {
         let result = runner.execute_action(&action, &context).await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            JsRunnerError::ScriptExecutionError(e) => {
+            JsRunnerError::ScriptExecution(e) => {
                 assert!(e.to_string().contains("test error"));
             }
-            _ => panic!("Expected ScriptExecutionError"),
+            _ => panic!("Expected ScriptExecution"),
         }
     }
 
@@ -184,10 +183,10 @@ mod tests {
         let result = runner.execute_action(&action, &context).await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            JsRunnerError::FileReadError { .. } => {
+            JsRunnerError::FileRead { .. } => {
                 // expected
             }
-            _ => panic!("Expected FileReadError"),
+            _ => panic!("Expected FileRead"),
         }
     }
 }

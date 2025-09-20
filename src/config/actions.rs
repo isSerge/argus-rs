@@ -29,17 +29,15 @@ impl Loadable for ActionConfig {
         // Verify file exists
         match self.file.try_exists() {
             Ok(true) => Ok(()),
-            Ok(false) =>
-                return Err(LoaderError::ValidationError(format!(
-                    "Action file does not exist: {}",
-                    self.file.display()
-                ))),
-            Err(e) =>
-                return Err(LoaderError::ValidationError(format!(
-                    "Failed to access action file {}: {}",
-                    self.file.display(),
-                    e
-                ))),
+            Ok(false) => Err(LoaderError::ValidationError(format!(
+                "Action file does not exist: {}",
+                self.file.display()
+            ))),
+            Err(e) => Err(LoaderError::ValidationError(format!(
+                "Failed to access action file {}: {}",
+                self.file.display(),
+                e
+            ))),
         }
     }
 }
