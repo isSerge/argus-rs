@@ -150,7 +150,7 @@ mod tests {
             address: Some("0x0000000000000000000000000000000000000001".to_string()),
             abi: Some(abi_name.to_string()),
             filter_script: "true".to_string(),
-            notifiers: vec![],
+            ..Default::default()
         };
 
         let state_repo = Arc::new(setup_test_db().await);

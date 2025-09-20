@@ -15,6 +15,7 @@ pub struct MonitorBuilder {
     notifiers: Option<Vec<String>>,
     created_at: Option<DateTime<Utc>>,
     updated_at: Option<DateTime<Utc>>,
+    on_match: Option<Vec<String>>,
 }
 
 impl Default for MonitorBuilder {
@@ -36,6 +37,7 @@ impl MonitorBuilder {
             notifiers: None,
             created_at: None,
             updated_at: None,
+            on_match: None,
         }
     }
 
@@ -93,6 +95,12 @@ impl MonitorBuilder {
         self
     }
 
+    /// Sets the actions to execute when the filter script matches.
+    pub fn on_match(mut self, actions: Vec<String>) -> Self {
+        self.on_match = Some(actions);
+        self
+    }
+
     /// Builds the `Monitor` instance.
     pub fn build(self) -> Monitor {
         Monitor {
@@ -105,6 +113,7 @@ impl MonitorBuilder {
             notifiers: self.notifiers.unwrap_or_default(),
             created_at: self.created_at.unwrap_or_default(),
             updated_at: self.updated_at.unwrap_or_default(),
+            on_match: self.on_match,
         }
     }
 }

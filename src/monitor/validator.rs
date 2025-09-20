@@ -371,6 +371,7 @@ mod tests {
             abi: abi.map(String::from),
             filter_script: script.to_string(),
             notifiers,
+            on_match: None,
         }
     }
 
@@ -842,7 +843,7 @@ mod tests {
             address: contract_address.to_string().into(),
             abi: None,                                          // No ABI provided
             filter_script: "decoded_call.name == \"A\"".into(), // Accesses decoded_call
-            notifiers: vec![],
+            ..Default::default()
         };
         let result = validator.validate(&invalid_monitor);
 
@@ -870,6 +871,7 @@ mod tests {
             abi: Some("erc20".into()),
             filter_script: "decoded_call.name == \"A\"".into(), // Accesses decoded_call
             notifiers: vec![],
+            on_match: None,
         };
         let result = validator.validate(&invalid_monitor);
 
@@ -896,7 +898,7 @@ mod tests {
             address: Some("all".into()), // Global monitor
             abi: Some("erc20".into()),
             filter_script: "decoded_call.name == \"A\"".into(),
-            notifiers: vec![],
+            ..Default::default()
         };
         let result = validator.validate(&invalid_monitor);
 
@@ -925,7 +927,7 @@ mod tests {
             address: Some(contract_address.to_string()),
             abi: Some("erc20".into()),
             filter_script: "log.name == \"A\"".into(),
-            notifiers: vec![],
+            ..Default::default()
         };
 
         let result = validator.validate(&invalid_monitor);

@@ -24,7 +24,7 @@ fn create_test_monitor(name: &str, network: &str) -> MonitorConfig {
         address: Some("0x123".to_string()),
         abi: Some("test".to_string()),
         filter_script: "log.name == \"Test\"".to_string(),
-        notifiers: vec![],
+        ..Default::default()
     }
 }
 
