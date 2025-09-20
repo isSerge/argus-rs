@@ -18,14 +18,14 @@ async fn setup_db() -> SqliteStateRepository {
 }
 
 fn create_test_monitor(name: &str, network: &str) -> MonitorConfig {
-    MonitorConfig::from_config(
-        name.to_string(),
-        network.to_string(),
-        Some("0x123".to_string()),
-        Some("test".to_string()),
-        "log.name == \"Test\"".to_string(),
-        vec![],
-    )
+    MonitorConfig {
+        name: name.to_string(),
+        network: network.to_string(),
+        address: Some("0x123".to_string()),
+        abi: Some("test".to_string()),
+        filter_script: "log.name == \"Test\"".to_string(),
+        notifiers: vec![],
+    }
 }
 
 fn create_test_notifier(name: &str) -> NotifierConfig {

@@ -364,14 +364,14 @@ mod tests {
         script: &str,
         notifiers: Vec<String>,
     ) -> MonitorConfig {
-        MonitorConfig::from_config(
-            format!("Test Monitor {id}"),
-            "testnet".to_string(),
-            address.map(String::from),
-            abi.map(String::from),
-            script.to_string(),
+        MonitorConfig {
+            name: format!("Test Monitor {id}"),
+            network: "testnet".to_string(),
+            address: address.map(String::from),
+            abi: abi.map(String::from),
+            filter_script: script.to_string(),
             notifiers,
-        )
+        }
     }
 
     fn create_test_notifier(name: &str) -> NotifierConfig {

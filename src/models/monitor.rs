@@ -78,34 +78,20 @@ pub struct Monitor {
     pub updated_at: DateTime<Utc>,
 }
 
-impl MonitorConfig {
-    /// Creates a new monitor from configuration data (without an ID)
-    pub fn from_config(
-        name: String,
-        network: String,
-        address: Option<String>,
-        abi: Option<String>,
-        filter_script: String,
-        notifiers: Vec<String>,
-    ) -> Self {
-        Self { name, network, address, abi, filter_script, notifiers }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_monitor_from_config_with_address() {
-        let monitor = MonitorConfig::from_config(
-            "Test Monitor".to_string(),
-            "ethereum".to_string(),
-            Some("0x123".to_string()),
-            Some("test".to_string()),
-            "log.name == \"Test\"".to_string(),
-            vec!["test-notifier".to_string()],
-        );
+    fn test_monitor_with_address() {
+        let monitor = MonitorConfig {
+            name: "Test Monitor".to_string(),
+            network: "ethereum".to_string(),
+            address: Some("0x123".to_string()),
+            abi: Some("test".to_string()),
+            filter_script: "log.name == \"Test\"".to_string(),
+            notifiers: vec!["test-notifier".to_string()],
+        };
 
         assert_eq!(monitor.name, "Test Monitor");
         assert_eq!(monitor.network, "ethereum");
@@ -115,15 +101,15 @@ mod tests {
     }
 
     #[test]
-    fn test_monitor_from_config_without_address() {
-        let monitor = MonitorConfig::from_config(
-            "Native Transfer Monitor".to_string(),
-            "ethereum".to_string(),
-            None,
-            None,
-            "bigint(tx.value) > bigint(1000)".to_string(),
-            vec![],
-        );
+    fn test_monitor_without_address() {
+        let monitor = MonitorConfig {
+            name: "Native Transfer Monitor".to_string(),
+            network: "ethereum".to_string(),
+            address: None,
+            abi: None,
+            filter_script: "bigint(tx.value) > bigint(1000)".to_string(),
+            notifiers: vec![],
+        };
 
         assert_eq!(monitor.name, "Native Transfer Monitor");
         assert_eq!(monitor.network, "ethereum");
