@@ -49,6 +49,10 @@ pub struct AppConfig {
     #[serde(skip_deserializing)]
     pub notifier_config_path: PathBuf,
 
+    /// Path to actions configuration file.
+    #[serde(skip_deserializing)]
+    pub actions_config_path: PathBuf,
+
     /// Optional retry configuration.
     #[serde(default)]
     pub rpc_retry_config: RpcRetryConfig,
@@ -122,6 +126,10 @@ impl AppConfig {
         let notifier_path = config_path.join("notifiers.yaml");
         config.notifier_config_path = notifier_path;
 
+        let actions_path = config_path.join("actions.yaml");
+        config.actions_config_path = actions_path;
+
+
         Ok(config)
     }
 
@@ -158,6 +166,11 @@ impl AppConfigBuilder {
 
     pub fn notifier_config_path(mut self, path: &str) -> Self {
         self.config.notifier_config_path = path.into();
+        self
+    }
+
+    pub fn actions_config_path(mut self, path: &str) -> Self {
+        self.config.actions_config_path = path.into();
         self
     }
 
@@ -198,6 +211,7 @@ mod tests {
             .network_id("testnet")
             .monitor_config_path("test_monitor.yaml")
             .notifier_config_path("test_notifier.yaml")
+            .actions_config_path("test_actions.yaml")
             .database_url("sqlite::memory:")
             .confirmation_blocks(12)
             .abi_config_path("abis/")
@@ -207,6 +221,7 @@ mod tests {
         assert_eq!(config.network_id, "testnet");
         assert_eq!(config.monitor_config_path, PathBuf::from("test_monitor.yaml"));
         assert_eq!(config.notifier_config_path, PathBuf::from("test_notifier.yaml"));
+        assert_eq!(config.actions_config_path, PathBuf::from("test_actions.yaml"));
         assert_eq!(config.database_url, "sqlite::memory:");
         assert_eq!(config.confirmation_blocks, 12);
     }
@@ -238,6 +253,9 @@ mod tests {
 
         let expected_notifier_path = temp_dir_path.join("notifiers.yaml");
         assert_eq!(config.notifier_config_path, PathBuf::from(expected_notifier_path));
+
+        let expected_actions_path = temp_dir_path.join("actions.yaml");
+        assert_eq!(config.actions_config_path, PathBuf::from(expected_actions_path));
 
         assert_eq!(config.database_url, "sqlite::memory:");
         assert_eq!(config.confirmation_blocks, 12);

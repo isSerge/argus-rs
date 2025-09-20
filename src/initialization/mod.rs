@@ -8,7 +8,7 @@ use thiserror::Error;
 
 use crate::{
     abi::AbiService,
-    config::AppConfig,
+    config::{ActionConfig, AppConfig},
     engine::rhai::RhaiScriptValidator,
     loader::load_config,
     models::{monitor::MonitorConfig, notifier::NotifierConfig},
@@ -32,6 +32,10 @@ pub enum InitializationError {
     /// An error occurred while loading ABIs from monitors.
     #[error("Failed to load ABIs from monitors: {0}")]
     AbiLoadError(String),
+
+    /// An error occurred while loading actions from the configuration file.
+    #[error("Failed to load actions from file: {0}")]
+    ActionsLoadError(String),
 }
 
 /// A service responsible for initializing application state at startup.
@@ -69,7 +73,8 @@ impl InitializationService {
 
     pub(crate) async fn load_monitors_from_file(&self) -> Result<(), InitializationError> {
         let network_id = &self.config.network_id;
-        let config_path = &self.config.monitor_config_path;
+        let monitor_config_path = self.config.monitor_config_path.clone();
+        let actions_config_path = self.config.actions_config_path.clone();
 
         tracing::debug!(network_id = %network_id, "Checking for existing monitors in database...");
         let existing_monitors = self.repo.get_monitors(network_id).await.map_err(|e| {
@@ -87,9 +92,14 @@ impl InitializationService {
             return Ok(());
         }
 
-        tracing::info!(config_path = %config_path.display(), "No monitors found in database. Loading from configuration file...");
-        let monitors = load_config::<MonitorConfig>(PathBuf::from(config_path)).map_err(|e| {
+        tracing::info!(config_path = %monitor_config_path.display(), "No monitors found in database. Loading from configuration file...");
+        let monitors = load_config::<MonitorConfig>(monitor_config_path).map_err(|e| {
             InitializationError::MonitorLoadError(format!("Failed to load monitors from file: {e}"))
+        })?;
+
+        tracing::info!(config_path = %actions_config_path.display(), "Loading actions from configuration file...");
+        let actions = load_config::<ActionConfig>(actions_config_path).map_err(|e| {
+            InitializationError::ActionsLoadError(format!("Failed to load actions from file: {e}"))
         })?;
 
         // Validate monitors
