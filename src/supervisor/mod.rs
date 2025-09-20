@@ -247,8 +247,8 @@ impl Supervisor {
         // Spawn the AlertManager's main processing loop.
         let alert_manager_clone = Arc::clone(&self.alert_manager);
         self.join_set.spawn(async move {
-            while let Some(monitor_match) = monitor_matches_rx.recv().await {
-                if let Err(e) = alert_manager_clone.process_match(&monitor_match).await {
+            while let Some(mut monitor_match) = monitor_matches_rx.recv().await {
+                if let Err(e) = alert_manager_clone.process_match(&mut monitor_match).await {
                     tracing::error!(
                         "Failed to process monitor match for notifier '{}': {}",
                         monitor_match.notifier_name,

@@ -11,9 +11,11 @@ use crate::{
     abi::{AbiError, AbiRepository, AbiService, repository::AbiRepositoryError},
     config::{ActionConfig, AppConfig},
     engine::{
+        action_handler::ActionHandler,
         alert_manager::{AlertManager, AlertManagerError},
         block_processor::process_blocks_batch,
         filtering::{FilteringEngine, RhaiError, RhaiFilteringEngine},
+        js::JavaScriptRunner,
         rhai::{RhaiCompiler, RhaiScriptValidator},
     },
     http_client::HttpClientPool,
@@ -217,8 +219,20 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let state_repo = Arc::new(SqliteStateRepository::new("sqlite::memory:").await?);
     state_repo.run_migrations().await?;
 
-    // Init the AlertManager with the in-memory state repository.
-    let alert_manager = Arc::new(AlertManager::new(notification_service, state_repo, notifiers));
+    let actions = actions.into_iter().map(|a| (a.name.clone(), a)).collect::<HashMap<_, _>>();
+
+    // Init the ActionHandler and AlertManager.
+    let action_handler = Arc::new(ActionHandler::new(
+        JavaScriptRunner::new(),
+        Arc::new(actions),
+        monitor_manager.clone(),
+    ));
+    let alert_manager = Arc::new(AlertManager::new(
+        notification_service,
+        state_repo,
+        notifiers,
+        Some(action_handler),
+    ));
 
     // Execute the core processing loop.
     let matches =
@@ -306,8 +320,8 @@ async fn run_dry_run_loop(
                     if limited_matches.len() > 10 {
                         limited_matches.truncate(10);
                     }
-                    for m in limited_matches {
-                        alert_manager.process_match(&m).await?;
+                    for mut m in limited_matches {
+                        alert_manager.process_match(&mut m).await?;
                         matches.push(m.clone());
                     }
                 }
@@ -337,32 +351,15 @@ mod tests {
     use crate::{
         abi::{AbiRepository, AbiService},
         config::RhaiConfig,
-        engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
-        http_client::HttpClientPool,
+        engine::{filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
         models::{
             NotificationMessage,
             monitor_match::{MatchData, TransactionMatchData},
             notifier::{NotifierTypeConfig, SlackConfig},
         },
-        notification::NotificationService,
-        persistence::sqlite::SqliteStateRepository,
         providers::traits::MockDataSource,
-        test_helpers::{BlockBuilder, TransactionBuilder},
+        test_helpers::{BlockBuilder, TransactionBuilder, create_test_alert_manager},
     };
-
-    // A helper function to create an AlertManager with a mock state repository.
-    async fn create_test_alert_manager(
-        notifiers: Arc<HashMap<String, NotifierConfig>>,
-    ) -> Arc<AlertManager<SqliteStateRepository>> {
-        let state_repo = SqliteStateRepository::new("sqlite::memory:")
-            .await
-            .expect("Failed to connect to in-memory db");
-        state_repo.run_migrations().await.expect("Failed to run migrations");
-        let client_pool = Arc::new(HttpClientPool::default());
-        let notification_service =
-            Arc::new(NotificationService::new(notifiers.clone(), client_pool));
-        Arc::new(AlertManager::new(notification_service, Arc::new(state_repo), notifiers))
-    }
 
     #[tokio::test]
     async fn test_run_dry_run_loop_succeeds() {
