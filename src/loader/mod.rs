@@ -25,6 +25,10 @@ pub enum LoaderError {
     /// Error when an expected environment variable is missing.
     #[error("Missing environment variable: {0}")]
     MissingEnvVar(String),
+
+    /// Error when validation of the loaded configuration fails.
+    #[error("Validation error: {0}")]
+    ValidationError(String),
 }
 
 /// A generic loader for YAML files.
@@ -95,7 +99,7 @@ pub trait Loadable: Sized + DeserializeOwned {
     ///
     /// This method has a default no-op implementation, making it optional
     /// for types that don't require specific processing.
-    fn validate(&mut self) -> Result<(), Self::Error> {
+    fn validate(&self) -> Result<(), Self::Error> {
         Ok(())
     }
 }
@@ -103,9 +107,9 @@ pub trait Loadable: Sized + DeserializeOwned {
 /// Loads a vector of `Loadable` items from a configuration file.
 pub fn load_config<T: Loadable>(path: PathBuf) -> Result<Vec<T>, T::Error> {
     let loader = ConfigLoader::new(path.clone());
-    let mut items: Vec<T> = loader.load(T::KEY)?;
+    let items: Vec<T> = loader.load(T::KEY)?;
 
-    for item in &mut items {
+    for item in &items {
         item.validate()?;
     }
 
