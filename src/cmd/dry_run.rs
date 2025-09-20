@@ -138,9 +138,9 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let script_validator = RhaiScriptValidator::new(rhai_compiler.clone());
 
     // Load and validate monitor, notifier and action configurations from files.
-    let monitors = load_config::<MonitorConfig>(config.monitor_config_path)?;
-    let notifiers = load_config::<NotifierConfig>(config.notifier_config_path)?;
-    let actions = load_config::<ActionConfig>(config.actions_config_path)?;
+    let monitors = load_config::<MonitorConfig>(config.monitor_config_path, true)?;
+    let notifiers = load_config::<NotifierConfig>(config.notifier_config_path, true)?;
+    let actions = load_config::<ActionConfig>(config.actions_config_path, false)?;
 
     // Link ABIs for monitors that require them.
     for monitor in monitors.iter() {

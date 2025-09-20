@@ -129,7 +129,6 @@ impl AppConfig {
         let actions_path = config_path.join("actions.yaml");
         config.actions_config_path = actions_path;
 
-
         Ok(config)
     }
 

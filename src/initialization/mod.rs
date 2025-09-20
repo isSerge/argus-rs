@@ -93,12 +93,12 @@ impl InitializationService {
         }
 
         tracing::info!(config_path = %monitor_config_path.display(), "No monitors found in database. Loading from configuration file...");
-        let monitors = load_config::<MonitorConfig>(monitor_config_path).map_err(|e| {
+        let monitors = load_config::<MonitorConfig>(monitor_config_path, true).map_err(|e| {
             InitializationError::MonitorLoadError(format!("Failed to load monitors from file: {e}"))
         })?;
 
         tracing::info!(config_path = %actions_config_path.display(), "Loading actions from configuration file...");
-        let actions = load_config::<ActionConfig>(actions_config_path).map_err(|e| {
+        let actions = load_config::<ActionConfig>(actions_config_path, false).map_err(|e| {
             InitializationError::ActionsLoadError(format!("Failed to load actions from file: {e}"))
         })?;
 
@@ -159,11 +159,12 @@ impl InitializationService {
         }
 
         tracing::info!(config_path = %config_path.display(), "No notifiers found in database. Loading from configuration file...");
-        let notifiers = load_config::<NotifierConfig>(PathBuf::from(config_path)).map_err(|e| {
-            InitializationError::NotifierLoadError(format!(
-                "Failed to load notifiers from file: {e}"
-            ))
-        })?;
+        let notifiers =
+            load_config::<NotifierConfig>(PathBuf::from(config_path), true).map_err(|e| {
+                InitializationError::NotifierLoadError(format!(
+                    "Failed to load notifiers from file: {e}"
+                ))
+            })?;
         let count = notifiers.len();
         tracing::info!(count = count, "Loaded notifiers from configuration file.");
         self.repo.clear_notifiers(network_id).await.map_err(|e| {
@@ -530,7 +531,7 @@ monitors:
             InitializationService::new(config, Arc::new(mock_repo), abi_service, script_validator);
 
         let result = initialization_service.load_monitors_from_file().await;
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "Unexpected error: {:?}", result.err());
     }
 
     #[tokio::test]
