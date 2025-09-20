@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use deno_core::{JsRuntime, RuntimeOptions};
 use thiserror::Error;
-use tokio::fs;
 
 use crate::{config::ActionConfig, models::monitor_match::MonitorMatch};
 
@@ -22,6 +21,10 @@ pub enum JsRunnerError {
     /// An error occurred during serialization or deserialization.
     #[error("Serialization/Deserialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
+
+    /// An error occurred in the runtime task.
+    #[error("Runtime task error: {0}")]
+    RuntimeError(#[from] Box<dyn std::error::Error + Send + Sync>),
 }
 
 /// A runner for executing JavaScript actions.
@@ -45,32 +48,41 @@ impl JavaScriptRunner {
         action: &ActionConfig,
         context: &MonitorMatch,
     ) -> Result<(), JsRunnerError> {
-        let mut runtime = JsRuntime::new(RuntimeOptions::default());
+        let action_file = action.file.clone();
+        let context_json = serde_json::to_string(context)?;
 
-        let script =
-            fs::read_to_string(&action.file).await.map_err(|e| JsRunnerError::FileReadError {
-                file_path: action.file.to_string_lossy().to_string(),
+        // Use spawn_blocking to move JavaScript runtime operations to the blocking thread pool
+        tokio::task::spawn_blocking(move || -> Result<(), JsRunnerError> {
+            // Create runtime in the blocking thread
+            let mut runtime = JsRuntime::new(RuntimeOptions::default());
+
+            // Read the script file synchronously in the blocking thread
+            let script = std::fs::read_to_string(&action_file).map_err(|e| JsRunnerError::FileReadError {
+                file_path: action_file.to_string_lossy().to_string(),
                 error: e,
             })?;
 
-        // Serialize the context to a JSON string
-        let context_json = serde_json::to_string(context)?;
+            // Bootstrap the runtime with the context
+            let bootstrap_script = format!("const match = {};", context_json);
+            runtime.execute_script("<bootstrap>", bootstrap_script)
+                .map_err(|e| JsRunnerError::ScriptExecutionError(e))?;
 
-        // Bootstrap the runtime with the context
-        let bootstrap_script = format!("const match = {};", context_json);
-        runtime.execute_script("<bootstrap>", bootstrap_script)?;
+            // Execute the user's action script
+            let result = runtime.execute_script("<action>", script);
 
-        // Execute the user's action script
-        let result = runtime.execute_script("<action>", script);
+            if let Err(e) = result {
+                tracing::error!(
+                    "Error executing action file '{}': {}",
+                    action_file.to_string_lossy(),
+                    e
+                );
+                return Err(JsRunnerError::ScriptExecutionError(e));
+            }
 
-        if let Err(e) = result {
-            tracing::error!(
-                "Error executing action file '{}': {}",
-                action.file.to_string_lossy(),
-                e
-            );
-            return Err(e.into());
-        }
+            Ok(())
+        })
+        .await
+        .map_err(|e| JsRunnerError::RuntimeError(Box::new(e)))??;
 
         Ok(())
     }
