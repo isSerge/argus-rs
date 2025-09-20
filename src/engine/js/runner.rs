@@ -51,20 +51,24 @@ impl JavaScriptRunner {
         let action_file = action.file.clone();
         let context_json = serde_json::to_string(context)?;
 
-        // Use spawn_blocking to move JavaScript runtime operations to the blocking thread pool
+        // Use spawn_blocking to move JavaScript runtime operations to the blocking
+        // thread pool
         tokio::task::spawn_blocking(move || -> Result<(), JsRunnerError> {
             // Create runtime in the blocking thread
             let mut runtime = JsRuntime::new(RuntimeOptions::default());
 
             // Read the script file synchronously in the blocking thread
-            let script = std::fs::read_to_string(&action_file).map_err(|e| JsRunnerError::FileReadError {
-                file_path: action_file.to_string_lossy().to_string(),
-                error: e,
+            let script = std::fs::read_to_string(&action_file).map_err(|e| {
+                JsRunnerError::FileReadError {
+                    file_path: action_file.to_string_lossy().to_string(),
+                    error: e,
+                }
             })?;
 
             // Bootstrap the runtime with the context
             let bootstrap_script = format!("const match = {};", context_json);
-            runtime.execute_script("<bootstrap>", bootstrap_script)
+            runtime
+                .execute_script("<bootstrap>", bootstrap_script)
                 .map_err(|e| JsRunnerError::ScriptExecutionError(e))?;
 
             // Execute the user's action script
