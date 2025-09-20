@@ -43,6 +43,7 @@ rust_decimal = { version = "1.37.2", features = ["maths"] }
 parking_lot = "0.12.4"
 arc-swap = "1.7.1"
 bitflags = "2.9.4"
+deno_core = "0.360.0"
 
 [dev-dependencies]
 mockall = "0.13.1"
