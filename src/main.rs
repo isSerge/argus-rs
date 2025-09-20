@@ -1,13 +1,7 @@
 use std::sync::Arc;
 
 use argus::{
-    abi::{AbiService, repository::AbiRepository},
-    cmd::{DryRunArgs, dry_run},
-    config::AppConfig,
-    engine::rhai::{RhaiCompiler, RhaiScriptValidator},
-    initialization::InitializationService,
-    persistence::{sqlite::SqliteStateRepository, traits::StateRepository},
-    supervisor::Supervisor,
+    abi::{repository::AbiRepository, AbiService}, cmd::{dry_run, DryRunArgs}, config::{ActionConfig, AppConfig}, engine::rhai::{RhaiCompiler, RhaiScriptValidator}, initialization::InitializationService, loader::load_config, persistence::{sqlite::SqliteStateRepository, traits::StateRepository}, supervisor::Supervisor
 };
 use clap::{Parser, Subcommand};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
@@ -83,11 +77,17 @@ async fn run_supervisor(config_dir: Option<String>) -> Result<(), Box<dyn std::e
     initialization_service.run().await?;
     tracing::info!("Application state initialized.");
 
+    // Load actions configuration
+    tracing::debug!("Loading actions configuration...");
+    let actions = load_config::<ActionConfig>(config.actions_config_path.clone(), false)?;
+    tracing::info!(count = actions.len(), "Actions configuration loaded.");
+
     let supervisor = Supervisor::builder()
         .config(config)
         .abi_service(abi_service)
         .script_compiler(script_compiler)
         .state(repo)
+        .actions(actions)
         .build()
         .await?;
 

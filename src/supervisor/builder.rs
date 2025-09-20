@@ -6,8 +6,11 @@ use std::{collections::HashMap, sync::Arc};
 use super::{Supervisor, SupervisorError};
 use crate::{
     abi::AbiService,
-    config::AppConfig,
-    engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
+    config::{ActionConfig, AppConfig},
+    engine::{
+        alert_manager::AlertManager, filtering::RhaiFilteringEngine, js::JavaScriptRunner,
+        rhai::RhaiCompiler,
+    },
     http_client::HttpClientPool,
     models::notifier::NotifierConfig,
     monitor::MonitorManager,
@@ -23,6 +26,7 @@ pub struct SupervisorBuilder {
     state: Option<Arc<SqliteStateRepository>>,
     abi_service: Option<Arc<AbiService>>,
     script_compiler: Option<Arc<RhaiCompiler>>,
+    actions: Option<Vec<ActionConfig>>,
 }
 
 impl SupervisorBuilder {
@@ -52,6 +56,12 @@ impl SupervisorBuilder {
     /// Sets the Rhai script compiler for the `Supervisor`.
     pub fn script_compiler(mut self, script_compiler: Arc<RhaiCompiler>) -> Self {
         self.script_compiler = Some(script_compiler);
+        self
+    }
+
+    /// Sets the actions configuration for the `Supervisor`.
+    pub fn actions(mut self, actions: Vec<ActionConfig>) -> Self {
+        self.actions = Some(actions);
         self
     }
 
@@ -100,8 +110,22 @@ impl SupervisorBuilder {
             Arc::new(notifiers.into_iter().map(|t| (t.name.clone(), t)).collect());
         let notification_service =
             Arc::new(NotificationService::new(notifiers_map.clone(), http_client_pool));
-        let alert_manager =
-            Arc::new(AlertManager::new(notification_service, state.clone(), notifiers_map));
+        let js_runner = JavaScriptRunner::new();
+        let actions = self
+            .actions
+            .unwrap_or_default()
+            .into_iter()
+            .map(|a| (a.name.clone(), a))
+            .collect::<HashMap<_, _>>();
+
+        let alert_manager = Arc::new(AlertManager::new(
+            notification_service,
+            state.clone(),
+            notifiers_map,
+            js_runner,
+            Arc::new(actions),
+            monitor_manager.clone(),
+        ));
 
         // Finally, construct the Supervisor with all its components.
         Ok(Supervisor::new(
