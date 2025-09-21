@@ -8,8 +8,8 @@ use crate::{
     abi::AbiService,
     config::{ActionConfig, AppConfig},
     engine::{
-        action_handler::ActionHandler, filtering::RhaiFilteringEngine, js::JavaScriptRunner,
-        match_manager::MatchManager, rhai::RhaiCompiler,
+        action_handler::ActionHandler, filtering::RhaiFilteringEngine, match_manager::MatchManager,
+        rhai::RhaiCompiler,
     },
     http_client::HttpClientPool,
     models::notifier::NotifierConfig,
@@ -110,7 +110,6 @@ impl SupervisorBuilder {
             Arc::new(notifiers.into_iter().map(|t| (t.name.clone(), t)).collect());
         let notification_service =
             Arc::new(NotificationService::new(notifiers_map.clone(), http_client_pool));
-        let js_runner = JavaScriptRunner::new();
         let actions = self
             .actions
             .unwrap_or_default()
@@ -118,7 +117,7 @@ impl SupervisorBuilder {
             .map(|a| (a.name.clone(), a))
             .collect::<HashMap<_, _>>();
         let action_handler =
-            Arc::new(ActionHandler::new(js_runner, Arc::new(actions), monitor_manager.clone()));
+            Arc::new(ActionHandler::new(Arc::new(actions), monitor_manager.clone()));
 
         let match_manager = Arc::new(MatchManager::new(
             notification_service,

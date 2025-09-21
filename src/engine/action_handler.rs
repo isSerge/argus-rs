@@ -5,15 +5,13 @@ use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 
 use crate::{
-    config::ActionConfig, engine::js::JavaScriptRunner, models::monitor_match::MonitorMatch,
+    config::ActionConfig, engine::js::execute_action, models::monitor_match::MonitorMatch,
     monitor::MonitorManager,
 };
 
 /// The `ActionHandler` is responsible for running `on_match` actions
 /// associated with a monitor.
 pub struct ActionHandler {
-    /// The JavaScript runner for executing actions.
-    js_runner: JavaScriptRunner,
     /// A map of action names to their loaded and validated configurations.
     actions: Arc<HashMap<String, ActionConfig>>,
     /// The monitor manager for accessing monitor configurations.
@@ -31,11 +29,10 @@ pub enum ActionHandlerError {
 impl ActionHandler {
     /// Creates a new `ActionHandler` instance.
     pub fn new(
-        js_runner: JavaScriptRunner,
         actions: Arc<HashMap<String, ActionConfig>>,
         monitor_manager: Arc<MonitorManager>,
     ) -> Self {
-        Self { js_runner, actions, monitor_manager }
+        Self { actions, monitor_manager }
     }
 
     /// Executes any `on_match` actions associated with the monitor that
@@ -59,7 +56,7 @@ impl ActionHandler {
                 let mut current_match = monitor_match.clone();
                 for action_name in on_match {
                     if let Some(action) = self.actions.get(action_name) {
-                        match self.js_runner.execute_action(action, &current_match).await {
+                        match execute_action(action, &current_match).await {
                             Ok(modified_match) => {
                                 current_match = modified_match;
                             }

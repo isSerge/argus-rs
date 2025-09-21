@@ -14,7 +14,6 @@ use crate::{
         action_handler::ActionHandler,
         block_processor::process_blocks_batch,
         filtering::{FilteringEngine, RhaiError, RhaiFilteringEngine},
-        js::JavaScriptRunner,
         match_manager::{MatchManager, MatchManagerError},
         rhai::{RhaiCompiler, RhaiScriptValidator},
     },
@@ -223,11 +222,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let actions = actions.into_iter().map(|a| (a.name.clone(), a)).collect::<HashMap<_, _>>();
 
     // Init the ActionHandler and MatchManager.
-    let action_handler = Arc::new(ActionHandler::new(
-        JavaScriptRunner::new(),
-        Arc::new(actions),
-        monitor_manager.clone(),
-    ));
+    let action_handler = Arc::new(ActionHandler::new(Arc::new(actions), monitor_manager.clone()));
     let match_manager = Arc::new(MatchManager::new(
         notification_service,
         state_repo,
