@@ -3,8 +3,6 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use argus::{
-    engine::match_manager::MatchManager,
-    http_client::HttpClientPool,
     models::{
         NotificationMessage,
         match_manager_state::{AggregationState, ThrottleState},
@@ -14,8 +12,8 @@ use argus::{
             ThrottlePolicy,
         },
     },
-    notification::NotificationService,
     persistence::{sqlite::SqliteStateRepository, traits::GenericStateRepository},
+    test_helpers::create_test_match_manager_with_repo,
 };
 use mockito;
 use serde_json::json;
@@ -38,15 +36,6 @@ fn create_monitor_match(monitor_name: &str, notifier_name: &str) -> MonitorMatch
         Default::default(),
         json!({ "key": "value" }),
     )
-}
-
-pub fn create_test_match_manager_with_repo<T: GenericStateRepository + Send + Sync + 'static>(
-    notifiers: Arc<HashMap<String, NotifierConfig>>,
-    state_repo: Arc<T>,
-) -> MatchManager<T> {
-    let client_pool = Arc::new(HttpClientPool::default());
-    let notification_service = Arc::new(NotificationService::new(notifiers.clone(), client_pool));
-    MatchManager::new(notification_service, state_repo, notifiers, None)
 }
 
 #[tokio::test]
