@@ -247,11 +247,12 @@ impl Supervisor {
         // Spawn the MatchManager's main processing loop.
         let match_manager_clone = Arc::clone(&self.match_manager);
         self.join_set.spawn(async move {
-            while let Some(mut monitor_match) = monitor_matches_rx.recv().await {
-                if let Err(e) = match_manager_clone.process_match(&mut monitor_match).await {
+            while let Some(monitor_match) = monitor_matches_rx.recv().await {
+                let notifier_name = &monitor_match.notifier_name.clone();
+                if let Err(e) = match_manager_clone.process_match(monitor_match).await {
                     tracing::error!(
                         "Failed to process monitor match for notifier '{}': {}",
-                        monitor_match.notifier_name,
+                        notifier_name,
                         e
                     );
                 }

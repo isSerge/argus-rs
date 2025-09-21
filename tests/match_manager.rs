@@ -97,11 +97,11 @@ async fn test_aggregation_policy_dispatches_summary_after_window() {
         .await;
 
     // Send two matches within the aggregation window
-    let mut match1 = create_monitor_match(&monitor_name, &notifier_name);
-    let mut match2 = create_monitor_match(&monitor_name, &notifier_name);
+    let match1 = create_monitor_match(&monitor_name, &notifier_name);
+    let match2 = create_monitor_match(&monitor_name, &notifier_name);
 
-    match_manager.process_match(&mut match1).await.unwrap();
-    match_manager.process_match(&mut match2).await.unwrap();
+    match_manager.process_match(match1).await.unwrap();
+    match_manager.process_match(match2).await.unwrap();
 
     // Spawn the aggregation dispatcher in the background
     let dispatcher_match_manager = Arc::new(match_manager);
@@ -164,8 +164,8 @@ async fn test_throttle_policy_limits_notifications() {
 
     // Send more matches than allowed by the throttle policy within the window
     for _ in 0..(max_count + 2) {
-        let mut monitor_match = create_monitor_match(&monitor_name, &notifier_name);
-        match_manager.process_match(&mut monitor_match).await.unwrap();
+        let monitor_match = create_monitor_match(&monitor_name, &notifier_name);
+        match_manager.process_match(monitor_match).await.unwrap();
     }
 
     // Wait for a short period to ensure all process_match calls complete
@@ -197,8 +197,8 @@ async fn test_throttle_policy_limits_notifications() {
         .await;
 
     // Send another match after the window expires
-    let mut monitor_match = create_monitor_match(&monitor_name, &notifier_name);
-    match_manager.process_match(&mut monitor_match).await.unwrap();
+    let monitor_match = create_monitor_match(&monitor_name, &notifier_name);
+    match_manager.process_match(monitor_match).await.unwrap();
 
     // Assert that another notification is sent after the window reset
     sleep(Duration::from_millis(100)).await;
@@ -245,11 +245,11 @@ async fn test_no_policy_sends_notification_per_match() {
         .await;
 
     // Send two matches
-    let mut match1 = create_monitor_match(&monitor_name, &notifier_name);
-    let mut match2 = create_monitor_match(&monitor_name, &notifier_name);
+    let match1 = create_monitor_match(&monitor_name, &notifier_name);
+    let match2 = create_monitor_match(&monitor_name, &notifier_name);
 
-    match_manager.process_match(&mut match1).await.unwrap();
-    match_manager.process_match(&mut match2).await.unwrap();
+    match_manager.process_match(match1).await.unwrap();
+    match_manager.process_match(match2).await.unwrap();
 
     // Wait for a short period to ensure notifications are sent
     sleep(Duration::from_millis(100)).await;
@@ -298,15 +298,15 @@ async fn test_throttle_policy_shared_across_monitors() {
         .await;
 
     // Send matches from two different monitors, exceeding the throttle limit
-    let mut match1 = create_monitor_match(&monitor_name1, &notifier_name);
-    let mut match2 = create_monitor_match(&monitor_name2, &notifier_name);
-    let mut match3 = create_monitor_match(&monitor_name1, &notifier_name);
-    let mut match4 = create_monitor_match(&monitor_name2, &notifier_name);
+    let match1 = create_monitor_match(&monitor_name1, &notifier_name);
+    let match2 = create_monitor_match(&monitor_name2, &notifier_name);
+    let match3 = create_monitor_match(&monitor_name1, &notifier_name);
+    let match4 = create_monitor_match(&monitor_name2, &notifier_name);
 
-    match_manager.process_match(&mut match1).await.unwrap();
-    match_manager.process_match(&mut match2).await.unwrap();
-    match_manager.process_match(&mut match3).await.unwrap();
-    match_manager.process_match(&mut match4).await.unwrap();
+    match_manager.process_match(match1).await.unwrap();
+    match_manager.process_match(match2).await.unwrap();
+    match_manager.process_match(match3).await.unwrap();
+    match_manager.process_match(match4).await.unwrap();
 
     sleep(Duration::from_millis(200)).await;
 
@@ -353,10 +353,10 @@ async fn test_aggregation_state_persistence_on_restart() {
     // --- First run: process matches and store state ---
     let match_manager1 =
         create_test_match_manager_with_repo(notifiers_arc.clone(), state_repo.clone());
-    let mut match1 = create_monitor_match(&monitor_name, &notifier_name);
-    let mut match2 = create_monitor_match(&monitor_name, &notifier_name);
-    match_manager1.process_match(&mut match1).await.unwrap();
-    match_manager1.process_match(&mut match2).await.unwrap();
+    let match1 = create_monitor_match(&monitor_name, &notifier_name);
+    let match2 = create_monitor_match(&monitor_name, &notifier_name);
+    match_manager1.process_match(match1).await.unwrap();
+    match_manager1.process_match(match2).await.unwrap();
 
     // Verify state is persisted
     let state_key = format!("aggregation_state:{}", notifier_name);
@@ -401,9 +401,9 @@ async fn test_process_match_with_invalid_notifier() {
     let match_manager =
         create_test_match_manager_with_repo(Arc::new(HashMap::new()), state_repo.clone());
 
-    let mut monitor_match = create_monitor_match("any_monitor", "non_existent_notifier");
+    let monitor_match = create_monitor_match("any_monitor", "non_existent_notifier");
 
-    let result = match_manager.process_match(&mut monitor_match).await;
+    let result = match_manager.process_match(monitor_match).await;
 
     assert!(result.is_err());
     if let Err(e) = result {

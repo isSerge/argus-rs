@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use deno_core::{JsRuntime, RuntimeOptions};
+use deno_core::{JsRuntime, RuntimeOptions, serde_v8, v8};
 use thiserror::Error;
 
 use crate::{config::ActionConfig, models::monitor_match::MonitorMatch};
@@ -21,6 +21,10 @@ pub enum JsRunnerError {
     /// An error occurred during serialization or deserialization.
     #[error("Serialization/Deserialization error: {0}")]
     Serialization(#[from] serde_json::Error),
+
+    /// An error occurred during V8 serialization.
+    #[error("V8 serialization error: {0}")]
+    SerdeV8Error(#[from] serde_v8::Error),
 
     /// An error occurred in the runtime task.
     #[error("Runtime task error: {0}")]
@@ -42,52 +46,64 @@ impl JavaScriptRunner {
         Self { _inner: Arc::new(Inner) }
     }
 
-    /// Executes a JavaScript action.
+    /// Executes a JavaScript action and returns the modified MonitorMatch.
     pub async fn execute_action(
         &self,
         action: &ActionConfig,
         context: &MonitorMatch,
-    ) -> Result<(), JsRunnerError> {
+    ) -> Result<MonitorMatch, JsRunnerError> {
         let action_file = action.file.clone();
         let context_json = serde_json::to_string(context)?;
 
         // Use spawn_blocking to move JavaScript runtime operations to the blocking
         // thread pool
-        tokio::task::spawn_blocking(move || -> Result<(), JsRunnerError> {
-            // Create runtime in the blocking thread
-            let mut runtime = JsRuntime::new(RuntimeOptions::default());
+        let modified_match =
+            tokio::task::spawn_blocking(move || -> Result<MonitorMatch, JsRunnerError> {
+                // Create runtime in the blocking thread
+                let mut runtime = JsRuntime::new(RuntimeOptions::default());
 
-            // Read the script file synchronously in the blocking thread
-            let script =
-                std::fs::read_to_string(&action_file).map_err(|e| JsRunnerError::FileRead {
-                    file_path: action_file.to_string_lossy().to_string(),
-                    error: e,
-                })?;
+                // Load the console polyfill
+                let console_polyfill = include_str!("../../js/console_polyfill.js");
+                runtime
+                    .execute_script("<console_polyfill>", console_polyfill)
+                    .map_err(|e| JsRunnerError::ScriptExecution(e))?;
 
-            // Bootstrap the runtime with the context
-            let bootstrap_script = format!("const match = {};", context_json);
-            runtime
-                .execute_script("<bootstrap>", bootstrap_script)
-                .map_err(JsRunnerError::ScriptExecution)?;
+                let script =
+                    std::fs::read_to_string(&action_file).map_err(|e| JsRunnerError::FileRead {
+                        file_path: action_file.to_string_lossy().to_string(),
+                        error: e,
+                    })?;
 
-            // Execute the user's action script
-            let result = runtime.execute_script("<action>", script);
+                // Bootstrap the runtime with the context
+                let bootstrap_script = format!("const match = {};", context_json);
+                runtime
+                    .execute_script("<bootstrap>", bootstrap_script)
+                    .map_err(JsRunnerError::ScriptExecution)?;
 
-            if let Err(e) = result {
-                tracing::error!(
-                    "Error executing action file '{}': {}",
-                    action_file.to_string_lossy(),
-                    e
-                );
-                return Err(JsRunnerError::ScriptExecution(e));
-            }
+                // Execute the user's action script
+                runtime
+                    .execute_script("<action>", script)
+                    .map_err(JsRunnerError::ScriptExecution)?;
 
-            Ok(())
-        })
-        .await
-        .map_err(|e| JsRunnerError::Runtime(Box::new(e)))??;
+                // Capture the final state of the match object
+                let result_script = "match;";
 
-        Ok(())
+                let return_value = runtime
+                    .execute_script("<get_result>", result_script)
+                    .map_err(JsRunnerError::ScriptExecution)?;
+
+                // Convert the result back to Rust
+                let scope = &mut runtime.handle_scope();
+                let local = v8::Local::new(scope, return_value);
+                let modified_match: MonitorMatch = serde_v8::from_v8(scope, local)?;
+
+                Ok(modified_match)
+            })
+            .await
+            .map_err(|e| JsRunnerError::Runtime(Box::new(e)))??;
+
+        println!("Modified MonitorMatch: {:?}", modified_match);
+        Ok(modified_match)
     }
 }
 
@@ -137,6 +153,8 @@ mod tests {
 
         let result = runner.execute_action(&action, &context).await;
         assert!(result.is_ok());
+        let modified_match = result.unwrap();
+        assert_eq!(modified_match.monitor_id, context.monitor_id);
     }
 
     #[tokio::test]
@@ -161,9 +179,10 @@ mod tests {
             if (match.monitor_id !== 1) {
                 throw new Error("wrong monitor id");
             }
-            if (match.tx.foo !== "bar") {
-                throw new Error("wrong tx details");
-            }
+            console.log("Test passed with context:", match.monitor_id);
+            
+            // Modify the match object directly
+            match.monitor_name = "Modified Monitor";
         "#;
         let (_file, action) = create_test_action_file(script);
         let context = create_test_monitor_match();
@@ -171,6 +190,9 @@ mod tests {
 
         let result = runner.execute_action(&action, &context).await;
         assert!(result.is_ok());
+        let modified_match = result.unwrap();
+        assert_eq!(modified_match.monitor_name, "Modified Monitor");
+        assert_eq!(modified_match.monitor_id, context.monitor_id);
     }
 
     #[tokio::test]

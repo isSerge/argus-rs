@@ -2,6 +2,8 @@
 
 use std::{collections::HashMap, sync::Arc};
 
+use thiserror::Error;
+
 use crate::{
     config::ActionConfig, engine::js::JavaScriptRunner, models::monitor_match::MonitorMatch,
     monitor::MonitorManager,
@@ -18,6 +20,14 @@ pub struct ActionHandler {
     monitor_manager: Arc<MonitorManager>,
 }
 
+/// Errors that can occur during action execution.
+#[derive(Debug, Error)]
+pub enum ActionHandlerError {
+    /// An error occurred during action execution.
+    #[error("Action execution error: {0}")]
+    ExecutionError(String),
+}
+
 impl ActionHandler {
     /// Creates a new `ActionHandler` instance.
     pub fn new(
@@ -31,7 +41,10 @@ impl ActionHandler {
     /// Executes any `on_match` actions associated with the monitor that
     /// produced the match. This method may mutate the `monitor_match` in the
     /// future.
-    pub async fn execute(&self, monitor_match: &mut MonitorMatch) {
+    pub async fn execute(
+        &self,
+        monitor_match: MonitorMatch,
+    ) -> Result<MonitorMatch, ActionHandlerError> {
         let monitor = self
             .monitor_manager
             .load()
@@ -42,17 +55,23 @@ impl ActionHandler {
 
         if let Some(monitor) = monitor {
             if let Some(on_match) = &monitor.on_match {
+                // Execute actions sequentially, passing the modified match to the next action
+                let mut current_match = monitor_match.clone();
                 for action_name in on_match {
                     if let Some(action) = self.actions.get(action_name) {
-                        // Note: When data enrichment is implemented, the runner will
-                        // need to accept a mutable reference to monitor_match.
-                        if let Err(e) = self.js_runner.execute_action(action, monitor_match).await {
-                            tracing::error!(
-                                "Error executing action '{}' for monitor '{}': {}",
-                                action_name,
-                                monitor.name,
-                                e
-                            );
+                        match self.js_runner.execute_action(action, &current_match).await {
+                            Ok(modified_match) => {
+                                current_match = modified_match;
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    "Failed to execute action '{}' for monitor '{}': {}",
+                                    action_name,
+                                    monitor.name,
+                                    e
+                                );
+                                return Err(ActionHandlerError::ExecutionError(e.to_string()));
+                            }
                         }
                     } else {
                         tracing::warn!(
@@ -62,12 +81,19 @@ impl ActionHandler {
                         );
                     }
                 }
+                Ok(current_match)
+            } else {
+                // No actions to execute, return the original match
+                Ok(monitor_match)
             }
         } else {
             tracing::warn!(
                 "Monitor with ID {} not found for match, cannot execute actions.",
                 monitor_match.monitor_id
             );
+
+            // If monitor not found, return the original match
+            Ok(monitor_match)
         }
     }
 }

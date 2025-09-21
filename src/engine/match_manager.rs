@@ -7,7 +7,7 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 
 use crate::{
-    engine::action_handler::ActionHandler,
+    engine::action_handler::{ActionHandler, ActionHandlerError},
     models::{
         match_manager_state::{AggregationState, ThrottleState},
         monitor_match::MonitorMatch,
@@ -48,6 +48,10 @@ pub enum MatchManagerError {
     /// Error occurred in the state repository
     #[error("State repository error: {0}")]
     StateRepositoryError(#[from] sqlx::Error),
+
+    /// Error occurred in the action handler
+    #[error("Action handler error: {0}")]
+    ActionHandlerError(#[from] ActionHandlerError),
 }
 
 impl<T: GenericStateRepository + Send + Sync + 'static> MatchManager<T> {
@@ -70,26 +74,28 @@ impl<T: GenericStateRepository + Send + Sync + 'static> MatchManager<T> {
     /// Processes a monitor match
     pub async fn process_match(
         &self,
-        monitor_match: &mut MonitorMatch,
+        monitor_match: MonitorMatch,
     ) -> Result<(), MatchManagerError> {
+        let mut final_match = monitor_match.clone();
         // --- Action Execution ---
         // First, execute any on_match actions associated with the monitor.
         if let Some(handler) = &self.action_handler {
-            handler.execute(monitor_match).await;
+            let modified_match = handler.execute(monitor_match).await?;
+            final_match = modified_match;
         }
 
         // --- Notifier Handling ---
         // After executing actions, proceed with the notification logic.
-        let notifier_name = &monitor_match.notifier_name;
-        let notifier_config = match self.notifiers.get(notifier_name) {
+        let notifier_name = final_match.notifier_name.clone();
+        let notifier_config = match self.notifiers.get(&notifier_name) {
             Some(config) => config,
             None => {
                 tracing::warn!(
-                    notifier = %monitor_match.notifier_name,
+                    notifier = %notifier_name,
                     "Notifier configuration not found for monitor match."
                 );
                 return Err(MatchManagerError::NotificationError(NotificationError::ConfigError(
-                    format!("Notifier '{}' not found", monitor_match.notifier_name),
+                    format!("Notifier '{}' not found", notifier_name),
                 )));
             }
         };
@@ -97,10 +103,10 @@ impl<T: GenericStateRepository + Send + Sync + 'static> MatchManager<T> {
         match &notifier_config.policy {
             Some(policy) => match policy {
                 NotifierPolicy::Throttle(throttle_policy) => {
-                    self.handle_throttle(monitor_match, throttle_policy).await?;
+                    self.handle_throttle(&final_match, throttle_policy).await?;
                 }
                 NotifierPolicy::Aggregation(_) => {
-                    self.handle_aggregation(monitor_match).await?;
+                    self.handle_aggregation(&final_match).await?;
                 }
             },
             None => {
@@ -108,7 +114,7 @@ impl<T: GenericStateRepository + Send + Sync + 'static> MatchManager<T> {
                 tracing::debug!("No policy for notifier {}, sending immediately.", notifier_name);
                 if let Err(e) = self
                     .notification_service
-                    .execute(NotificationPayload::Single(monitor_match.clone()))
+                    .execute(NotificationPayload::Single(final_match.clone()))
                     .await
                 {
                     tracing::error!(
@@ -396,10 +402,10 @@ mod tests {
         let state_repo = MockGenericStateRepository::new();
         let match_manager =
             create_test_match_manager_with_repo(Arc::new(notifiers), Arc::new(state_repo));
-        let mut monitor_match = create_monitor_match("NonExistentNotifier".to_string());
+        let monitor_match = create_monitor_match("NonExistentNotifier".to_string());
 
         // Act
-        let result = match_manager.process_match(&mut monitor_match).await;
+        let result = match_manager.process_match(monitor_match).await;
 
         // Assert
         assert!(matches!(
@@ -428,10 +434,10 @@ mod tests {
         let state_repo = MockGenericStateRepository::new();
         let match_manager =
             create_test_match_manager_with_repo(Arc::new(notifiers), Arc::new(state_repo));
-        let mut monitor_match = create_monitor_match(notifier_name);
+        let monitor_match = create_monitor_match(notifier_name);
 
         // Act
-        let result = match_manager.process_match(&mut monitor_match).await;
+        let result = match_manager.process_match(monitor_match).await;
 
         // Assert
         assert!(result.is_ok());
@@ -480,9 +486,9 @@ mod tests {
 
         let match_manager =
             create_test_match_manager_with_repo(Arc::new(notifiers), Arc::new(state_repo));
-        let mut monitor_match = create_monitor_match(notifier_name);
+        let monitor_match = create_monitor_match(notifier_name);
 
-        let result = match_manager.process_match(&mut monitor_match).await;
+        let result = match_manager.process_match(monitor_match).await;
 
         assert!(result.is_ok());
     }
@@ -531,9 +537,9 @@ mod tests {
 
         let match_manager =
             create_test_match_manager_with_repo(Arc::new(notifiers), Arc::new(state_repo));
-        let mut monitor_match = create_monitor_match(notifier_name);
+        let monitor_match = create_monitor_match(notifier_name);
 
-        let result = match_manager.process_match(&mut monitor_match).await;
+        let result = match_manager.process_match(monitor_match).await;
 
         assert!(result.is_ok());
     }
@@ -580,9 +586,9 @@ mod tests {
 
         let match_manager =
             create_test_match_manager_with_repo(Arc::new(notifiers), Arc::new(state_repo));
-        let mut monitor_match = create_monitor_match(notifier_name);
+        let monitor_match = create_monitor_match(notifier_name);
 
-        let result = match_manager.process_match(&mut monitor_match).await;
+        let result = match_manager.process_match(monitor_match).await;
 
         assert!(result.is_ok());
     }
@@ -614,7 +620,7 @@ mod tests {
         notifiers.insert(notifier_name.to_string(), notifier_config);
 
         let mut state_repo = MockGenericStateRepository::new();
-        let mut monitor_match = create_monitor_match(notifier_name.clone());
+        let monitor_match = create_monitor_match(notifier_name.clone());
         let aggregation_key = &monitor_match.notifier_name;
         let state_key = format!("aggregation_state:{}", aggregation_key);
 
@@ -635,7 +641,7 @@ mod tests {
         let match_manager =
             create_test_match_manager_with_repo(Arc::new(notifiers), Arc::new(state_repo));
 
-        let result = match_manager.process_match(&mut monitor_match).await;
+        let result = match_manager.process_match(monitor_match).await;
         assert!(result.is_ok());
 
         // Note: The spawned task's behavior is tested by integration tests
@@ -668,7 +674,7 @@ mod tests {
         notifiers.insert(notifier_name.to_string(), notifier_config);
 
         let mut state_repo = MockGenericStateRepository::new();
-        let mut monitor_match = create_monitor_match(notifier_name.clone());
+        let monitor_match = create_monitor_match(notifier_name.clone());
         let aggregation_key = &monitor_match.notifier_name;
         let state_key = format!("aggregation_state:{}", aggregation_key);
 
@@ -695,7 +701,7 @@ mod tests {
         let match_manager =
             create_test_match_manager_with_repo(Arc::new(notifiers), Arc::new(state_repo));
 
-        let result = match_manager.process_match(&mut monitor_match).await;
+        let result = match_manager.process_match(monitor_match).await;
         assert!(result.is_ok());
     }
 

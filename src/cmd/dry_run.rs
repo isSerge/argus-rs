@@ -322,9 +322,9 @@ async fn run_dry_run_loop(
                     if limited_matches.len() > 10 {
                         limited_matches.truncate(10);
                     }
-                    for mut m in limited_matches {
-                        match_manager.process_match(&mut m).await?;
-                        matches.push(m.clone());
+                    for m in limited_matches {
+                        match_manager.process_match(m.clone()).await?;
+                        matches.push(m);
                     }
                 }
             }
