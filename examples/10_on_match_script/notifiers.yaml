@@ -1,0 +1,11 @@
+notifiers:
+  - name: "Monitor with on-match action"
+    telegram:
+      token: "${TELEGRAM_TOKEN}"
+      chat_id: "${TELEGRAM_CHAT_ID}"
+      disable_web_preview: true
+      message:
+        title: "Event detected by monitor {{ monitor_name }}"
+        body: |
+          A transaction matching the monitor "{{ monitor_name }}" was detected.
+          **Note:** This notification was sent using an on-match action script.
