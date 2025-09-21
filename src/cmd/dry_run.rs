@@ -183,6 +183,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
                 .name(&m.name)
                 .network(&m.network)
                 .filter_script(&m.filter_script)
+                .on_match(m.on_match.unwrap_or_default())
                 .notifiers(m.notifiers);
 
             if let Some(address) = &m.address {
