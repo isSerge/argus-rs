@@ -1,13 +1,13 @@
-//! Integration tests for the AlertManager service
+//! Integration tests for the MatchManager service
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use argus::{
-    engine::alert_manager::AlertManager,
+    engine::match_manager::MatchManager,
     http_client::HttpClientPool,
     models::{
         NotificationMessage,
-        alert_manager_state::{AggregationState, ThrottleState},
+        match_manager_state::{AggregationState, ThrottleState},
         monitor_match::MonitorMatch,
         notifier::{
             AggregationPolicy, DiscordConfig, NotifierConfig, NotifierPolicy, NotifierTypeConfig,
@@ -40,13 +40,13 @@ fn create_monitor_match(monitor_name: &str, notifier_name: &str) -> MonitorMatch
     )
 }
 
-pub fn create_test_alert_manager_with_repo<T: GenericStateRepository + Send + Sync + 'static>(
+pub fn create_test_match_manager_with_repo<T: GenericStateRepository + Send + Sync + 'static>(
     notifiers: Arc<HashMap<String, NotifierConfig>>,
     state_repo: Arc<T>,
-) -> AlertManager<T> {
+) -> MatchManager<T> {
     let client_pool = Arc::new(HttpClientPool::default());
     let notification_service = Arc::new(NotificationService::new(notifiers.clone(), client_pool));
-    AlertManager::new(notification_service, state_repo, notifiers, None)
+    MatchManager::new(notification_service, state_repo, notifiers, None)
 }
 
 #[tokio::test]
@@ -80,8 +80,8 @@ async fn test_aggregation_policy_dispatches_summary_after_window() {
     notifiers.insert(notifier_name.clone(), notifier_config);
 
     let state_repo = Arc::new(setup_db().await);
-    let alert_manager =
-        create_test_alert_manager_with_repo(Arc::new(notifiers), state_repo.clone());
+    let match_manager =
+        create_test_match_manager_with_repo(Arc::new(notifiers), state_repo.clone());
 
     // Mock the aggregated notification
     let mock = server
@@ -100,13 +100,13 @@ async fn test_aggregation_policy_dispatches_summary_after_window() {
     let mut match1 = create_monitor_match(&monitor_name, &notifier_name);
     let mut match2 = create_monitor_match(&monitor_name, &notifier_name);
 
-    alert_manager.process_match(&mut match1).await.unwrap();
-    alert_manager.process_match(&mut match2).await.unwrap();
+    match_manager.process_match(&mut match1).await.unwrap();
+    match_manager.process_match(&mut match2).await.unwrap();
 
     // Spawn the aggregation dispatcher in the background
-    let dispatcher_alert_manager = Arc::new(alert_manager);
+    let dispatcher_match_manager = Arc::new(match_manager);
     tokio::spawn(async move {
-        dispatcher_alert_manager.run_aggregation_dispatcher(Duration::from_millis(100)).await;
+        dispatcher_match_manager.run_aggregation_dispatcher(Duration::from_millis(100)).await;
     });
 
     // Wait for the aggregation window to pass and dispatcher to run
@@ -149,8 +149,8 @@ async fn test_throttle_policy_limits_notifications() {
     notifiers.insert(notifier_name.clone(), notifier_config);
 
     let state_repo = Arc::new(setup_db().await);
-    let alert_manager =
-        create_test_alert_manager_with_repo(Arc::new(notifiers), state_repo.clone());
+    let match_manager =
+        create_test_match_manager_with_repo(Arc::new(notifiers), state_repo.clone());
 
     // Mock the throttled notification
     let mock = server
@@ -165,7 +165,7 @@ async fn test_throttle_policy_limits_notifications() {
     // Send more matches than allowed by the throttle policy within the window
     for _ in 0..(max_count + 2) {
         let mut monitor_match = create_monitor_match(&monitor_name, &notifier_name);
-        alert_manager.process_match(&mut monitor_match).await.unwrap();
+        match_manager.process_match(&mut monitor_match).await.unwrap();
     }
 
     // Wait for a short period to ensure all process_match calls complete
@@ -198,7 +198,7 @@ async fn test_throttle_policy_limits_notifications() {
 
     // Send another match after the window expires
     let mut monitor_match = create_monitor_match(&monitor_name, &notifier_name);
-    alert_manager.process_match(&mut monitor_match).await.unwrap();
+    match_manager.process_match(&mut monitor_match).await.unwrap();
 
     // Assert that another notification is sent after the window reset
     sleep(Duration::from_millis(100)).await;
@@ -231,8 +231,8 @@ async fn test_no_policy_sends_notification_per_match() {
     notifiers.insert(notifier_name.clone(), notifier_config);
 
     let state_repo = Arc::new(setup_db().await);
-    let alert_manager =
-        create_test_alert_manager_with_repo(Arc::new(notifiers), state_repo.clone());
+    let match_manager =
+        create_test_match_manager_with_repo(Arc::new(notifiers), state_repo.clone());
 
     // Mock the notification endpoint
     let mock = server
@@ -248,8 +248,8 @@ async fn test_no_policy_sends_notification_per_match() {
     let mut match1 = create_monitor_match(&monitor_name, &notifier_name);
     let mut match2 = create_monitor_match(&monitor_name, &notifier_name);
 
-    alert_manager.process_match(&mut match1).await.unwrap();
-    alert_manager.process_match(&mut match2).await.unwrap();
+    match_manager.process_match(&mut match1).await.unwrap();
+    match_manager.process_match(&mut match2).await.unwrap();
 
     // Wait for a short period to ensure notifications are sent
     sleep(Duration::from_millis(100)).await;
@@ -286,8 +286,8 @@ async fn test_throttle_policy_shared_across_monitors() {
     notifiers.insert(notifier_name.clone(), notifier_config);
 
     let state_repo = Arc::new(setup_db().await);
-    let alert_manager =
-        create_test_alert_manager_with_repo(Arc::new(notifiers), state_repo.clone());
+    let match_manager =
+        create_test_match_manager_with_repo(Arc::new(notifiers), state_repo.clone());
 
     let mock = server
         .mock("POST", "/")
@@ -303,10 +303,10 @@ async fn test_throttle_policy_shared_across_monitors() {
     let mut match3 = create_monitor_match(&monitor_name1, &notifier_name);
     let mut match4 = create_monitor_match(&monitor_name2, &notifier_name);
 
-    alert_manager.process_match(&mut match1).await.unwrap();
-    alert_manager.process_match(&mut match2).await.unwrap();
-    alert_manager.process_match(&mut match3).await.unwrap();
-    alert_manager.process_match(&mut match4).await.unwrap();
+    match_manager.process_match(&mut match1).await.unwrap();
+    match_manager.process_match(&mut match2).await.unwrap();
+    match_manager.process_match(&mut match3).await.unwrap();
+    match_manager.process_match(&mut match4).await.unwrap();
 
     sleep(Duration::from_millis(200)).await;
 
@@ -351,12 +351,12 @@ async fn test_aggregation_state_persistence_on_restart() {
     let state_repo = Arc::new(setup_db().await);
 
     // --- First run: process matches and store state ---
-    let alert_manager1 =
-        create_test_alert_manager_with_repo(notifiers_arc.clone(), state_repo.clone());
+    let match_manager1 =
+        create_test_match_manager_with_repo(notifiers_arc.clone(), state_repo.clone());
     let mut match1 = create_monitor_match(&monitor_name, &notifier_name);
     let mut match2 = create_monitor_match(&monitor_name, &notifier_name);
-    alert_manager1.process_match(&mut match1).await.unwrap();
-    alert_manager1.process_match(&mut match2).await.unwrap();
+    match_manager1.process_match(&mut match1).await.unwrap();
+    match_manager1.process_match(&mut match2).await.unwrap();
 
     // Verify state is persisted
     let state_key = format!("aggregation_state:{}", notifier_name);
@@ -364,9 +364,9 @@ async fn test_aggregation_state_persistence_on_restart() {
         state_repo.get_json_state::<AggregationState>(&state_key).await.unwrap().unwrap();
     assert_eq!(saved_state.matches.len(), 2);
 
-    // --- Simulate restart: create a new AlertManager with the same state ---
-    let alert_manager2 =
-        create_test_alert_manager_with_repo(notifiers_arc.clone(), state_repo.clone());
+    // --- Simulate restart: create a new MatchManager with the same state ---
+    let match_manager2 =
+        create_test_match_manager_with_repo(notifiers_arc.clone(), state_repo.clone());
 
     let mock = server
         .mock("POST", "/")
@@ -379,9 +379,9 @@ async fn test_aggregation_state_persistence_on_restart() {
         .await;
 
     // Run the dispatcher on the new instance
-    let dispatcher_alert_manager = Arc::new(alert_manager2);
+    let dispatcher_match_manager = Arc::new(match_manager2);
     tokio::spawn(async move {
-        dispatcher_alert_manager.run_aggregation_dispatcher(Duration::from_millis(100)).await;
+        dispatcher_match_manager.run_aggregation_dispatcher(Duration::from_millis(100)).await;
     });
 
     sleep(Duration::from_secs(aggregation_window_secs + 1)).await;
@@ -398,12 +398,12 @@ async fn test_aggregation_state_persistence_on_restart() {
 async fn test_process_match_with_invalid_notifier() {
     let state_repo = Arc::new(setup_db().await);
     // No notifiers configured
-    let alert_manager =
-        create_test_alert_manager_with_repo(Arc::new(HashMap::new()), state_repo.clone());
+    let match_manager =
+        create_test_match_manager_with_repo(Arc::new(HashMap::new()), state_repo.clone());
 
     let mut monitor_match = create_monitor_match("any_monitor", "non_existent_notifier");
 
-    let result = alert_manager.process_match(&mut monitor_match).await;
+    let result = match_manager.process_match(&mut monitor_match).await;
 
     assert!(result.is_err());
     if let Err(e) = result {

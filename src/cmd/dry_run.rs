@@ -12,10 +12,10 @@ use crate::{
     config::{ActionConfig, AppConfig},
     engine::{
         action_handler::ActionHandler,
-        alert_manager::{AlertManager, AlertManagerError},
         block_processor::process_blocks_batch,
         filtering::{FilteringEngine, RhaiError, RhaiFilteringEngine},
         js::JavaScriptRunner,
+        match_manager::{MatchManager, MatchManagerError},
         rhai::{RhaiCompiler, RhaiScriptValidator},
     },
     http_client::HttpClientPool,
@@ -80,9 +80,9 @@ pub enum DryRunError {
     #[error("ABI repository error: {0}")]
     AbiRepository(#[from] AbiRepositoryError),
 
-    /// An error occurred in the alert manager.
-    #[error("Alert manager error: {0}")]
-    AlertManager(#[from] AlertManagerError),
+    /// An error occurred in the match manager.
+    #[error("Match manager error: {0}")]
+    MatchManager(#[from] MatchManagerError),
 
     /// An error occurred in the state repository.
     #[error("State repository error: {0}")]
@@ -221,13 +221,13 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
 
     let actions = actions.into_iter().map(|a| (a.name.clone(), a)).collect::<HashMap<_, _>>();
 
-    // Init the ActionHandler and AlertManager.
+    // Init the ActionHandler and MatchManager.
     let action_handler = Arc::new(ActionHandler::new(
         JavaScriptRunner::new(),
         Arc::new(actions),
         monitor_manager.clone(),
     ));
-    let alert_manager = Arc::new(AlertManager::new(
+    let match_manager = Arc::new(MatchManager::new(
         notification_service,
         state_repo,
         notifiers,
@@ -236,7 +236,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
 
     // Execute the core processing loop.
     let matches =
-        run_dry_run_loop(args.from, args.to, Box::new(evm_source), filtering_engine, alert_manager)
+        run_dry_run_loop(args.from, args.to, Box::new(evm_source), filtering_engine, match_manager)
             .await?;
 
     // Serialize and print the final report.
@@ -256,7 +256,8 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
 /// * `block_processor` - The service for decoding raw block data.
 /// * `filtering_engine` - The service for evaluating data against monitor
 ///   scripts.
-/// * `alert_manager` - The service for managing alerts and notifications.
+/// * `match_manager` - The service for managing matches, including
+///   notifications and post-match script execution.
 ///
 /// # Returns
 ///
@@ -267,7 +268,7 @@ async fn run_dry_run_loop(
     to_block: u64,
     data_source: Box<dyn DataSource>,
     filtering_engine: RhaiFilteringEngine,
-    alert_manager: Arc<AlertManager<SqliteStateRepository>>,
+    match_manager: Arc<MatchManager<SqliteStateRepository>>,
 ) -> Result<Vec<MonitorMatch>, DryRunError> {
     // Define a batch size for processing blocks in chunks.
     const BATCH_SIZE: u64 = 50;
@@ -321,7 +322,7 @@ async fn run_dry_run_loop(
                         limited_matches.truncate(10);
                     }
                     for mut m in limited_matches {
-                        alert_manager.process_match(&mut m).await?;
+                        match_manager.process_match(&mut m).await?;
                         matches.push(m.clone());
                     }
                 }
@@ -333,7 +334,7 @@ async fn run_dry_run_loop(
     }
     tracing::info!("Block processing finished.");
 
-    alert_manager.flush().await?;
+    match_manager.flush().await?;
     tracing::info!("Dispatched any pending aggregated notifications.");
 
     Ok(matches)
@@ -358,7 +359,7 @@ mod tests {
             notifier::{NotifierTypeConfig, SlackConfig},
         },
         providers::traits::MockDataSource,
-        test_helpers::{BlockBuilder, TransactionBuilder, create_test_alert_manager},
+        test_helpers::{BlockBuilder, TransactionBuilder, create_test_match_manager},
     };
 
     #[tokio::test]
@@ -419,7 +420,7 @@ mod tests {
                 policy: None,
             },
         )]);
-        let alert_manager = create_test_alert_manager(Arc::new(notifiers)).await;
+        let match_manager = create_test_match_manager(Arc::new(notifiers)).await;
 
         // Act
         let result = run_dry_run_loop(
@@ -427,7 +428,7 @@ mod tests {
             to_block,
             Box::new(mock_data_source),
             filtering_engine,
-            alert_manager,
+            match_manager,
         )
         .await;
 
@@ -482,7 +483,7 @@ mod tests {
             rhai_config,
             monitor_manager.clone(),
         );
-        let alert_manager = create_test_alert_manager(Arc::new(HashMap::new())).await;
+        let match_manager = create_test_match_manager(Arc::new(HashMap::new())).await;
 
         // Act
         let result = run_dry_run_loop(
@@ -490,7 +491,7 @@ mod tests {
             to_block,
             Box::new(mock_data_source),
             filtering_engine,
-            alert_manager,
+            match_manager,
         )
         .await;
 
@@ -540,7 +541,7 @@ mod tests {
             rhai_config,
             monitor_manager.clone(),
         );
-        let alert_manager = create_test_alert_manager(Arc::new(HashMap::new())).await;
+        let match_manager = create_test_match_manager(Arc::new(HashMap::new())).await;
 
         // Act
         let result = run_dry_run_loop(
@@ -548,7 +549,7 @@ mod tests {
             to_block,
             Box::new(mock_data_source),
             filtering_engine,
-            alert_manager,
+            match_manager,
         )
         .await;
 
@@ -591,7 +592,7 @@ mod tests {
             rhai_config,
             monitor_manager.clone(),
         );
-        let alert_manager = create_test_alert_manager(Arc::new(HashMap::new())).await;
+        let match_manager = create_test_match_manager(Arc::new(HashMap::new())).await;
 
         // Act
         let result = run_dry_run_loop(
@@ -599,7 +600,7 @@ mod tests {
             to_block,
             Box::new(mock_data_source),
             filtering_engine,
-            alert_manager,
+            match_manager,
         )
         .await;
 
@@ -681,7 +682,7 @@ mod tests {
                 },
             ),
         ]);
-        let alert_manager = create_test_alert_manager(Arc::new(notifiers)).await;
+        let match_manager = create_test_match_manager(Arc::new(notifiers)).await;
 
         // Act
         let result = run_dry_run_loop(
@@ -689,7 +690,7 @@ mod tests {
             to_block,
             Box::new(mock_data_source),
             filtering_engine,
-            alert_manager,
+            match_manager,
         )
         .await;
 

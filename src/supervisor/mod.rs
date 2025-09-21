@@ -30,8 +30,8 @@ use tokio::{signal, sync::mpsc};
 use crate::{
     config::AppConfig,
     engine::{
-        alert_manager::AlertManager, block_ingestor::BlockIngestor,
-        block_processor::BlockProcessor, filtering::FilteringEngine,
+        block_ingestor::BlockIngestor, block_processor::BlockProcessor, filtering::FilteringEngine,
+        match_manager::MatchManager,
     },
     models::{BlockData, CorrelatedBlockData, monitor::Monitor, monitor_match::MonitorMatch},
     monitor::{MonitorManager, MonitorValidationError},
@@ -118,9 +118,9 @@ pub struct Supervisor {
     /// monitors.
     filtering: Arc<dyn FilteringEngine>,
 
-    /// The alert manager that handles sending alerts based on
+    /// The match manager that handles sending alerts based on
     /// matched monitors.
-    alert_manager: Arc<AlertManager<SqliteStateRepository>>,
+    match_manager: Arc<MatchManager<SqliteStateRepository>>,
 
     /// A token used to signal a graceful shutdown to all supervised tasks.
     cancellation_token: tokio_util::sync::CancellationToken,
@@ -142,7 +142,7 @@ impl Supervisor {
         state: Arc<SqliteStateRepository>,
         data_source: Box<dyn DataSource>,
         filtering: Arc<dyn FilteringEngine>,
-        alert_manager: Arc<AlertManager<SqliteStateRepository>>,
+        match_manager: Arc<MatchManager<SqliteStateRepository>>,
         monitor_manager: Arc<MonitorManager>,
     ) -> Self {
         Self {
@@ -150,7 +150,7 @@ impl Supervisor {
             state,
             data_source: Arc::from(data_source),
             filtering,
-            alert_manager,
+            match_manager,
             cancellation_token: tokio_util::sync::CancellationToken::new(),
             join_set: tokio::task::JoinSet::new(),
             monitor_manager,
@@ -207,7 +207,7 @@ impl Supervisor {
         let (correlated_blocks_tx, correlated_blocks_rx) =
             mpsc::channel::<CorrelatedBlockData>(self.config.block_chunk_size as usize * 2);
 
-        // Create the channel that connects the FilteringEngine to the AlertManager.
+        // Create the channel that connects the FilteringEngine to the MatchManager.
         let (monitor_matches_tx, mut monitor_matches_rx) =
             mpsc::channel::<MonitorMatch>(self.config.notification_channel_capacity as usize);
 
@@ -244,11 +244,11 @@ impl Supervisor {
             filtering_engine_clone.run(correlated_blocks_rx, monitor_matches_tx).await;
         });
 
-        // Spawn the AlertManager's main processing loop.
-        let alert_manager_clone = Arc::clone(&self.alert_manager);
+        // Spawn the MatchManager's main processing loop.
+        let match_manager_clone = Arc::clone(&self.match_manager);
         self.join_set.spawn(async move {
             while let Some(mut monitor_match) = monitor_matches_rx.recv().await {
-                if let Err(e) = alert_manager_clone.process_match(&mut monitor_match).await {
+                if let Err(e) = match_manager_clone.process_match(&mut monitor_match).await {
                     tracing::error!(
                         "Failed to process monitor match for notifier '{}': {}",
                         monitor_match.notifier_name,
@@ -258,11 +258,11 @@ impl Supervisor {
             }
         });
 
-        // Spawn the AlertManager's background aggregation dispatcher.
-        let dispatcher_alert_manager = Arc::clone(&self.alert_manager);
+        // Spawn the MatchManager's background aggregation dispatcher.
+        let dispatcher_match_manager = Arc::clone(&self.match_manager);
         let aggregation_check_interval = self.config.aggregation_check_interval_secs;
         self.join_set.spawn(async move {
-            dispatcher_alert_manager.run_aggregation_dispatcher(aggregation_check_interval).await;
+            dispatcher_match_manager.run_aggregation_dispatcher(aggregation_check_interval).await;
         });
 
         // --- Main Supervisor Loop ---

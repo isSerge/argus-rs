@@ -1,4 +1,4 @@
-//! Alert management module
+//! Match management module
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 use crate::{
     engine::action_handler::ActionHandler,
     models::{
-        alert_manager_state::{AggregationState, ThrottleState},
+        match_manager_state::{AggregationState, ThrottleState},
         monitor_match::MonitorMatch,
         notifier::{NotifierConfig, NotifierPolicy},
     },
@@ -17,10 +17,10 @@ use crate::{
     persistence::traits::GenericStateRepository,
 };
 
-/// The AlertManager is responsible for processing monitor matches, applying
+/// The MatchManager is responsible for processing monitor matches, applying
 /// notification policies (throttling, aggregation, etc.) and submitting
 /// notifications to Notification service
-pub struct AlertManager<T: GenericStateRepository> {
+pub struct MatchManager<T: GenericStateRepository> {
     /// The notification service used to send alerts
     notification_service: Arc<NotificationService>,
 
@@ -37,9 +37,9 @@ pub struct AlertManager<T: GenericStateRepository> {
     action_handler: Option<Arc<ActionHandler>>,
 }
 
-/// Errors that can occur within the AlertManager
+/// Errors that can occur within the MatchManager
 #[derive(Debug, Error)]
-pub enum AlertManagerError {
+pub enum MatchManagerError {
     /// Error occurred in the notification service
     #[error("Notification error: {0}")]
     NotificationError(#[from] NotificationError),
@@ -50,8 +50,8 @@ pub enum AlertManagerError {
     StateRepositoryError(#[from] sqlx::Error),
 }
 
-impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
-    /// Creates a new AlertManager instance
+impl<T: GenericStateRepository + Send + Sync + 'static> MatchManager<T> {
+    /// Creates a new MatchManager instance
     pub fn new(
         notification_service: Arc<NotificationService>,
         state_repository: Arc<T>,
@@ -71,7 +71,7 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
     pub async fn process_match(
         &self,
         monitor_match: &mut MonitorMatch,
-    ) -> Result<(), AlertManagerError> {
+    ) -> Result<(), MatchManagerError> {
         // --- Action Execution ---
         // First, execute any on_match actions associated with the monitor.
         if let Some(handler) = &self.action_handler {
@@ -88,7 +88,7 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
                     notifier = %monitor_match.notifier_name,
                     "Notifier configuration not found for monitor match."
                 );
-                return Err(AlertManagerError::NotificationError(NotificationError::ConfigError(
+                return Err(MatchManagerError::NotificationError(NotificationError::ConfigError(
                     format!("Notifier '{}' not found", monitor_match.notifier_name),
                 )));
             }
@@ -137,7 +137,7 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
         &self,
         monitor_match: &MonitorMatch,
         policy: &crate::models::notifier::ThrottlePolicy,
-    ) -> Result<(), AlertManagerError> {
+    ) -> Result<(), MatchManagerError> {
         let notifier_name = &monitor_match.notifier_name;
         let lock = self.get_notifier_lock(notifier_name);
         let _guard = lock.lock().await;
@@ -213,7 +213,7 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
     async fn handle_aggregation(
         &self,
         monitor_match: &MonitorMatch,
-    ) -> Result<(), AlertManagerError> {
+    ) -> Result<(), MatchManagerError> {
         let aggregation_key = &monitor_match.notifier_name;
         let lock = self.get_notifier_lock(aggregation_key);
         let _guard = lock.lock().await;
@@ -224,7 +224,7 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
             .state_repository
             .get_json_state::<AggregationState>(&state_key)
             .await
-            .map_err(AlertManagerError::from)?
+            .map_err(MatchManagerError::from)?
             .unwrap_or_default();
 
         // If this is the first match for a new window, set the start time.
@@ -244,7 +244,7 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
     async fn check_and_dispatch_expired_windows(
         &self,
         force: bool,
-    ) -> Result<(), AlertManagerError> {
+    ) -> Result<(), MatchManagerError> {
         const AGGREGATION_PREFIX: &str = "aggregation_state:";
         let pending_states = self
             .state_repository
@@ -344,7 +344,7 @@ impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
     }
 
     /// Flushes any pending aggregated notifications.
-    pub async fn flush(&self) -> Result<(), AlertManagerError> {
+    pub async fn flush(&self) -> Result<(), MatchManagerError> {
         self.check_and_dispatch_expired_windows(true).await
     }
 }
@@ -364,7 +364,7 @@ mod tests {
             notifier::{AggregationPolicy, DiscordConfig, NotifierTypeConfig, ThrottlePolicy},
         },
         persistence::traits::MockGenericStateRepository,
-        test_helpers::create_test_alert_manager_with_repo,
+        test_helpers::create_test_match_manager_with_repo,
     };
 
     fn create_monitor_match(notifier_name: String) -> MonitorMatch {
@@ -394,17 +394,17 @@ mod tests {
         // Arrange
         let notifiers = HashMap::new(); // Empty notifiers map
         let state_repo = MockGenericStateRepository::new();
-        let alert_manager =
-            create_test_alert_manager_with_repo(Arc::new(notifiers), Arc::new(state_repo));
+        let match_manager =
+            create_test_match_manager_with_repo(Arc::new(notifiers), Arc::new(state_repo));
         let mut monitor_match = create_monitor_match("NonExistentNotifier".to_string());
 
         // Act
-        let result = alert_manager.process_match(&mut monitor_match).await;
+        let result = match_manager.process_match(&mut monitor_match).await;
 
         // Assert
         assert!(matches!(
             result,
-            Err(AlertManagerError::NotificationError(NotificationError::ConfigError(_)))
+            Err(MatchManagerError::NotificationError(NotificationError::ConfigError(_)))
         ));
     }
 
@@ -426,12 +426,12 @@ mod tests {
         let mut notifiers = HashMap::new();
         notifiers.insert(notifier_name.to_string(), notifier_config);
         let state_repo = MockGenericStateRepository::new();
-        let alert_manager =
-            create_test_alert_manager_with_repo(Arc::new(notifiers), Arc::new(state_repo));
+        let match_manager =
+            create_test_match_manager_with_repo(Arc::new(notifiers), Arc::new(state_repo));
         let mut monitor_match = create_monitor_match(notifier_name);
 
         // Act
-        let result = alert_manager.process_match(&mut monitor_match).await;
+        let result = match_manager.process_match(&mut monitor_match).await;
 
         // Assert
         assert!(result.is_ok());
@@ -478,11 +478,11 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(())); // Simulate successful state save
 
-        let alert_manager =
-            create_test_alert_manager_with_repo(Arc::new(notifiers), Arc::new(state_repo));
+        let match_manager =
+            create_test_match_manager_with_repo(Arc::new(notifiers), Arc::new(state_repo));
         let mut monitor_match = create_monitor_match(notifier_name);
 
-        let result = alert_manager.process_match(&mut monitor_match).await;
+        let result = match_manager.process_match(&mut monitor_match).await;
 
         assert!(result.is_ok());
     }
@@ -529,11 +529,11 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(())); // Simulate successful state save
 
-        let alert_manager =
-            create_test_alert_manager_with_repo(Arc::new(notifiers), Arc::new(state_repo));
+        let match_manager =
+            create_test_match_manager_with_repo(Arc::new(notifiers), Arc::new(state_repo));
         let mut monitor_match = create_monitor_match(notifier_name);
 
-        let result = alert_manager.process_match(&mut monitor_match).await;
+        let result = match_manager.process_match(&mut monitor_match).await;
 
         assert!(result.is_ok());
     }
@@ -578,11 +578,11 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(())); // Simulate successful state save
 
-        let alert_manager =
-            create_test_alert_manager_with_repo(Arc::new(notifiers), Arc::new(state_repo));
+        let match_manager =
+            create_test_match_manager_with_repo(Arc::new(notifiers), Arc::new(state_repo));
         let mut monitor_match = create_monitor_match(notifier_name);
 
-        let result = alert_manager.process_match(&mut monitor_match).await;
+        let result = match_manager.process_match(&mut monitor_match).await;
 
         assert!(result.is_ok());
     }
@@ -632,10 +632,10 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(()));
 
-        let alert_manager =
-            create_test_alert_manager_with_repo(Arc::new(notifiers), Arc::new(state_repo));
+        let match_manager =
+            create_test_match_manager_with_repo(Arc::new(notifiers), Arc::new(state_repo));
 
-        let result = alert_manager.process_match(&mut monitor_match).await;
+        let result = match_manager.process_match(&mut monitor_match).await;
         assert!(result.is_ok());
 
         // Note: The spawned task's behavior is tested by integration tests
@@ -692,10 +692,10 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(()));
 
-        let alert_manager =
-            create_test_alert_manager_with_repo(Arc::new(notifiers), Arc::new(state_repo));
+        let match_manager =
+            create_test_match_manager_with_repo(Arc::new(notifiers), Arc::new(state_repo));
 
-        let result = alert_manager.process_match(&mut monitor_match).await;
+        let result = match_manager.process_match(&mut monitor_match).await;
         assert!(result.is_ok());
     }
 
@@ -752,11 +752,11 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(()));
 
-        let alert_manager =
-            create_test_alert_manager_with_repo(Arc::new(notifiers), Arc::new(state_repo));
+        let match_manager =
+            create_test_match_manager_with_repo(Arc::new(notifiers), Arc::new(state_repo));
 
         // Act
-        let result = alert_manager.check_and_dispatch_expired_windows(false).await;
+        let result = match_manager.check_and_dispatch_expired_windows(false).await;
 
         // Assert
         assert!(result.is_ok());
@@ -766,15 +766,15 @@ mod tests {
     async fn test_get_notifier_lock_is_shared_and_distinct() {
         // Arrange
         let state_repo = MockGenericStateRepository::new();
-        let alert_manager =
-            create_test_alert_manager_with_repo(Arc::new(HashMap::new()), Arc::new(state_repo));
+        let match_manager =
+            create_test_match_manager_with_repo(Arc::new(HashMap::new()), Arc::new(state_repo));
         let notifier1_name = "notifier1";
         let notifier2_name = "notifier2";
 
         // Act
-        let lock1_instance1 = alert_manager.get_notifier_lock(notifier1_name);
-        let lock1_instance2 = alert_manager.get_notifier_lock(notifier1_name);
-        let lock2_instance1 = alert_manager.get_notifier_lock(notifier2_name);
+        let lock1_instance1 = match_manager.get_notifier_lock(notifier1_name);
+        let lock1_instance2 = match_manager.get_notifier_lock(notifier1_name);
+        let lock2_instance1 = match_manager.get_notifier_lock(notifier2_name);
 
         // Assert
         // The same notifier name should return the same lock instance.
