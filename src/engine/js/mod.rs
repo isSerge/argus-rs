@@ -86,7 +86,6 @@ pub async fn execute_action(
         .await
         .map_err(|e| JsRunnerError::Runtime(Box::new(e)))??;
 
-    println!("Modified MonitorMatch: {:?}", modified_match);
     Ok(modified_match)
 }
 
