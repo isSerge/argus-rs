@@ -48,20 +48,16 @@ mod tests {
 
     #[test]
     fn test_action_config_validation() {
-        let valid_config =
-            ActionConfig { name: "Valid Action".into(), file: "actions/action.js".into() };
-        assert!(valid_config.validate().is_ok());
-
+        // Invalid config with empty name and file - should fail
         let invalid_config = ActionConfig { name: "".into(), file: "".into() };
         assert!(invalid_config.validate().is_err());
-    }
 
-    #[test]
-    fn test_action_config_file_existence() {
+        // Non-existent file - should fail
         let non_existent_file_config =
             ActionConfig { name: "NonExistent".into(), file: "non_existent_file.rs".into() };
         assert!(non_existent_file_config.validate().is_err());
 
+        // Valid existent file - should pass
         // Create a temporary file to test existence
         let temp_dir = tempfile::tempdir().unwrap();
         let temp_action_file = temp_dir.path().join("temp_action.js");
