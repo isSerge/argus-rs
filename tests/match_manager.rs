@@ -1,8 +1,11 @@
 //! Integration tests for the MatchManager service
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, fs, sync::Arc, time::Duration};
 
 use argus::{
+    config::ActionConfig,
+    engine::{action_handler::ActionHandler, match_manager::MatchManager},
+    http_client::HttpClientPool,
     models::{
         NotificationMessage,
         match_manager_state::{AggregationState, ThrottleState},
@@ -12,8 +15,11 @@ use argus::{
             ThrottlePolicy,
         },
     },
+    notification::NotificationService,
     persistence::{sqlite::SqliteStateRepository, traits::GenericStateRepository},
-    test_helpers::create_test_match_manager_with_repo,
+    test_helpers::{
+        MonitorBuilder, create_test_match_manager_with_repo, create_test_monitor_manager,
+    },
 };
 use mockito;
 use serde_json::json;
@@ -398,4 +404,89 @@ async fn test_process_match_with_invalid_notifier() {
     if let Err(e) = result {
         assert!(e.to_string().contains("Notifier 'non_existent_notifier' not found"));
     }
+}
+
+#[tokio::test]
+async fn test_process_match_with_action_handler_returns_modified_match() {
+    let mut server = mockito::Server::new_async().await;
+    let monitor_name = "test_monitor".to_string();
+    let notifier_name = "default_notifier".to_string();
+    let action_name = "modify_action".to_string();
+
+    let notifier_config = NotifierConfig {
+        name: notifier_name.clone(),
+        config: NotifierTypeConfig::Discord(DiscordConfig {
+            discord_url: server.url(),
+            message: NotificationMessage {
+                title: "Title".to_string(),
+                body: "Monitor name modified by action: {{ monitor_name }}".to_string(),
+            },
+            retry_policy: Default::default(),
+        }),
+        policy: None, // No policy
+    };
+    let mut notifiers = HashMap::new();
+    notifiers.insert(notifier_name.clone(), notifier_config);
+
+    let notifiers_arc = Arc::new(notifiers);
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let action_file_path = temp_dir.path().join("test_action.js");
+    // This action modifies the monitor_name in the match
+    fs::write(
+        &action_file_path,
+        r#"
+        match.monitor_name = "test_monitor_modified_by_action";
+    "#,
+    )
+    .unwrap();
+
+    let action_config = ActionConfig { name: action_name.clone(), file: action_file_path };
+
+    let mut actions = HashMap::new();
+    actions.insert(action_config.name.clone(), action_config);
+
+    let monitor = MonitorBuilder::new()
+        .name(&monitor_name)
+        .notifiers(vec![notifier_name.clone()])
+        .on_match(vec![action_name.clone()])
+        .build();
+
+    let monitor_manager = create_test_monitor_manager(vec![monitor]);
+    let action_handler = ActionHandler::new(Arc::new(actions), monitor_manager.clone());
+
+    let state_repo = Arc::new(setup_db().await);
+    let notification_service = Arc::new(NotificationService::new(
+        notifiers_arc.clone(),
+        Arc::new(HttpClientPool::default()),
+    ));
+
+    let match_manager = Arc::new(MatchManager::new(
+        notification_service,
+        state_repo.clone(),
+        notifiers_arc.clone(),
+        Some(Arc::new(action_handler)),
+    ));
+
+    // Mock the notification endpoint
+    let mock = server
+        .mock("POST", "/")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"content":"*Title*\n\nMonitor name modified by action: test_monitor_modified_by_action"}"#)
+        .expect(1)
+        .create_async()
+        .await;
+
+    let monitor_match = create_monitor_match(&monitor_name, &notifier_name);
+
+    let result = match_manager.process_match(monitor_match.clone()).await;
+
+    assert!(result.is_ok(), "Processing match failed: {:?}", result.err());
+
+    // Wait for a short period to ensure notifications are sent
+    sleep(Duration::from_millis(100)).await;
+
+    // Assert that the notification was sent
+    mock.assert();
 }

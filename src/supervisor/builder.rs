@@ -221,4 +221,35 @@ mod tests {
         let result = builder.build().await;
         assert!(matches!(result, Err(SupervisorError::MissingAbiService)));
     }
+
+    #[tokio::test]
+    async fn builder_can_add_actions_and_build() {
+        let app_config = AppConfig::builder()
+            .rpc_urls(vec![
+                "http://localhost:8545".parse().unwrap(), // Cannot be empty to create provider
+            ])
+            .build();
+        let dir = tempdir().unwrap();
+        let (abi_service, _) = create_test_abi_service(&dir, &[]);
+        let state_repo = Arc::new(setup_test_db().await);
+        let actions = vec![
+            ActionConfig { name: "action1".into(), file: "actions/action1.js".into() },
+            ActionConfig { name: "action2".into(), file: "actions/action2.js".into() },
+        ];
+
+        let builder = SupervisorBuilder::new()
+            .config(app_config)
+            .state(state_repo)
+            .abi_service(abi_service)
+            .script_compiler(Arc::new(RhaiCompiler::new(RhaiConfig::default())))
+            .actions(actions.clone());
+
+        let supervisor = builder.build().await;
+
+        assert!(
+            supervisor.is_ok(),
+            "Expected build to succeed, but got error: {:?}",
+            supervisor.err()
+        );
+    }
 }
