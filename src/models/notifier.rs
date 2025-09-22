@@ -218,7 +218,7 @@ impl Loadable for NotifierConfig {
 
     const KEY: &'static str = "notifiers";
 
-    fn validate(&mut self) -> Result<(), Self::Error> {
+    fn validate(&self) -> Result<(), Self::Error> {
         self.config.validate().map_err(NotifierError::Validation)
     }
 }

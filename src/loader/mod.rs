@@ -1,6 +1,10 @@
 //! Generic configuration loading utilities.
 
-use std::{env, fs, path::PathBuf};
+use std::{
+    env, fs,
+    io::{Error, ErrorKind},
+    path::PathBuf,
+};
 
 use config::{Config, File, FileFormat};
 use regex::Regex;
@@ -25,6 +29,10 @@ pub enum LoaderError {
     /// Error when an expected environment variable is missing.
     #[error("Missing environment variable: {0}")]
     MissingEnvVar(String),
+
+    /// Error when validation of the loaded configuration fails.
+    #[error("Validation error: {0}")]
+    ValidationError(String),
 }
 
 /// A generic loader for YAML files.
@@ -95,17 +103,30 @@ pub trait Loadable: Sized + DeserializeOwned {
     ///
     /// This method has a default no-op implementation, making it optional
     /// for types that don't require specific processing.
-    fn validate(&mut self) -> Result<(), Self::Error> {
+    fn validate(&self) -> Result<(), Self::Error> {
         Ok(())
     }
 }
 
 /// Loads a vector of `Loadable` items from a configuration file.
-pub fn load_config<T: Loadable>(path: PathBuf) -> Result<Vec<T>, T::Error> {
+/// If the file does not exist and `required` is false, returns an empty vector
+/// (e.g., for optional configs like Actions). If `required` is true and the
+/// file does not exist, returns an error (e.g., for critical configs like
+/// Monitors and Notifiers).
+pub fn load_config<T: Loadable>(path: PathBuf, required: bool) -> Result<Vec<T>, T::Error> {
+    if !path.exists() {
+        if required {
+            return Err(T::Error::from(LoaderError::IoError(Error::new(
+                ErrorKind::NotFound,
+                format!("Configuration file not found: {}", path.display()),
+            ))));
+        }
+        return Ok(vec![]);
+    }
     let loader = ConfigLoader::new(path.clone());
-    let mut items: Vec<T> = loader.load(T::KEY)?;
+    let items: Vec<T> = loader.load(T::KEY)?;
 
-    for item in &mut items {
+    for item in &items {
         item.validate()?;
     }
 
@@ -125,6 +146,12 @@ mod tests {
     struct TestItem {
         name: String,
         value: i32,
+    }
+
+    impl Loadable for TestItem {
+        type Error = LoaderError;
+
+        const KEY: &'static str = "items";
     }
 
     fn create_test_file(dir: &TempDir, filename: &str, content: &str) -> PathBuf {
@@ -236,5 +263,45 @@ wrong_key:
 
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), LoaderError::ParseError(_)));
+    }
+
+    #[test]
+    fn test_load_config_success() {
+        let dir = TempDir::new().unwrap();
+        let content = r#"
+items:
+  - name: "A"
+    value: 1
+  - name: "B"
+    value: 2
+"#;
+        let path = create_test_file(&dir, "test.yaml", content);
+        let result = load_config::<TestItem>(path, true);
+        assert!(result.is_ok());
+        let items = result.unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].name, "A");
+        assert_eq!(items[0].value, 1);
+        assert_eq!(items[1].name, "B");
+        assert_eq!(items[1].value, 2);
+    }
+
+    #[test]
+    fn test_load_config_file_not_found_required() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("nonexistent.yaml");
+        let result = load_config::<TestItem>(path, true);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), LoaderError::IoError(_)));
+    }
+
+    #[test]
+    fn test_load_config_file_not_found_not_required() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("nonexistent.yaml");
+        let result = load_config::<TestItem>(path, false);
+        assert!(result.is_ok());
+        let items = result.unwrap();
+        assert!(items.is_empty());
     }
 }

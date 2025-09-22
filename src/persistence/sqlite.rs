@@ -4,9 +4,9 @@
 use std::str::FromStr;
 
 use async_trait::async_trait;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::NaiveDateTime;
 use serde::{Serialize, de::DeserializeOwned};
-use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
+use sqlx::{Row, SqlitePool, sqlite::SqliteConnectOptions};
 
 use super::traits::{GenericStateRepository, StateRepository};
 use crate::models::{
@@ -252,67 +252,64 @@ impl StateRepository for SqliteStateRepository {
     async fn get_monitors(&self, network_id: &str) -> Result<Vec<Monitor>, sqlx::Error> {
         tracing::debug!(network_id, "Querying for monitors.");
 
-        // Helper struct for mapping from the database row
-        #[derive(sqlx::FromRow)]
-        struct MonitorRow {
-            monitor_id: i64,
-            name: String,
-            network: String,
-            address: Option<String>,
-            abi: Option<String>,
-            filter_script: String,
-            notifiers: String,
-            created_at: NaiveDateTime,
-            updated_at: NaiveDateTime,
-        }
-
-        let monitor_rows = self
+        let rows = self
             .execute_query_with_error_handling("query monitors", async {
-                sqlx::query_as!(
-                    MonitorRow,
+                sqlx::query(
                     r#"
                 SELECT 
-                    monitor_id as "monitor_id!", 
+                    monitor_id, 
                     name, 
                     network, 
                     address, 
                     abi, 
                     filter_script, 
                     notifiers,
-                    created_at as "created_at!", 
-                    updated_at as "updated_at!"
+                    created_at, 
+                    updated_at,
+                    on_match
                 FROM monitors 
                 WHERE network = ?
                 "#,
-                    network_id
                 )
+                .bind(network_id)
                 .fetch_all(&self.pool)
                 .await
             })
             .await?;
 
-        let monitors = monitor_rows
-            .into_iter()
-            .map(|row| {
-                let notifiers: Vec<String> = serde_json::from_str(&row.notifiers)
-                    .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+        let mut monitors = Vec::new();
+        for row in rows {
+            let notifiers_json: String = row.get("notifiers");
+            let on_match_json: String = row.get("on_match");
 
-                let created_at = DateTime::<Utc>::from_naive_utc_and_offset(row.created_at, Utc);
-                let updated_at = DateTime::<Utc>::from_naive_utc_and_offset(row.updated_at, Utc);
+            let notifiers: Vec<String> = serde_json::from_str(&notifiers_json).map_err(|e| {
+                sqlx::Error::ColumnDecode { index: "notifiers".to_string(), source: Box::new(e) }
+            })?;
 
-                Ok(Monitor {
-                    id: row.monitor_id,
-                    name: row.name,
-                    network: row.network,
-                    address: row.address,
-                    abi: row.abi,
-                    filter_script: row.filter_script,
-                    notifiers,
-                    created_at,
-                    updated_at,
-                })
-            })
-            .collect::<Result<Vec<_>, sqlx::Error>>()?;
+            let on_match: Option<Vec<String>> =
+                serde_json::from_str(&on_match_json).map_err(|e| sqlx::Error::ColumnDecode {
+                    index: "on_match".to_string(),
+                    source: Box::new(e),
+                })?;
+
+            let created_at: NaiveDateTime = row.get("created_at");
+            let updated_at: NaiveDateTime = row.get("updated_at");
+
+            let created_at = created_at.and_utc();
+            let updated_at = updated_at.and_utc();
+            monitors.push(Monitor {
+                id: row.get("monitor_id"),
+                name: row.get("name"),
+                network: row.get("network"),
+                address: row.get("address"),
+                abi: row.get("abi"),
+                filter_script: row.get("filter_script"),
+                notifiers,
+                on_match,
+                created_at,
+                updated_at,
+            });
+        }
 
         tracing::debug!(
             network_id,
@@ -351,18 +348,21 @@ impl StateRepository for SqliteStateRepository {
         let mut tx = self.pool.begin().await?;
 
         for monitor in monitors {
-            let notifiers_str = serde_json::to_string(&monitor.notifiers)
+            let notifiers_json = serde_json::to_string(&monitor.notifiers)
+                .map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
+            let on_match_json = serde_json::to_string(&monitor.on_match)
                 .map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
 
             sqlx::query!(
-                "INSERT INTO monitors (name, network, address, abi, filter_script, notifiers) \
-                 VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO monitors (name, network, address, abi, filter_script, notifiers, \
+                 on_match) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 monitor.name,
                 monitor.network,
                 monitor.address,
                 monitor.abi,
                 monitor.filter_script,
-                notifiers_str,
+                notifiers_json,
+                on_match_json,
             )
             .execute(&mut *tx)
             .await?;
@@ -700,31 +700,34 @@ mod tests {
 
         // Create test monitors
         let test_monitors = vec![
-            MonitorConfig::from_config(
-                "USDC Transfer Monitor".to_string(),
-                network_id.to_string(),
-                Some("0xa0b86a33e6441b38d4b5e5bfa1bf7a5eb70c5b1e".to_string()),
-                Some("usdc".to_string()),
-                r#"log.name == "Transfer" && bigint(log.params.value) > bigint("1000000000")"#
-                    .to_string(),
-                vec!["test-notifier".to_string()],
-            ),
-            MonitorConfig::from_config(
-                "Simple Transfer Monitor".to_string(),
-                network_id.to_string(),
-                Some("0x7a250d5630b4cf539739df2c5dacb4c659f2488d".to_string()),
-                Some("test".to_string()),
-                r#"log.name == "Transfer""#.to_string(),
-                vec![],
-            ),
-            MonitorConfig::from_config(
-                "Native ETH Monitor".to_string(),
-                network_id.to_string(),
-                None, // No address for transaction-level monitor
-                None,
-                r#"bigint(tx.value) > bigint("1000000000000000000")"#.to_string(),
-                vec!["eth-notifier".to_string(), "another-notifier".to_string()],
-            ),
+            MonitorConfig {
+                name: "USDC Transfer Monitor".to_string(),
+                network: network_id.to_string(),
+                address: Some("0xa0b86a33e6441b38d4b5e5bfa1bf7a5eb70c5b1e".to_string()),
+                abi: Some("usdc".to_string()),
+                filter_script:
+                    r#"log.name == "Transfer" && bigint(log.params.value) > bigint("1000000000")"#
+                        .to_string(),
+                notifiers: vec!["test-notifier".to_string()],
+                on_match: None,
+            },
+            MonitorConfig {
+                name: "Simple Transfer Monitor".to_string(),
+                network: network_id.to_string(),
+                address: Some("0x7a250d5630b4cf539739df2c5dacb4c659f2488d".to_string()),
+                abi: Some("test".to_string()),
+                filter_script: r#"log.name == "Transfer""#.to_string(),
+                ..Default::default()
+            },
+            MonitorConfig {
+                name: "Native ETH Monitor".to_string(),
+                network: network_id.to_string(),
+                address: None, // No address for transaction-level monitor
+                abi: None,
+                filter_script: r#"bigint(tx.value) > bigint("1000000000000000000")"#.to_string(),
+                notifiers: vec!["eth-notifier".to_string(), "another-notifier".to_string()],
+                on_match: None,
+            },
         ];
 
         // Add monitors
@@ -770,23 +773,23 @@ mod tests {
         let network2 = "polygon";
 
         // Create monitors for different networks
-        let ethereum_monitors = vec![MonitorConfig::from_config(
-            "Ethereum Monitor".to_string(),
-            network1.to_string(),
-            Some("0x1111111111111111111111111111111111111111".to_string()),
-            Some("test".to_string()),
-            "true".to_string(),
-            vec![],
-        )];
+        let ethereum_monitors = vec![MonitorConfig {
+            name: "Ethereum Monitor".to_string(),
+            network: network1.to_string(),
+            address: Some("0x1111111111111111111111111111111111111111".to_string()),
+            abi: Some("test".to_string()),
+            filter_script: "true".to_string(),
+            ..Default::default()
+        }];
 
-        let polygon_monitors = vec![MonitorConfig::from_config(
-            "Polygon Monitor".to_string(),
-            network2.to_string(),
-            Some("0x2222222222222222222222222222222222222222".to_string()),
-            Some("test".to_string()),
-            "true".to_string(),
-            vec![],
-        )];
+        let polygon_monitors = vec![MonitorConfig {
+            name: "Polygon Monitor".to_string(),
+            network: network2.to_string(),
+            address: Some("0x2222222222222222222222222222222222222222".to_string()),
+            abi: Some("test".to_string()),
+            filter_script: "true".to_string(),
+            ..Default::default()
+        }];
 
         // Add monitors to different networks
         repo.add_monitors(network1, ethereum_monitors).await.unwrap();
@@ -817,14 +820,14 @@ mod tests {
         let network_id = "ethereum";
 
         // Create monitor with wrong network
-        let wrong_network_monitors = vec![MonitorConfig::from_config(
-            "Wrong Network Monitor".to_string(),
-            "polygon".to_string(), // Different from network_id
-            Some("0x1111111111111111111111111111111111111111".to_string()),
-            Some("test".to_string()),
-            "true".to_string(),
-            vec![],
-        )];
+        let wrong_network_monitors = vec![MonitorConfig {
+            name: "Wrong Network Monitor".to_string(),
+            network: "polygon".to_string(), // Different from network_id
+            address: Some("0x1111111111111111111111111111111111111111".to_string()),
+            abi: Some("test".to_string()),
+            filter_script: "true".to_string(),
+            ..Default::default()
+        }];
 
         // Should fail due to network mismatch
         let result = repo.add_monitors(network_id, wrong_network_monitors).await;
@@ -869,22 +872,22 @@ mod tests {
 
         // Create a mix of valid and invalid monitors (invalid due to network mismatch)
         let mixed_monitors = vec![
-            MonitorConfig::from_config(
-                "Valid Monitor".to_string(),
-                network_id.to_string(),
-                Some("0x1111111111111111111111111111111111111111".to_string()),
-                Some("test".to_string()),
-                "true".to_string(),
-                vec![],
-            ),
-            MonitorConfig::from_config(
-                "Invalid Monitor".to_string(),
-                "wrong_network".to_string(), // This will cause failure
-                Some("0x2222222222222222222222222222222222222222".to_string()),
-                Some("test".to_string()),
-                "true".to_string(),
-                vec![],
-            ),
+            MonitorConfig {
+                name: "Valid Monitor".to_string(),
+                network: network_id.to_string(),
+                address: Some("0x1111111111111111111111111111111111111111".to_string()),
+                abi: Some("test".to_string()),
+                filter_script: "true".to_string(),
+                ..Default::default()
+            },
+            MonitorConfig {
+                name: "Invalid Monitor".to_string(),
+                network: "wrong_network".to_string(), // This will cause failure
+                address: Some("0x2222222222222222222222222222222222222222".to_string()),
+                abi: Some("test".to_string()),
+                filter_script: "true".to_string(),
+                ..Default::default()
+            },
         ];
 
         // Should fail due to network validation
@@ -903,14 +906,14 @@ mod tests {
 
         // Create monitor with large filter script
         let large_script = "a".repeat(10000); // 10KB script
-        let monitor_with_large_script = vec![MonitorConfig::from_config(
-            "Large Script Monitor".to_string(),
-            network_id.to_string(),
-            Some("0x1111111111111111111111111111111111111111".to_string()),
-            Some("test".to_string()),
-            large_script.clone(),
-            vec![],
-        )];
+        let monitor_with_large_script = vec![MonitorConfig {
+            name: "Large Script Monitor".to_string(),
+            network: network_id.to_string(),
+            address: Some("0x1111111111111111111111111111111111111111".to_string()),
+            abi: Some("test".to_string()),
+            filter_script: large_script.clone(),
+            ..Default::default()
+        }];
 
         // Should handle large scripts
         repo.add_monitors(network_id, monitor_with_large_script).await.unwrap();

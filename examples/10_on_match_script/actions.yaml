@@ -1,0 +1,3 @@
+actions:
+  - name: Test action
+    file: "examples/10_on_match_script/action.js"

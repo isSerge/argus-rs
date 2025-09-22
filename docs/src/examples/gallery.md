@@ -70,3 +70,11 @@ Demonstrates how to monitor for calls to a specific function on a contract using
 
 **Features Demonstrated:** `decode_calldata`.
 
+---
+
+### [10. On-Match Action Script](https://github.com/isSerge/argus-rs/tree/main/examples/10_on_match_script/README.md)
+
+Demonstrates how to use an `on_match` action to execute a JavaScript script when a monitor is triggered. The script can modify the `MonitorMatch` object before it is sent to notifiers.
+
+**Features Demonstrated:** `on_match`, `actions.yaml`, JavaScript actions.
+

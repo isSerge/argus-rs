@@ -9,11 +9,12 @@ use thiserror::Error;
 
 use crate::{
     abi::{AbiError, AbiRepository, AbiService, repository::AbiRepositoryError},
-    config::AppConfig,
+    config::{ActionConfig, AppConfig},
     engine::{
-        alert_manager::{AlertManager, AlertManagerError},
+        action_handler::ActionHandler,
         block_processor::process_blocks_batch,
         filtering::{FilteringEngine, RhaiError, RhaiFilteringEngine},
+        match_manager::{MatchManager, MatchManagerError},
         rhai::{RhaiCompiler, RhaiScriptValidator},
     },
     http_client::HttpClientPool,
@@ -78,9 +79,9 @@ pub enum DryRunError {
     #[error("ABI repository error: {0}")]
     AbiRepository(#[from] AbiRepositoryError),
 
-    /// An error occurred in the alert manager.
-    #[error("Alert manager error: {0}")]
-    AlertManager(#[from] AlertManagerError),
+    /// An error occurred in the match manager.
+    #[error("Match manager error: {0}")]
+    MatchManager(#[from] MatchManagerError),
 
     /// An error occurred in the state repository.
     #[error("State repository error: {0}")]
@@ -137,9 +138,10 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let rhai_compiler = Arc::new(RhaiCompiler::new(config.rhai.clone()));
     let script_validator = RhaiScriptValidator::new(rhai_compiler.clone());
 
-    // Load and validate monitor and notifier configurations from files.
-    let monitors = load_config::<MonitorConfig>(config.monitor_config_path)?;
-    let notifiers = load_config::<NotifierConfig>(config.notifier_config_path)?;
+    // Load and validate monitor, notifier and action configurations from files.
+    let monitors = load_config::<MonitorConfig>(config.monitor_config_path, true)?;
+    let notifiers = load_config::<NotifierConfig>(config.notifier_config_path, true)?;
+    let actions = load_config::<ActionConfig>(config.actions_config_path, false)?;
 
     // Link ABIs for monitors that require them.
     for monitor in monitors.iter() {
@@ -163,6 +165,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
         abi_service.clone(),
         &config.network_id,
         &notifiers,
+        &actions,
     );
     for monitor in monitors.iter() {
         tracing::debug!(monitor = %monitor.name, "Validating monitor...");
@@ -179,6 +182,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
                 .name(&m.name)
                 .network(&m.network)
                 .filter_script(&m.filter_script)
+                .on_match(m.on_match.unwrap_or_default())
                 .notifiers(m.notifiers);
 
             if let Some(address) = &m.address {
@@ -215,12 +219,20 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let state_repo = Arc::new(SqliteStateRepository::new("sqlite::memory:").await?);
     state_repo.run_migrations().await?;
 
-    // Init the AlertManager with the in-memory state repository.
-    let alert_manager = Arc::new(AlertManager::new(notification_service, state_repo, notifiers));
+    let actions = actions.into_iter().map(|a| (a.name.clone(), a)).collect::<HashMap<_, _>>();
+
+    // Init the ActionHandler and MatchManager.
+    let action_handler = Arc::new(ActionHandler::new(Arc::new(actions), monitor_manager.clone()));
+    let match_manager = Arc::new(MatchManager::new(
+        notification_service,
+        state_repo,
+        notifiers,
+        Some(action_handler),
+    ));
 
     // Execute the core processing loop.
     let matches =
-        run_dry_run_loop(args.from, args.to, Box::new(evm_source), filtering_engine, alert_manager)
+        run_dry_run_loop(args.from, args.to, Box::new(evm_source), filtering_engine, match_manager)
             .await?;
 
     // Serialize and print the final report.
@@ -240,7 +252,8 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
 /// * `block_processor` - The service for decoding raw block data.
 /// * `filtering_engine` - The service for evaluating data against monitor
 ///   scripts.
-/// * `alert_manager` - The service for managing alerts and notifications.
+/// * `match_manager` - The service for managing matches, including
+///   notifications and post-match script execution.
 ///
 /// # Returns
 ///
@@ -251,7 +264,7 @@ async fn run_dry_run_loop(
     to_block: u64,
     data_source: Box<dyn DataSource>,
     filtering_engine: RhaiFilteringEngine,
-    alert_manager: Arc<AlertManager<SqliteStateRepository>>,
+    match_manager: Arc<MatchManager<SqliteStateRepository>>,
 ) -> Result<Vec<MonitorMatch>, DryRunError> {
     // Define a batch size for processing blocks in chunks.
     const BATCH_SIZE: u64 = 50;
@@ -305,8 +318,8 @@ async fn run_dry_run_loop(
                         limited_matches.truncate(10);
                     }
                     for m in limited_matches {
-                        alert_manager.process_match(&m).await?;
-                        matches.push(m.clone());
+                        match_manager.process_match(m.clone()).await?;
+                        matches.push(m);
                     }
                 }
             }
@@ -317,7 +330,7 @@ async fn run_dry_run_loop(
     }
     tracing::info!("Block processing finished.");
 
-    alert_manager.flush().await?;
+    match_manager.flush().await?;
     tracing::info!("Dispatched any pending aggregated notifications.");
 
     Ok(matches)
@@ -335,32 +348,15 @@ mod tests {
     use crate::{
         abi::{AbiRepository, AbiService},
         config::RhaiConfig,
-        engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
-        http_client::HttpClientPool,
+        engine::{filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
         models::{
             NotificationMessage,
             monitor_match::{MatchData, TransactionMatchData},
             notifier::{NotifierTypeConfig, SlackConfig},
         },
-        notification::NotificationService,
-        persistence::sqlite::SqliteStateRepository,
         providers::traits::MockDataSource,
-        test_helpers::{BlockBuilder, TransactionBuilder},
+        test_helpers::{BlockBuilder, TransactionBuilder, create_test_match_manager},
     };
-
-    // A helper function to create an AlertManager with a mock state repository.
-    async fn create_test_alert_manager(
-        notifiers: Arc<HashMap<String, NotifierConfig>>,
-    ) -> Arc<AlertManager<SqliteStateRepository>> {
-        let state_repo = SqliteStateRepository::new("sqlite::memory:")
-            .await
-            .expect("Failed to connect to in-memory db");
-        state_repo.run_migrations().await.expect("Failed to run migrations");
-        let client_pool = Arc::new(HttpClientPool::default());
-        let notification_service =
-            Arc::new(NotificationService::new(notifiers.clone(), client_pool));
-        Arc::new(AlertManager::new(notification_service, Arc::new(state_repo), notifiers))
-    }
 
     #[tokio::test]
     async fn test_run_dry_run_loop_succeeds() {
@@ -420,7 +416,7 @@ mod tests {
                 policy: None,
             },
         )]);
-        let alert_manager = create_test_alert_manager(Arc::new(notifiers)).await;
+        let match_manager = create_test_match_manager(Arc::new(notifiers)).await;
 
         // Act
         let result = run_dry_run_loop(
@@ -428,7 +424,7 @@ mod tests {
             to_block,
             Box::new(mock_data_source),
             filtering_engine,
-            alert_manager,
+            match_manager,
         )
         .await;
 
@@ -483,7 +479,7 @@ mod tests {
             rhai_config,
             monitor_manager.clone(),
         );
-        let alert_manager = create_test_alert_manager(Arc::new(HashMap::new())).await;
+        let match_manager = create_test_match_manager(Arc::new(HashMap::new())).await;
 
         // Act
         let result = run_dry_run_loop(
@@ -491,7 +487,7 @@ mod tests {
             to_block,
             Box::new(mock_data_source),
             filtering_engine,
-            alert_manager,
+            match_manager,
         )
         .await;
 
@@ -541,7 +537,7 @@ mod tests {
             rhai_config,
             monitor_manager.clone(),
         );
-        let alert_manager = create_test_alert_manager(Arc::new(HashMap::new())).await;
+        let match_manager = create_test_match_manager(Arc::new(HashMap::new())).await;
 
         // Act
         let result = run_dry_run_loop(
@@ -549,7 +545,7 @@ mod tests {
             to_block,
             Box::new(mock_data_source),
             filtering_engine,
-            alert_manager,
+            match_manager,
         )
         .await;
 
@@ -592,7 +588,7 @@ mod tests {
             rhai_config,
             monitor_manager.clone(),
         );
-        let alert_manager = create_test_alert_manager(Arc::new(HashMap::new())).await;
+        let match_manager = create_test_match_manager(Arc::new(HashMap::new())).await;
 
         // Act
         let result = run_dry_run_loop(
@@ -600,7 +596,7 @@ mod tests {
             to_block,
             Box::new(mock_data_source),
             filtering_engine,
-            alert_manager,
+            match_manager,
         )
         .await;
 
@@ -682,7 +678,7 @@ mod tests {
                 },
             ),
         ]);
-        let alert_manager = create_test_alert_manager(Arc::new(notifiers)).await;
+        let match_manager = create_test_match_manager(Arc::new(notifiers)).await;
 
         // Act
         let result = run_dry_run_loop(
@@ -690,7 +686,7 @@ mod tests {
             to_block,
             Box::new(mock_data_source),
             filtering_engine,
-            alert_manager,
+            match_manager,
         )
         .await;
 

@@ -6,8 +6,11 @@ use std::{collections::HashMap, sync::Arc};
 use super::{Supervisor, SupervisorError};
 use crate::{
     abi::AbiService,
-    config::AppConfig,
-    engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
+    config::{ActionConfig, AppConfig},
+    engine::{
+        action_handler::ActionHandler, filtering::RhaiFilteringEngine, match_manager::MatchManager,
+        rhai::RhaiCompiler,
+    },
     http_client::HttpClientPool,
     models::notifier::NotifierConfig,
     monitor::MonitorManager,
@@ -23,6 +26,7 @@ pub struct SupervisorBuilder {
     state: Option<Arc<SqliteStateRepository>>,
     abi_service: Option<Arc<AbiService>>,
     script_compiler: Option<Arc<RhaiCompiler>>,
+    actions: Option<Vec<ActionConfig>>,
 }
 
 impl SupervisorBuilder {
@@ -52,6 +56,12 @@ impl SupervisorBuilder {
     /// Sets the Rhai script compiler for the `Supervisor`.
     pub fn script_compiler(mut self, script_compiler: Arc<RhaiCompiler>) -> Self {
         self.script_compiler = Some(script_compiler);
+        self
+    }
+
+    /// Sets the actions configuration for the `Supervisor`.
+    pub fn actions(mut self, actions: Vec<ActionConfig>) -> Self {
+        self.actions = Some(actions);
         self
     }
 
@@ -95,13 +105,26 @@ impl SupervisorBuilder {
         );
         let http_client_pool = Arc::new(HttpClientPool::new(config.http_base_config.clone()));
 
-        // Set up the NotificationService and AlertManager
+        // Set up the NotificationService and MatchManager
         let notifiers_map: Arc<HashMap<String, NotifierConfig>> =
             Arc::new(notifiers.into_iter().map(|t| (t.name.clone(), t)).collect());
         let notification_service =
             Arc::new(NotificationService::new(notifiers_map.clone(), http_client_pool));
-        let alert_manager =
-            Arc::new(AlertManager::new(notification_service, state.clone(), notifiers_map));
+        let actions = self
+            .actions
+            .unwrap_or_default()
+            .into_iter()
+            .map(|a| (a.name.clone(), a))
+            .collect::<HashMap<_, _>>();
+        let action_handler =
+            Arc::new(ActionHandler::new(Arc::new(actions), monitor_manager.clone()));
+
+        let match_manager = Arc::new(MatchManager::new(
+            notification_service,
+            state.clone(),
+            notifiers_map,
+            Some(action_handler),
+        ));
 
         // Finally, construct the Supervisor with all its components.
         Ok(Supervisor::new(
@@ -109,7 +132,7 @@ impl SupervisorBuilder {
             state,
             Box::new(evm_data_source),
             Arc::new(filtering_engine),
-            alert_manager,
+            match_manager,
             monitor_manager,
         ))
     }
@@ -150,7 +173,7 @@ mod tests {
             address: Some("0x0000000000000000000000000000000000000001".to_string()),
             abi: Some(abi_name.to_string()),
             filter_script: "true".to_string(),
-            notifiers: vec![],
+            ..Default::default()
         };
 
         let state_repo = Arc::new(setup_test_db().await);
@@ -197,5 +220,36 @@ mod tests {
 
         let result = builder.build().await;
         assert!(matches!(result, Err(SupervisorError::MissingAbiService)));
+    }
+
+    #[tokio::test]
+    async fn builder_can_add_actions_and_build() {
+        let app_config = AppConfig::builder()
+            .rpc_urls(vec![
+                "http://localhost:8545".parse().unwrap(), // Cannot be empty to create provider
+            ])
+            .build();
+        let dir = tempdir().unwrap();
+        let (abi_service, _) = create_test_abi_service(&dir, &[]);
+        let state_repo = Arc::new(setup_test_db().await);
+        let actions = vec![
+            ActionConfig { name: "action1".into(), file: "actions/action1.js".into() },
+            ActionConfig { name: "action2".into(), file: "actions/action2.js".into() },
+        ];
+
+        let builder = SupervisorBuilder::new()
+            .config(app_config)
+            .state(state_repo)
+            .abi_service(abi_service)
+            .script_compiler(Arc::new(RhaiCompiler::new(RhaiConfig::default())))
+            .actions(actions.clone());
+
+        let supervisor = builder.build().await;
+
+        assert!(
+            supervisor.is_ok(),
+            "Expected build to succeed, but got error: {:?}",
+            supervisor.err()
+        );
     }
 }

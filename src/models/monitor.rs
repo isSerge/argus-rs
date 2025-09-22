@@ -9,7 +9,7 @@ use crate::loader::{Loadable, LoaderError};
 
 /// Configuration for a monitor, used to create new monitors from config files
 /// before they are persisted to the database.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MonitorConfig {
     /// Name of the monitor
     pub name: String,
@@ -33,6 +33,10 @@ pub struct MonitorConfig {
     /// Notifiers for the monitor (optional)
     #[serde(default)]
     pub notifiers: Vec<String>,
+
+    /// Actions to execute when the filter script matches (optional)
+    #[serde(default)]
+    pub on_match: Option<Vec<String>>,
 }
 
 impl Loadable for MonitorConfig {
@@ -71,6 +75,9 @@ pub struct Monitor {
     /// The notifiers to execute when the filter script matches
     pub notifiers: Vec<String>,
 
+    /// The actions to execute when the filter script matches
+    pub on_match: Option<Vec<String>>,
+
     /// Timestamp when the monitor was created
     pub created_at: DateTime<Utc>,
 
@@ -78,57 +85,47 @@ pub struct Monitor {
     pub updated_at: DateTime<Utc>,
 }
 
-impl MonitorConfig {
-    /// Creates a new monitor from configuration data (without an ID)
-    pub fn from_config(
-        name: String,
-        network: String,
-        address: Option<String>,
-        abi: Option<String>,
-        filter_script: String,
-        notifiers: Vec<String>,
-    ) -> Self {
-        Self { name, network, address, abi, filter_script, notifiers }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_monitor_from_config_with_address() {
-        let monitor = MonitorConfig::from_config(
-            "Test Monitor".to_string(),
-            "ethereum".to_string(),
-            Some("0x123".to_string()),
-            Some("test".to_string()),
-            "log.name == \"Test\"".to_string(),
-            vec!["test-notifier".to_string()],
-        );
+    fn test_monitor_with_address() {
+        let monitor = MonitorConfig {
+            name: "Test Monitor".to_string(),
+            network: "ethereum".to_string(),
+            address: Some("0x123".to_string()),
+            abi: Some("test".to_string()),
+            filter_script: "log.name == \"Test\"".to_string(),
+            notifiers: vec!["test-notifier".to_string()],
+            on_match: Some(vec!["Test action".to_string()]),
+        };
 
         assert_eq!(monitor.name, "Test Monitor");
         assert_eq!(monitor.network, "ethereum");
         assert_eq!(monitor.address, Some("0x123".to_string()));
         assert_eq!(monitor.filter_script, "log.name == \"Test\"");
         assert_eq!(monitor.notifiers, vec!["test-notifier".to_string()]);
+        assert_eq!(monitor.on_match, Some(vec!["Test action".to_string()]));
     }
 
     #[test]
-    fn test_monitor_from_config_without_address() {
-        let monitor = MonitorConfig::from_config(
-            "Native Transfer Monitor".to_string(),
-            "ethereum".to_string(),
-            None,
-            None,
-            "bigint(tx.value) > bigint(1000)".to_string(),
-            vec![],
-        );
+    fn test_monitor_without_address() {
+        let monitor = MonitorConfig {
+            name: "Native Transfer Monitor".to_string(),
+            network: "ethereum".to_string(),
+            address: None,
+            abi: None,
+            filter_script: "bigint(tx.value) > bigint(1000)".to_string(),
+            notifiers: vec![],
+            on_match: None,
+        };
 
         assert_eq!(monitor.name, "Native Transfer Monitor");
         assert_eq!(monitor.network, "ethereum");
         assert_eq!(monitor.address, None);
         assert_eq!(monitor.filter_script, "bigint(tx.value) > bigint(1000)");
         assert!(monitor.notifiers.is_empty());
+        assert_eq!(monitor.on_match, None);
     }
 }

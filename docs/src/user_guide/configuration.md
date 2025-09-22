@@ -2,7 +2,7 @@
 
 Argus is configured primarily through a set of YAML files. By default, the application looks for these files in a `configs/` directory in the current working directory. You can specify a different directory using the `--config-dir <path>` command-line argument.
 
-The configuration is split into three key files:
+The configuration is split into four key files:
 
 1.  **`app.yaml`**: Contains global application settings, such as RPC endpoints, database connections, and performance tuning parameters. This is the main configuration for the Argus service itself.
 
@@ -10,9 +10,12 @@ The configuration is split into three key files:
 
 3.  **`notifiers.yaml`**: This file defines *how* you want to be notified when a monitor finds a match. You can configure various notification channels (e.g., webhooks) and set policies like throttling.
 
+4.  **`actions.yaml`**: This file defines custom actions (e.g., JavaScript scripts) that can be triggered by a monitor match to modify the match data before it is sent to notifiers.
+
 Select a topic below for a detailed breakdown of each file and its parameters.
 
 -   [**`app.yaml` Configuration (`app_yaml.md`)**](./app_yaml.md)
 -   [**Monitors Configuration (`monitors_yaml.md`)**](./monitors_yaml.md)
 -   [**Notifiers Configuration (`notifiers_yaml.md`)**](./notifiers_yaml.md)
+-   [**Actions Configuration (`actions_yaml.md`)**](./actions_yaml.md)
 -   [**ABI Management (`config_abis.md`)**](./config_abis.md)
