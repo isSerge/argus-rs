@@ -1,4 +1,22 @@
-//! A set of helpers for testing
+//! Test utilities for the argus crate
+//!
+//! These utilities are only available when the `test-helpers` feature is
+//! enabled.
+//!
+//! # Usage
+//!
+//! In unit tests:
+//! ```rust
+//! #[cfg(test)]
+//! mod tests {
+//!     use crate::test_helpers::*;
+//! }
+//! ```
+//!
+//! In integration tests, enable the feature:
+//! ```bash
+//! cargo test --features test-helpers
+//! ```
 
 mod abi;
 mod block;

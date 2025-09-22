@@ -15,5 +15,4 @@ pub mod notification;
 pub mod persistence;
 pub mod providers;
 pub mod supervisor;
-#[cfg(feature = "test-helpers")]
 pub mod test_helpers;
