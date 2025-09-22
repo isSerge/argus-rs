@@ -292,23 +292,11 @@ impl StateRepository for SqliteStateRepository {
                     source: Box::new(e),
                 })?;
 
-            let created_at_str: String = row.get("created_at");
-            let updated_at_str: String = row.get("updated_at");
+            let created_at: NaiveDateTime = row.get("created_at");
+            let updated_at: NaiveDateTime = row.get("updated_at");
 
-            let created_at = NaiveDateTime::parse_from_str(&created_at_str, "%Y-%m-%d %H:%M:%S")
-                .map_err(|e| sqlx::Error::ColumnDecode {
-                    index: "created_at".to_string(),
-                    source: Box::new(e),
-                })?
-                .and_utc();
-
-            let updated_at = NaiveDateTime::parse_from_str(&updated_at_str, "%Y-%m-%d %H:%M:%S")
-                .map_err(|e| sqlx::Error::ColumnDecode {
-                    index: "updated_at".to_string(),
-                    source: Box::new(e),
-                })?
-                .and_utc();
-
+            let created_at = created_at.and_utc();
+            let updated_at = updated_at.and_utc();
             monitors.push(Monitor {
                 id: row.get("monitor_id"),
                 name: row.get("name"),
