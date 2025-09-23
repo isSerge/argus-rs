@@ -2,7 +2,7 @@
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use argus_models::monitor_match::MonitorMatch;
+use crate::models::monitor_match::MonitorMatch;
 use dashmap::DashMap;
 use thiserror::Error;
 use tokio::sync::Mutex;
@@ -358,7 +358,7 @@ impl<T: GenericStateRepository + Send + Sync + 'static> MatchManager<T> {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::{Address, TxHash};
-    use argus_models::monitor_match::{LogDetails, LogMatchData, MatchData, MonitorMatch};
+    use crate::models::monitor_match::{LogDetails, LogMatchData, MatchData, MonitorMatch};
     use chrono::Utc;
     use mockall::predicate::eq;
     use serde_json::json;

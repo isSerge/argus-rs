@@ -10,6 +10,7 @@ pub mod monitor;
 pub mod notification;
 pub mod notifier;
 pub mod transaction;
+pub mod monitor_match;
 
 pub use block_data::BlockData;
 pub use correlated_data::CorrelatedBlockItem;

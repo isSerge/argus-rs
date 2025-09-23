@@ -1,6 +1,6 @@
 //! This module defines data structures for managing alert-related state.
 
-use argus_models::monitor_match::MonitorMatch;
+use crate::models::monitor_match::MonitorMatch;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 

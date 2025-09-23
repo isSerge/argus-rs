@@ -23,7 +23,7 @@ mod builder;
 
 use std::sync::Arc;
 
-use argus_models::monitor_match::MonitorMatch;
+use crate::models::monitor_match::MonitorMatch;
 use builder::SupervisorBuilder;
 use thiserror::Error;
 use tokio::{signal, sync::mpsc};

@@ -4,7 +4,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use alloy::primitives;
-use argus_models::monitor_match::MonitorMatch;
+use crate::models::monitor_match::MonitorMatch;
 use clap::Parser;
 use thiserror::Error;
 
@@ -341,7 +341,7 @@ mod tests {
     use std::{collections::HashMap, sync::Arc};
 
     use alloy::primitives::U256;
-    use argus_models::monitor_match::{MatchData, TransactionMatchData};
+    use crate::models::monitor_match::{MatchData, TransactionMatchData};
     use mockall::predicate::eq;
     use tempfile::tempdir;
 

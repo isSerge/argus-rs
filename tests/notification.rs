@@ -7,11 +7,11 @@ use argus::{
     http_client::HttpClientPool,
     models::{
         NotificationMessage,
+        monitor_match::MonitorMatch,
         notifier::{DiscordConfig, NotifierConfig, NotifierTypeConfig},
     },
     notification::{NotificationPayload, NotificationService},
 };
-use argus_models::monitor_match::MonitorMatch;
 use mockito;
 use serde_json::json;
 

@@ -11,7 +11,7 @@ use std::{
     time::Duration,
 };
 
-use argus_models::monitor_match::{LogDetails, MonitorMatch};
+use crate::models::monitor_match::{LogDetails, MonitorMatch};
 use async_trait::async_trait;
 use futures::future;
 #[cfg(test)]
@@ -373,7 +373,7 @@ mod tests {
         primitives::{Address, B256, Bytes, U256, address, b256},
         sol_types::SolValue,
     };
-    use argus_models::monitor_match::{LogMatchData, MatchData, TransactionMatchData};
+    use crate::models::monitor_match::{LogMatchData, MatchData, TransactionMatchData};
     use tempfile::tempdir;
 
     use super::*;

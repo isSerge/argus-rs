@@ -4,14 +4,14 @@ use std::{collections::HashMap, io::Write, sync::Arc};
 
 use alloy::primitives::TxHash;
 use argus::{
-    config::{RhaiConfig, ActionConfig},
+    config::{ActionConfig, RhaiConfig},
     engine::{action_handler::ActionHandler, rhai::RhaiCompiler},
-    models::monitor::Monitor,
+    models::{
+        monitor::Monitor,
+        monitor_match::{MatchData, MonitorMatch, TransactionMatchData},
+    },
     monitor::MonitorManager,
     test_helpers::{self, MonitorBuilder},
-};
-use argus_models::{
-    monitor_match::{MatchData, MonitorMatch, TransactionMatchData},
 };
 use serde_json::json;
 use tempfile::{TempDir, tempdir};

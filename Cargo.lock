@@ -737,7 +737,6 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "arc-swap",
- "argus_models",
  "async-trait",
  "bitflags 2.9.4",
  "chrono",
@@ -747,6 +746,7 @@ dependencies = [
  "futures",
  "hex",
  "hmac",
+ "js_executor",
  "minijinja",
  "mockall",
  "mockito",
@@ -772,15 +772,6 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "urlencoding",
-]
-
-[[package]]
-name = "argus_models"
-version = "0.1.0"
-dependencies = [
- "alloy",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -2942,7 +2933,6 @@ name = "js_executor"
 version = "0.1.0"
 dependencies = [
  "alloy",
- "argus_models",
  "axum",
  "deno_core",
  "serde",

@@ -2,7 +2,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use argus_models::{monitor_match::MonitorMatch};
+use crate::models::{monitor_match::MonitorMatch};
 use thiserror::Error;
 
 use crate::{config::ActionConfig, monitor::MonitorManager};

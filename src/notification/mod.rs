@@ -35,7 +35,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use argus_models::monitor_match::MonitorMatch;
+use crate::models::monitor_match::MonitorMatch;
 
 use crate::{
     config::HttpRetryConfig,
@@ -304,7 +304,7 @@ impl NotificationService {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::{TxHash, address};
-    use argus_models::monitor_match::LogDetails;
+    use crate::models::monitor_match::LogDetails;
     use serde_json::json;
 
     use super::*;

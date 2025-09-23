@@ -2,6 +2,9 @@
 
 use std::{process::Stdio, sync::Arc};
 
+use crate::models::{monitor_match::MonitorMatch};
+use js_executor::{ExecutionRequest, ExecutionResponse};
+
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     process::{Child, Command},
@@ -14,6 +17,8 @@ pub struct JsExecutorClient {
     executor_child: Arc<Mutex<Child>>,
     /// The port on which the JavaScript executor is listening.
     port: u16,
+    /// HTTP client for making requests to the JavaScript executor.
+    http_client: reqwest::Client,
 }
 
 /// Errors that can occur when interacting with the JavaScript executor
@@ -50,12 +55,31 @@ impl JsExecutorClient {
         let port: u16 =
             port_line.trim().parse().map_err(|_| JsExecutorClientError::PortReadError)?;
 
-        Ok(Self { executor_child: Arc::new(Mutex::new(child)), port })
+        Ok(Self {
+            executor_child: Arc::new(Mutex::new(child)),
+            port,
+            http_client: reqwest::Client::new(),
+        })
     }
 
     /// Returns the port on which the JavaScript executor is listening.
     pub fn port(&self) -> u16 {
         self.port
+    }
+
+    /// Submits a JavaScript script to the executor for execution.
+    pub async fn submit_script(
+        &self,
+        script: &str,
+        context: MonitorMatch,
+    ) -> Result<ExecutionResponse, reqwest::Error> {
+        let url = format!("http://localhost:{}/execute", self.port);
+        let request = ExecutionRequest {
+            script: script.to_string(),
+            context: serde_json::to_value(context).unwrap(),
+        };
+        let response = self.http_client.post(&url).json(&request).send().await?;
+        response.json::<ExecutionResponse>().await
     }
 }
 

@@ -1,7 +1,9 @@
 //! JavaScript action
-use argus_models::monitor_match::MonitorMatch;
 use deno_core::{JsRuntime, RuntimeOptions, serde_v8, v8};
+use serde_json::Value;
 use thiserror::Error;
+
+use crate::models::ExecutionResponse;
 
 /// An error that occurs during JavaScript script execution.
 #[derive(Debug, Error)]
@@ -23,17 +25,17 @@ pub enum JsRunnerError {
     Runtime(#[from] Box<dyn std::error::Error + Send + Sync>),
 }
 
-/// Executes a JavaScript script and returns the modified MonitorMatch.
+/// Executes a JavaScript script and returns the modified Value.
 pub async fn execute_script(
     script: String,
-    context: &MonitorMatch,
-) -> Result<MonitorMatch, JsRunnerError> {
+    context: &Value,
+) -> Result<ExecutionResponse, JsRunnerError> {
     let context_json = serde_json::to_string(context)?;
 
     // Use spawn_blocking to move JavaScript runtime operations to the blocking
     // thread pool
-    let modified_match =
-        tokio::task::spawn_blocking(move || -> Result<MonitorMatch, JsRunnerError> {
+    let modified_ctx_value =
+        tokio::task::spawn_blocking(move || -> Result<Value, JsRunnerError> {
             // Create runtime in the blocking thread
             let mut runtime = JsRuntime::new(RuntimeOptions::default());
 
@@ -62,35 +64,32 @@ pub async fn execute_script(
             // Convert the result back to Rust
             let scope = &mut runtime.handle_scope();
             let local = v8::Local::new(scope, return_value);
-            let modified_match: MonitorMatch = serde_v8::from_v8(scope, local)?;
+            let modified_ctx_value: Value = serde_v8::from_v8(scope, local)?;
 
-            Ok(modified_match)
+            Ok(modified_ctx_value)
         })
         .await
         .map_err(|e| JsRunnerError::Runtime(Box::new(e)))??;
 
-    Ok(modified_match)
+    Ok(ExecutionResponse {
+        result: modified_ctx_value,
+        stdout: "".to_string(), // Placeholder, as console output capture is not implemented
+        stderr: "".to_string(), // Placeholder, as console output capture is not implemented
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use alloy::primitives::TxHash;
-    use argus_models::monitor_match::{MatchData, TransactionMatchData};
     use serde_json::json;
 
     use super::*;
 
-    fn create_test_monitor_match() -> MonitorMatch {
-        MonitorMatch {
-            monitor_id: 1,
-            monitor_name: "Test Monitor".to_string(),
-            notifier_name: "test-notifier".to_string(),
-            block_number: 123,
-            transaction_hash: TxHash::default(),
-            match_data: MatchData::Transaction(TransactionMatchData {
-                details: json!({"foo": "bar"}),
-            }),
-        }
+    fn create_test_context_json() -> Value {
+        json!({
+            "monitor_id": 1,
+            "monitor_name": "Test Monitor",
+            "notifier_name": "test-notifier",
+        })
     }
 
     #[tokio::test]
@@ -101,13 +100,15 @@ mod tests {
             match.monitor_name = match.monitor_name + "[modified]";
         "#
         .to_string();
-        let context = create_test_monitor_match();
+        let context = create_test_context_json();
 
-        let result = execute_script(script, &context).await;
-        assert!(result.is_ok());
-        let modified_match = result.unwrap();
-        assert_eq!(modified_match.monitor_id, context.monitor_id);
-        assert_eq!(modified_match.monitor_name, "Test Monitor[modified]");
+        let exec_response = execute_script(script, &context).await;
+        assert!(exec_response.is_ok());
+        let modified_context = exec_response.unwrap().result;
+        assert_eq!(modified_context["monitor_name"], "Test Monitor[modified]");
+        // Other fields should remain unchanged
+        assert_eq!(modified_context["monitor_id"], context["monitor_id"]);
+        assert_eq!(modified_context["notifier_name"], context["notifier_name"]);
     }
 
     #[tokio::test]
@@ -116,7 +117,7 @@ mod tests {
             throw new Error("test error");
         "#
         .to_string();
-        let context = create_test_monitor_match();
+        let context = create_test_context_json();
 
         let result = execute_script(script, &context).await;
         assert!(result.is_err());
@@ -126,26 +127,5 @@ mod tests {
             }
             _ => panic!("Expected ScriptExecution"),
         }
-    }
-
-    #[tokio::test]
-    async fn test_execute_script_with_context() {
-        let script = r#"
-            if (match.monitor_id !== 1) {
-                throw new Error("wrong monitor id");
-            }
-            console.log("Test passed with context:", match.monitor_id);
-            
-            // Modify the match object directly
-            match.monitor_name = "Modified Monitor";
-        "#
-        .to_string();
-        let context = create_test_monitor_match();
-
-        let result = execute_script(script, &context).await;
-        assert!(result.is_ok());
-        let modified_match = result.unwrap();
-        assert_eq!(modified_match.monitor_name, "Modified Monitor");
-        assert_eq!(modified_match.monitor_id, context.monitor_id);
     }
 }

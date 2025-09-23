@@ -3,12 +3,13 @@
 use std::{collections::HashMap, fs, sync::Arc, time::Duration};
 
 use argus::{
-    config::{ActionConfig},
+    config::ActionConfig,
     engine::{action_handler::ActionHandler, match_manager::MatchManager},
     http_client::HttpClientPool,
     models::{
         NotificationMessage,
         match_manager_state::{AggregationState, ThrottleState},
+        monitor_match::MonitorMatch,
         notifier::{
             AggregationPolicy, DiscordConfig, NotifierConfig, NotifierPolicy, NotifierTypeConfig,
             ThrottlePolicy,
@@ -20,7 +21,6 @@ use argus::{
         MonitorBuilder, create_test_match_manager_with_repo, create_test_monitor_manager,
     },
 };
-use argus_models::{monitor_match::MonitorMatch};
 use mockito;
 use serde_json::json;
 use tokio::time::sleep;

@@ -1,7 +1,8 @@
 mod engine;
+mod models;
 
-use argus_models::js_executor::{ErrorResponse, ExecutionRequest, ExecutionResponse};
 use axum::{Json, Router, routing::post};
+use models::{ErrorResponse, ExecutionRequest, ExecutionResponse};
 use tower_http::trace::TraceLayer;
 
 use crate::engine::{JsRunnerError, execute_script};
@@ -30,7 +31,7 @@ async fn execute_handler(
     Json(payload): Json<ExecutionRequest>,
 ) -> Result<Json<ExecutionResponse>, Json<ErrorResponse>> {
     match execute_script(payload.script, &payload.context).await {
-        Ok(result) => Ok(Json(ExecutionResponse { result })),
+        Ok(result) => Ok(Json(result)),
         Err(e) => Err(Json(e.into())),
     }
 }
