@@ -10,7 +10,6 @@ members = [
 ]
 
 [workspace.dependencies]
-alloy = { version = "1.0.23", features = ["essentials"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.141"
 thiserror = "2.0.12"
@@ -19,7 +18,7 @@ tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
 
 [dependencies]
-alloy = { workspace = true }
+alloy = { version = "1.0.23", features = ["essentials"] }
 arc-swap = "1.7.1"
 async-trait = "0.1.88"
 bitflags = "2.9.4"

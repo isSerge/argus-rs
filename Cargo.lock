@@ -2932,7 +2932,6 @@ dependencies = [
 name = "js_executor"
 version = "0.1.0"
 dependencies = [
- "alloy",
  "axum",
  "deno_core",
  "serde",
