@@ -1,20 +1,11 @@
 //! JavaScript action
-use argus_models::{config::ActionConfig, monitor_match::MonitorMatch};
+use argus_models::monitor_match::MonitorMatch;
 use deno_core::{JsRuntime, RuntimeOptions, serde_v8, v8};
 use thiserror::Error;
 
 /// An error that occurs during JavaScript script execution.
 #[derive(Debug, Error)]
 pub enum JsRunnerError {
-    /// An error occurred while reading the action file.
-    #[error("Failed to read action file '{file_path}': {error}")]
-    FileRead {
-        /// The path to the action file that failed to read.
-        file_path: String,
-        /// The underlying I/O error that occurred.
-        error: std::io::Error,
-    },
-
     /// An error occurred during script execution.
     #[error("Script execution error: {0}")]
     ScriptExecution(#[from] Box<deno_core::error::JsError>),
@@ -32,12 +23,11 @@ pub enum JsRunnerError {
     Runtime(#[from] Box<dyn std::error::Error + Send + Sync>),
 }
 
-/// Executes a JavaScript action and returns the modified MonitorMatch.
-pub async fn execute_action(
-    action: &ActionConfig,
+/// Executes a JavaScript script and returns the modified MonitorMatch.
+pub async fn execute_script(
+    script: String,
     context: &MonitorMatch,
 ) -> Result<MonitorMatch, JsRunnerError> {
-    let action_file = action.file.clone();
     let context_json = serde_json::to_string(context)?;
 
     // Use spawn_blocking to move JavaScript runtime operations to the blocking
@@ -52,12 +42,6 @@ pub async fn execute_action(
             runtime
                 .execute_script("<console_polyfill>", console_polyfill)
                 .map_err(JsRunnerError::ScriptExecution)?;
-
-            let script =
-                std::fs::read_to_string(&action_file).map_err(|e| JsRunnerError::FileRead {
-                    file_path: action_file.to_string_lossy().to_string(),
-                    error: e,
-                })?;
 
             // Bootstrap the runtime with the context
             let bootstrap_script = format!("const match = {};", context_json);
@@ -90,22 +74,11 @@ pub async fn execute_action(
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
-
     use alloy::primitives::TxHash;
     use argus_models::monitor_match::{MatchData, TransactionMatchData};
     use serde_json::json;
-    use tempfile::NamedTempFile;
 
     use super::*;
-
-    fn create_test_action_file(content: &str) -> (NamedTempFile, ActionConfig) {
-        let mut file = NamedTempFile::with_suffix(".js").unwrap();
-        let path = file.path().to_path_buf();
-        write!(file, "{}", content).unwrap();
-        let action_config = ActionConfig { name: "test_action".to_string(), file: path };
-        (file, action_config)
-    }
 
     fn create_test_monitor_match() -> MonitorMatch {
         MonitorMatch {
@@ -121,22 +94,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_execute_action_success() {
-        let (_file, action) = create_test_action_file("console.log('hello');");
+    async fn test_execute_script_success() {
+        let script = r#"
+            console.log("Test script executed");
+            // Modify the match object
+            match.monitor_name = match.monitor_name + "[modified]";
+        "#
+        .to_string();
         let context = create_test_monitor_match();
 
-        let result = execute_action(&action, &context).await;
+        let result = execute_script(script, &context).await;
         assert!(result.is_ok());
         let modified_match = result.unwrap();
         assert_eq!(modified_match.monitor_id, context.monitor_id);
+        assert_eq!(modified_match.monitor_name, "Test Monitor[modified]");
     }
 
     #[tokio::test]
-    async fn test_execute_action_script_error() {
-        let (_file, action) = create_test_action_file("throw new Error('test error');");
+    async fn test_execute_script_script_error() {
+        let script = r#"
+            throw new Error("test error");
+        "#
+        .to_string();
         let context = create_test_monitor_match();
 
-        let result = execute_action(&action, &context).await;
+        let result = execute_script(script, &context).await;
         assert!(result.is_err());
         match result.unwrap_err() {
             JsRunnerError::ScriptExecution(e) => {
@@ -147,7 +129,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_execute_action_with_context() {
+    async fn test_execute_script_with_context() {
         let script = r#"
             if (match.monitor_id !== 1) {
                 throw new Error("wrong monitor id");
@@ -156,30 +138,14 @@ mod tests {
             
             // Modify the match object directly
             match.monitor_name = "Modified Monitor";
-        "#;
-        let (_file, action) = create_test_action_file(script);
+        "#
+        .to_string();
         let context = create_test_monitor_match();
 
-        let result = execute_action(&action, &context).await;
+        let result = execute_script(script, &context).await;
         assert!(result.is_ok());
         let modified_match = result.unwrap();
         assert_eq!(modified_match.monitor_name, "Modified Monitor");
         assert_eq!(modified_match.monitor_id, context.monitor_id);
-    }
-
-    #[tokio::test]
-    async fn test_execute_action_file_not_found() {
-        let action =
-            ActionConfig { name: "test_action".to_string(), file: "non_existent_file.js".into() };
-        let context = create_test_monitor_match();
-
-        let result = execute_action(&action, &context).await;
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            JsRunnerError::FileRead { .. } => {
-                // expected
-            }
-            _ => panic!("Expected FileRead"),
-        }
     }
 }

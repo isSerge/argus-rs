@@ -15,9 +15,10 @@ alloy = { version = "1.0.23", features = ["essentials"] }
 argus_models = { path = "crates/argus_models" }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.141"
-tempfile = "3.8.1"
 thiserror = "2.0.12"
 tokio = { version = "1.47.0", features = ["full"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
 
 [dependencies]
 alloy = { workspace = true }
@@ -52,13 +53,13 @@ sqlx = { version = "0.8.6", features = [
   "migrate",
   "chrono",
 ] }
-tempfile = { workspace = true }
+tempfile = "3.8.1"
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = "0.7.16"
 tower = { version = "0.5.2", features = ["retry"] }
-tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 url = "2.5.2"
 urlencoding = "2.1.3"
 
