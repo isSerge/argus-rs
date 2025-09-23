@@ -3,12 +3,10 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use argus_models::config::ActionConfig;
-
 use super::{Supervisor, SupervisorError};
 use crate::{
     abi::AbiService,
-    config::AppConfig,
+    config::{ActionConfig, AppConfig},
     engine::{
         action_handler::ActionHandler, filtering::RhaiFilteringEngine, match_manager::MatchManager,
         rhai::RhaiCompiler,

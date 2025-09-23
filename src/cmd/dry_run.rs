@@ -4,13 +4,13 @@
 use std::{collections::HashMap, sync::Arc};
 
 use alloy::primitives;
-use argus_models::{config::ActionConfig, monitor_match::MonitorMatch};
+use argus_models::monitor_match::MonitorMatch;
 use clap::Parser;
 use thiserror::Error;
 
 use crate::{
     abi::{AbiError, AbiRepository, AbiService, repository::AbiRepositoryError},
-    config::AppConfig,
+    config::{ActionConfig, AppConfig},
     engine::{
         action_handler::ActionHandler,
         block_processor::process_blocks_batch,

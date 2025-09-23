@@ -2,10 +2,10 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use argus_models::{config::ActionConfig, monitor_match::MonitorMatch};
+use argus_models::{monitor_match::MonitorMatch};
 use thiserror::Error;
 
-use crate::monitor::MonitorManager;
+use crate::{config::ActionConfig, monitor::MonitorManager};
 
 /// The `ActionHandler` is responsible for running `on_match` actions
 /// associated with a monitor.

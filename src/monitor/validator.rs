@@ -3,13 +3,13 @@
 use std::sync::Arc;
 
 use alloy::{json_abi::JsonAbi, primitives::Address};
-use argus_models::config::ActionConfig;
 use thiserror::Error;
 
 use crate::{
     abi::AbiService,
     engine::rhai::{RhaiScriptValidationError, RhaiScriptValidationResult, RhaiScriptValidator},
     models::{monitor::MonitorConfig, notifier::NotifierConfig},
+    config::ActionConfig,
 };
 
 /// A validator for monitor configurations.
@@ -372,12 +372,11 @@ mod tests {
     use std::sync::Arc;
 
     use alloy::primitives::{Address, address};
-    use argus_models::config::ActionConfig;
     use tempfile::tempdir;
 
     use crate::{
         abi::{AbiService, repository::AbiRepository},
-        config::RhaiConfig,
+        config::{RhaiConfig, ActionConfig},
         engine::rhai::{RhaiCompiler, RhaiScriptValidationError, RhaiScriptValidator},
         models::{
             NotificationMessage,
