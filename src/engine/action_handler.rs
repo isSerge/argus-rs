@@ -2,10 +2,9 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use crate::models::{monitor_match::MonitorMatch};
 use thiserror::Error;
 
-use crate::{config::ActionConfig, monitor::MonitorManager};
+use crate::{config::ActionConfig, models::monitor_match::MonitorMatch, monitor::MonitorManager};
 
 /// The `ActionHandler` is responsible for running `on_match` actions
 /// associated with a monitor.

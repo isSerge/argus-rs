@@ -2,7 +2,6 @@
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use crate::models::monitor_match::MonitorMatch;
 use dashmap::DashMap;
 use thiserror::Error;
 use tokio::sync::Mutex;
@@ -11,6 +10,7 @@ use crate::{
     engine::action_handler::{ActionHandler, ActionHandlerError},
     models::{
         match_manager_state::{AggregationState, ThrottleState},
+        monitor_match::MonitorMatch,
         notifier::{NotifierConfig, NotifierPolicy},
     },
     notification::{NotificationPayload, NotificationService, error::NotificationError},
@@ -358,7 +358,6 @@ impl<T: GenericStateRepository + Send + Sync + 'static> MatchManager<T> {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::{Address, TxHash};
-    use crate::models::monitor_match::{LogDetails, LogMatchData, MatchData, MonitorMatch};
     use chrono::Utc;
     use mockall::predicate::eq;
     use serde_json::json;
@@ -367,6 +366,7 @@ mod tests {
     use crate::{
         models::{
             NotificationMessage,
+            monitor_match::{LogDetails, LogMatchData, MatchData, MonitorMatch},
             notifier::{AggregationPolicy, DiscordConfig, NotifierTypeConfig, ThrottlePolicy},
         },
         persistence::traits::MockGenericStateRepository,

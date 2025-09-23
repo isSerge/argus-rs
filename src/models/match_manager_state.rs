@@ -1,8 +1,9 @@
 //! This module defines data structures for managing alert-related state.
 
-use crate::models::monitor_match::MonitorMatch;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+
+use crate::models::monitor_match::MonitorMatch;
 
 /// Represents the current throttling state for a notifier.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

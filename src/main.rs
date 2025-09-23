@@ -3,7 +3,7 @@ use std::sync::Arc;
 use argus::{
     abi::{AbiService, repository::AbiRepository},
     cmd::{DryRunArgs, dry_run},
-    config::{AppConfig, ActionConfig},
+    config::{ActionConfig, AppConfig},
     engine::rhai::{RhaiCompiler, RhaiScriptValidator},
     initialization::InitializationService,
     loader::load_config,

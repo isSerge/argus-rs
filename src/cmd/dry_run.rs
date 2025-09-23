@@ -4,7 +4,6 @@
 use std::{collections::HashMap, sync::Arc};
 
 use alloy::primitives;
-use crate::models::monitor_match::MonitorMatch;
 use clap::Parser;
 use thiserror::Error;
 
@@ -24,6 +23,7 @@ use crate::{
         BlockData,
         builder::MonitorBuilder,
         monitor::MonitorConfig,
+        monitor_match::MonitorMatch,
         notifier::{NotifierConfig, NotifierError},
     },
     monitor::{MonitorManager, MonitorValidationError, MonitorValidator},
@@ -341,7 +341,6 @@ mod tests {
     use std::{collections::HashMap, sync::Arc};
 
     use alloy::primitives::U256;
-    use crate::models::monitor_match::{MatchData, TransactionMatchData};
     use mockall::predicate::eq;
     use tempfile::tempdir;
 
@@ -352,6 +351,7 @@ mod tests {
         engine::{filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
         models::{
             NotificationMessage,
+            monitor_match::{MatchData, TransactionMatchData},
             notifier::{NotifierTypeConfig, SlackConfig},
         },
         providers::traits::MockDataSource,

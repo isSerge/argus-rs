@@ -23,7 +23,6 @@ mod builder;
 
 use std::sync::Arc;
 
-use crate::models::monitor_match::MonitorMatch;
 use builder::SupervisorBuilder;
 use thiserror::Error;
 use tokio::{signal, sync::mpsc};
@@ -34,7 +33,7 @@ use crate::{
         block_ingestor::BlockIngestor, block_processor::BlockProcessor, filtering::FilteringEngine,
         match_manager::MatchManager,
     },
-    models::{BlockData, CorrelatedBlockData, monitor::Monitor},
+    models::{BlockData, CorrelatedBlockData, monitor::Monitor, monitor_match::MonitorMatch},
     monitor::{MonitorManager, MonitorValidationError},
     persistence::{sqlite::SqliteStateRepository, traits::StateRepository},
     providers::{

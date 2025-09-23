@@ -7,9 +7,9 @@ use thiserror::Error;
 
 use crate::{
     abi::AbiService,
+    config::ActionConfig,
     engine::rhai::{RhaiScriptValidationError, RhaiScriptValidationResult, RhaiScriptValidator},
     models::{monitor::MonitorConfig, notifier::NotifierConfig},
-    config::ActionConfig,
 };
 
 /// A validator for monitor configurations.
@@ -376,7 +376,7 @@ mod tests {
 
     use crate::{
         abi::{AbiService, repository::AbiRepository},
-        config::{RhaiConfig, ActionConfig},
+        config::{ActionConfig, RhaiConfig},
         engine::rhai::{RhaiCompiler, RhaiScriptValidationError, RhaiScriptValidator},
         models::{
             NotificationMessage,

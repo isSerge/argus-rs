@@ -11,7 +11,6 @@ use std::{
     time::Duration,
 };
 
-use crate::models::monitor_match::{LogDetails, MonitorMatch};
 use async_trait::async_trait;
 use futures::future;
 #[cfg(test)]
@@ -32,8 +31,11 @@ use crate::{
     config::RhaiConfig,
     engine::rhai::{RhaiCompiler, RhaiCompilerError},
     models::{
-        correlated_data::CorrelatedBlockItem, decoded_block::CorrelatedBlockData, log::Log,
+        correlated_data::CorrelatedBlockItem,
+        decoded_block::CorrelatedBlockData,
+        log::Log,
         monitor::Monitor,
+        monitor_match::{LogDetails, MonitorMatch},
     },
     monitor::{ClassifiedMonitor, MonitorCapabilities, MonitorManager},
 };
@@ -373,14 +375,16 @@ mod tests {
         primitives::{Address, B256, Bytes, U256, address, b256},
         sol_types::SolValue,
     };
-    use crate::models::monitor_match::{LogMatchData, MatchData, TransactionMatchData};
     use tempfile::tempdir;
 
     use super::*;
     use crate::{
         abi::AbiService,
         config::RhaiConfig,
-        models::transaction::Transaction,
+        models::{
+            monitor_match::{LogMatchData, MatchData, TransactionMatchData},
+            transaction::Transaction,
+        },
         test_helpers::{
             LogBuilder, MonitorBuilder, TransactionBuilder, create_test_abi_service, erc20_abi_json,
         },
