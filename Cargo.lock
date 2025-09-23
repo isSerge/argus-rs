@@ -744,7 +744,6 @@ dependencies = [
  "clap",
  "config",
  "dashmap",
- "deno_core",
  "futures",
  "hex",
  "hmac",
