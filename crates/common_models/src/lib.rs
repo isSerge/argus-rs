@@ -1,3 +1,6 @@
+//! Common data models for inter-service communication between Argus and JS
+//! executor.
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

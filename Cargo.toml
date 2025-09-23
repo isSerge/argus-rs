@@ -4,10 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = [
-    ".",
-    "crates/js_executor",
-]
+members = [".", "crates/common_models", "crates/js_executor"]
 
 [workspace.dependencies]
 serde = { version = "1.0.219", features = ["derive"] }
@@ -16,6 +13,7 @@ thiserror = "2.0.12"
 tokio = { version = "1.47.0", features = ["full"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+common_models = { path = "crates/common_models" }
 
 [dependencies]
 alloy = { version = "1.0.23", features = ["essentials"] }
@@ -24,12 +22,12 @@ async-trait = "0.1.88"
 bitflags = "2.9.4"
 chrono = { version = "0.4.41", features = ["serde"] }
 clap = { version = "4.5.45", features = ["derive"] }
+common_models = { workspace = true }
 config = { version = "0.15.13", features = ["yaml"] }
 dashmap = { version = "6.1.0", features = ["serde"] }
 futures = "0.3.31"
 hex = "0.4.3"
 hmac = "0.12.1"
-js_executor = { path = "crates/js_executor" }
 minijinja = { version = "2.11.0", features = ["serde"] }
 num-bigint = { version = "0.4.5", features = ["serde"] }
 num-traits = "0.2.19"

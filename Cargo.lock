@@ -741,12 +741,12 @@ dependencies = [
  "bitflags 2.9.4",
  "chrono",
  "clap",
+ "common_models",
  "config",
  "dashmap",
  "futures",
  "hex",
  "hmac",
- "js_executor",
  "minijinja",
  "mockall",
  "mockito",
@@ -1451,6 +1451,14 @@ checksum = "ba5a308b75df32fe02788e748662718f03fde005016435c444eea572398219fd"
 dependencies = [
  "bytes",
  "memchr",
+]
+
+[[package]]
+name = "common_models"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2933,6 +2941,7 @@ name = "js_executor"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "common_models",
  "deno_core",
  "serde",
  "serde_json",

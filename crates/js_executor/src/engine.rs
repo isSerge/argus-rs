@@ -1,9 +1,8 @@
 //! JavaScript action
+use common_models::ExecutionResponse;
 use deno_core::{JsRuntime, RuntimeOptions, serde_v8, v8};
 use serde_json::Value;
 use thiserror::Error;
-
-use crate::models::ExecutionResponse;
 
 /// An error that occurs during JavaScript script execution.
 #[derive(Debug, Error)]

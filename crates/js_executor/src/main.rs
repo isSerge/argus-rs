@@ -1,8 +1,7 @@
 mod engine;
-mod models;
 
 use axum::{Json, Router, routing::post};
-use models::{ErrorResponse, ExecutionRequest, ExecutionResponse};
+use common_models::{ErrorResponse, ExecutionRequest, ExecutionResponse};
 use tower_http::trace::TraceLayer;
 
 use crate::engine::{JsRunnerError, execute_script};
