@@ -7,3 +7,4 @@ pub mod block_processor;
 pub mod filtering;
 pub mod match_manager;
 pub mod rhai;
+pub mod js_client;
