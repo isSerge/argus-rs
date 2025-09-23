@@ -30,8 +30,8 @@ use tokio::{signal, sync::mpsc};
 use crate::{
     config::AppConfig,
     engine::{
-        block_ingestor::BlockIngestor, block_processor::BlockProcessor, filtering::FilteringEngine,
-        match_manager::MatchManager,
+        action_handler::ActionHandlerError, block_ingestor::BlockIngestor,
+        block_processor::BlockProcessor, filtering::FilteringEngine, match_manager::MatchManager,
     },
     models::{BlockData, CorrelatedBlockData, monitor::Monitor, monitor_match::MonitorMatch},
     monitor::{MonitorManager, MonitorValidationError},
@@ -69,11 +69,11 @@ pub enum SupervisorError {
     /// An error occurred while trying to load monitors from the state
     /// repository.
     #[error("Failed to load monitors from state repository: {0}")]
-    MonitorLoadError(#[from] sqlx::Error),
+    MonitorLoad(#[from] sqlx::Error),
 
     /// A critical error occurred in the data source during block fetching.
     #[error("Data source error: {0}")]
-    DataSourceError(#[from] DataSourceError),
+    DataSource(#[from] DataSourceError),
 
     /// The channel for communicating with a downstream service was closed
     /// unexpectedly.
@@ -82,7 +82,7 @@ pub enum SupervisorError {
 
     /// An error occurred during monitor validation.
     #[error("Monitor validation error: {0}")]
-    MonitorValidationError(#[from] MonitorValidationError),
+    MonitorValidation(#[from] MonitorValidationError),
 
     /// An error occurred due to an invalid configuration.
     #[error("Invalid configuration: {0}")]
@@ -94,7 +94,11 @@ pub enum SupervisorError {
 
     /// An error occurred while trying to create a provider.
     #[error("Provider creation failed: {0}")]
-    ProviderError(#[from] ProviderError),
+    Provider(#[from] ProviderError),
+
+    /// An error occurred in the action handler.
+    #[error("Action handler error: {0}")]
+    ActionHandler(#[from] ActionHandlerError),
 }
 
 /// The primary runtime manager for the application.

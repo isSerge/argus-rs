@@ -117,7 +117,7 @@ impl SupervisorBuilder {
             .map(|a| (a.name.clone(), a))
             .collect::<HashMap<_, _>>();
         let action_handler =
-            Arc::new(ActionHandler::new(Arc::new(actions), monitor_manager.clone()));
+            Arc::new(ActionHandler::new(Arc::new(actions), monitor_manager.clone()).await?);
 
         let match_manager = Arc::new(MatchManager::new(
             notification_service,

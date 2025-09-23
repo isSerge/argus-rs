@@ -48,7 +48,7 @@ async fn execute_no_actions() {
     let monitor = MonitorBuilder::new().id(1).on_match(vec![]).build();
     let monitor_manager = create_test_monitor_manager(vec![monitor]);
     let actions = Arc::new(HashMap::new());
-    let handler = ActionHandler::new(actions, monitor_manager);
+    let handler = ActionHandler::new(actions, monitor_manager).await.unwrap();
     let monitor_match = create_test_monitor_match(1);
 
     let result = handler.execute(monitor_match.clone()).await;
@@ -64,7 +64,7 @@ async fn execute_single_action_success() {
     let monitor = MonitorBuilder::new().id(1).on_match(vec![action_name]).build();
     let monitor_manager = create_test_monitor_manager(vec![monitor]);
     let actions = Arc::new(HashMap::from([(action_config.name.clone(), action_config)]));
-    let handler = ActionHandler::new(actions, monitor_manager);
+    let handler = ActionHandler::new(actions, monitor_manager).await.unwrap();
     let monitor_match = create_test_monitor_match(1);
 
     let result = handler.execute(monitor_match.clone()).await;
@@ -89,7 +89,7 @@ async fn execute_multiple_actions_success() {
         (action1_config.name.clone(), action1_config),
         (action2_config.name.clone(), action2_config),
     ]));
-    let handler = ActionHandler::new(actions, monitor_manager);
+    let handler = ActionHandler::new(actions, monitor_manager).await.unwrap();
     let monitor_match = create_test_monitor_match(1);
 
     let result = handler.execute(monitor_match.clone()).await;
@@ -105,7 +105,7 @@ async fn execute_action_not_found() {
         MonitorBuilder::new().id(1).on_match(vec!["non_existent_action".to_string()]).build();
     let monitor_manager = create_test_monitor_manager(vec![monitor]);
     let actions = Arc::new(HashMap::new());
-    let handler = ActionHandler::new(actions, monitor_manager);
+    let handler = ActionHandler::new(actions, monitor_manager).await.unwrap();
     let monitor_match = create_test_monitor_match(1);
 
     let result = handler.execute(monitor_match.clone()).await;
@@ -121,7 +121,7 @@ async fn execute_action_execution_error() {
     let monitor = MonitorBuilder::new().id(1).on_match(vec![action_name]).build();
     let monitor_manager = create_test_monitor_manager(vec![monitor]);
     let actions = Arc::new(HashMap::from([(action_config.name.clone(), action_config)]));
-    let handler = ActionHandler::new(actions, monitor_manager);
+    let handler = ActionHandler::new(actions, monitor_manager).await.unwrap();
     let monitor_match = create_test_monitor_match(1);
 
     let result = handler.execute(monitor_match.clone()).await;
@@ -135,7 +135,7 @@ async fn execute_action_execution_error() {
 async fn execute_monitor_not_found() {
     let monitor_manager = create_test_monitor_manager(vec![]);
     let actions = Arc::new(HashMap::new());
-    let handler = ActionHandler::new(actions, monitor_manager);
+    let handler = ActionHandler::new(actions, monitor_manager).await.unwrap();
     let monitor_match = create_test_monitor_match(999); // Non-existent monitor ID
 
     let result = handler.execute(monitor_match.clone()).await;

@@ -28,15 +28,11 @@ pub struct JsExecutorClient {
 pub enum JsExecutorClientError {
     /// Error spawning the JavaScript executor process.
     #[error("Failed to spawn JavaScript executor: {0}")]
-    Spawn(#[from] std::io::Error),
+    SpawnError(#[from] std::io::Error),
 
     /// Error reading the port from the JavaScript executor's stdout.
     #[error("Failed to read JavaScript executor port")]
-    PortRead,
-
-    /// Error communicating with the JavaScript executor.
-    #[error("JavaScript executor process exited unexpectedly")]
-    ProcessExit,
+    PortReadError,
 
     /// Error serializing the context for the JavaScript executor.
     #[error("Failed to serialize context for JavaScript executor: {0}")]
@@ -44,7 +40,7 @@ pub enum JsExecutorClientError {
 
     /// Error making a request to the JavaScript executor.
     #[error("Failed to communicate with JavaScript executor: {0}")]
-    Reqwest(#[from] reqwest::Error),
+    ReqwestError(#[from] reqwest::Error),
 }
 
 impl JsExecutorClient {
@@ -59,13 +55,16 @@ impl JsExecutorClient {
 
         let reader = BufReader::new(stdout);
 
-        let port_line = reader.lines().next_line().await?.ok_or(JsExecutorClientError::PortRead)?;
+        let port_line =
+            reader.lines().next_line().await?.ok_or(JsExecutorClientError::PortReadError)?;
 
-        let port: u16 = port_line.trim().parse().map_err(|_| JsExecutorClientError::PortRead)?;
+        let port: u16 =
+            port_line.trim().parse().map_err(|_| JsExecutorClientError::PortReadError)?;
 
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECONDS))
-            .build()?;
+            .build()
+            .expect("Failed to build HTTP client");
 
         Ok(Self { executor_child: Arc::new(Mutex::new(child)), port, http_client })
     }
@@ -78,12 +77,12 @@ impl JsExecutorClient {
     /// Submits a JavaScript script to the executor for execution.
     pub async fn submit_script(
         &self,
-        script: &str,
+        script: String,
         context: MonitorMatch,
     ) -> Result<ExecutionResponse, JsExecutorClientError> {
-        let url = format!("http://localhost:{}/execute", self.port);
+        let url = format!("http://127.0.0.1:{}/execute", self.port);
         let context = serde_json::to_value(context)?;
-        let request = ExecutionRequest { script: script.to_string(), context };
+        let request = ExecutionRequest { script, context };
         let response = self.http_client.post(&url).json(&request).send().await?;
         let json = response.json::<ExecutionResponse>().await?;
         Ok(json)

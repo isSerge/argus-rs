@@ -4,6 +4,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use thiserror::Error;
 
+use super::js_client;
 use crate::{config::ActionConfig, models::monitor_match::MonitorMatch, monitor::MonitorManager};
 
 /// The `ActionHandler` is responsible for running `on_match` actions
@@ -13,6 +14,8 @@ pub struct ActionHandler {
     actions: Arc<HashMap<String, ActionConfig>>,
     /// The monitor manager for accessing monitor configurations.
     monitor_manager: Arc<MonitorManager>,
+    /// The JavaScript executor client for running action scripts.
+    executor_client: Arc<js_client::JsExecutorClient>,
 }
 
 /// Errors that can occur during action execution.
@@ -20,16 +23,23 @@ pub struct ActionHandler {
 pub enum ActionHandlerError {
     /// An error occurred during action execution.
     #[error("Action execution error: {0}")]
-    ExecutionError(String),
+    Execution(String),
+
+    /// An error occurred during JSON serialization or deserialization.
+    #[error("Serialization/Deserialization error: {0}")]
+    Serde(#[from] serde_json::Error),
 }
 
 impl ActionHandler {
     /// Creates a new `ActionHandler` instance.
-    pub fn new(
+    pub async fn new(
         actions: Arc<HashMap<String, ActionConfig>>,
         monitor_manager: Arc<MonitorManager>,
-    ) -> Self {
-        Self { actions, monitor_manager }
+    ) -> Result<Self, ActionHandlerError> {
+        let executor_client = Arc::new(js_client::JsExecutorClient::new().await.map_err(|e| {
+            ActionHandlerError::Execution(format!("Failed to create JS executor client: {}", e))
+        })?);
+        Ok(Self { actions, monitor_manager, executor_client })
     }
 
     /// Executes any `on_match` actions associated with the monitor that
@@ -53,25 +63,30 @@ impl ActionHandler {
                 let mut current_match = monitor_match.clone();
                 for action_name in on_match {
                     if let Some(action) = self.actions.get(action_name) {
-                        // match execute_action(action, &current_match).await {
-                        //     Ok(modified_match) => {
-                        //         current_match = modified_match;
-                        //     }
-                        //     Err(e) => {
-                        //         tracing::error!(
-                        //             "Failed to execute action '{}' for
-                        // monitor '{}': {}",
-                        //             action_name,
-                        //             monitor.name,
-                        //             e
-                        //         );
-                        //         return
-                        // Err(ActionHandlerError::ExecutionError(e.
-                        // to_string()));     }
-                        // }
+                        let script = std::fs::read_to_string(&action.file).map_err(|e| {
+                            ActionHandlerError::Execution(format!(
+                                "Failed to read action file {}: {}",
+                                action.file.display(),
+                                e
+                            ))
+                        })?;
 
-                        // TODO: Implement action execution logic using
-                        // JavaScript executor crate
+                        match self.executor_client.submit_script(script, current_match).await {
+                            Ok(exec_response) => {
+                                let modified_match =
+                                    serde_json::from_value::<MonitorMatch>(exec_response.result)?;
+                                current_match = modified_match;
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    "Failed to execute action '{}' for monitor '{}': {}",
+                                    action_name,
+                                    monitor.name,
+                                    e
+                                );
+                                return Err(ActionHandlerError::Execution(e.to_string()));
+                            }
+                        }
                     } else {
                         tracing::warn!(
                             "Action '{}' not found for monitor '{}'",
