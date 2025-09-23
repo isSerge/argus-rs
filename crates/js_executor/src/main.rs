@@ -1,29 +1,10 @@
 mod engine;
 
-use argus_models::monitor_match::MonitorMatch;
+use argus_models::js_executor::{ErrorResponse, ExecutionRequest, ExecutionResponse};
 use axum::{Json, Router, routing::post};
-use serde::{Deserialize, Serialize};
 use tower_http::trace::TraceLayer;
 
 use crate::engine::{JsRunnerError, execute_script};
-
-// TODO: move to argus_models
-#[derive(Deserialize)]
-struct ExecutionRequest {
-    script: String,
-    context: MonitorMatch,
-}
-
-// TODO: move to argus_models
-#[derive(Serialize)]
-struct ExecutionResponse {
-    result: MonitorMatch,
-}
-
-#[derive(Serialize)]
-struct ErrorResponse {
-    error: String,
-}
 
 impl From<JsRunnerError> for ErrorResponse {
     fn from(err: JsRunnerError) -> Self {
