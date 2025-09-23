@@ -1,6 +1,6 @@
 //! Client for interacting with the JavaScript executor service.
 
-use std::{process::Stdio, sync::Arc};
+use std::{process::Stdio, sync::Arc, time::Duration};
 
 use common_models::{ExecutionRequest, ExecutionResponse};
 use tokio::{
@@ -10,6 +10,8 @@ use tokio::{
 };
 
 use crate::models::monitor_match::MonitorMatch;
+
+const REQUEST_TIMEOUT_SECONDS: u64 = 5;
 
 /// Client for interacting with the JavaScript executor service.
 pub struct JsExecutorClient {
@@ -26,15 +28,23 @@ pub struct JsExecutorClient {
 pub enum JsExecutorClientError {
     /// Error spawning the JavaScript executor process.
     #[error("Failed to spawn JavaScript executor: {0}")]
-    SpawnError(#[from] std::io::Error),
+    Spawn(#[from] std::io::Error),
 
     /// Error reading the port from the JavaScript executor's stdout.
     #[error("Failed to read JavaScript executor port")]
-    PortReadError,
+    PortRead,
 
     /// Error communicating with the JavaScript executor.
     #[error("JavaScript executor process exited unexpectedly")]
     ProcessExit,
+
+    /// Error serializing the context for the JavaScript executor.
+    #[error("Failed to serialize context for JavaScript executor: {0}")]
+    SerializationFailed(#[from] serde_json::Error),
+
+    /// Error making a request to the JavaScript executor.
+    #[error("Failed to communicate with JavaScript executor: {0}")]
+    Reqwest(#[from] reqwest::Error),
 }
 
 impl JsExecutorClient {
@@ -49,17 +59,15 @@ impl JsExecutorClient {
 
         let reader = BufReader::new(stdout);
 
-        let port_line =
-            reader.lines().next_line().await?.ok_or(JsExecutorClientError::PortReadError)?;
+        let port_line = reader.lines().next_line().await?.ok_or(JsExecutorClientError::PortRead)?;
 
-        let port: u16 =
-            port_line.trim().parse().map_err(|_| JsExecutorClientError::PortReadError)?;
+        let port: u16 = port_line.trim().parse().map_err(|_| JsExecutorClientError::PortRead)?;
 
-        Ok(Self {
-            executor_child: Arc::new(Mutex::new(child)),
-            port,
-            http_client: reqwest::Client::new(),
-        })
+        let http_client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECONDS))
+            .build()?;
+
+        Ok(Self { executor_child: Arc::new(Mutex::new(child)), port, http_client })
     }
 
     /// Returns the port on which the JavaScript executor is listening.
@@ -72,14 +80,13 @@ impl JsExecutorClient {
         &self,
         script: &str,
         context: MonitorMatch,
-    ) -> Result<ExecutionResponse, reqwest::Error> {
+    ) -> Result<ExecutionResponse, JsExecutorClientError> {
         let url = format!("http://localhost:{}/execute", self.port);
-        let request = ExecutionRequest {
-            script: script.to_string(),
-            context: serde_json::to_value(context).unwrap(),
-        };
+        let context = serde_json::to_value(context)?;
+        let request = ExecutionRequest { script: script.to_string(), context };
         let response = self.http_client.post(&url).json(&request).send().await?;
-        response.json::<ExecutionResponse>().await
+        let json = response.json::<ExecutionResponse>().await?;
+        Ok(json)
     }
 }
 
