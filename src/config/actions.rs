@@ -1,17 +1,6 @@
-use std::path::PathBuf;
-
-use serde::{Deserialize, Serialize};
+use argus_models::config::ActionConfig;
 
 use crate::loader::{Loadable, LoaderError};
-
-/// Configuration for an action
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct ActionConfig {
-    /// Name of the action
-    pub name: String,
-    /// Path to the action file
-    pub file: PathBuf,
-}
 
 impl Loadable for ActionConfig {
     type Error = LoaderError;

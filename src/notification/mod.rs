@@ -35,12 +35,13 @@
 
 use std::{collections::HashMap, sync::Arc};
 
+use argus_models::monitor_match::MonitorMatch;
+
 use crate::{
     config::HttpRetryConfig,
     http_client::HttpClientPool,
     models::{
         NotificationMessage,
-        monitor_match::MonitorMatch,
         notifier::{
             DiscordConfig, NotifierConfig, NotifierTypeConfig, SlackConfig, TelegramConfig,
             WebhookConfig,
@@ -303,13 +304,13 @@ impl NotificationService {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::{TxHash, address};
+    use argus_models::monitor_match::LogDetails;
     use serde_json::json;
 
     use super::*;
     use crate::{
         config::HttpRetryConfig,
         models::{
-            monitor_match::LogDetails,
             notification::NotificationMessage,
             notifier::{DiscordConfig, SlackConfig, TelegramConfig, WebhookConfig},
         },

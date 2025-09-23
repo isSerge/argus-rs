@@ -2,12 +2,10 @@
 
 use std::{collections::HashMap, sync::Arc};
 
+use argus_models::{config::ActionConfig, monitor_match::MonitorMatch};
 use thiserror::Error;
 
-use crate::{
-    config::ActionConfig, engine::js::execute_action, models::monitor_match::MonitorMatch,
-    monitor::MonitorManager,
-};
+use crate::monitor::MonitorManager;
 
 /// The `ActionHandler` is responsible for running `on_match` actions
 /// associated with a monitor.
@@ -56,20 +54,25 @@ impl ActionHandler {
                 let mut current_match = monitor_match.clone();
                 for action_name in on_match {
                     if let Some(action) = self.actions.get(action_name) {
-                        match execute_action(action, &current_match).await {
-                            Ok(modified_match) => {
-                                current_match = modified_match;
-                            }
-                            Err(e) => {
-                                tracing::error!(
-                                    "Failed to execute action '{}' for monitor '{}': {}",
-                                    action_name,
-                                    monitor.name,
-                                    e
-                                );
-                                return Err(ActionHandlerError::ExecutionError(e.to_string()));
-                            }
-                        }
+                        // match execute_action(action, &current_match).await {
+                        //     Ok(modified_match) => {
+                        //         current_match = modified_match;
+                        //     }
+                        //     Err(e) => {
+                        //         tracing::error!(
+                        //             "Failed to execute action '{}' for
+                        // monitor '{}': {}",
+                        //             action_name,
+                        //             monitor.name,
+                        //             e
+                        //         );
+                        //         return
+                        // Err(ActionHandlerError::ExecutionError(e.
+                        // to_string()));     }
+                        // }
+
+                        // TODO: Implement action execution logic using
+                        // JavaScript executor crate
                     } else {
                         tracing::warn!(
                             "Action '{}' not found for monitor '{}'",

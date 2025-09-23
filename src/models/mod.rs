@@ -7,7 +7,6 @@ pub mod decoded_block;
 pub mod log;
 pub mod match_manager_state;
 pub mod monitor;
-pub mod monitor_match;
 pub mod notification;
 pub mod notifier;
 pub mod transaction;

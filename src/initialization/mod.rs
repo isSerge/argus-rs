@@ -4,11 +4,12 @@
 
 use std::{path::PathBuf, sync::Arc};
 
+use argus_models::config::ActionConfig;
 use thiserror::Error;
 
 use crate::{
     abi::AbiService,
-    config::{ActionConfig, AppConfig},
+    config::AppConfig,
     engine::rhai::RhaiScriptValidator,
     loader::load_config,
     models::{monitor::MonitorConfig, notifier::NotifierConfig},

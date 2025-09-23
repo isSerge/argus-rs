@@ -4,12 +4,13 @@
 use std::{collections::HashMap, sync::Arc};
 
 use alloy::primitives;
+use argus_models::{config::ActionConfig, monitor_match::MonitorMatch};
 use clap::Parser;
 use thiserror::Error;
 
 use crate::{
     abi::{AbiError, AbiRepository, AbiService, repository::AbiRepositoryError},
-    config::{ActionConfig, AppConfig},
+    config::AppConfig,
     engine::{
         action_handler::ActionHandler,
         block_processor::process_blocks_batch,
@@ -23,7 +24,6 @@ use crate::{
         BlockData,
         builder::MonitorBuilder,
         monitor::MonitorConfig,
-        monitor_match::MonitorMatch,
         notifier::{NotifierConfig, NotifierError},
     },
     monitor::{MonitorManager, MonitorValidationError, MonitorValidator},
@@ -341,6 +341,7 @@ mod tests {
     use std::{collections::HashMap, sync::Arc};
 
     use alloy::primitives::U256;
+    use argus_models::monitor_match::{MatchData, TransactionMatchData};
     use mockall::predicate::eq;
     use tempfile::tempdir;
 
@@ -351,7 +352,6 @@ mod tests {
         engine::{filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
         models::{
             NotificationMessage,
-            monitor_match::{MatchData, TransactionMatchData},
             notifier::{NotifierTypeConfig, SlackConfig},
         },
         providers::traits::MockDataSource,

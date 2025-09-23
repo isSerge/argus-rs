@@ -3,13 +3,14 @@ use std::sync::Arc;
 use argus::{
     abi::{AbiService, repository::AbiRepository},
     cmd::{DryRunArgs, dry_run},
-    config::{ActionConfig, AppConfig},
+    config::AppConfig,
     engine::rhai::{RhaiCompiler, RhaiScriptValidator},
     initialization::InitializationService,
     loader::load_config,
     persistence::{sqlite::SqliteStateRepository, traits::StateRepository},
     supervisor::Supervisor,
 };
+use argus_models::config::ActionConfig;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 

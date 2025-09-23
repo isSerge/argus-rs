@@ -8,7 +8,6 @@ mod http_retry;
 mod rhai;
 mod rpc_retry;
 
-pub use actions::ActionConfig;
 pub use app_config::AppConfig;
 pub use helpers::{
     deserialize_duration_from_ms, deserialize_duration_from_seconds, deserialize_urls,

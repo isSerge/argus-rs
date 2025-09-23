@@ -7,10 +7,20 @@ edition = "2024"
 members = [
     ".",
     "crates/js_executor",
+    "crates/argus_models",
 ]
 
-[dependencies]
+[workspace.dependencies]
 alloy = { version = "1.0.23", features = ["essentials"] }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.141"
+tempfile = "3.8.1"
+thiserror = "2.0.12"
+tokio = { version = "1.47.0", features = ["full"] }
+
+[dependencies]
+alloy = { workspace = true }
+argus_models = { path = "crates/argus_models" }
 arc-swap = "1.7.1"
 async-trait = "0.1.88"
 bitflags = "2.9.4"
@@ -32,8 +42,8 @@ reqwest-middleware = { version = "0.4.2", features = ["json"] }
 reqwest-retry = "0.7.0"
 rhai = { version = "1.22.2", features = ["sync", "internals", "decimal"] }
 rust_decimal = { version = "1.37.2", features = ["maths"] }
-serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.141"
+serde = { workspace = true }
+serde_json = { workspace = true }
 sha2 = "0.10.9"
 sqlx = { version = "0.8.6", features = [
   "runtime-tokio-rustls",
@@ -42,9 +52,9 @@ sqlx = { version = "0.8.6", features = [
   "migrate",
   "chrono",
 ] }
-tempfile = "3.8.1"
-thiserror = "2.0.12"
-tokio = { version = "1.47.0", features = ["full"] }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
 tokio-util = "0.7.16"
 tower = { version = "0.5.2", features = ["retry"] }
 tracing = "0.1.41"

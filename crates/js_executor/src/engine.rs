@@ -1,8 +1,7 @@
 //! JavaScript action
+use argus_models::{config::ActionConfig, monitor_match::MonitorMatch};
 use deno_core::{JsRuntime, RuntimeOptions, serde_v8, v8};
 use thiserror::Error;
-
-use crate::{config::ActionConfig, models::monitor_match::MonitorMatch};
 
 /// An error that occurs during JavaScript script execution.
 #[derive(Debug, Error)]
@@ -49,7 +48,7 @@ pub async fn execute_action(
             let mut runtime = JsRuntime::new(RuntimeOptions::default());
 
             // Load the console polyfill
-            let console_polyfill = include_str!("../../js/console_polyfill.js");
+            let console_polyfill = include_str!("./console_polyfill.js");
             runtime
                 .execute_script("<console_polyfill>", console_polyfill)
                 .map_err(JsRunnerError::ScriptExecution)?;
@@ -94,11 +93,11 @@ mod tests {
     use std::io::Write;
 
     use alloy::primitives::TxHash;
+    use argus_models::monitor_match::{MatchData, TransactionMatchData};
     use serde_json::json;
     use tempfile::NamedTempFile;
 
     use super::*;
-    use crate::models::monitor_match::{MatchData, TransactionMatchData};
 
     fn create_test_action_file(content: &str) -> (NamedTempFile, ActionConfig) {
         let mut file = NamedTempFile::with_suffix(".js").unwrap();

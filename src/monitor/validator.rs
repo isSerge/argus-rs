@@ -3,11 +3,11 @@
 use std::sync::Arc;
 
 use alloy::{json_abi::JsonAbi, primitives::Address};
+use argus_models::config::ActionConfig;
 use thiserror::Error;
 
 use crate::{
     abi::AbiService,
-    config::ActionConfig,
     engine::rhai::{RhaiScriptValidationError, RhaiScriptValidationResult, RhaiScriptValidator},
     models::{monitor::MonitorConfig, notifier::NotifierConfig},
 };
@@ -372,11 +372,12 @@ mod tests {
     use std::sync::Arc;
 
     use alloy::primitives::{Address, address};
+    use argus_models::config::ActionConfig;
     use tempfile::tempdir;
 
     use crate::{
         abi::{AbiService, repository::AbiRepository},
-        config::{ActionConfig, RhaiConfig},
+        config::RhaiConfig,
         engine::rhai::{RhaiCompiler, RhaiScriptValidationError, RhaiScriptValidator},
         models::{
             NotificationMessage,
