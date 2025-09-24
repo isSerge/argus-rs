@@ -13,6 +13,18 @@ use crate::models::monitor_match::MonitorMatch;
 
 const REQUEST_TIMEOUT_SECONDS: u64 = 5;
 
+/// Trait defining the interface for a JavaScript executor client.
+#[async_trait::async_trait]
+#[cfg_attr(test, mockall::automock)]
+pub trait JsClient: Send + Sync {
+    /// Submits a JavaScript script to the executor for execution.
+    async fn submit_script(
+        &self,
+        script: String,
+        context: MonitorMatch,
+    ) -> Result<ExecutionResponse, JsExecutorClientError>;
+}
+
 /// Client for interacting with the JavaScript executor service.
 pub struct JsExecutorClient {
     /// The child process running the JavaScript executor.
@@ -73,9 +85,12 @@ impl JsExecutorClient {
     pub fn port(&self) -> u16 {
         self.port
     }
+}
 
+#[async_trait::async_trait]
+impl JsClient for JsExecutorClient {
     /// Submits a JavaScript script to the executor for execution.
-    pub async fn submit_script(
+    async fn submit_script(
         &self,
         script: String,
         context: MonitorMatch,

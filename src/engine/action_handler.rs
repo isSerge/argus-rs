@@ -4,7 +4,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use thiserror::Error;
 
-use super::js_client;
+use super::js_client::{self, JsClient};
 use crate::{config::ActionConfig, models::monitor_match::MonitorMatch, monitor::MonitorManager};
 
 /// The `ActionHandler` is responsible for running `on_match` actions
@@ -15,7 +15,7 @@ pub struct ActionHandler {
     /// The monitor manager for accessing monitor configurations.
     monitor_manager: Arc<MonitorManager>,
     /// The JavaScript executor client for running action scripts.
-    executor_client: Arc<js_client::JsExecutorClient>,
+    executor_client: Arc<dyn JsClient>,
 }
 
 /// Errors that can occur during action execution.
@@ -40,6 +40,17 @@ impl ActionHandler {
             ActionHandlerError::Execution(format!("Failed to create JS executor client: {}", e))
         })?);
         Ok(Self { actions, monitor_manager, executor_client })
+    }
+
+    /// Creates a new `ActionHandler` instance with a provided JavaScript
+    /// executor client. This is primarily for testing purposes.
+    #[cfg(test)]
+    pub fn new_with_test_client(
+        actions: Arc<HashMap<String, ActionConfig>>,
+        monitor_manager: Arc<MonitorManager>,
+        executor_client: Arc<dyn JsClient>,
+    ) -> Self {
+        Self { actions, monitor_manager, executor_client }
     }
 
     /// Executes any `on_match` actions associated with the monitor that
@@ -109,5 +120,101 @@ impl ActionHandler {
             // If monitor not found, return the original match
             Ok(monitor_match)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use common_models::ExecutionResponse;
+
+    use super::*;
+    use crate::test_helpers::{MonitorBuilder, create_monitor_match, create_test_monitor_manager};
+
+    #[test]
+    fn test_action_handler_creation() {
+        let actions = Arc::new(HashMap::new());
+        let monitor_manager = create_test_monitor_manager(vec![]);
+        let mock_js_client = Arc::new(js_client::MockJsClient::new());
+        let action_handler =
+            ActionHandler::new_with_test_client(actions, monitor_manager, mock_js_client);
+
+        assert!(action_handler.actions.is_empty());
+        assert_eq!(Arc::strong_count(&action_handler.monitor_manager), 1);
+        assert_eq!(Arc::strong_count(&action_handler.executor_client), 1);
+    }
+
+    #[tokio::test]
+    async fn test_action_handler_execute_no_actions() {
+        let actions = Arc::new(HashMap::new());
+        let monitor_manager = create_test_monitor_manager(vec![]);
+        let mock_js_client = Arc::new(js_client::MockJsClient::new());
+        let action_handler =
+            ActionHandler::new_with_test_client(actions, monitor_manager, mock_js_client);
+
+        let monitor_match = create_monitor_match("TestNotifier".into());
+
+        let result = action_handler.execute(monitor_match.clone()).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), monitor_match);
+    }
+
+    #[tokio::test]
+    async fn test_action_handler_execute_action() {
+        use mockall::predicate::eq;
+
+        use crate::config::ActionConfig;
+
+        let mut actions_map = HashMap::new();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let action_file_path = temp_dir.path().join("test_action.js");
+        std::fs::write(&action_file_path, "context.monitor_name = 'modified_monitor_name';")
+            .unwrap();
+
+        actions_map.insert(
+            "TestAction".into(),
+            ActionConfig { name: "TestAction".into(), file: action_file_path.clone() },
+        );
+
+        let actions = Arc::new(actions_map);
+        let monitors = vec![
+            MonitorBuilder::new()
+                .name("Test Monitor".into())
+                .on_match(vec!["TestAction".into()])
+                .build(),
+        ];
+        let monitor_manager = create_test_monitor_manager(monitors);
+        let mut mock_js_client = js_client::MockJsClient::new();
+
+        let original_match = create_monitor_match("TestNotifier".into());
+        let modified_match = {
+            let mut m = original_match.clone();
+            m.monitor_name = "modified_monitor_name".into();
+            m
+        };
+        let modified_match_clone = modified_match.clone();
+
+        mock_js_client
+            .expect_submit_script()
+            .with(
+                eq(std::fs::read_to_string(&action_file_path).unwrap()),
+                eq(original_match.clone()),
+            )
+            .times(1)
+            .returning(move |_, _| {
+                let response = ExecutionResponse {
+                    result: serde_json::to_value(&modified_match_clone).unwrap(),
+                    stdout: "".into(),
+                    stderr: "".into(),
+                };
+
+                Box::pin(async move { Ok(response) })
+            });
+
+        let action_handler =
+            ActionHandler::new_with_test_client(actions, monitor_manager, Arc::new(mock_js_client));
+
+        let result = action_handler.execute(original_match.clone()).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), modified_match);
     }
 }
