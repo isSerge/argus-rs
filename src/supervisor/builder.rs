@@ -291,4 +291,46 @@ mod tests {
             supervisor.err()
         );
     }
+
+    #[tokio::test]
+    async fn build_succeeds_with_action_handler() {
+        let app_config = AppConfig::builder()
+            .rpc_urls(vec![
+                "http://localhost:8545".parse().unwrap(), // Cannot be empty to create provider
+            ])
+            .build();
+        let dir = tempdir().unwrap();
+        let (abi_service, _) = create_test_abi_service(&dir, &[]);
+        let state_repo = Arc::new(setup_test_db().await);
+        let actions = vec![
+            ActionConfig { name: "action1".into(), file: "actions/action1.js".into() },
+            ActionConfig { name: "action2".into(), file: "actions/action2.js".into() },
+        ];
+
+        let monitor_manager = create_test_monitor_manager(vec![]); // Empty monitors for this test
+        let mock_js_client = Arc::new(js_client::MockJsClient::new());
+        let action_handler = Arc::new(action_handler::ActionHandler::new(
+            Arc::new(
+                actions.iter().map(|a| (a.name.clone(), a.clone())).collect::<HashMap<_, _>>(),
+            ),
+            monitor_manager,
+            mock_js_client,
+        ));
+
+        let builder = SupervisorBuilder::new()
+            .config(app_config)
+            .state(state_repo)
+            .abi_service(abi_service)
+            .script_compiler(Arc::new(RhaiCompiler::new(RhaiConfig::default())))
+            .actions(actions.clone())
+            .action_handler(action_handler);
+
+        let supervisor = builder.build().await;
+
+        assert!(
+            supervisor.is_ok(),
+            "Expected build to succeed, but got error: {:?}",
+            supervisor.err()
+        );
+    }
 }

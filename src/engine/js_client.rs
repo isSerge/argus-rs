@@ -216,3 +216,121 @@ impl Drop for JsExecutorClient {
         });
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use mockito::{Matcher, Server, ServerOpts};
+
+    use super::*;
+    use crate::test_helpers::create_monitor_match;
+
+    async fn setup_test_client(port: u16) -> JsExecutorClient {
+        // Spawn a long-running, harmless command to act as our dummy child process.
+        let child = Command::new("sleep")
+            .arg("300") // 5 minutes, plenty of time for tests
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("Failed to spawn dummy child process for test");
+
+        JsExecutorClient {
+            executor_child: Arc::new(Mutex::new(child)),
+            port,
+            http_client: reqwest::Client::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_submit_script_success() {
+        let script = "context.monitor_name = context.monitor_name + \"v2\";".to_string();
+        let port = 12345;
+        let mut server = Server::new_with_opts(ServerOpts { port, ..Default::default() });
+        let monitor_match = create_monitor_match("random_notifier".to_string());
+
+        let _m = server
+            .mock("POST", "/execute")
+            .match_header("content-type", "application/json")
+            .match_body(Matcher::PartialJson(serde_json::json!({
+                "script": script,
+                "context": monitor_match,
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::to_string(&ExecutionResponse {
+                    result: serde_json::json!(42),
+                    stdout: "".into(),
+                    stderr: "".into(),
+                })
+                .unwrap(),
+            )
+            .create_async()
+            .await;
+
+        let client = setup_test_client(port).await;
+
+        let response = client
+            .submit_script(script.into(), &monitor_match)
+            .await
+            .expect("Failed to submit script");
+
+        assert_eq!(response.result, serde_json::json!(42));
+    }
+
+    #[tokio::test]
+    async fn test_submit_script_handles_server_error() {
+        let script = "context.value = context.value * 2;".to_string();
+        let port = 12346;
+        let mut server = Server::new_with_opts(ServerOpts { port, ..Default::default() });
+        let monitor_match = create_monitor_match("random_notifier".to_string());
+
+        let _m = server
+            .mock("POST", "/execute")
+            .match_header("content-type", "application/json")
+            .match_body(Matcher::PartialJson(serde_json::json!({
+                "script": script,
+                "context": monitor_match,
+            })))
+            .with_status(500)
+            .with_body("Internal Server Error")
+            .create_async()
+            .await;
+
+        let client = setup_test_client(port).await;
+
+        let result = client.submit_script(script.into(), &monitor_match).await;
+
+        assert!(result.is_err(), "Expected error due to server error got {:?}", result.unwrap());
+
+        matches!(result.unwrap_err(), JsExecutorClientError::ReqwestError(_));
+    }
+
+    #[tokio::test]
+    async fn test_submit_script_handles_malformed_json_response() {
+        let script = "context.value = context.value * 2;".to_string();
+        let port = 12347;
+        let mut server = Server::new_with_opts(ServerOpts { port, ..Default::default() });
+        let monitor_match = create_monitor_match("random_notifier".to_string());
+
+        let _m = server
+            .mock("POST", "/execute")
+            .match_header("content-type", "application/json")
+            .match_body(Matcher::PartialJson(serde_json::json!({
+                "script": script,
+                "context": monitor_match,
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body("This is not valid JSON")
+            .create_async()
+            .await;
+
+        let client = setup_test_client(port).await;
+
+        let result = client.submit_script(script.into(), &monitor_match).await;
+
+        assert!(result.is_err(), "Expected error due to malformed JSON got {:?}", result.unwrap());
+
+        matches!(result.unwrap_err(), JsExecutorClientError::SerializationFailed(_));
+    }
+}
