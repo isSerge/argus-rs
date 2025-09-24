@@ -74,6 +74,8 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: llvm-tools-preview
 
       - name: Cache Cargo artifacts for coverage
         uses: actions/cache@v4
@@ -86,21 +88,23 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-coverage-${{ hashFiles('**/Cargo.lock') }}
       
+      # The build step is still a good practice to ensure the binary exists
       - name: Build all targets
-        env:
-          SQLX_OFFLINE: '1'
         run: cargo build --workspace --all-targets
 
-      - name: Run tests with coverage
+      # Run tests with coverage using llvm-cov
+      - name: Run tests with coverage using llvm-cov
         env:
           SQLX_OFFLINE: '1'
-          # Set the path to the JavaScript executor binary for coverage tests
+          # Set the path to the JavaScript executor binary for integration tests
           JS_EXECUTOR_BIN_PATH: "target/debug/js_executor"
-        run: cargo install cargo-tarpaulin && cargo tarpaulin --out Xml
+        run: |
+          cargo install cargo-llvm-cov
+          cargo llvm-cov --workspace --codecov -- --nocapture
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: cobertura.xml
+          files: codecov.json
           fail_ci_if_error: true
