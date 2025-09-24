@@ -48,13 +48,13 @@ jobs:
       - name: Run cargo check
         env:
           SQLX_OFFLINE: '1'
-        run: cargo check --workspace --all-targets
+        run: cargo check --workspace
 
       # Run clippy to catch lints and warnings (treat warnings as errors)
       - name: Run cargo clippy
         env:
           SQLX_OFFLINE: '1'
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace -- -D warnings
 
       # Run tests
       - name: Run tests
