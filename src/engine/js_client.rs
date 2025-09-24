@@ -84,10 +84,8 @@ impl JsExecutorClient {
         .ok_or(JsExecutorClientError::PortReadError)?;
 
         // Extract the port number from the line "Listening on <port>"
-        let port: u16 = port_line
-            .trim()
-            .parse()
-            .map_err(|_| JsExecutorClientError::PortReadError)?;
+        let port: u16 =
+            port_line.trim().parse().map_err(|_| JsExecutorClientError::PortReadError)?;
 
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECONDS))
