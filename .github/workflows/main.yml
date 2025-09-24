@@ -85,8 +85,13 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-coverage-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Build all targets
+        run: cargo build --workspace --all-targets
 
       - name: Run tests with coverage
+        env:
+          JS_EXECUTOR_BIN_PATH: "target/debug/js_executor"
         run: cargo install cargo-tarpaulin && cargo tarpaulin --out Xml
 
       - name: Upload coverage to Codecov
