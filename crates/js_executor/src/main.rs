@@ -22,7 +22,7 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     // Print the port to stdout for the client to read
-    println!("{}", addr.port());
+    println!("Listening on {}", addr.port());
 
     tracing::info!("Listening on {}", addr);
 
