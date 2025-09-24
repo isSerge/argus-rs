@@ -31,7 +31,8 @@ use crate::{
     config::AppConfig,
     engine::{
         action_handler::ActionHandlerError, block_ingestor::BlockIngestor,
-        block_processor::BlockProcessor, filtering::FilteringEngine, match_manager::MatchManager,
+        block_processor::BlockProcessor, filtering::FilteringEngine, js_client,
+        match_manager::MatchManager,
     },
     models::{BlockData, CorrelatedBlockData, monitor::Monitor, monitor_match::MonitorMatch},
     monitor::{MonitorManager, MonitorValidationError},
@@ -99,6 +100,10 @@ pub enum SupervisorError {
     /// An error occurred in the action handler.
     #[error("Action handler error: {0}")]
     ActionHandler(#[from] ActionHandlerError),
+
+    /// An error occurred in the JavaScript executor client.
+    #[error("JavaScript executor client error: {0}")]
+    JsExecutorClient(#[from] js_client::JsExecutorClientError),
 }
 
 /// The primary runtime manager for the application.

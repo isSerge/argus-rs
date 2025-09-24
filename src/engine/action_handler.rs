@@ -4,7 +4,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use thiserror::Error;
 
-use super::js_client::{self, JsClient};
+use super::js_client::JsClient;
 use crate::{config::ActionConfig, models::monitor_match::MonitorMatch, monitor::MonitorManager};
 
 /// The `ActionHandler` is responsible for running `on_match` actions
@@ -32,20 +32,7 @@ pub enum ActionHandlerError {
 
 impl ActionHandler {
     /// Creates a new `ActionHandler` instance.
-    pub async fn new(
-        actions: Arc<HashMap<String, ActionConfig>>,
-        monitor_manager: Arc<MonitorManager>,
-    ) -> Result<Self, ActionHandlerError> {
-        let executor_client = Arc::new(js_client::JsExecutorClient::new().await.map_err(|e| {
-            ActionHandlerError::Execution(format!("Failed to create JS executor client: {}", e))
-        })?);
-        Ok(Self { actions, monitor_manager, executor_client })
-    }
-
-    /// Creates a new `ActionHandler` instance with a provided JavaScript
-    /// executor client. This is primarily for testing purposes.
-    #[cfg(test)]
-    pub fn new_with_test_client(
+    pub fn new(
         actions: Arc<HashMap<String, ActionConfig>>,
         monitor_manager: Arc<MonitorManager>,
         executor_client: Arc<dyn JsClient>,
@@ -128,15 +115,17 @@ mod tests {
     use common_models::ExecutionResponse;
 
     use super::*;
-    use crate::test_helpers::{MonitorBuilder, create_monitor_match, create_test_monitor_manager};
+    use crate::{
+        engine::js_client,
+        test_helpers::{MonitorBuilder, create_monitor_match, create_test_monitor_manager},
+    };
 
     #[test]
     fn test_action_handler_creation() {
         let actions = Arc::new(HashMap::new());
         let monitor_manager = create_test_monitor_manager(vec![]);
         let mock_js_client = Arc::new(js_client::MockJsClient::new());
-        let action_handler =
-            ActionHandler::new_with_test_client(actions, monitor_manager, mock_js_client);
+        let action_handler = ActionHandler::new(actions, monitor_manager, mock_js_client);
 
         assert!(action_handler.actions.is_empty());
         assert_eq!(Arc::strong_count(&action_handler.monitor_manager), 1);
@@ -148,8 +137,7 @@ mod tests {
         let actions = Arc::new(HashMap::new());
         let monitor_manager = create_test_monitor_manager(vec![]);
         let mock_js_client = Arc::new(js_client::MockJsClient::new());
-        let action_handler =
-            ActionHandler::new_with_test_client(actions, monitor_manager, mock_js_client);
+        let action_handler = ActionHandler::new(actions, monitor_manager, mock_js_client);
 
         let monitor_match = create_monitor_match("TestNotifier".into());
 
@@ -210,8 +198,7 @@ mod tests {
                 Box::pin(async move { Ok(response) })
             });
 
-        let action_handler =
-            ActionHandler::new_with_test_client(actions, monitor_manager, Arc::new(mock_js_client));
+        let action_handler = ActionHandler::new(actions, monitor_manager, Arc::new(mock_js_client));
 
         let result = action_handler.execute(original_match.clone()).await;
         assert!(result.is_ok());
