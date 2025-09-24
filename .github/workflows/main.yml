@@ -103,7 +103,7 @@ jobs:
           cargo llvm-cov --workspace -- --nocapture
       
       - name: Generate Codecov report from raw data
-        run: cargo llvm-cov report --codecov
+        run: cargo llvm-cov report --codecov --output-path codecov.json
       
       - name: Verify coverage report exists
         run: ls -l codecov.json
