@@ -13,7 +13,7 @@ use crate::models::monitor_match::MonitorMatch;
 
 const REQUEST_TIMEOUT_SECONDS: u64 = 5;
 // Increased startup timeout for potentially slow CI environments
-const STARTUP_TIMEOUT_SECONDS: u64 = 15;
+const STARTUP_TIMEOUT_SECONDS: u64 = 30;
 
 /// Trait defining the interface for a JavaScript executor client.
 #[async_trait::async_trait]
@@ -44,23 +44,30 @@ pub enum JsExecutorClientError {
     #[error("Failed to spawn JavaScript executor: {0}")]
     SpawnError(#[from] std::io::Error),
 
-    /// The JavaScript executor took too long to start up and signal its port.
-    #[error("JavaScript executor timed out after {timeout:?} during startup. Output:\n{output}")]
-    StartupTimeout {
-        /// The duration after which the startup timed out.
-        timeout: Duration,
-        /// The output captured from the executor during startup.
-        output: String,
-    },
-
     /// Error reading the port from the JavaScript executor's stdout.
     #[error(
-        "Failed to read JavaScript executor port. The process may have exited early. \
-         Output:\n{output}"
+        "Failed to read JavaScript executor port. The process may have exited early.\n--- STDOUT \
+         ---\n{stdout}\n--- STDERR ---\n{stderr}"
     )]
     PortReadError {
-        /// The output captured from the executor during startup.
-        output: String,
+        /// Captured stdout from the executor process.
+        stdout: String,
+        /// Captured stderr from the executor process.
+        stderr: String,
+    },
+
+    /// The JavaScript executor took too long to start up and signal its port.
+    #[error(
+        "JavaScript executor timed out after {timeout:?} during startup.\n--- STDOUT \
+         ---\n{stdout}\n--- STDERR ---\n{stderr}"
+    )]
+    StartupTimeout {
+        /// Duration after which the startup timed out.
+        timeout: Duration,
+        /// Captured stdout from the executor process.
+        stdout: String,
+        /// Captured stderr from the executor process.
+        stderr: String,
     },
 
     /// Error serializing the context for the JavaScript executor.
@@ -91,54 +98,78 @@ impl JsExecutorClient {
 
         let mut child = cmd.spawn()?;
         let stdout = child.stdout.take().expect("Failed to capture stdout");
-        let mut reader = BufReader::new(stdout);
+        let stderr = child.stderr.take().expect("Failed to capture stderr");
+
+        let mut stdout_reader = BufReader::new(stdout);
+        let mut stderr_reader = BufReader::new(stderr);
 
         const READY_MARKER: &str = "Listening on ";
-
-        let mut port = None;
-        let mut startup_output = Vec::new();
         let startup_timeout = Duration::from_secs(STARTUP_TIMEOUT_SECONDS);
 
-        let timeout_result = tokio::time::timeout(startup_timeout, async {
-            let mut line_buf = String::new();
-            loop {
-                match reader.read_line(&mut line_buf).await {
-                    Ok(0) => {
-                        // EOF: Child process exited before signaling port.
-                        break;
-                    }
-                    Ok(_) => {
-                        let line = line_buf.trim();
-                        tracing::debug!("js_executor stdout: {}", line);
-                        startup_output.push(line_buf.clone());
+        let mut stdout_output = String::new();
+        let mut stderr_output = String::new();
 
-                        if let Some(port_str) = line.strip_prefix(READY_MARKER)
-                            && let Ok(p) = port_str.parse::<u16>()
-                        {
-                            port = Some(p);
-                            break;
+        let timeout_result = tokio::time::timeout(startup_timeout, async {
+            loop {
+                let mut stdout_line = String::new();
+                let mut stderr_line = String::new();
+
+                tokio::select! {
+                    // Read a line from stdout
+                    res = stdout_reader.read_line(&mut stdout_line) => {
+                        match res {
+                            Ok(0) => break None, // EOF
+                            Ok(_) => {
+                                tracing::debug!("js_executor stdout: {}", stdout_line.trim());
+                                stdout_output.push_str(&stdout_line);
+                                if let Some(port_str) = stdout_line.trim().strip_prefix(READY_MARKER)
+                                    && let Ok(p) = port_str.parse::<u16>() {
+                                        break Some(p); // Success
+                                    }
+                            }
+                            Err(e) => {
+                                tracing::error!("Error reading js_executor stdout: {}", e);
+                                break None;
+                            }
                         }
-                        line_buf.clear();
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to read line from js_executor: {}", e);
-                        break;
+                    },
+                    // Read a line from stderr
+                    res = stderr_reader.read_line(&mut stderr_line) => {
+                         match res {
+                            Ok(0) => {}, // EOF on stderr is fine
+                            Ok(_) => {
+                                tracing::warn!("js_executor stderr: {}", stderr_line.trim());
+                                stderr_output.push_str(&stderr_line);
+                            },
+                            Err(e) => {
+                                tracing::error!("Error reading js_executor stderr: {}", e);
+                            }
+                        }
                     }
                 }
             }
         })
         .await;
 
-        if timeout_result.is_err() {
-            return Err(JsExecutorClientError::StartupTimeout {
-                timeout: startup_timeout,
-                output: startup_output.join(""),
-            });
-        }
-
-        let port = port.ok_or_else(|| JsExecutorClientError::PortReadError {
-            output: startup_output.join(""),
-        })?;
+        let port = match timeout_result {
+            // Timeout occurred
+            Err(_) => {
+                return Err(JsExecutorClientError::StartupTimeout {
+                    timeout: startup_timeout,
+                    stdout: stdout_output,
+                    stderr: stderr_output,
+                });
+            }
+            // Timeout did not occur, check inner result
+            Ok(Some(p)) => p, // Success
+            Ok(None) => {
+                // The async block completed but returned None (e.g. stdout closed)
+                return Err(JsExecutorClientError::PortReadError {
+                    stdout: stdout_output,
+                    stderr: stderr_output,
+                });
+            }
+        };
 
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECONDS))
