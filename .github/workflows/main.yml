@@ -100,7 +100,13 @@ jobs:
           JS_EXECUTOR_BIN_PATH: "target/debug/js_executor"
         run: |
           cargo install cargo-llvm-cov
-          cargo llvm-cov --workspace --codecov -- --nocapture
+          cargo llvm-cov --workspace -- --nocapture
+      
+      - name: Generate Codecov report from raw data
+        run: cargo llvm-cov report --codecov
+      
+      - name: Verify coverage report exists
+        run: ls -l codecov.json
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -109,3 +115,4 @@ jobs:
           files: codecov.json
           fail_ci_if_error: true
           verbose: true
+
