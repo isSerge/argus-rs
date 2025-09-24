@@ -54,6 +54,8 @@ jobs:
       
       # Build all targets (binaries, libs, tests)
       - name: Build all targets (binaries, libs, tests)
+        env:
+          SQLX_OFFLINE: '1'
         run: cargo build --workspace --all-targets
 
       # Run tests
