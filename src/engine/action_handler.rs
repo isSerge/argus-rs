@@ -78,6 +78,7 @@ impl ActionHandler {
                             Err(e) => {
                                 // If script execution fails, log the error and proceed with the
                                 // original match.
+                                // TODO: add script failure to the match metadata in the future.
                                 tracing::error!(
                                     "Failed to execute action '{}' for monitor '{}': {}",
                                     action_name,

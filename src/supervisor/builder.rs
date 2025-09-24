@@ -124,7 +124,8 @@ impl SupervisorBuilder {
             .map(|a| (a.name.clone(), a))
             .collect::<HashMap<_, _>>();
 
-        // If an ActionHandler was provided, use it; otherwise, create a default one.
+        // If an ActionHandler was provided, use it (during tests); otherwise, create a
+        // default one (in production).
         let action_handler = if let Some(action_handler) = self.action_handler {
             Some(action_handler)
         // If no actions are configured, skip creating the ActionHandler.

@@ -39,7 +39,7 @@ pub async fn execute_script(
             // Create runtime in the blocking thread
             let mut runtime = JsRuntime::new(RuntimeOptions::default());
 
-            // Load the console polyfill
+            // TODO: remove console polyfill when adding deno_runtime
             let console_polyfill = include_str!("./console_polyfill.js");
             runtime
                 .execute_script("<console_polyfill>", console_polyfill)
