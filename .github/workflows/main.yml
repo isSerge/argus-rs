@@ -99,7 +99,7 @@ jobs:
           # Set the path to the JavaScript executor binary for integration tests
           JS_EXECUTOR_BIN_PATH: "target/debug/js_executor"
         run: |
-          cargo install cargo-llvm-cov
+          cargo install cargo-llvm-cov --force
           cargo llvm-cov --workspace -- --nocapture
       
       - name: Generate Codecov report from raw data
