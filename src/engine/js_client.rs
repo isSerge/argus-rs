@@ -97,7 +97,7 @@ impl JsExecutorClient {
             for (key, _) in env::vars().filter(|(k, _)| k.starts_with("CARGO_BIN_EXE_")) {
                 println!("  - Found other var: {}", key);
             }
-            println!("");
+            println!("_______________________________________________\n");
             // Fallback to cargo run for development and other environments
             let mut cmd = Command::new("cargo");
             cmd.arg("run").arg("-p").arg("js_executor").arg("--bin").arg("js_executor");
