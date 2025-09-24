@@ -104,9 +104,6 @@ jobs:
       
       - name: Generate Codecov report from raw data
         run: cargo llvm-cov report --codecov --output-path codecov.json
-      
-      - name: Verify coverage report exists
-        run: ls -l codecov.json
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -114,5 +111,4 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: codecov.json
           fail_ci_if_error: true
-          verbose: true
 
