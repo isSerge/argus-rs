@@ -453,8 +453,8 @@ async fn test_process_match_with_action_handler_returns_modified_match() {
         .build();
 
     let monitor_manager = create_test_monitor_manager(vec![monitor]);
-    let action_handler =
-        ActionHandler::new(Arc::new(actions), monitor_manager.clone()).await.unwrap();
+    let client = Arc::new(argus::engine::js_client::JsExecutorClient::new().await.unwrap());
+    let action_handler = ActionHandler::new(Arc::new(actions), monitor_manager.clone(), client);
 
     let state_repo = Arc::new(setup_db().await);
     let notification_service = Arc::new(NotificationService::new(
