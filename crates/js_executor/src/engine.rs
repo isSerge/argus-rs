@@ -45,7 +45,7 @@ pub async fn execute_script(
                 .map_err(JsRunnerError::ScriptExecution)?;
 
             // Bootstrap the runtime with the context
-            let bootstrap_script = format!("const match = {};", context_json);
+            let bootstrap_script = format!("const context = {};", context_json);
             runtime
                 .execute_script("<bootstrap>", bootstrap_script)
                 .map_err(JsRunnerError::ScriptExecution)?;
@@ -53,8 +53,8 @@ pub async fn execute_script(
             // Execute the user's action script
             runtime.execute_script("<action>", script).map_err(JsRunnerError::ScriptExecution)?;
 
-            // Capture the final state of the match object
-            let result_script = "match;";
+            // Capture the final state of the context object
+            let result_script = "context;";
 
             let return_value = runtime
                 .execute_script("<get_result>", result_script)
@@ -72,8 +72,8 @@ pub async fn execute_script(
 
     Ok(ExecutionResponse {
         result: modified_ctx_value,
-        stdout: "".to_string(), // Placeholder, as console output capture is not implemented
-        stderr: "".to_string(), // Placeholder, as console output capture is not implemented
+        stdout: "".to_string(), // TODO: implement console output capture
+        stderr: "".to_string(), // TODO: implement error output capture
     })
 }
 
@@ -95,8 +95,8 @@ mod tests {
     async fn test_execute_script_success() {
         let script = r#"
             console.log("Test script executed");
-            // Modify the match object
-            match.monitor_name = match.monitor_name + "[modified]";
+            // Modify the context object
+            context.monitor_name = context.monitor_name + "[modified]";
         "#
         .to_string();
         let context = create_test_context_json();
