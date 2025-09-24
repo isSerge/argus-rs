@@ -19,6 +19,7 @@ use argus::{
     persistence::{sqlite::SqliteStateRepository, traits::GenericStateRepository},
     test_helpers::{
         MonitorBuilder, create_test_match_manager_with_repo, create_test_monitor_manager,
+        get_shared_js_client,
     },
 };
 use mockito;
@@ -453,7 +454,8 @@ async fn test_process_match_with_action_handler_returns_modified_match() {
         .build();
 
     let monitor_manager = create_test_monitor_manager(vec![monitor]);
-    let action_handler = ActionHandler::new(Arc::new(actions), monitor_manager.clone());
+    let client = get_shared_js_client().await;
+    let action_handler = ActionHandler::new(Arc::new(actions), monitor_manager.clone(), client);
 
     let state_repo = Arc::new(setup_db().await);
     let notification_service = Arc::new(NotificationService::new(

@@ -11,7 +11,7 @@ use argus::{
         monitor_match::{MatchData, MonitorMatch, TransactionMatchData},
     },
     monitor::MonitorManager,
-    test_helpers::{self, MonitorBuilder},
+    test_helpers::{self, MonitorBuilder, get_shared_js_client},
 };
 use serde_json::json;
 use tempfile::{TempDir, tempdir};
@@ -48,7 +48,8 @@ async fn execute_no_actions() {
     let monitor = MonitorBuilder::new().id(1).on_match(vec![]).build();
     let monitor_manager = create_test_monitor_manager(vec![monitor]);
     let actions = Arc::new(HashMap::new());
-    let handler = ActionHandler::new(actions, monitor_manager);
+    let client = get_shared_js_client().await;
+    let handler = ActionHandler::new(actions, monitor_manager, client);
     let monitor_match = create_test_monitor_match(1);
 
     let result = handler.execute(monitor_match.clone()).await;
@@ -60,15 +61,16 @@ async fn execute_no_actions() {
 async fn execute_single_action_success() {
     let temp_dir = tempdir().unwrap();
     let (action_name, action_config) =
-        create_test_action_file(&temp_dir, "modify.js", "match.monitor_name = 'Modified';");
+        create_test_action_file(&temp_dir, "modify.js", "context.monitor_name = 'Modified';");
     let monitor = MonitorBuilder::new().id(1).on_match(vec![action_name]).build();
     let monitor_manager = create_test_monitor_manager(vec![monitor]);
     let actions = Arc::new(HashMap::from([(action_config.name.clone(), action_config)]));
-    let handler = ActionHandler::new(actions, monitor_manager);
+    let client = get_shared_js_client().await;
+    let handler = ActionHandler::new(actions, monitor_manager, client);
     let monitor_match = create_test_monitor_match(1);
 
     let result = handler.execute(monitor_match.clone()).await;
-    assert!(result.is_ok());
+    assert!(result.is_ok(), "Expected success but got error: {:?}", result.unwrap_err());
     let modified_match = result.unwrap();
     assert_eq!(modified_match.monitor_name, "Modified");
 }
@@ -79,17 +81,18 @@ async fn execute_multiple_actions_success() {
     let (action1_name, action1_config) = create_test_action_file(
         &temp_dir,
         "action1.js",
-        "match.monitor_name = 'Action1 Modified';",
+        "context.monitor_name = 'Action1 Modified';",
     );
     let (action2_name, action2_config) =
-        create_test_action_file(&temp_dir, "action2.js", "match.block_number = 456;");
+        create_test_action_file(&temp_dir, "action2.js", "context.block_number = 456;");
     let monitor = MonitorBuilder::new().id(1).on_match(vec![action1_name, action2_name]).build();
     let monitor_manager = create_test_monitor_manager(vec![monitor]);
     let actions = Arc::new(HashMap::from([
         (action1_config.name.clone(), action1_config),
         (action2_config.name.clone(), action2_config),
     ]));
-    let handler = ActionHandler::new(actions, monitor_manager);
+    let client = get_shared_js_client().await;
+    let handler = ActionHandler::new(actions, monitor_manager, client);
     let monitor_match = create_test_monitor_match(1);
 
     let result = handler.execute(monitor_match.clone()).await;
@@ -105,7 +108,8 @@ async fn execute_action_not_found() {
         MonitorBuilder::new().id(1).on_match(vec!["non_existent_action".to_string()]).build();
     let monitor_manager = create_test_monitor_manager(vec![monitor]);
     let actions = Arc::new(HashMap::new());
-    let handler = ActionHandler::new(actions, monitor_manager);
+    let client = get_shared_js_client().await;
+    let handler = ActionHandler::new(actions, monitor_manager, client);
     let monitor_match = create_test_monitor_match(1);
 
     let result = handler.execute(monitor_match.clone()).await;
@@ -121,21 +125,22 @@ async fn execute_action_execution_error() {
     let monitor = MonitorBuilder::new().id(1).on_match(vec![action_name]).build();
     let monitor_manager = create_test_monitor_manager(vec![monitor]);
     let actions = Arc::new(HashMap::from([(action_config.name.clone(), action_config)]));
-    let handler = ActionHandler::new(actions, monitor_manager);
+    let client = get_shared_js_client().await;
+    let handler = ActionHandler::new(actions, monitor_manager, client);
     let monitor_match = create_test_monitor_match(1);
 
     let result = handler.execute(monitor_match.clone()).await;
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert!(e.to_string().contains("test error"));
-    }
+    assert!(result.is_ok(), "Expected success but got error: {:?}", result.unwrap_err());
+    // On error, the original match should be returned unchanged
+    assert_eq!(result.unwrap(), monitor_match);
 }
 
 #[tokio::test]
 async fn execute_monitor_not_found() {
     let monitor_manager = create_test_monitor_manager(vec![]);
     let actions = Arc::new(HashMap::new());
-    let handler = ActionHandler::new(actions, monitor_manager);
+    let client = get_shared_js_client().await;
+    let handler = ActionHandler::new(actions, monitor_manager, client);
     let monitor_match = create_test_monitor_match(999); // Non-existent monitor ID
 
     let result = handler.execute(monitor_match.clone()).await;

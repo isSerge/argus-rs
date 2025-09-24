@@ -8,8 +8,8 @@ use crate::{
     abi::AbiService,
     config::{ActionConfig, AppConfig},
     engine::{
-        action_handler::ActionHandler, filtering::RhaiFilteringEngine, match_manager::MatchManager,
-        rhai::RhaiCompiler,
+        action_handler::ActionHandler, filtering::RhaiFilteringEngine, js_client,
+        match_manager::MatchManager, rhai::RhaiCompiler,
     },
     http_client::HttpClientPool,
     models::notifier::NotifierConfig,
@@ -27,6 +27,7 @@ pub struct SupervisorBuilder {
     abi_service: Option<Arc<AbiService>>,
     script_compiler: Option<Arc<RhaiCompiler>>,
     actions: Option<Vec<ActionConfig>>,
+    action_handler: Option<Arc<ActionHandler>>,
 }
 
 impl SupervisorBuilder {
@@ -62,6 +63,12 @@ impl SupervisorBuilder {
     /// Sets the actions configuration for the `Supervisor`.
     pub fn actions(mut self, actions: Vec<ActionConfig>) -> Self {
         self.actions = Some(actions);
+        self
+    }
+
+    #[cfg(test)]
+    pub fn action_handler(mut self, action_handler: Arc<ActionHandler>) -> Self {
+        self.action_handler = Some(action_handler);
         self
     }
 
@@ -116,14 +123,32 @@ impl SupervisorBuilder {
             .into_iter()
             .map(|a| (a.name.clone(), a))
             .collect::<HashMap<_, _>>();
-        let action_handler =
-            Arc::new(ActionHandler::new(Arc::new(actions), monitor_manager.clone()));
+
+        // If an ActionHandler was provided, use it (during tests); otherwise, create a
+        // default one (in production).
+        let action_handler = if let Some(action_handler) = self.action_handler {
+            Some(action_handler)
+        // If no actions are configured, skip creating the ActionHandler.
+        } else if !actions.is_empty() {
+            let executor_client = Arc::new(
+                js_client::JsExecutorClient::new()
+                    .await
+                    .map_err(SupervisorError::JsExecutorClient)?,
+            );
+            Some(Arc::new(ActionHandler::new(
+                Arc::new(actions),
+                monitor_manager.clone(),
+                executor_client,
+            )))
+        } else {
+            None
+        };
 
         let match_manager = Arc::new(MatchManager::new(
             notification_service,
             state.clone(),
             notifiers_map,
-            Some(action_handler),
+            action_handler,
         ));
 
         // Finally, construct the Supervisor with all its components.
@@ -144,7 +169,10 @@ mod tests {
 
     use super::*;
     use crate::{
-        config::RhaiConfig, models::monitor::MonitorConfig, test_helpers::create_test_abi_service,
+        config::RhaiConfig,
+        engine::action_handler,
+        models::monitor::MonitorConfig,
+        test_helpers::{create_test_abi_service, create_test_monitor_manager},
     };
 
     async fn setup_test_db() -> SqliteStateRepository {
@@ -237,12 +265,65 @@ mod tests {
             ActionConfig { name: "action2".into(), file: "actions/action2.js".into() },
         ];
 
+        let monitor_manager = create_test_monitor_manager(vec![]); // Empty monitors for this test
+        let mock_js_client = Arc::new(js_client::MockJsClient::new());
+        let action_handler = Arc::new(action_handler::ActionHandler::new(
+            Arc::new(
+                actions.iter().map(|a| (a.name.clone(), a.clone())).collect::<HashMap<_, _>>(),
+            ),
+            monitor_manager,
+            mock_js_client,
+        ));
+
         let builder = SupervisorBuilder::new()
             .config(app_config)
             .state(state_repo)
             .abi_service(abi_service)
             .script_compiler(Arc::new(RhaiCompiler::new(RhaiConfig::default())))
-            .actions(actions.clone());
+            .actions(actions.clone())
+            .action_handler(action_handler);
+
+        let supervisor = builder.build().await;
+
+        assert!(
+            supervisor.is_ok(),
+            "Expected build to succeed, but got error: {:?}",
+            supervisor.err()
+        );
+    }
+
+    #[tokio::test]
+    async fn build_succeeds_with_action_handler() {
+        let app_config = AppConfig::builder()
+            .rpc_urls(vec![
+                "http://localhost:8545".parse().unwrap(), // Cannot be empty to create provider
+            ])
+            .build();
+        let dir = tempdir().unwrap();
+        let (abi_service, _) = create_test_abi_service(&dir, &[]);
+        let state_repo = Arc::new(setup_test_db().await);
+        let actions = vec![
+            ActionConfig { name: "action1".into(), file: "actions/action1.js".into() },
+            ActionConfig { name: "action2".into(), file: "actions/action2.js".into() },
+        ];
+
+        let monitor_manager = create_test_monitor_manager(vec![]); // Empty monitors for this test
+        let mock_js_client = Arc::new(js_client::MockJsClient::new());
+        let action_handler = Arc::new(action_handler::ActionHandler::new(
+            Arc::new(
+                actions.iter().map(|a| (a.name.clone(), a.clone())).collect::<HashMap<_, _>>(),
+            ),
+            monitor_manager,
+            mock_js_client,
+        ));
+
+        let builder = SupervisorBuilder::new()
+            .config(app_config)
+            .state(state_repo)
+            .abi_service(abi_service)
+            .script_compiler(Arc::new(RhaiCompiler::new(RhaiConfig::default())))
+            .actions(actions.clone())
+            .action_handler(action_handler);
 
         let supervisor = builder.build().await;
 

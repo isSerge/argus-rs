@@ -1,0 +1,20 @@
+[package]
+name = "js_executor"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = "0.8.4"
+common_models = { workspace = true }
+deno_core = "0.360.0"
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tower-http = { version = "0.6.6", features = ["trace"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[[bin]]
+name = "js_executor"
+path = "src/main.rs"

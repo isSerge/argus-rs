@@ -18,27 +18,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Set up the Rust toolchain
-      - name: Set up Rust nightly
-        run: |
-          rustup default nightly
-          rustup component add clippy rustfmt
+      # Set up the Rust toolchain (using a common action for this)
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: clippy, rustfmt
 
-      # Cache Cargo registry (dependencies) and Git repositories
-      - name: Cache Cargo registry
-        uses: actions/cache@v3
+      # Cache dependencies and build artifacts in one step
+      - name: Cache Cargo artifacts
+        uses: actions/cache@v4
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-
-      # Cache build artifacts
-      - name: Cache Cargo build
-        uses: actions/cache@v3
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       # Check code formatting with rustfmt
       - name: Check code formatting
@@ -55,12 +51,20 @@ jobs:
         env:
           SQLX_OFFLINE: '1'
         run: cargo clippy --workspace -- -D warnings
+      
+      # Build all targets (binaries, libs, tests)
+      - name: Build all targets (binaries, libs, tests)
+        env:
+          SQLX_OFFLINE: '1'
+        run: cargo build --workspace --all-targets
 
       # Run tests
       - name: Run tests
         env:
           SQLX_OFFLINE: '1'
-        run: cargo test --workspace
+          # Set the path to the JavaScript executor binary for integration tests
+          JS_EXECUTOR_BIN_PATH: "target/debug/js_executor"
+        run: cargo test --workspace --all-targets -- --nocapture
 
   coverage:
     runs-on: ubuntu-latest
@@ -70,13 +74,41 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: llvm-tools-preview
 
-      - name: Run tests with coverage
-        run: cargo install cargo-tarpaulin && cargo tarpaulin --out Xml
+      - name: Cache Cargo artifacts for coverage
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-coverage-${{ hashFiles('**/Cargo.lock') }}
+      
+      # The build step is still a good practice to ensure the binary exists
+      - name: Build all targets
+        run: cargo build --workspace --all-targets
+
+      # Run tests with coverage using llvm-cov
+      - name: Run tests with coverage using llvm-cov
+        env:
+          SQLX_OFFLINE: '1'
+          # Set the path to the JavaScript executor binary for integration tests
+          JS_EXECUTOR_BIN_PATH: "target/debug/js_executor"
+        run: |
+          cargo install cargo-llvm-cov --force
+          cargo llvm-cov --workspace -- --nocapture
+      
+      - name: Generate Codecov report from raw data
+        run: cargo llvm-cov report --codecov --output-path codecov.json
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: cobertura.xml
+          files: codecov.json
           fail_ci_if_error: true
+

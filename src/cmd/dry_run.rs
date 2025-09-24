@@ -11,9 +11,10 @@ use crate::{
     abi::{AbiError, AbiRepository, AbiService, repository::AbiRepositoryError},
     config::{ActionConfig, AppConfig},
     engine::{
-        action_handler::ActionHandler,
+        action_handler::{ActionHandler, ActionHandlerError},
         block_processor::process_blocks_batch,
         filtering::{FilteringEngine, RhaiError, RhaiFilteringEngine},
+        js_client,
         match_manager::{MatchManager, MatchManagerError},
         rhai::{RhaiCompiler, RhaiScriptValidator},
     },
@@ -93,7 +94,15 @@ pub enum DryRunError {
 
     /// An error occurred in the ABI service.
     #[error("ABI service error: {0}")]
-    AbiServiceError(#[from] AbiError),
+    AbiService(#[from] AbiError),
+
+    /// An error occurred in the action handler.
+    #[error("Action handler error: {0}")]
+    ActionHandler(#[from] ActionHandlerError),
+
+    /// An error occurred while initializing the JavaScript executor client.
+    #[error("JavaScript executor client error: {0}")]
+    JsExecutorClient(#[from] js_client::JsExecutorClientError),
 }
 
 /// A command to perform a dry run of monitors over a specified block range.
@@ -222,7 +231,9 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let actions = actions.into_iter().map(|a| (a.name.clone(), a)).collect::<HashMap<_, _>>();
 
     // Init the ActionHandler and MatchManager.
-    let action_handler = Arc::new(ActionHandler::new(Arc::new(actions), monitor_manager.clone()));
+    let js_client = Arc::new(js_client::JsExecutorClient::new().await?);
+    let action_handler =
+        Arc::new(ActionHandler::new(Arc::new(actions), monitor_manager.clone(), js_client));
     let match_manager = Arc::new(MatchManager::new(
         notification_service,
         state_repo,

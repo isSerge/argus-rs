@@ -382,7 +382,7 @@ mod tests {
         abi::AbiService,
         config::RhaiConfig,
         models::{
-            monitor_match::{LogDetails, LogMatchData, MatchData, TransactionMatchData},
+            monitor_match::{LogMatchData, MatchData, TransactionMatchData},
             transaction::Transaction,
         },
         test_helpers::{

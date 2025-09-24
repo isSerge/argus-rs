@@ -357,43 +357,18 @@ impl<T: GenericStateRepository + Send + Sync + 'static> MatchManager<T> {
 
 #[cfg(test)]
 mod tests {
-    use alloy::primitives::{Address, TxHash};
     use chrono::Utc;
     use mockall::predicate::eq;
-    use serde_json::json;
 
     use super::*;
     use crate::{
         models::{
             NotificationMessage,
-            monitor_match::{LogDetails, LogMatchData, MatchData},
             notifier::{AggregationPolicy, DiscordConfig, NotifierTypeConfig, ThrottlePolicy},
         },
         persistence::traits::MockGenericStateRepository,
-        test_helpers::create_test_match_manager_with_repo,
+        test_helpers::{create_monitor_match, create_test_match_manager_with_repo},
     };
-
-    fn create_monitor_match(notifier_name: String) -> MonitorMatch {
-        MonitorMatch {
-            monitor_id: 0,
-            monitor_name: "Test Monitor".to_string(),
-            notifier_name,
-            block_number: 123,
-            transaction_hash: TxHash::default(),
-            match_data: MatchData::Log(LogMatchData {
-                log_details: LogDetails {
-                    address: Address::default(),
-                    log_index: 0,
-                    name: "Test Log".to_string(),
-                    params: json!({
-                        "param1": "value1",
-                        "param2": 42,
-                    }),
-                },
-                tx_details: json!({}), // Default empty transaction details for test
-            }),
-        }
-    }
 
     #[tokio::test]
     async fn test_process_match_notifier_config_missing() {

@@ -5,6 +5,6 @@ pub mod action_handler;
 pub mod block_ingestor;
 pub mod block_processor;
 pub mod filtering;
-pub mod js;
+pub mod js_client;
 pub mod match_manager;
 pub mod rhai;
