@@ -26,7 +26,7 @@ jobs:
 
       # Cache dependencies and build artifacts in one step
       - name: Cache Cargo artifacts
-        uses: actions/cache@v4 # <-- Updated to v4
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin/
