@@ -747,6 +747,7 @@ dependencies = [
  "futures",
  "hex",
  "hmac",
+ "js_executor",
  "minijinja",
  "mockall",
  "mockito",

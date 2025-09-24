@@ -60,7 +60,7 @@ jobs:
       - name: Run tests
         env:
           SQLX_OFFLINE: '1'
-        run: cargo test --workspace --all-targets
+        run: cargo test --workspace --all-targets -- --nocapture
 
   coverage:
     runs-on: ubuntu-latest
