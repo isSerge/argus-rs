@@ -21,6 +21,7 @@
 mod abi;
 mod block;
 mod http_client;
+mod js_client;
 mod log;
 mod match_manager;
 mod monitor_manager;
@@ -31,6 +32,7 @@ mod transaction;
 pub use abi::{create_test_abi_service, erc20_abi_json};
 pub use block::BlockBuilder;
 pub use http_client::create_test_http_client;
+pub use js_client::get_shared_js_client;
 pub use log::LogBuilder;
 pub use match_manager::{create_test_match_manager, create_test_match_manager_with_repo};
 pub use monitor_manager::create_test_monitor_manager;
