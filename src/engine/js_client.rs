@@ -76,7 +76,10 @@ impl JsExecutorClient {
             match reader.read_line(&mut line).await {
                 Ok(0) => None, // EOF
                 Ok(_) => Some(line),
-                Err(_) => None,
+                Err(e) => {
+                    tracing::error!("Failed to read line from JavaScript executor stdout: {}", e);
+                    None
+                }
             }
         })
         .await
