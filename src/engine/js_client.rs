@@ -60,18 +60,36 @@ impl JsExecutorClient {
     pub async fn new() -> Result<Self, JsExecutorClientError> {
         let mut cmd = Command::new("cargo");
 
-        cmd.arg("run").arg("--bin").arg("js_executor").stdout(Stdio::piped());
+        cmd.arg("run")
+            .arg("-p")
+            .arg("js_executor")
+            .arg("--bin")
+            .arg("js_executor")
+            .stdout(Stdio::piped());
 
         let mut child = cmd.spawn()?;
         let stdout = child.stdout.take().expect("Failed to capture stdout");
+        let mut reader = BufReader::new(stdout);
 
-        let reader = BufReader::new(stdout);
+        let port_line = tokio::time::timeout(Duration::from_secs(5), async {
+            let mut line = String::new();
+            match reader.read_line(&mut line).await {
+                Ok(0) => None, // EOF
+                Ok(_) => Some(line),
+                Err(_) => None,
+            }
+        })
+        .await
+        .map_err(|_| JsExecutorClientError::PortReadError)?
+        .ok_or(JsExecutorClientError::PortReadError)?;
 
-        let port_line =
-            reader.lines().next_line().await?.ok_or(JsExecutorClientError::PortReadError)?;
-
-        let port: u16 =
-            port_line.trim().parse().map_err(|_| JsExecutorClientError::PortReadError)?;
+        // Extract the port number from the line "Listening on <port>"
+        let port: u16 = port_line
+            .split_whitespace()
+            .last()
+            .ok_or(JsExecutorClientError::PortReadError)?
+            .parse()
+            .map_err(|_| JsExecutorClientError::PortReadError)?;
 
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECONDS))

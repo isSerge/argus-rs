@@ -21,7 +21,8 @@ async fn main() {
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    tracing::info!("Listening on {}", addr.port());
+    // Print the port to stdout for the client to read
+    println!("Listening on {}", addr.port());
 
     axum::serve(listener, app).await.unwrap();
 }
