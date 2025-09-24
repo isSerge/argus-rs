@@ -62,6 +62,8 @@ jobs:
       - name: Run tests
         env:
           SQLX_OFFLINE: '1'
+          # Set the path to the JavaScript executor binary for integration tests
+          JS_EXECUTOR_BIN_PATH: "target/debug/js_executor"
         run: cargo test --workspace --all-targets -- --nocapture
 
   coverage:
