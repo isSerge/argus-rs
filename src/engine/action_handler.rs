@@ -1,6 +1,6 @@
 //! This module defines the `ActionHandler` service.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, io, path::PathBuf, sync::Arc};
 
 use thiserror::Error;
 
@@ -28,6 +28,15 @@ pub enum ActionHandlerError {
     /// An error occurred during JSON serialization or deserialization.
     #[error("Serialization/Deserialization error: {0}")]
     Serde(#[from] serde_json::Error),
+
+    /// An error occurred while reading the action file.
+    #[error("Failed to read action file '{path}': {source}")]
+    FileRead {
+        /// The path of the action file that failed to be read.
+        path: PathBuf,
+        /// The underlying I/O error.
+        source: io::Error,
+    },
 }
 
 impl ActionHandler {
@@ -62,11 +71,7 @@ impl ActionHandler {
                 for action_name in on_match {
                     if let Some(action) = self.actions.get(action_name) {
                         let script = std::fs::read_to_string(&action.file).map_err(|e| {
-                            ActionHandlerError::Execution(format!(
-                                "Failed to read action file {}: {}",
-                                action.file.display(),
-                                e
-                            ))
+                            ActionHandlerError::FileRead { path: action.file.clone(), source: e }
                         })?;
 
                         match self.executor_client.submit_script(script, &current_match).await {
