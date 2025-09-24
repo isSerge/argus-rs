@@ -5,10 +5,7 @@ use std::{collections::HashMap, io::Write, sync::Arc};
 use alloy::primitives::TxHash;
 use argus::{
     config::{ActionConfig, RhaiConfig},
-    engine::{
-        action_handler::{ActionHandler, ActionHandlerError},
-        rhai::RhaiCompiler,
-    },
+    engine::{action_handler::ActionHandler, rhai::RhaiCompiler},
     models::{
         monitor::Monitor,
         monitor_match::{MatchData, MonitorMatch, TransactionMatchData},
@@ -133,8 +130,9 @@ async fn execute_action_execution_error() {
     let monitor_match = create_test_monitor_match(1);
 
     let result = handler.execute(monitor_match.clone()).await;
-    assert!(result.is_err(), "Expected error but got success: {:?}", result);
-    matches!(result.unwrap_err(), ActionHandlerError::Execution(_));
+    assert!(result.is_ok(), "Expected success but got error: {:?}", result.unwrap_err());
+    // On error, the original match should be returned unchanged
+    assert_eq!(result.unwrap(), monitor_match);
 }
 
 #[tokio::test]
