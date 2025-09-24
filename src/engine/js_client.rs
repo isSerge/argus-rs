@@ -83,9 +83,21 @@ impl JsExecutorClient {
     /// Creates a new instance of the JavaScript executor client.
     pub async fn new() -> Result<Self, JsExecutorClientError> {
         let mut cmd = if let Ok(bin_path) = env::var("CARGO_BIN_EXE_js_executor") {
+            println!("\n✅ SUCCESS: Found pre-compiled binary via env var: {}\n", bin_path);
             // Use the pre-compiled binary in integration tests
             Command::new(bin_path)
         } else {
+            println!(
+                "\n❌ WARNING: Pre-compiled binary env var 'CARGO_BIN_EXE_js_executor' not found."
+            );
+            println!(
+                "Falling back to 'cargo run'. This will be slow and may cause lock contention."
+            );
+            println!("Checking for similar CARGO_ env vars...");
+            for (key, _) in env::vars().filter(|(k, _)| k.starts_with("CARGO_BIN_EXE_")) {
+                println!("  - Found other var: {}", key);
+            }
+            println!("");
             // Fallback to cargo run for development and other environments
             let mut cmd = Command::new("cargo");
             cmd.arg("run").arg("-p").arg("js_executor").arg("--bin").arg("js_executor");
