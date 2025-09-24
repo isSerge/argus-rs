@@ -112,11 +112,11 @@ impl JsExecutorClient {
                         tracing::debug!("js_executor stdout: {}", line);
                         startup_output.push(line_buf.clone());
 
-                        if let Some(port_str) = line.strip_prefix(READY_MARKER) {
-                            if let Ok(p) = port_str.parse::<u16>() {
-                                port = Some(p);
-                                break;
-                            }
+                        if let Some(port_str) = line.strip_prefix(READY_MARKER)
+                            && let Ok(p) = port_str.parse::<u16>()
+                        {
+                            port = Some(p);
+                            break;
                         }
                         line_buf.clear();
                     }
