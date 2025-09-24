@@ -1,4 +1,5 @@
 //! JavaScript action
+
 use common_models::ExecutionResponse;
 use deno_core::{JsRuntime, RuntimeOptions, serde_v8, v8};
 use serde_json::Value;
@@ -72,8 +73,8 @@ pub async fn execute_script(
 
     Ok(ExecutionResponse {
         result: modified_ctx_value,
-        stdout: "".to_string(), // TODO: implement console output capture
-        stderr: "".to_string(), // TODO: implement error output capture
+        stdout: "".to_string(), // TODO: implement console output capture when adding deno_runtime
+        stderr: "".to_string(), // TODO: implement error output capture when adding deno_runtime
     })
 }
 
