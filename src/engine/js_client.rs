@@ -21,7 +21,7 @@ pub trait JsClient: Send + Sync {
     async fn submit_script(
         &self,
         script: String,
-        context: MonitorMatch,
+        context: &MonitorMatch,
     ) -> Result<ExecutionResponse, JsExecutorClientError>;
 }
 
@@ -85,9 +85,7 @@ impl JsExecutorClient {
 
         // Extract the port number from the line "Listening on <port>"
         let port: u16 = port_line
-            .split_whitespace()
-            .last()
-            .ok_or(JsExecutorClientError::PortReadError)?
+            .trim()
             .parse()
             .map_err(|_| JsExecutorClientError::PortReadError)?;
 
@@ -111,7 +109,7 @@ impl JsClient for JsExecutorClient {
     async fn submit_script(
         &self,
         script: String,
-        context: MonitorMatch,
+        context: &MonitorMatch,
     ) -> Result<ExecutionResponse, JsExecutorClientError> {
         let url = format!("http://127.0.0.1:{}/execute", self.port);
         let context = serde_json::to_value(context)?;
