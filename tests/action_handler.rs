@@ -70,7 +70,7 @@ async fn execute_single_action_success() {
     let monitor_match = create_test_monitor_match(1);
 
     let result = handler.execute(monitor_match.clone()).await;
-    assert!(result.is_ok(), "Expected success but got error: {:?}", result);
+    assert!(result.is_ok(), "Expected success but got error: {:?}", result.unwrap_err());
     let modified_match = result.unwrap();
     assert_eq!(modified_match.monitor_name, "Modified");
 }
