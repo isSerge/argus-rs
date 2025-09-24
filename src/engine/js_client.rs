@@ -1,6 +1,6 @@
 //! Client for interacting with the JavaScript executor service.
 
-use std::{process::Stdio, sync::Arc, time::Duration};
+use std::{env, process::Stdio, sync::Arc, time::Duration};
 
 use common_models::{ExecutionRequest, ExecutionResponse};
 use tokio::{
@@ -58,14 +58,17 @@ pub enum JsExecutorClientError {
 impl JsExecutorClient {
     /// Creates a new instance of the JavaScript executor client.
     pub async fn new() -> Result<Self, JsExecutorClientError> {
-        let mut cmd = Command::new("cargo");
+        let mut cmd = if let Ok(bin_path) = env::var("CARGO_BIN_EXE_js_executor") {
+            // Use the pre-compiled binary in integration tests
+            Command::new(bin_path)
+        } else {
+            // Fallback to cargo run for development and other environments
+            let mut cmd = Command::new("cargo");
+            cmd.arg("run").arg("-p").arg("js_executor").arg("--bin").arg("js_executor");
+            cmd
+        };
 
-        cmd.arg("run")
-            .arg("-p")
-            .arg("js_executor")
-            .arg("--bin")
-            .arg("js_executor")
-            .stdout(Stdio::piped());
+        cmd.stdout(Stdio::piped());
 
         let mut child = cmd.spawn()?;
         let stdout = child.stdout.take().expect("Failed to capture stdout");
