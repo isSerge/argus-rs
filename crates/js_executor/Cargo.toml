@@ -14,3 +14,7 @@ tokio = { workspace = true }
 tower-http = { version = "0.6.6", features = ["trace"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+
+[[bin]]
+name = "js_executor"
+path = "src/main.rs"
