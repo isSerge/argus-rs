@@ -13,7 +13,7 @@ use crate::models::monitor_match::MonitorMatch;
 
 const REQUEST_TIMEOUT_SECONDS: u64 = 5;
 // Increased startup timeout for potentially slow CI environments
-const STARTUP_TIMEOUT_SECONDS: u64 = 30;
+const STARTUP_TIMEOUT_SECONDS: u64 = 180;
 
 /// Trait defining the interface for a JavaScript executor client.
 #[async_trait::async_trait]
