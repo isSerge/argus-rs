@@ -1,5 +1,5 @@
 //! Client for interacting with the JavaScript executor service
-//! (crates/js_executor). //! This client can either connect to an existing
+//! (crates/js_executor). This client can either connect to an existing
 //! js_executor service via a Unix socket, or it can spawn and manage its own
 //! js_executor process.
 
