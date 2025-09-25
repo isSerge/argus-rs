@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-axum = "0.8.4"
+axum = { workspace = true }
+clap = { workspace = true }
 common_models = { workspace = true }
 deno_core = "0.360.0"
 serde = { workspace = true }

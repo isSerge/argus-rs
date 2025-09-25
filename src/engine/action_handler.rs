@@ -287,10 +287,7 @@ mod tests {
             .times(1)
             .returning(|_, _| {
                 Box::pin(async move {
-                    Err(JsExecutorClientError::PortReadError {
-                        stdout: "some stdout".into(),
-                        stderr: "some stderr".into(),
-                    }) // Simulate an error
+                    Err(JsExecutorClientError::RequestTimeout) // Simulate an error
                 })
             });
 

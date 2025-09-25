@@ -231,7 +231,8 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let actions = actions.into_iter().map(|a| (a.name.clone(), a)).collect::<HashMap<_, _>>();
 
     // Init the ActionHandler and MatchManager.
-    let js_client = Arc::new(js_client::JsExecutorClient::new().await?);
+    let js_client: Arc<dyn js_client::JsClient> =
+        Arc::new(js_client::JsExecutorClient::new().await?);
     let action_handler =
         Arc::new(ActionHandler::new(Arc::new(actions), monitor_manager.clone(), js_client));
     let match_manager = Arc::new(MatchManager::new(
