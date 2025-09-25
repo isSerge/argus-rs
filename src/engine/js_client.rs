@@ -107,16 +107,27 @@ pub enum JsExecutorClientError {
 }
 
 /// Finds the command to start the JavaScript executor.
-/// It first checks the `JS_EXECUTOR_BIN_PATH` environment variable,
-/// then `CARGO_BIN_EXE_js_executor`, and finally defaults to using
-/// `cargo run -p js_executor --bin js_executor --`.
 fn find_js_executor_command() -> Command {
+    // 1. Explicit environment variable is highest priority
     if let Ok(bin_path) = env::var("JS_EXECUTOR_BIN_PATH") {
         return Command::new(bin_path);
     }
+
+    // 2. Check next to the current executable (common for release builds)
+    if let Ok(mut path) = env::current_exe() {
+        path.pop();
+        path.push("js_executor");
+        if path.exists() {
+            return Command::new(path);
+        }
+    }
+
+    // 3. Cargo's environment variable for integration tests
     if let Ok(bin_path) = env::var("CARGO_BIN_EXE_js_executor") {
         return Command::new(bin_path);
     }
+
+    // 4. Fallback for development: `cargo run`
     let mut cmd = Command::new("cargo");
     cmd.arg("run").arg("-p").arg("js_executor").arg("--bin").arg("js_executor").arg("--");
     cmd
@@ -139,41 +150,70 @@ async fn wait_for_socket(socket_path: &PathBuf) -> Result<(), JsExecutorClientEr
 impl JsExecutorClient {
     /// Creates a new instance of the JavaScript executor client.
     pub async fn new() -> Result<Self, JsExecutorClientError> {
-        let (socket_path, executor_child) =
-            if let Ok(socket_path) = env::var("JS_EXECUTOR_SOCKET_PATH") {
-                (PathBuf::from(socket_path), None)
-            } else {
-                let socket_path =
-                    env::temp_dir().join(format!("argus-js-executor-{}.sock", std::process::id()));
-                let mut cmd = find_js_executor_command();
-                cmd.arg("--socket-path").arg(&socket_path);
-                cmd.stdout(Stdio::piped());
-                cmd.stderr(Stdio::piped());
+        let (socket_path, executor_child) = if let Ok(socket_path) =
+            env::var("JS_EXECUTOR_SOCKET_PATH")
+        {
+            // Existing socket path
+            (PathBuf::from(socket_path), None)
+        } else {
+            // Start a new js_executor process
+            let pid = std::process::id();
+            let socket_path = env::temp_dir().join(format!("argus-js-executor-{}.sock", pid));
 
-                let mut child = cmd.spawn()?;
-                let stdout = child.stdout.take().expect("Failed to capture stdout");
-                let stderr = child.stderr.take().expect("Failed to capture stderr");
+            let mut cmd = find_js_executor_command();
+            cmd.arg("--socket-path").arg(&socket_path);
 
-                tokio::spawn(async move {
-                    let mut stdout_reader = BufReader::new(stdout);
-                    let mut stderr_reader = BufReader::new(stderr);
-                    loop {
-                        let mut stdout_line = String::new();
-                        let mut stderr_line = String::new();
-                        tokio::select! {
-                            res = stdout_reader.read_line(&mut stdout_line) => {
-                                if res.unwrap_or(0) == 0 { break; }
-                                tracing::debug!(target: "js_executor", "{}", stdout_line.trim());
-                            },
-                            res = stderr_reader.read_line(&mut stderr_line) => {
-                                if res.unwrap_or(0) == 0 { break; }
-                                tracing::warn!(target: "js_executor", "{}", stderr_line.trim());
-                            },
-                        }
+            cmd.stdout(Stdio::piped());
+            cmd.stderr(Stdio::piped());
+
+            let mut child = cmd.spawn()?;
+
+            let stdout = child.stdout.take().expect("Failed to capture stdout");
+            let stderr = child.stderr.take().expect("Failed to capture stderr");
+
+            // Spawn a task to read and log stdout and stderr from the child process
+            tokio::spawn(async move {
+                let mut stdout_reader = BufReader::new(stdout);
+                let mut stderr_reader = BufReader::new(stderr);
+
+                let mut stdout_line = String::new();
+                let mut stderr_line = String::new();
+
+                let mut stdout_closed = false;
+                let mut stderr_closed = false;
+
+                // Loop until both stdout and stderr streams are closed.
+                while !stdout_closed || !stderr_closed {
+                    tokio::select! {
+                        // Read from stdout if the stream is not closed yet.
+                        res = stdout_reader.read_line(&mut stdout_line), if !stdout_closed => {
+                            match res {
+                                Ok(0) | Err(_) => stdout_closed = true, // EOF or error
+                                Ok(_) => {
+                                    tracing::debug!(target: "js_executor", "{}", stdout_line.trim());
+                                    stdout_line.clear();
+                                }
+                            }
+                        },
+                        // Read from stderr if the stream is not closed yet.
+                        res = stderr_reader.read_line(&mut stderr_line), if !stderr_closed => {
+                            match res {
+                                Ok(0) | Err(_) => stderr_closed = true, // EOF or error
+                                Ok(_) => {
+                                    tracing::warn!(target: "js_executor", "{}", stderr_line.trim());
+                                    stderr_line.clear();
+                                }
+                            }
+                        },
+                        // This branch is taken when both streams are closed.
+                        else => break,
                     }
-                });
-                (socket_path, Some(child))
-            };
+                }
+                tracing::debug!("JS executor stdout/stderr streams closed. Logging task finished.");
+            });
+
+            (socket_path, Some(child))
+        };
 
         // Build the hyper client
         let connector = UnixConnector { socket_path: socket_path.clone() };
