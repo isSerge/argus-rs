@@ -156,24 +156,18 @@ impl JsExecutorClient {
             Client::builder(hyper_util::rt::TokioExecutor::new()).build(connector);
 
         // Wait for the socket to become available with exponential backoff
-        let mut attempts = 0;
-        let max_attempts = 10;
-        loop {
-            match tokio::net::UnixStream::connect(&socket_path).await {
-                Ok(_) => {
-                    tracing::debug!("JavaScript executor socket is ready at {}", socket_path.display());
-                    break;
+        let socket_ready = async {
+            for attempt in 0..10 {
+                if tokio::net::UnixStream::connect(&socket_path).await.is_ok() {
+                    return Ok(());
                 }
-                Err(_) if attempts < max_attempts => {
-                    attempts += 1;
-                    let delay = Duration::from_millis(50 * 2_u64.pow(attempts.min(6)));
-                    tokio::time::sleep(delay).await;
-                }
-                Err(_) => {
-                    return Err(JsExecutorClientError::StartupFailed);
-                }
+                tokio::time::sleep(Duration::from_millis(50 << attempt.min(6))).await;
             }
-        }
+            Err(JsExecutorClientError::StartupFailed)
+        };
+        
+        socket_ready.await?;
+        tracing::debug!("JavaScript executor socket is ready at {}", socket_path.display());
 
         Ok(Self { executor_child: Arc::new(Mutex::new(child)), hyper_client })
     }
