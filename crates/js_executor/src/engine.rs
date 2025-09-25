@@ -1,4 +1,4 @@
-//! JavaScript action
+//! JavaScript execution engine using Deno's V8 runtime.
 
 use common_models::ExecutionResponse;
 use deno_core::{JsRuntime, RuntimeOptions, serde_v8, v8};
