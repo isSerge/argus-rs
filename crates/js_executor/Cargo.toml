@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 axum = "0.8.4"
+clap = { workspace = true }
 common_models = { workspace = true }
 deno_core = "0.360.0"
 serde = { workspace = true }
