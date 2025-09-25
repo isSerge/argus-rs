@@ -6,7 +6,6 @@ use std::{
     path::PathBuf,
     pin::Pin,
     process::Stdio,
-    sync::Arc,
     task::{Context, Poll},
     time::Duration,
 };
@@ -19,7 +18,6 @@ use tokio::{
     io::{AsyncBufReadExt, BufReader},
     net::UnixStream,
     process::{Child, Command},
-    sync::Mutex,
 };
 use tower::Service;
 
@@ -66,7 +64,7 @@ pub trait JsClient: Send + Sync {
 /// Client for interacting with the JavaScript executor service.
 pub struct JsExecutorClient {
     /// The child process running the JavaScript executor.
-    executor_child: Arc<Mutex<Child>>,
+    executor_child: Option<Child>,
     /// Hyper client for making requests to the JavaScript executor via Unix
     /// socket.
     hyper_client: Client<UnixConnector, Full<Bytes>>,
@@ -111,15 +109,7 @@ impl JsExecutorClient {
         let socket_path =
             env::temp_dir().join(format!("argus-js-executor-{}.sock", std::process::id()));
 
-        let mut cmd = if let Ok(bin_path) = env::var("JS_EXECUTOR_BIN_PATH") {
-            Command::new(bin_path)
-        } else if let Ok(bin_path) = env::var("CARGO_BIN_EXE_js_executor") {
-            Command::new(bin_path)
-        } else {
-            let mut cmd = Command::new("cargo");
-            cmd.arg("run").arg("-p").arg("js_executor").arg("--bin").arg("js_executor").arg("--");
-            cmd
-        };
+        let mut cmd = Self::find_js_executor_command();
 
         // Pass the socket path to the js_executor
         cmd.arg("--socket-path").arg(&socket_path);
@@ -165,11 +155,27 @@ impl JsExecutorClient {
             }
             Err(JsExecutorClientError::StartupFailed)
         };
-        
+
         socket_ready.await?;
         tracing::debug!("JavaScript executor socket is ready at {}", socket_path.display());
 
-        Ok(Self { executor_child: Arc::new(Mutex::new(child)), hyper_client })
+        Ok(Self { executor_child: Some(child), hyper_client })
+    }
+
+    /// Finds the command to start the JavaScript executor.
+    /// It first checks the `JS_EXECUTOR_BIN_PATH` environment variable,
+    /// then `CARGO_BIN_EXE_js_executor`, and finally defaults to using
+    /// `cargo run -p js_executor --bin js_executor --`.
+    fn find_js_executor_command() -> Command {
+        if let Ok(bin_path) = env::var("JS_EXECUTOR_BIN_PATH") {
+            return Command::new(bin_path);
+        }
+        if let Ok(bin_path) = env::var("CARGO_BIN_EXE_js_executor") {
+            return Command::new(bin_path);
+        }
+        let mut cmd = Command::new("cargo");
+        cmd.arg("run").arg("-p").arg("js_executor").arg("--bin").arg("js_executor").arg("--");
+        cmd
     }
 }
 
@@ -216,17 +222,18 @@ impl JsClient for JsExecutorClient {
 impl Drop for JsExecutorClient {
     fn drop(&mut self) {
         tracing::debug!("Dropping JsExecutorClient");
-        let executor_child = self.executor_child.clone();
-        tokio::spawn(async move {
-            let mut child = executor_child.lock().await;
-            if let Err(e) = child.kill().await {
-                tracing::error!("Failed to kill JavaScript executor process: {}", e);
-            }
-        });
+        if let Some(mut child) = self.executor_child.take() {
+            tokio::spawn(async move {
+                if let Err(e) = child.kill().await {
+                    tracing::error!("Failed to kill JavaScript executor process: {}", e);
+                }
+            });
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    // TODO: Implement tests for JsExecutorClient using a real axum server and UDS
+    // TODO: Implement tests for JsExecutorClient using a real axum server and
+    // UDS
 }
