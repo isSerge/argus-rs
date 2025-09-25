@@ -50,8 +50,6 @@ impl Service<Uri> for UnixConnector {
 }
 
 const REQUEST_TIMEOUT_SECONDS: u64 = 5;
-// Increased startup timeout for potentially slow CI environments
-const STARTUP_TIMEOUT_SECONDS: u64 = 180;
 
 /// Trait defining the interface for a JavaScript executor client.
 #[async_trait::async_trait]
@@ -101,38 +99,15 @@ pub enum JsExecutorClientError {
     #[error("Request to JavaScript executor timed out")]
     RequestTimeout,
 
-    /// Error reading the socket path from the JavaScript executor's stdout.
-    #[error(
-        "Failed to read JavaScript executor socket path. The process may have exited \
-         early.\n---\n{stdout}\n--- STDERR ---\n{stderr}"
-    )]
-    SocketPathReadError {
-        /// Captured stdout from the executor process.
-        stdout: String,
-        /// Captured stderr from the executor process.
-        stderr: String,
-    },
-
-    /// The JavaScript executor took too long to start up and signal its socket
-    /// path.
-    #[error(
-        "JavaScript executor timed out after {timeout:?} during startup.\n--- STDOUT \
-         ---\n{stdout}\n--- STDERR ---\n{stderr}"
-    )]
-    StartupTimeout {
-        /// Duration after which the startup timed out.
-        timeout: Duration,
-        /// Captured stdout from the executor process.
-        stdout: String,
-        /// Captured stderr from the executor process.
-        stderr: String,
-    },
+    /// The JavaScript executor failed to start up properly.
+    #[error("JavaScript executor failed to start up")]
+    StartupFailed,
 }
 
 impl JsExecutorClient {
     /// Creates a new instance of the JavaScript executor client.
     pub async fn new() -> Result<Self, JsExecutorClientError> {
-        // 1. Generate a unique socket path for this client instance.
+        // Generate a unique socket path for this client instance
         let socket_path =
             env::temp_dir().join(format!("argus-js-executor-{}.sock", std::process::id()));
 
@@ -146,7 +121,7 @@ impl JsExecutorClient {
             cmd
         };
 
-        // 2. Pass the generated socket path to the child process as an argument.
+        // Pass the socket path to the js_executor
         cmd.arg("--socket-path").arg(&socket_path);
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
@@ -155,87 +130,50 @@ impl JsExecutorClient {
         let stdout = child.stdout.take().expect("Failed to capture stdout");
         let stderr = child.stderr.take().expect("Failed to capture stderr");
 
-        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<()>();
-        let stdout_output = Arc::new(Mutex::new(String::new()));
-        let stderr_output = Arc::new(Mutex::new(String::new()));
-        let stdout_clone = stdout_output.clone();
-        let stderr_clone = stderr_output.clone();
-
-        // 3. Spawn a background task to wait for the "Listening on" message
+        // Spawn a simple background task to drain stdout/stderr
         tokio::spawn(async move {
             let mut stdout_reader = BufReader::new(stdout);
             let mut stderr_reader = BufReader::new(stderr);
-            let mut ready_tx = Some(ready_tx);
-
-            const READY_MARKER: &str = "Listening on ";
-
             loop {
                 let mut stdout_line = String::new();
                 let mut stderr_line = String::new();
                 tokio::select! {
                     res = stdout_reader.read_line(&mut stdout_line) => {
-                        match res {
-                            Ok(0) => break, // EOF
-                            Ok(_) => {
-                                tracing::debug!(target: "js_executor", "{}", stdout_line.trim());
-                                stdout_clone.lock().await.push_str(&stdout_line);
-                                
-                                // Check if this is the ready signal
-                                if let Some(tx) = ready_tx.take() {
-                                    if stdout_line.trim().starts_with(READY_MARKER) {
-                                        let _ = tx.send(());
-                                    } else {
-                                        ready_tx = Some(tx);
-                                    }
-                                }
-                            },
-                            Err(e) => {
-                                tracing::error!("Error reading js_executor stdout: {}", e);
-                                break;
-                            }
-                        }
+                        if res.unwrap_or(0) == 0 { break; }
+                        tracing::debug!(target: "js_executor", "{}", stdout_line.trim());
                     },
                     res = stderr_reader.read_line(&mut stderr_line) => {
-                        match res {
-                            Ok(0) => {}, // EOF
-                            Ok(_) => {
-                                tracing::warn!(target: "js_executor", "{}", stderr_line.trim());
-                                stderr_clone.lock().await.push_str(&stderr_line);
-                            },
-                            Err(e) => {
-                                tracing::error!("Error reading js_executor stderr: {}", e);
-                            }
-                        }
-                    }
+                        if res.unwrap_or(0) == 0 { break; }
+                        tracing::warn!(target: "js_executor", "{}", stderr_line.trim());
+                    },
                 }
             }
-        });        
-        
-        // 4. Wait for the executor to signal it's ready
-        let startup_timeout = Duration::from_secs(STARTUP_TIMEOUT_SECONDS);
-        match tokio::time::timeout(startup_timeout, ready_rx).await {
-            Err(_) => {
-                return Err(JsExecutorClientError::StartupTimeout {
-                    timeout: startup_timeout,
-                    stdout: stdout_output.lock().await.clone(),
-                    stderr: stderr_output.lock().await.clone(),
-                });
-            }
-            Ok(Err(_)) => {
-                return Err(JsExecutorClientError::SocketPathReadError {
-                    stdout: stdout_output.lock().await.clone(),
-                    stderr: stderr_output.lock().await.clone(),
-                });
-            }
-            Ok(Ok(())) => {
-                tracing::info!("JavaScript executor is ready at {}", socket_path.display());
-            }
-        }
+        });
 
-        // 5. Build the hyper client now that we know the executor is ready
-        let connector = UnixConnector { socket_path };
+        // Build the hyper client
+        let connector = UnixConnector { socket_path: socket_path.clone() };
         let hyper_client: Client<UnixConnector, Full<Bytes>> =
             Client::builder(hyper_util::rt::TokioExecutor::new()).build(connector);
+
+        // Wait for the socket to become available with exponential backoff
+        let mut attempts = 0;
+        let max_attempts = 10;
+        loop {
+            match tokio::net::UnixStream::connect(&socket_path).await {
+                Ok(_) => {
+                    tracing::debug!("JavaScript executor socket is ready at {}", socket_path.display());
+                    break;
+                }
+                Err(_) if attempts < max_attempts => {
+                    attempts += 1;
+                    let delay = Duration::from_millis(50 * 2_u64.pow(attempts.min(6)));
+                    tokio::time::sleep(delay).await;
+                }
+                Err(_) => {
+                    return Err(JsExecutorClientError::StartupFailed);
+                }
+            }
+        }
 
         Ok(Self { executor_child: Arc::new(Mutex::new(child)), hyper_client })
     }
