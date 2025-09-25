@@ -65,7 +65,7 @@ In this example, the script logs the original monitor name and block number, the
 To test this monitor against historical blocks, use the `dry-run` command with the `--config-dir` argument pointing to this example's configuration:
 
 ```bash
-car go run --release -- dry-run --from 23159299 --to 23159299 --config-dir examples/10_on_match_script/
+cargo run --release -- dry-run --from 23159299 --to 23159299 --config-dir examples/10_on_match_script/
 ```
 
 Run with `debug` logs:
@@ -87,7 +87,7 @@ docker run --rm \
 
 ### Expected Output
 
-As blocks are processed, you will see the output from the `action.js` script in your terminal:
+As blocks are processed, you will see the output from the `action.js` script in your terminal (with `debug` logs):
 
 ```
 === Action Triggered ===
@@ -112,18 +112,17 @@ The final JSON output from the `dry-run` will also reflect the modified data:
     "block_number": 23159299,
     "transaction_hash": "0x205e6fa87be0a87842a173ca3cb8188162c20331d4758cbebcd47dabb3f38175",
     "tx": {
-      "to": "0x712FDCbCDfacb91E2216CA850C066C3BFB76710F",
       "from": "0xa1abfA21f80ecf401bd41365adBb6fEF6fEfDF09",
-      "hash": "0x205e6fa87be0a87842a173ca3cb8188162c20331d4758cbebcd47dabb3f38175",
-      "value": "150999500000000000000",
       "gas_limit": 90000,
-      "nonce": 63008,
+      "hash": "0x205e6fa87be0a87842a173ca3cb8188162c20331d4758cbebcd47dabb3f38175",
       "input": "0x",
-      "transaction_index": 82,
       "max_fee_per_gas": "200000000000",
-      "max_priority_fee_per_gas": "2000000000"
+      "max_priority_fee_per_gas": "2000000000",
+      "nonce": 63008,
+      "to": "0x712FDCbCDfacb91E2216CA850C066C3BFB76710F",
+      "transaction_index": 82,
+      "value": "150999500000000000000"
     }
-  }
   },
   // 2 more items
 ]

@@ -1,0 +1,44 @@
+name: Verify Examples
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@nightly
+      with:
+        components: clippy, rustfmt
+
+    - name: Cache Cargo artifacts
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Build binaries
+      run: cargo build --workspace --release
+
+    - name: Run examples
+      env:
+        # Set dummy environment variables for Telegram notifier to satisfy config loading
+        TELEGRAM_TOKEN: "dummy"
+        TELEGRAM_CHAT_ID: "dummy"
+        JS_EXECUTOR_BIN_PATH: "target/release/js_executor"
+      run: |
+        chmod +x ./run_examples.sh
+        ./run_examples.sh

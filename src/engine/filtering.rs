@@ -268,6 +268,10 @@ impl RhaiFilteringEngine {
         decoded_log: &DecodedLog,
     ) {
         let log_match_payload = build_log_params_payload(&decoded_log.params);
+        let tx_details = build_transaction_details_payload(
+            &context.item.transaction,
+            context.item.receipt.as_ref(),
+        );
         for notifier in &monitor.notifiers {
             let log_details = LogDetails {
                 log_index: decoded_log.log.log_index().unwrap_or_default(),
@@ -282,7 +286,7 @@ impl RhaiFilteringEngine {
                 context.item.transaction.block_number().unwrap_or_default(),
                 context.item.transaction.hash(),
                 log_details,
-                log_match_payload.clone(),
+                tx_details.clone(),
             ));
         }
     }
@@ -1028,5 +1032,73 @@ mod tests {
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert_eq!(matches.len(), 1, "Should find one match for the transfer call");
         assert_eq!(matches[0].monitor_id, 1);
+    }
+
+    #[tokio::test]
+    async fn test_create_log_matches_payload() {
+        let temp_dir = tempdir().unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[]);
+        let engine = setup_engine_with_monitors(vec![], abi_service);
+
+        let tx = TransactionBuilder::new().value(U256::from(123)).build();
+        let log = LogBuilder::new().log_index(42).build();
+        let item = CorrelatedBlockItem::new(tx.clone(), vec![log.clone()], None);
+        let mut context = EvaluationContext::new(&item);
+
+        let monitor = MonitorBuilder::new().notifiers(vec!["n1".to_string()]).build();
+        let decoded_log =
+            DecodedLog { log: log.into(), name: "TestEvent".to_string(), params: vec![] };
+
+        engine.create_log_matches(&mut context, &monitor, &decoded_log);
+
+        assert_eq!(context.matches.len(), 1);
+        let monitor_match = &context.matches[0];
+
+        match &monitor_match.match_data {
+            MatchData::Log(log_match) => {
+                // Verify log details
+                assert_eq!(log_match.log_details.name, "TestEvent");
+                assert_eq!(log_match.log_details.log_index, 42);
+
+                // Verify transaction details
+                let tx_details_map = log_match.tx_details.as_object().unwrap();
+                assert_eq!(tx_details_map.get("value").unwrap().as_str().unwrap(), "123");
+                assert_eq!(
+                    tx_details_map.get("hash").unwrap().as_str().unwrap(),
+                    tx.hash().to_string()
+                );
+            }
+            _ => panic!("Expected a log match"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_create_tx_matches_payload() {
+        let temp_dir = tempdir().unwrap();
+        let (abi_service, _) = create_test_abi_service(&temp_dir, &[]);
+        let engine = setup_engine_with_monitors(vec![], abi_service);
+
+        let tx = TransactionBuilder::new().value(U256::from(456)).build();
+        let item = CorrelatedBlockItem::new(tx.clone(), vec![], None);
+        let mut context = EvaluationContext::new(&item);
+
+        let monitor = MonitorBuilder::new().notifiers(vec!["n1".to_string()]).build();
+
+        engine.create_tx_matches(&mut context, &monitor);
+
+        assert_eq!(context.matches.len(), 1);
+        let monitor_match = &context.matches[0];
+
+        match &monitor_match.match_data {
+            MatchData::Transaction(tx_match) => {
+                let tx_details_map = tx_match.details.as_object().unwrap();
+                assert_eq!(tx_details_map.get("value").unwrap().as_str().unwrap(), "456");
+                assert_eq!(
+                    tx_details_map.get("hash").unwrap().as_str().unwrap(),
+                    tx.hash().to_string()
+                );
+            }
+            _ => panic!("Expected a transaction match"),
+        }
     }
 }
