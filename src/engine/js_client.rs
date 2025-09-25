@@ -140,12 +140,16 @@ fn find_js_executor_command() -> Command {
 /// This function attempts to connect to the socket multiple times with
 /// exponential backoff. If the socket does not become available within the
 /// timeout period, it returns a `StartupFailed` error.
+
+/// Maximum shift for exponential backoff (50ms << 6 = 3.2 seconds).
+const MAX_BACKOFF_SHIFT: u32 = 6;
+
 async fn wait_for_socket(socket_path: &PathBuf) -> Result<(), JsExecutorClientError> {
     for attempt in 0..10 {
         if tokio::net::UnixStream::connect(socket_path).await.is_ok() {
             return Ok(());
         }
-        tokio::time::sleep(Duration::from_millis(50 << attempt.min(6))).await;
+        tokio::time::sleep(Duration::from_millis(50 << attempt.min(MAX_BACKOFF_SHIFT))).await;
     }
     Err(JsExecutorClientError::StartupFailed)
 }
