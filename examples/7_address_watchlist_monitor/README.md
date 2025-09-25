@@ -60,6 +60,12 @@ To test this monitor against historical blocks, use the `dry-run` command with t
 cargo run --release -- dry-run --from 22895951 --to 22895991 --config-dir examples/7_address_watchlist_monitor/
 ```
 
+Run with `debug` logs:
+
+```bash
+RUST_LOG=debug cargo run --release -- dry-run --from 22895951 --to 22895991 --config-dir examples/7_address_watchlist_monitor/
+```
+
 Run with Docker image from GHCR:
 
 ```bash

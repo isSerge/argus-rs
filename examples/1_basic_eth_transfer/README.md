@@ -97,13 +97,13 @@ To test this monitor against historical blocks, use the `dry-run` command with
 the `--config-dir` argument pointing to this example's configuration:
 
 ```bash
-cargo run --release -- dry-run --from 23159290 --to 23159300 --config-dir examples/1_basic_eth_transfer/
+cargo run --release -- dry-run --from 23159290 --to 23159291 --config-dir examples/1_basic_eth_transfer/
 ```
 
 Run with `debug` logs:
 
 ```bash
-RUST_LOG=debug cargo run --release -- dry-run --from 23159290 --to 23159300 --config-dir examples/1_basic_eth_transfer/
+RUST_LOG=debug cargo run --release -- dry-run --from 23159290 --to 23159291 --config-dir examples/1_basic_eth_transfer/
 ```
 
 Run with Docker image from GHCR:
@@ -114,10 +114,10 @@ docker run --rm \
   -v "$(pwd)/examples/1_basic_eth_transfer:/app/configs:ro" \
   -v "$(pwd)/abis:/app/abis:ro" \
   ghcr.io/isserge/argus-rs:latest \
-  dry-run --from 23159290 --to 23159300 --config-dir /app/configs
+  dry-run --from 23159290 --to 23159291 --config-dir /app/configs
 ```
 
-Replace `23159290` and `23159300` with any Ethereum block numbers to test
+Replace `23159290` and `23159291` with any Ethereum block numbers to test
 against.
 
 #### Expected Output
@@ -138,18 +138,36 @@ your terminal, which is a JSON array with all detected monitor matches:
     "notifier_name": "Telegram Large ETH Transfers",
     "block_number": 23159291,
     "transaction_hash": "0x92a19bc7912f993ed94faa3ea102f4fd244aaf78f5439071bd1126ab419f2ce6",
-    "type": "transaction",
-    "from": "0x30F2864e7bf6E89a3955217C78c8689594228940",
-    "gas_limit": 21000,
-    "gas_price": "2000000000",
-    "hash": "0x92a19bc7912f993ed94faa3ea102f4fd244aaf78f5439071bd1126ab419f2ce6",
-    "input": "0x",
-    "nonce": 5361,
-    "to": "0xCFFAd3200574698b78f32232aa9D63eABD290703",
-    "transaction_index": 46,
-    "value": "13859958000000000000"
+    "tx": {
+      "from": "0x30F2864e7bf6E89a3955217C78c8689594228940",
+      "gas_limit": 21000,
+      "gas_price": "2000000000",
+      "hash": "0x92a19bc7912f993ed94faa3ea102f4fd244aaf78f5439071bd1126ab419f2ce6",
+      "input": "0x",
+      "nonce": 5361,
+      "to": "0xCFFAd3200574698b78f32232aa9D63eABD290703",
+      "transaction_index": 46,
+      "value": "13859958000000000000"
+    }
+  },
+  {
+    "monitor_id": 0,
+    "monitor_name": "Large ETH Transfers",
+    "notifier_name": "Telegram Large ETH Transfers",
+    "block_number": 23159291,
+    "transaction_hash": "0x36a00cbdec61ed072e4a5e6ab0af1cbbb72f13cf8dbdc6b313c52ebc9abc6a19",
+    "tx": {
+      "from": "0x133eEf17Bf97C3ca9647E206D9c3Ac41Fd345a20",
+      "gas_limit": 25500,
+      "gas_price": "1000000000",
+      "hash": "0x36a00cbdec61ed072e4a5e6ab0af1cbbb72f13cf8dbdc6b313c52ebc9abc6a19",
+      "input": "0x",
+      "nonce": 50,
+      "to": "0xA33D00CF429CE29691C8215259B4Bb749EF70e29",
+      "transaction_index": 54,
+      "value": "25000000000000000000"
+    }
   }
-  // 12 more items
 ]
 ```
 
