@@ -119,17 +119,18 @@ While the final JSON output should contain all 45 matches:
     "notifier_name": "Throttled Telegram Notifier",
     "block_number": 23159290,
     "transaction_hash": "0x3ab53e8efc91dbace37b6f390208e2dae4f9959415bcff61a92d8fad4fa133cc",
-    "type": "transaction",
-    "from": "0x841FA51e9DCb53844720cDFdb13286554B4854eD",
-    "gas_limit": 21000,
-    "hash": "0x3ab53e8efc91dbace37b6f390208e2dae4f9959415bcff61a92d8fad4fa133cc",
-    "input": "0x",
-    "max_fee_per_gas": "181210806",
-    "max_priority_fee_per_gas": "181210806",
-    "nonce": 1,
-    "to": "0xa51a5FA9A309942f67Ad0872d8860A468EB91851",
-    "transaction_index": 103,
-    "value": "1197082720736539353"
+    "tx": {
+      "from": "0x841FA51e9DCb53844720cDFdb13286554B4854eD",
+      "gas_limit": 21000,
+      "hash": "0x3ab53e8efc91dbace37b6f390208e2dae4f9959415bcff61a92d8fad4fa133cc",
+      "input": "0x",
+      "max_fee_per_gas": "181210806",
+      "max_priority_fee_per_gas": "181210806",
+      "nonce": 1,
+      "to": "0xa51a5FA9A309942f67Ad0872d8860A468EB91851",
+      "transaction_index": 103,
+      "value": "1197082720736539353"
+    }
   },
   // 44 more items
 ]

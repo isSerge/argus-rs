@@ -106,13 +106,13 @@ To test this monitor against historical blocks, use the `dry-run` command with
 the `--config-dir` argument pointing to this example's configuration:
 
 ```bash
-cargo run --release -- dry-run --from 23159290 --to 23159300 --config-dir examples/2_large_usdc_transfer/
+cargo run --release -- dry-run --from 23159291 --to 23159292 --config-dir examples/2_large_usdc_transfer/
 ```
 
 Run with `debug` logs:
 
 ```bash
-RUST_LOG=debug cargo run --release -- dry-run --from 23159290 --to 23159300 --config-dir examples/2_large_usdc_transfer/
+RUST_LOG=debug cargo run --release -- dry-run --from 23159291 --to 23159292 --config-dir examples/2_large_usdc_transfer/
 ```
 
 Run with Docker image from GHCR:
@@ -123,10 +123,10 @@ docker run --rm \
   -v "$(pwd)/examples/2_large_usdc_transfer:/app/configs:ro" \
   -v "$(pwd)/abis:/app/abis:ro" \
   ghcr.io/isserge/argus-rs:latest \
-  dry-run --from 23159290 --to 23159300 --config-dir /app/configs
+  dry-run --from 23159291 --to 23159292 --config-dir /app/configs
 ```
 
-Replace `23159290` and `23159300` with any Ethereum block numbers to test
+Replace `23159291` and `23159292` with any Ethereum block numbers to test
 against.
 
 #### Expected Output
@@ -147,15 +147,58 @@ terminal, which is a JSON array with all detected monitor matches:
     "notifier_name": "Telegram Large USDC Transfers",
     "block_number": 23159292,
     "transaction_hash": "0x583af129ea78623a363d8b0f582f220a14713ba4717771e30ec4408239991d0f",
-    "type": "log",
-    "contract_address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
-    "log_index": 378,
-    "log_name": "Transfer",
-    "from": "0xEae7380dD4CeF6fbD1144F49E4D1e6964258A4F4",
-    "to": "0xEe7aE85f2Fe2239E27D9c1E23fFFe168D63b4055",
-    "value": 18616650000000
+    "tx": {
+      "from": "0xEae7380dD4CeF6fbD1144F49E4D1e6964258A4F4",
+      "gas_limit": 54939,
+      "hash": "0x583af129ea78623a363d8b0f582f220a14713ba4717771e30ec4408239991d0f",
+      "input": "0xa9059cbb000000000000000000000000ee7ae85f2fe2239e27d9c1e23fffe168d63b4055000000000000000000000000000000000000000000000000000010ee86cf6680",
+      "max_fee_per_gas": "2000000000",
+      "max_priority_fee_per_gas": "200000000",
+      "nonce": 154330,
+      "to": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      "transaction_index": 226,
+      "value": "0"
+    },
+    "log": {
+      "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+      "log_index": 378,
+      "name": "Transfer",
+      "params": {
+        "from": "0xEae7380dD4CeF6fbD1144F49E4D1e6964258A4F4",
+        "to": "0xEe7aE85f2Fe2239E27D9c1E23fFFe168D63b4055",
+        "value": 18616650000000
+      }
+    }
+  },
+  {
+    "monitor_id": 0,
+    "monitor_name": "Large USDC Transfers",
+    "notifier_name": "Telegram Large USDC Transfers",
+    "block_number": 23159292,
+    "transaction_hash": "0xebec6b64340f1abe92940100b41b78deae27ba364bbdec51840a6c11c3768b1e",
+    "tx": {
+      "from": "0xe562987B2819b007652b6432448853EA3Ca7a811",
+      "gas_limit": 54924,
+      "hash": "0xebec6b64340f1abe92940100b41b78deae27ba364bbdec51840a6c11c3768b1e",
+      "input": "0xa9059cbb000000000000000000000000ee7ae85f2fe2239e27d9c1e23fffe168d63b4055000000000000000000000000000000000000000000000000000000e8f3c626f8",
+      "max_fee_per_gas": "2000000000",
+      "max_priority_fee_per_gas": "200000000",
+      "nonce": 101,
+      "to": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      "transaction_index": 227,
+      "value": "0"
+    },
+    "log": {
+      "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+      "log_index": 379,
+      "name": "Transfer",
+      "params": {
+        "from": "0xe562987B2819b007652b6432448853EA3Ca7a811",
+        "to": "0xEe7aE85f2Fe2239E27D9c1E23fFFe168D63b4055",
+        "value": 1000522262264
+      }
+    }
   }
-  // 2 more items
 ]
 ```
 
