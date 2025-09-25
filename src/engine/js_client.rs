@@ -102,6 +102,41 @@ pub enum JsExecutorClientError {
     StartupFailed,
 }
 
+/// Finds the command to start the JavaScript executor.
+/// It first checks the `JS_EXECUTOR_BIN_PATH` environment variable,
+/// then `CARGO_BIN_EXE_js_executor`, and finally defaults to using
+/// `cargo run -p js_executor --bin js_executor --`.
+fn find_js_executor_command() -> Command {
+    if let Ok(bin_path) = env::var("JS_EXECUTOR_BIN_PATH") {
+        return Command::new(bin_path);
+    }
+    if let Ok(bin_path) = env::var("CARGO_BIN_EXE_js_executor") {
+        return Command::new(bin_path);
+    }
+    let mut cmd = Command::new("cargo");
+    cmd.arg("run")
+        .arg("-p")
+        .arg("js_executor")
+        .arg("--bin")
+        .arg("js_executor")
+        .arg("--");
+    cmd
+}
+
+/// Waits for the Unix socket at `socket_path` to become available.
+/// This function attempts to connect to the socket multiple times with
+/// exponential backoff. If the socket does not become available within the
+/// timeout period, it returns a `StartupFailed` error.
+async fn wait_for_socket(socket_path: &PathBuf) -> Result<(), JsExecutorClientError> {
+    for attempt in 0..10 {
+        if tokio::net::UnixStream::connect(socket_path).await.is_ok() {
+            return Ok(());
+        }
+        tokio::time::sleep(Duration::from_millis(50 << attempt.min(6))).await;
+    }
+    Err(JsExecutorClientError::StartupFailed)
+}
+
 impl JsExecutorClient {
     /// Creates a new instance of the JavaScript executor client.
     pub async fn new() -> Result<Self, JsExecutorClientError> {
@@ -109,7 +144,7 @@ impl JsExecutorClient {
         let socket_path =
             env::temp_dir().join(format!("argus-js-executor-{}.sock", std::process::id()));
 
-        let mut cmd = Self::find_js_executor_command();
+        let mut cmd = find_js_executor_command();
 
         // Pass the socket path to the js_executor
         cmd.arg("--socket-path").arg(&socket_path);
@@ -145,37 +180,11 @@ impl JsExecutorClient {
         let hyper_client: Client<UnixConnector, Full<Bytes>> =
             Client::builder(hyper_util::rt::TokioExecutor::new()).build(connector);
 
-        // Wait for the socket to become available with exponential backoff
-        let socket_ready = async {
-            for attempt in 0..10 {
-                if tokio::net::UnixStream::connect(&socket_path).await.is_ok() {
-                    return Ok(());
-                }
-                tokio::time::sleep(Duration::from_millis(50 << attempt.min(6))).await;
-            }
-            Err(JsExecutorClientError::StartupFailed)
-        };
-
-        socket_ready.await?;
+        // Wait for the socket to become available
+        wait_for_socket(&socket_path).await?;
         tracing::debug!("JavaScript executor socket is ready at {}", socket_path.display());
 
         Ok(Self { executor_child: Some(child), hyper_client })
-    }
-
-    /// Finds the command to start the JavaScript executor.
-    /// It first checks the `JS_EXECUTOR_BIN_PATH` environment variable,
-    /// then `CARGO_BIN_EXE_js_executor`, and finally defaults to using
-    /// `cargo run -p js_executor --bin js_executor --`.
-    fn find_js_executor_command() -> Command {
-        if let Ok(bin_path) = env::var("JS_EXECUTOR_BIN_PATH") {
-            return Command::new(bin_path);
-        }
-        if let Ok(bin_path) = env::var("CARGO_BIN_EXE_js_executor") {
-            return Command::new(bin_path);
-        }
-        let mut cmd = Command::new("cargo");
-        cmd.arg("run").arg("-p").arg("js_executor").arg("--bin").arg("js_executor").arg("--");
-        cmd
     }
 }
 
@@ -195,21 +204,18 @@ impl JsClient for JsExecutorClient {
         // Build the HTTP request
         let req = hyper::Request::builder()
             .method(hyper::Method::POST)
-            .uri("http://unix/execute")
+            .uri("http://unix/execute") // The URI is ignored by the Unix socket connector
             .header("content-type", "application/json")
             .body(Full::new(Bytes::from(body)))?;
 
         // Send the request with a timeout
-        let response = match tokio::time::timeout(
+        let response = tokio::time::timeout(
             Duration::from_secs(REQUEST_TIMEOUT_SECONDS),
             self.hyper_client.request(req),
         )
         .await
-        {
-            Ok(Ok(res)) => res,
-            Ok(Err(e)) => return Err(JsExecutorClientError::ClientError(e)),
-            Err(_) => return Err(JsExecutorClientError::RequestTimeout),
-        };
+        .map_err(|_| JsExecutorClientError::RequestTimeout)?
+        .map_err(JsExecutorClientError::ClientError)?;
 
         // Read the response body
         let body_bytes = http_body_util::BodyExt::collect(response.into_body()).await?.to_bytes();
