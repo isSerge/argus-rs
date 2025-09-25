@@ -10,7 +10,7 @@ use std::{
     time::Duration,
 };
 
-use common_models::{ExecutionRequest, ExecutionResponse};
+use common_models::{ErrorResponse, ExecutionRequest, ExecutionResponse};
 use http_body_util::Full;
 use hyper::{Uri, body::Bytes};
 use hyper_util::{client::legacy::Client, rt::TokioIo};
@@ -100,6 +100,10 @@ pub enum JsExecutorClientError {
     /// The JavaScript executor failed to start up properly.
     #[error("JavaScript executor failed to start up")]
     StartupFailed,
+
+    /// An error was returned by the script executor service.
+    #[error("JavaScript execution failed: {0}")]
+    ScriptExecutionError(String),
 }
 
 /// Finds the command to start the JavaScript executor.
@@ -114,12 +118,7 @@ fn find_js_executor_command() -> Command {
         return Command::new(bin_path);
     }
     let mut cmd = Command::new("cargo");
-    cmd.arg("run")
-        .arg("-p")
-        .arg("js_executor")
-        .arg("--bin")
-        .arg("js_executor")
-        .arg("--");
+    cmd.arg("run").arg("-p").arg("js_executor").arg("--bin").arg("js_executor").arg("--");
     cmd
 }
 
@@ -144,8 +143,8 @@ impl JsExecutorClient {
             if let Ok(socket_path) = env::var("JS_EXECUTOR_SOCKET_PATH") {
                 (PathBuf::from(socket_path), None)
             } else {
-                let socket_path = env::temp_dir()
-                    .join(format!("argus-js-executor-{}.sock", std::process::id()));
+                let socket_path =
+                    env::temp_dir().join(format!("argus-js-executor-{}.sock", std::process::id()));
                 let mut cmd = find_js_executor_command();
                 cmd.arg("--socket-path").arg(&socket_path);
                 cmd.stdout(Stdio::piped());
@@ -218,8 +217,14 @@ impl JsClient for JsExecutorClient {
         .map_err(|_| JsExecutorClientError::RequestTimeout)?
         .map_err(JsExecutorClientError::ClientError)?;
 
-        // Read the response body
+        let status = response.status();
         let body_bytes = http_body_util::BodyExt::collect(response.into_body()).await?.to_bytes();
+
+        if !status.is_success() {
+            let err_resp: ErrorResponse = serde_json::from_slice(&body_bytes)?;
+            return Err(JsExecutorClientError::ScriptExecutionError(err_resp.error));
+        }
+
         let json: ExecutionResponse = serde_json::from_slice(&body_bytes)?;
 
         Ok(json)
@@ -236,5 +241,117 @@ impl Drop for JsExecutorClient {
                 }
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use axum::{Json, Router, routing::post};
+    use hyper::StatusCode;
+    use tokio::net::UnixListener;
+
+    use super::*;
+    use crate::test_helpers::create_monitor_match;
+    static TEST_SOCKET_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    // Helper function to set up a mock server and a client pointing to it.
+    async fn setup_test_client_and_server(handler: Router) -> (JsExecutorClient, PathBuf) {
+        // Create a unique socket path for the test
+        let count = TEST_SOCKET_COUNTER.fetch_add(1, Ordering::SeqCst);
+        let pid = std::process::id();
+        let socket_path =
+            env::temp_dir().join(format!("argus-test-js-executor-{}-{}.sock", pid, count));
+
+        let listener = UnixListener::bind(&socket_path).unwrap();
+
+        // Spawn the mock server in the background
+        tokio::spawn(async move {
+            axum::serve(listener, handler.into_make_service()).await.unwrap();
+        });
+
+        // Let the server start
+        wait_for_socket(&socket_path).await.unwrap();
+
+        // Configure the client to use this specific socket.
+        let connector = UnixConnector { socket_path: socket_path.clone() };
+        let hyper_client: Client<UnixConnector, Full<Bytes>> =
+            Client::builder(hyper_util::rt::TokioExecutor::new()).build(connector);
+
+        // Set executor_child to None because we are managing the server ourselves.
+        let client = JsExecutorClient { executor_child: None, hyper_client };
+
+        (client, socket_path)
+    }
+
+    #[tokio::test]
+    async fn test_submit_script_success() {
+        let context = create_monitor_match("test_notifier".to_string());
+        let app = Router::new().route(
+            "/execute",
+            post(|| async {
+                let response = ExecutionResponse {
+                    result: serde_json::json!({"status": "success"}),
+                    stdout: "Execution completed successfully".to_string(),
+                    stderr: "".to_string(),
+                };
+
+                (StatusCode::OK, Json(response))
+            }),
+        );
+
+        let (client, _socket_path) = setup_test_client_and_server(app).await;
+
+        let result =
+            client.submit_script("console.log('Hello, World!');".to_string(), &context).await;
+
+        assert!(result.is_ok());
+        let response = result.unwrap();
+        assert_eq!(response.result, serde_json::json!({"status": "success"}));
+        assert_eq!(response.stdout, "Execution completed successfully");
+        assert_eq!(response.stderr, "");
+    }
+
+    #[tokio::test]
+    async fn test_submit_script_server_error() {
+        let context = create_monitor_match("test_notifier".to_string());
+        let app = Router::new().route(
+            "/execute",
+            post(|| async {
+                let error_response = ErrorResponse { error: "Script error".to_string() };
+                (StatusCode::INTERNAL_SERVER_ERROR, Json(error_response))
+            }),
+        );
+
+        let (client, _socket_path) = setup_test_client_and_server(app).await;
+
+        let result =
+            client.submit_script("console.log('Hello, World!');".to_string(), &context).await;
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result,
+            Err(JsExecutorClientError::ScriptExecutionError(msg)) if msg == "Script error"
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_submit_script_timeout() {
+        let context = create_monitor_match("test_notifier".to_string());
+        let app = Router::new().route(
+            "/execute",
+            post(|| async {
+                // Simulate a delay longer than the client's timeout
+                tokio::time::sleep(Duration::from_secs(REQUEST_TIMEOUT_SECONDS + 1)).await;
+                (StatusCode::OK, Json(serde_json::json!({})))
+            }),
+        );
+        let (client, _socket_path) = setup_test_client_and_server(app).await;
+        let result =
+            client.submit_script("console.log('Hello, World!');".to_string(), &context).await;
+
+        assert!(result.is_err());
+        assert!(matches!(result, Err(JsExecutorClientError::RequestTimeout)));
     }
 }
