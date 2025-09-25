@@ -57,13 +57,13 @@ monitors:
 To test this monitor against historical blocks, use the `dry-run` command with the `--config-dir` argument pointing to this example's configuration:
 
 ```bash
-cargo run --release -- dry-run --from 22895951 --to 22895991 --config-dir examples/7_address_watchlist_monitor/
+cargo run --release -- dry-run --from 22895951 --to 22895952 --config-dir examples/7_address_watchlist_monitor/
 ```
 
 Run with `debug` logs:
 
 ```bash
-RUST_LOG=debug cargo run --release -- dry-run --from 22895951 --to 22895991 --config-dir examples/7_address_watchlist_monitor/
+RUST_LOG=debug cargo run --release -- dry-run --from 22895951 --to 22895952 --config-dir examples/7_address_watchlist_monitor/
 ```
 
 Run with Docker image from GHCR:
@@ -74,10 +74,10 @@ docker run --rm \
   -v "$(pwd)/examples/7_address_watchlist_monitor:/app/configs:ro" \
   -v "$(pwd)/abis:/app/abis:ro" \
   ghcr.io/isserge/argus-rs:latest \
-  dry-run --from 22895951 --to 22895991 --config-dir /app/configs
+  dry-run --from 22895951 --to 22895952 --config-dir /app/configs
 ```
 
-Replace `22895951` and `22895991` with any Ethereum block numbers to test against.
+Replace `22895951` and `22895952` with any Ethereum block numbers to test against.
 
 #### Expected Output
 
@@ -105,25 +105,6 @@ Once processing is complete, you should see the following output in your termina
       "nonce": 2,
       "to": "0xc06145782F31030dB1C40B203bE6B0fD53410B6d",
       "transaction_index": 246,
-      "value": "0"
-    }
-  },
-  {
-    "monitor_id": 0,
-    "monitor_name": "Address Watchlist",
-    "notifier_name": "Telegram Watchlist",
-    "block_number": 22895991,
-    "transaction_hash": "0xd15171fc25cb51b61cfc9b806a8504497103b3d3312a60940dfa4ffd0153f1bc",
-    "tx": {
-      "from": "0x5eD8Cee6b63b1c6AFce3AD7c92f4fD7E1B8fAd9F",
-      "gas_limit": 84161,
-      "hash": "0xd15171fc25cb51b61cfc9b806a8504497103b3d3312a60940dfa4ffd0153f1bc",
-      "input": "0xb61d27f6000000000000000000000000c06145782f31030db1c40b203be6b0fd53410b6d00000000000000000000000000000000000000000000003635c9adc5dea0000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000",
-      "max_fee_per_gas": "7400000000",
-      "max_priority_fee_per_gas": "2000000000",
-      "nonce": 890,
-      "to": "0xde0B295669a9FD93d5F28D9Ec85E40f4cb697BAe",
-      "transaction_index": 74,
       "value": "0"
     }
   }
