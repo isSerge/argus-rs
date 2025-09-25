@@ -33,8 +33,9 @@ for example_dir in $(find "$EXAMPLES_DIR" -mindepth 1 -maxdepth 1 -type d -name 
     echo "Executing command: $command"
     echo "---"
     
-    # Execute the command, capture its output, and check its exit status.
-    output=$(eval $command)
+    # Execute the command safely by parsing it into an array and running it directly.
+    read -r -a cmd_array <<< "$command"
+    output=$("${cmd_array[@]}")
     exit_code=$?
 
     if [ $exit_code -ne 0 ]; then
