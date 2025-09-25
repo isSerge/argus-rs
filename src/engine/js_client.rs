@@ -140,40 +140,41 @@ async fn wait_for_socket(socket_path: &PathBuf) -> Result<(), JsExecutorClientEr
 impl JsExecutorClient {
     /// Creates a new instance of the JavaScript executor client.
     pub async fn new() -> Result<Self, JsExecutorClientError> {
-        // Generate a unique socket path for this client instance
-        let socket_path =
-            env::temp_dir().join(format!("argus-js-executor-{}.sock", std::process::id()));
+        let (socket_path, executor_child) =
+            if let Ok(socket_path) = env::var("JS_EXECUTOR_SOCKET_PATH") {
+                (PathBuf::from(socket_path), None)
+            } else {
+                let socket_path = env::temp_dir()
+                    .join(format!("argus-js-executor-{}.sock", std::process::id()));
+                let mut cmd = find_js_executor_command();
+                cmd.arg("--socket-path").arg(&socket_path);
+                cmd.stdout(Stdio::piped());
+                cmd.stderr(Stdio::piped());
 
-        let mut cmd = find_js_executor_command();
+                let mut child = cmd.spawn()?;
+                let stdout = child.stdout.take().expect("Failed to capture stdout");
+                let stderr = child.stderr.take().expect("Failed to capture stderr");
 
-        // Pass the socket path to the js_executor
-        cmd.arg("--socket-path").arg(&socket_path);
-        cmd.stdout(Stdio::piped());
-        cmd.stderr(Stdio::piped());
-
-        let mut child = cmd.spawn()?;
-        let stdout = child.stdout.take().expect("Failed to capture stdout");
-        let stderr = child.stderr.take().expect("Failed to capture stderr");
-
-        // Spawn a simple background task to drain stdout/stderr
-        tokio::spawn(async move {
-            let mut stdout_reader = BufReader::new(stdout);
-            let mut stderr_reader = BufReader::new(stderr);
-            loop {
-                let mut stdout_line = String::new();
-                let mut stderr_line = String::new();
-                tokio::select! {
-                    res = stdout_reader.read_line(&mut stdout_line) => {
-                        if res.unwrap_or(0) == 0 { break; }
-                        tracing::debug!(target: "js_executor", "{}", stdout_line.trim());
-                    },
-                    res = stderr_reader.read_line(&mut stderr_line) => {
-                        if res.unwrap_or(0) == 0 { break; }
-                        tracing::warn!(target: "js_executor", "{}", stderr_line.trim());
-                    },
-                }
-            }
-        });
+                tokio::spawn(async move {
+                    let mut stdout_reader = BufReader::new(stdout);
+                    let mut stderr_reader = BufReader::new(stderr);
+                    loop {
+                        let mut stdout_line = String::new();
+                        let mut stderr_line = String::new();
+                        tokio::select! {
+                            res = stdout_reader.read_line(&mut stdout_line) => {
+                                if res.unwrap_or(0) == 0 { break; }
+                                tracing::debug!(target: "js_executor", "{}", stdout_line.trim());
+                            },
+                            res = stderr_reader.read_line(&mut stderr_line) => {
+                                if res.unwrap_or(0) == 0 { break; }
+                                tracing::warn!(target: "js_executor", "{}", stderr_line.trim());
+                            },
+                        }
+                    }
+                });
+                (socket_path, Some(child))
+            };
 
         // Build the hyper client
         let connector = UnixConnector { socket_path: socket_path.clone() };
@@ -184,7 +185,7 @@ impl JsExecutorClient {
         wait_for_socket(&socket_path).await?;
         tracing::debug!("JavaScript executor socket is ready at {}", socket_path.display());
 
-        Ok(Self { executor_child: Some(child), hyper_client })
+        Ok(Self { executor_child, hyper_client })
     }
 }
 
@@ -236,10 +237,4 @@ impl Drop for JsExecutorClient {
             });
         }
     }
-}
-
-#[cfg(test)]
-mod tests {
-    // TODO: Implement tests for JsExecutorClient using a real axum server and
-    // UDS
 }
