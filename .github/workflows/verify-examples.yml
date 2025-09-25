@@ -31,6 +31,10 @@ jobs:
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Run examples
+      # Set dummy environment variables for Telegram notifier to satisfy config loading
+      env:
+        TELEGRAM_TOKEN: "dummy"
+        TELEGRAM_CHAT_ID: "dummy"
       run: |
         chmod +x ./run_examples.sh
         ./run_examples.sh
