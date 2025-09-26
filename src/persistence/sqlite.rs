@@ -8,13 +8,13 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Serialize, de::DeserializeOwned};
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 
-use super::traits::{GenericStateRepository, StateRepository};
+use super::traits::{AppRepository, KeyValueStore};
 use crate::models::{
     monitor::{Monitor, MonitorConfig},
     notifier::NotifierConfig,
 };
 
-/// A concrete implementation of the StateRepository using SQLite.
+/// A concrete implementation of the AppRepository using SQLite.
 pub struct SqliteStateRepository {
     /// The SQLite connection pool used for database operations.
     pool: SqlitePool,
@@ -107,7 +107,7 @@ impl SqliteStateRepository {
 }
 
 #[async_trait]
-impl StateRepository for SqliteStateRepository {
+impl AppRepository for SqliteStateRepository {
     /// Retrieves the last processed block number for a given network.
     #[tracing::instrument(skip(self), level = "debug")]
     async fn get_last_processed_block(&self, network_id: &str) -> Result<Option<u64>, sqlx::Error> {
@@ -488,7 +488,7 @@ impl StateRepository for SqliteStateRepository {
 }
 
 #[async_trait]
-impl GenericStateRepository for SqliteStateRepository {
+impl KeyValueStore for SqliteStateRepository {
     /// Retrieves a JSON-serializable state object by its key.
     #[tracing::instrument(skip(self), level = "debug")]
     async fn get_json_state<T: DeserializeOwned + Send + Sync + 'static>(

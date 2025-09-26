@@ -12,7 +12,7 @@ use crate::{
     models::notifier::NotifierConfig,
     monitor::MonitorManager,
     notification::NotificationService,
-    persistence::{sqlite::SqliteStateRepository, traits::StateRepository},
+    persistence::{sqlite::SqliteStateRepository, traits::AppRepository},
     providers::rpc::{EvmRpcSource, create_provider},
 };
 

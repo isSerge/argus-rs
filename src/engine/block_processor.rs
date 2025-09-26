@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     config::AppConfig,
     models::{BlockData, CorrelatedBlockData, CorrelatedBlockItem, transaction::Transaction},
-    persistence::traits::StateRepository,
+    persistence::traits::AppRepository,
 };
 
 /// The BlockProcessor service.
@@ -21,7 +21,7 @@ use crate::{
 /// `CorrelatedBlockData`, and then sends the result to the filtering engine's
 /// channel. It is also responsible for updating the `last_processed_block`
 /// state in the database.
-pub struct BlockProcessor<S: StateRepository + ?Sized> {
+pub struct BlockProcessor<S: AppRepository + ?Sized> {
     /// Shared application configuration.
     config: Arc<AppConfig>,
     /// The persistent state repository for managing application state.
@@ -34,7 +34,7 @@ pub struct BlockProcessor<S: StateRepository + ?Sized> {
     cancellation_token: CancellationToken,
 }
 
-impl<S: StateRepository + ?Sized> BlockProcessor<S> {
+impl<S: AppRepository + ?Sized> BlockProcessor<S> {
     /// Creates a new BlockProcessor instance.
     pub fn new(
         config: Arc<AppConfig>,
@@ -180,7 +180,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        persistence::traits::MockStateRepository,
+        persistence::traits::MockAppRepository,
         test_helpers::{BlockBuilder, TransactionBuilder},
     };
 
@@ -188,13 +188,13 @@ mod tests {
 
     struct TestHarness {
         config: Arc<AppConfig>,
-        mock_state_repo: MockStateRepository,
+        mock_state_repo: MockAppRepository,
     }
 
     impl TestHarness {
         fn new() -> Self {
             let config = Arc::new(AppConfig::builder().network_id(TEST_NETWORK_ID).build());
-            Self { config, mock_state_repo: MockStateRepository::new() }
+            Self { config, mock_state_repo: MockAppRepository::new() }
         }
 
         fn build(
@@ -202,7 +202,7 @@ mod tests {
             rx: mpsc::Receiver<BlockData>,
             tx: mpsc::Sender<CorrelatedBlockData>,
             token: CancellationToken,
-        ) -> BlockProcessor<MockStateRepository> {
+        ) -> BlockProcessor<MockAppRepository> {
             BlockProcessor::new(self.config, Arc::new(self.mock_state_repo), rx, tx, token)
         }
     }

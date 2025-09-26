@@ -13,13 +13,13 @@ use crate::{
         notifier::{NotifierConfig, NotifierPolicy},
     },
     notification::{NotificationPayload, NotificationService, error::NotificationError},
-    persistence::traits::GenericStateRepository,
+    persistence::traits::KeyValueStore,
 };
 
 /// The AlertManager is responsible for processing monitor matches, applying
 /// notification policies (throttling, aggregation, etc.) and submitting
 /// notifications to Notification service
-pub struct AlertManager<T: GenericStateRepository> {
+pub struct AlertManager<T: KeyValueStore> {
     /// The notification service used to send alerts
     notification_service: Arc<NotificationService>,
 
@@ -46,7 +46,7 @@ pub enum AlertManagerError {
     StateRepositoryError(#[from] sqlx::Error),
 }
 
-impl<T: GenericStateRepository + Send + Sync + 'static> AlertManager<T> {
+impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
     /// Creates a new AlertManager instance
     pub fn new(
         notification_service: Arc<NotificationService>,
@@ -345,7 +345,7 @@ mod tests {
             monitor_match::{LogDetails, LogMatchData, MatchData},
             notifier::{AggregationPolicy, DiscordConfig, NotifierTypeConfig, ThrottlePolicy},
         },
-        persistence::traits::MockGenericStateRepository,
+        persistence::traits::MockKeyValueStore,
     };
 
     fn create_monitor_match(notifier_name: String) -> MonitorMatch {
@@ -372,8 +372,8 @@ mod tests {
 
     fn create_alert_manager(
         notifiers: HashMap<String, NotifierConfig>,
-        state_repo: MockGenericStateRepository,
-    ) -> AlertManager<MockGenericStateRepository> {
+        state_repo: MockKeyValueStore,
+    ) -> AlertManager<MockKeyValueStore> {
         let state_repo = Arc::new(state_repo);
         let notifiers_arc = Arc::new(notifiers);
         let notification_service = Arc::new(NotificationService::new(
@@ -387,7 +387,7 @@ mod tests {
     async fn test_process_match_notifier_config_missing() {
         // Arrange
         let notifiers = HashMap::new(); // Empty notifiers map
-        let state_repo = MockGenericStateRepository::new();
+        let state_repo = MockKeyValueStore::new();
         let alert_manager = create_alert_manager(notifiers, state_repo);
         let monitor_match = create_monitor_match("NonExistentNotifier".to_string());
 
@@ -418,7 +418,7 @@ mod tests {
         };
         let mut notifiers = HashMap::new();
         notifiers.insert(notifier_name.to_string(), notifier_config);
-        let state_repo = MockGenericStateRepository::new();
+        let state_repo = MockKeyValueStore::new();
         let alert_manager = create_alert_manager(notifiers, state_repo);
         let monitor_match = create_monitor_match(notifier_name);
 
@@ -451,7 +451,7 @@ mod tests {
         let mut notifiers = HashMap::new();
         notifiers.insert(notifier_name.to_string(), notifier_config);
 
-        let mut state_repo = MockGenericStateRepository::new();
+        let mut state_repo = MockKeyValueStore::new();
 
         // Should attempt to get existing state and find none
         state_repo
@@ -499,7 +499,7 @@ mod tests {
         let mut notifiers = HashMap::new();
         notifiers.insert(notifier_name.to_string(), notifier_config);
 
-        let mut state_repo = MockGenericStateRepository::new();
+        let mut state_repo = MockKeyValueStore::new();
 
         // Get state for existing throttle
         state_repo
@@ -549,7 +549,7 @@ mod tests {
         let mut notifiers = HashMap::new();
         notifiers.insert(notifier_name.to_string(), notifier_config);
 
-        let mut state_repo = MockGenericStateRepository::new();
+        let mut state_repo = MockKeyValueStore::new();
 
         // Fails to retrieve state
         state_repo
@@ -602,7 +602,7 @@ mod tests {
         let mut notifiers = HashMap::new();
         notifiers.insert(notifier_name.to_string(), notifier_config);
 
-        let mut state_repo = MockGenericStateRepository::new();
+        let mut state_repo = MockKeyValueStore::new();
         let monitor_match = create_monitor_match(notifier_name.clone());
         let aggregation_key = &monitor_match.notifier_name;
         let state_key = format!("aggregation_state:{}", aggregation_key);
@@ -655,7 +655,7 @@ mod tests {
         let mut notifiers = HashMap::new();
         notifiers.insert(notifier_name.to_string(), notifier_config);
 
-        let mut state_repo = MockGenericStateRepository::new();
+        let mut state_repo = MockKeyValueStore::new();
         let monitor_match = create_monitor_match(notifier_name.clone());
         let aggregation_key = &monitor_match.notifier_name;
         let state_key = format!("aggregation_state:{}", aggregation_key);
@@ -712,7 +712,7 @@ mod tests {
         let mut notifiers = HashMap::new();
         notifiers.insert(notifier_name.to_string(), notifier_config.clone());
 
-        let mut state_repo = MockGenericStateRepository::new();
+        let mut state_repo = MockKeyValueStore::new();
         let monitor_match1 = create_monitor_match(notifier_name.clone());
         let monitor_match2 = create_monitor_match(notifier_name.clone());
         let aggregation_key = &monitor_match1.monitor_name;
@@ -751,7 +751,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_notifier_lock_is_shared_and_distinct() {
         // Arrange
-        let state_repo = MockGenericStateRepository::new();
+        let state_repo = MockKeyValueStore::new();
         let alert_manager = create_alert_manager(HashMap::new(), state_repo);
         let notifier1_name = "notifier1";
         let notifier2_name = "notifier2";

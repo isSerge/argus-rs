@@ -26,7 +26,7 @@ use crate::{
     },
     monitor::{MonitorManager, MonitorValidationError, MonitorValidator},
     notification::NotificationService,
-    persistence::{sqlite::SqliteStateRepository, traits::StateRepository},
+    persistence::{sqlite::SqliteStateRepository, traits::AppRepository},
     providers::{
         rpc::{EvmRpcSource, ProviderError, create_provider},
         traits::{DataSource, DataSourceError},

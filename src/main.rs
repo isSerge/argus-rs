@@ -6,7 +6,7 @@ use argus::{
     config::AppConfig,
     engine::rhai::{RhaiCompiler, RhaiScriptValidator},
     initialization::InitializationService,
-    persistence::{sqlite::SqliteStateRepository, traits::StateRepository},
+    persistence::{sqlite::SqliteStateRepository, traits::AppRepository},
     supervisor::Supervisor,
 };
 use clap::{Parser, Subcommand};
@@ -76,7 +76,7 @@ async fn run_supervisor(config_dir: Option<String>) -> Result<(), Box<dyn std::e
     tracing::debug!("Initializing application state...");
     let initialization_service = InitializationService::new(
         config.clone(),
-        Arc::clone(&repo) as Arc<dyn StateRepository>,
+        Arc::clone(&repo) as Arc<dyn AppRepository>,
         Arc::clone(&abi_service),
         script_validator,
     );
