@@ -93,6 +93,15 @@ pub enum DryRunError {
     /// An error occurred in the ABI service.
     #[error("ABI service error: {0}")]
     AbiServiceError(#[from] AbiError),
+
+    /// An error occurred with the block range specified for the dry run.
+    #[error("Invalid block range: {from} - {to}")]
+    InvalidBlockRange {
+        /// The starting block number.
+        from: u64,
+        /// The ending block number.
+        to: u64,
+    },
 }
 
 /// A command to perform a dry run of monitors over a specified block range.
@@ -265,6 +274,11 @@ async fn run_dry_run_loop(
         batch_size = BATCH_SIZE,
         "Starting block processing..."
     );
+
+    // Check if block sequence is valid
+    if from_block > to_block {
+        return Err(DryRunError::InvalidBlockRange { from: from_block, to: to_block });
+    }
 
     // The outer loop now iterates over batches of blocks.
     while current_block <= to_block {
@@ -699,5 +713,50 @@ mod tests {
         let matches = result.unwrap();
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].block_number, 100);
+    }
+
+    #[tokio::test]
+    async fn test_run_dry_run_loop_invalid_block_range() {
+        // Arrange
+        let from_block = 101;
+        let to_block = 100; // Invalid range
+
+        // Create a mock data source (should not be called)
+        let mock_data_source = MockDataSource::new();
+
+        // Initialize other services with minimal setup
+        let temp_dir = tempdir().unwrap();
+        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
+        let abi_service = Arc::new(AbiService::new(abi_repo));
+        let rhai_config = RhaiConfig::default();
+        let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));
+        let monitors = vec![];
+        let monitor_manager = Arc::new(MonitorManager::new(
+            monitors.clone(),
+            rhai_compiler.clone(),
+            abi_service.clone(),
+        ));
+        let filtering_engine = RhaiFilteringEngine::new(
+            abi_service.clone(),
+            rhai_compiler,
+            rhai_config,
+            monitor_manager.clone(),
+        );
+        let alert_manager = create_test_alert_manager(Arc::new(HashMap::new())).await;
+
+        // Act
+        let result = run_dry_run_loop(
+            from_block,
+            to_block,
+            Box::new(mock_data_source),
+            filtering_engine,
+            alert_manager,
+        )
+        .await;
+
+        // Assert
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, DryRunError::InvalidBlockRange { from: 101, to: 100 }));
     }
 }
