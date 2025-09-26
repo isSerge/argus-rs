@@ -1,9 +1,30 @@
 //! JavaScript execution engine using Deno's V8 runtime.
 
 use common_models::ExecutionResponse;
-use deno_core::{JsRuntime, RuntimeOptions, serde_v8, v8};
+use deno_core::{JsRuntime, RuntimeOptions, extension, op2, serde_v8};
 use serde_json::Value;
 use thiserror::Error;
+use std::cell::RefCell;
+
+// Thread-local storage for the result
+thread_local! {
+    static RESULT_STORAGE: RefCell<Option<String>> = RefCell::new(None);
+}
+
+#[op2]
+#[string]
+fn op_store_result(#[string] result: String) -> String {
+    RESULT_STORAGE.with(|storage| {
+        *storage.borrow_mut() = Some(result.clone());
+    });
+    "ok".to_string()
+}
+
+// Create an extension with our custom op
+extension!(
+    argus_runtime,
+    ops = [op_store_result]
+);
 
 /// An error that occurs during JavaScript script execution.
 #[derive(Debug, Error)]
@@ -36,8 +57,11 @@ pub async fn execute_script(
     // thread pool
     let modified_ctx_value =
         tokio::task::spawn_blocking(move || -> Result<Value, JsRunnerError> {
-            // Create runtime in the blocking thread
-            let mut runtime = JsRuntime::new(RuntimeOptions::default());
+            // Create runtime in the blocking thread with our custom extension
+            let mut runtime = JsRuntime::new(RuntimeOptions {
+                extensions: vec![argus_runtime::init()],
+                ..Default::default()
+            });
 
             // TODO: remove console polyfill when adding deno_runtime
             let console_polyfill = include_str!("./console_polyfill.js");
@@ -54,17 +78,23 @@ pub async fn execute_script(
             // Execute the user's action script
             runtime.execute_script("<action>", script).map_err(JsRunnerError::ScriptExecution)?;
 
-            // Capture the final state of the context object
-            let result_script = "context;";
+            // Use our custom op to communicate the result back to Rust
+            runtime.execute_script("<store_result>", r#"
+                try {
+                    const result = JSON.stringify(context);
+                    Deno.core.ops.op_store_result(result);
+                } catch (e) {
+                    Deno.core.ops.op_store_result(JSON.stringify({error: e.toString()}));
+                }
+            "#).map_err(JsRunnerError::ScriptExecution)?;
 
-            let return_value = runtime
-                .execute_script("<get_result>", result_script)
-                .map_err(JsRunnerError::ScriptExecution)?;
+            // Retrieve the result from our thread-local storage
+            let json_string = RESULT_STORAGE.with(|storage| {
+                storage.borrow().clone().unwrap_or_else(|| "{}".to_string())
+            });
 
-            // Convert the result back to Rust
-            let scope = &mut runtime.handle_scope();
-            let local = v8::Local::new(scope, return_value);
-            let modified_ctx_value: Value = serde_v8::from_v8(scope, local)?;
+            // Parse the JSON string back into a Value
+            let modified_ctx_value: Value = serde_json::from_str(&json_string)?;
 
             Ok(modified_ctx_value)
         })
