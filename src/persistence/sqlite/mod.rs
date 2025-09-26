@@ -97,13 +97,14 @@ impl SqliteStateRepository {
     }
 
     /// Helper to execute database queries with consistent error handling
-    async fn execute_query_with_error_handling<F, T>(
+    async fn execute_query_with_error_handling<F, T, E>(
         &self,
         operation: &str,
         query_fn: F,
     ) -> Result<T, PersistenceError>
     where
-        F: std::future::Future<Output = Result<T, sqlx::Error>>,
+        F: std::future::Future<Output = Result<T, E>>,
+        E: std::error::Error,
     {
         query_fn.await.map_err(|e| {
             tracing::error!(error = %e, operation = %operation, "Database operation failed.");
