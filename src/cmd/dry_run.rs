@@ -20,14 +20,13 @@ use crate::{
     loader::{LoaderError, load_config},
     models::{
         BlockData,
-        builder::MonitorBuilder,
         monitor::MonitorConfig,
         monitor_match::MonitorMatch,
         notifier::{NotifierConfig, NotifierError},
     },
     monitor::{MonitorManager, MonitorValidationError, MonitorValidator},
     notification::NotificationService,
-    persistence::sqlite::SqliteStateRepository,
+    persistence::{sqlite::SqliteStateRepository, traits::StateRepository},
     providers::{
         rpc::{EvmRpcSource, ProviderError, create_provider},
         traits::{DataSource, DataSourceError},
@@ -150,6 +149,10 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let monitors = load_config::<MonitorConfig>(config.monitor_config_path)?;
     let notifiers = load_config::<NotifierConfig>(config.notifier_config_path)?;
 
+    // Init a temporary, in-memory state repository for the dry run.
+    let state_repo = Arc::new(SqliteStateRepository::new("sqlite::memory:").await?);
+    state_repo.run_migrations().await?;
+
     // Link ABIs for monitors that require them.
     for monitor in monitors.iter() {
         if let (Some(address_str), Some(abi_name)) = (&monitor.address, &monitor.abi) {
@@ -179,27 +182,15 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     }
     tracing::info!("Monitor validation successful.");
 
-    // Convert monitor configs to monitor instances using `MonitorBuilder`.
-    // This is done to avoid unnecessary database writes during dry runs.
-    let monitors: Vec<_> = monitors
-        .into_iter()
-        .map(|m| {
-            let mut builder = MonitorBuilder::new()
-                .name(&m.name)
-                .network(&m.network)
-                .filter_script(&m.filter_script)
-                .notifiers(m.notifiers);
-
-            if let Some(address) = &m.address {
-                builder = builder.address(address);
-            }
-            if let Some(abi) = &m.abi {
-                builder = builder.abi(abi);
-            }
-
-            builder.build()
-        })
-        .collect::<Vec<_>>();
+    let count = monitors.len();
+    tracing::info!(count = count, "Loaded monitors from configuration file.");
+    // Store monitors in the temporary state repository for access during processing
+    // (simulates default mode behavior).
+    state_repo.clear_monitors(&config.network_id).await?;
+    state_repo.add_monitors(&config.network_id, monitors).await?;
+    tracing::info!(count = count, network_id = %&config.network_id, "Monitors from file stored in database.");
+    let monitors = state_repo.get_monitors(&config.network_id).await?;
+    tracing::info!(count = monitors.len(), "Loaded monitors from database for dry run.");
 
     let monitor_manager =
         Arc::new(MonitorManager::new(monitors.clone(), rhai_compiler.clone(), abi_service.clone()));
@@ -219,10 +210,6 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
         config.rhai.clone(),
         monitor_manager.clone(),
     );
-
-    // Init a temporary, in-memory state repository for the dry run.
-    let state_repo = Arc::new(SqliteStateRepository::new("sqlite::memory:").await?);
-    state_repo.run_migrations().await?;
 
     // Init the AlertManager with the in-memory state repository.
     let alert_manager = Arc::new(AlertManager::new(notification_service, state_repo, notifiers));
@@ -359,7 +346,7 @@ mod tests {
         notification::NotificationService,
         persistence::sqlite::SqliteStateRepository,
         providers::traits::MockDataSource,
-        test_helpers::{BlockBuilder, TransactionBuilder},
+        test_helpers::{BlockBuilder, MonitorBuilder, TransactionBuilder},
     };
 
     // A helper function to create an AlertManager with a mock state repository.
