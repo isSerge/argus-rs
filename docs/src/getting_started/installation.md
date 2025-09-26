@@ -72,13 +72,19 @@ Once the prerequisites are in place, you can clone the repository and build the 
 
 2.  **Build the project in release mode:**
 
-    This command compiles an optimized binary for production use.
+    This command compiles the main application and the JavaScript executor:
 
     ```bash
+    # Build the main argus application
     cargo build --release
+    
+    # Build the js_executor (required for action scripts)
+    cargo build --release --manifest-path crates/js_executor/Cargo.toml
     ```
 
-    The final binary will be located at `target/release/argus`.
+    The binaries will be located at:
+    - `target/release/argus` (main application)
+    - `target/release/js_executor` (JavaScript executor for action scripts)
 
 ## Next Steps
 

@@ -4,6 +4,8 @@ The `actions.yaml` file allows you to define custom actions that can be triggere
 
 This enables dynamic enrichment of alert data, custom formatting, or even conditional logic that can alter the notification content based on the match details.
 
+> **Note**: Actions require the `js_executor` binary to be available. When building from source, make sure to build both the main application and the js_executor: `cargo build --release --manifest-path crates/js_executor/Cargo.toml`. Docker deployments include this automatically.
+
 ## Basic Structure
 
 An `actions.yaml` file contains a list of action definitions. Each action has a `name` and a `file` path pointing to the script.

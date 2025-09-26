@@ -175,7 +175,11 @@ Once the setup is complete, you can run the application.
 
 1.  **Build the project:**
     ```bash
+    # Build the main argus application
     cargo build --release
+    
+    # Build the js_executor (required for action scripts)
+    cargo build --release --manifest-path crates/js_executor/Cargo.toml
     ```
 
 2.  **Run the application:**
@@ -223,6 +227,22 @@ The easiest way to run Argus is with Docker Compose. This method handles the dat
     ```
 
 You can view logs with `docker compose logs -f` and stop the application with `docker compose down`. For more details, see the [Deployment with Docker documentation](./docs/src/operations/deployment.md).
+
+## Architecture Notes
+
+### Action Script Support
+
+Argus uses a dual-binary architecture to support JavaScript execution in action scripts:
+
+- **Main binary (`argus`)**: The core monitoring application that handles block processing, filtering, and notifications
+- **JavaScript executor (`js_executor`)**: A standalone binary that executes JavaScript action scripts via Unix socket communication
+
+This architecture provides dependency isolation. The main application automatically spawns and manages the js_executor process, making it transparent to users.
+
+For deployment scenarios:
+- **Development**: js_executor is automatically built and spawned via `cargo run`
+- **Docker**: Both binaries are built and included in the container image  
+- **Manual deployment**: Both binaries must be built and deployed together
 
 ## Project Structure
 
