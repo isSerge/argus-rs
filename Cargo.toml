@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = [".", "crates/common_models", "crates/js_executor"]
+members = [".", "crates/common_models"]
 
 [workspace.dependencies]
 axum = "0.8.4"
