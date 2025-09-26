@@ -59,7 +59,7 @@ impl SupervisorBuilder {
     }
 
     /// Sets the data provider for the `Supervisor`.
-    pub fn provider<P: Provider + Send + Sync + 'static>(mut self, provider: Arc<P>) -> Self {
+    pub fn provider(mut self, provider: Arc<dyn Provider + Send + Sync>) -> Self {
         self.provider = Some(provider);
         self
     }
@@ -130,7 +130,9 @@ mod tests {
 
     use super::*;
     use crate::{
-        config::RhaiConfig, models::monitor::MonitorConfig, test_helpers::create_test_abi_service,
+        config::RhaiConfig,
+        models::monitor::MonitorConfig,
+        test_helpers::{create_test_abi_service, mock_provider},
     };
 
     async fn setup_test_db() -> SqliteStateRepository {
@@ -143,6 +145,8 @@ mod tests {
 
     #[tokio::test]
     async fn build_succeeds_with_valid_monitors() {
+        let (provider, _) = mock_provider();
+
         let network_id = "testnet";
         let abi_name = "abi";
         let dir = tempdir().unwrap();
@@ -171,6 +175,7 @@ mod tests {
             .config(app_config)
             .state(state_repo)
             .abi_service(abi_service)
+            .provider(provider)
             .script_compiler(Arc::new(RhaiCompiler::new(RhaiConfig::default())));
 
         let result = builder.build().await;

@@ -189,6 +189,11 @@ impl AppConfigBuilder {
         self.config.polling_interval_ms = Duration::from_millis(interval_ms);
         self
     }
+
+    pub fn initial_start_block(mut self, block: InitialStartBlock) -> Self {
+        self.config.initial_start_block = block;
+        self
+    }
 }
 
 #[cfg(test)]

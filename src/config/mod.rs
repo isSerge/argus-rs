@@ -15,5 +15,6 @@ pub use helpers::{
 };
 pub use http_base::BaseHttpClientConfig;
 pub use http_retry::{HttpRetryConfig, JitterSetting};
+pub use initial_start_block::InitialStartBlock;
 pub use rhai::RhaiConfig;
 pub use rpc_retry::RpcRetryConfig;

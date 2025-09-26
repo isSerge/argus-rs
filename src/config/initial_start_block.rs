@@ -8,9 +8,12 @@ use serde::{
 /// Initial block configuration
 #[derive(Debug, Clone, PartialEq)]
 pub enum InitialStartBlock {
-    Absolute(u64), // Positive block number
-    Offset(i64),   // Negative offset from the latest block
-    Latest,        // The latest block
+    /// Absolute block number
+    Absolute(u64),
+    /// Offset from the latest block (negative values)
+    Offset(i64),
+    /// Start from the latest block
+    Latest,
 }
 
 impl Default for InitialStartBlock {

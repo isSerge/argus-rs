@@ -233,23 +233,15 @@ pub fn create_provider(
 mod tests {
     use std::str::FromStr;
 
-    use alloy::{
-        primitives::{Address, B256, Bloom, BloomInput, U256, address, b256},
-        providers::{Provider, ProviderBuilder},
-        transports::mock::Asserter,
-    };
+    use alloy::primitives::{Address, B256, Bloom, BloomInput, U256, address, b256};
 
     use super::*;
     use crate::{
         models::monitor::Monitor,
-        test_helpers::{BlockBuilder, LogBuilder, ReceiptBuilder, create_test_monitor_manager},
+        test_helpers::{
+            BlockBuilder, LogBuilder, ReceiptBuilder, create_test_monitor_manager, mock_provider,
+        },
     };
-
-    fn mock_provider() -> (Arc<dyn Provider + Send + Sync>, Asserter) {
-        let asserter = Asserter::new();
-        let provider = Arc::new(ProviderBuilder::new().connect_mocked_client(asserter.clone()));
-        (provider, asserter)
-    }
 
     #[tokio::test]
     async fn test_fetch_block_core_data_success() {

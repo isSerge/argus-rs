@@ -4,11 +4,12 @@
 
 use std::{path::PathBuf, sync::Arc};
 
+use alloy::providers::Provider;
 use thiserror::Error;
 
 use crate::{
     abi::AbiService,
-    config::AppConfig,
+    config::{AppConfig, InitialStartBlock},
     engine::rhai::RhaiScriptValidator,
     loader::load_config,
     models::{monitor::MonitorConfig, notifier::NotifierConfig},
@@ -32,6 +33,10 @@ pub enum InitializationError {
     /// An error occurred while loading ABIs from monitors.
     #[error("Failed to load ABIs from monitors: {0}")]
     AbiLoadError(String),
+
+    /// An error occurred while initializing the block state.
+    #[error("Failed to initialize block state: {0}")]
+    BlockStateInitializationError(String),
 }
 
 /// A service responsible for initializing application state at startup.
@@ -40,6 +45,7 @@ pub struct InitializationService {
     repo: Arc<dyn AppRepository>,
     abi_service: Arc<AbiService>,
     script_validator: RhaiScriptValidator,
+    provider: Arc<dyn Provider + Send + Sync>,
 }
 
 impl InitializationService {
@@ -49,12 +55,15 @@ impl InitializationService {
         repo: Arc<dyn AppRepository>,
         abi_service: Arc<AbiService>,
         script_validator: RhaiScriptValidator,
+        provider: Arc<dyn Provider + Send + Sync>,
     ) -> Self {
-        Self { config, repo, abi_service, script_validator }
+        Self { config, repo, abi_service, script_validator, provider }
     }
 
     /// Runs the initialization process, loading monitors, notifiers, and ABIs.
     pub async fn run(&self) -> Result<(), InitializationError> {
+        self.initialize_block_state().await?;
+
         // Load notifiers from the configuration file if specified and DB is empty.
         self.load_notifiers_from_file().await?;
 
@@ -63,6 +72,64 @@ impl InitializationService {
 
         // Load ABIs into the AbiService from the monitors stored in the database.
         self.load_abis_from_monitors().await?;
+
+        Ok(())
+    }
+
+    async fn initialize_block_state(&self) -> Result<(), InitializationError> {
+        let network_id = &self.config.network_id;
+
+        // Check if the latest processed block is already set
+        let latest_block = self.repo.get_last_processed_block(network_id).await.map_err(|e| {
+            InitializationError::BlockStateInitializationError(format!(
+                "Failed to fetch latest processed block from DB: {e}"
+            ))
+        })?;
+
+        if latest_block.is_some() {
+            tracing::info!(network_id = %network_id, "Latest processed block already set in database. Skipping block state initialization.");
+            return Ok(());
+        }
+
+        // No block found, initialize it
+        tracing::info!(network_id = %network_id, "No latest processed block found in database. Initializing...");
+        let latest_block_number = self.provider.get_block_number().await.map_err(|e| {
+            InitializationError::BlockStateInitializationError(format!(
+                "Failed to fetch latest block number from provider: {e}"
+            ))
+        })?;
+
+        let safe_head = latest_block_number.saturating_sub(self.config.confirmation_blocks);
+
+        let target_block = match self.config.initial_start_block {
+            InitialStartBlock::Latest => latest_block_number,
+            InitialStartBlock::Absolute(n) => n,
+            InitialStartBlock::Offset(offset) => latest_block_number.saturating_add_signed(offset),
+        };
+
+        let final_start_block = std::cmp::min(target_block, safe_head);
+
+        // Set the latest processed block in the database
+        tracing::info!(
+            network_id = %network_id,
+            latest_block = latest_block_number,
+            confirmation_blocks = self.config.confirmation_blocks,
+            safe_head = safe_head,
+            initial_start_block = ?self.config.initial_start_block,
+            start_block = final_start_block,
+            "Setting latest processed block in database."
+        );
+
+        // Set to one less than the start block so processing begins from the start
+        // block
+        self.repo
+            .set_last_processed_block(network_id, final_start_block.saturating_sub(1))
+            .await
+            .map_err(|e| {
+            InitializationError::BlockStateInitializationError(format!(
+                "Failed to set latest processed block in DB: {e}"
+            ))
+        })?;
 
         Ok(())
     }
@@ -212,7 +279,7 @@ impl InitializationService {
 mod tests {
     use std::fs;
 
-    use alloy::primitives::address;
+    use alloy::primitives::{U256, address};
     use mockall::predicate::*;
     use tempfile::tempdir;
 
@@ -226,7 +293,7 @@ mod tests {
             notifier::{NotifierConfig, NotifierTypeConfig, SlackConfig},
         },
         persistence::{error::PersistenceError, traits::MockAppRepository},
-        test_helpers::{MonitorBuilder, create_test_abi_service},
+        test_helpers::{MonitorBuilder, create_test_abi_service, mock_provider},
     };
 
     // Helper to create a dummy config file
@@ -284,6 +351,7 @@ monitors:
 
     #[tokio::test]
     async fn test_run_happy_path_db_empty() {
+        let (provider, asserter) = mock_provider();
         let temp_dir = tempdir().unwrap();
         let monitor_config_path =
             create_dummy_config_file(&temp_dir, "monitors.yaml", create_test_monitor_config_str());
@@ -295,6 +363,7 @@ monitors:
         let network_id = "testnet";
 
         let mut mock_repo = MockAppRepository::new();
+
         // Monitors
         mock_repo
             .expect_get_monitors()
@@ -307,6 +376,7 @@ monitors:
             .with(eq(network_id), always())
             .once()
             .returning(|_, _| Ok(()));
+
         // Notifiers
         mock_repo
             .expect_get_notifiers()
@@ -320,11 +390,25 @@ monitors:
             .once()
             .returning(|_, _| Ok(()));
 
+        // Block state
+        asserter.push_success(&U256::from(10));
+        mock_repo
+            .expect_get_last_processed_block()
+            .with(eq(network_id))
+            .once()
+            .returning(|_| Ok(None));
+        mock_repo
+            .expect_set_last_processed_block()
+            .with(eq(network_id), eq(4)) // 10 - 5 (confirmation blocks) - 1
+            .once()
+            .returning(|_, _| Ok(()));
+
         let config = AppConfig::builder()
             .network_id(network_id)
             .monitor_config_path(monitor_config_path.to_str().unwrap())
             .notifier_config_path(notifier_config_path.to_str().unwrap())
             .abi_config_path(temp_dir.path().to_str().unwrap())
+            .initial_start_block(InitialStartBlock::Offset(-5)) // 5 blocks behind latest
             .build();
 
         let (abi_service, _) =
@@ -334,16 +418,22 @@ monitors:
             .link_abi("0x0000000000000000000000000000000000000123".parse().unwrap(), "test_abi")
             .unwrap();
         let script_validator = create_script_validator();
-        let initialization_service =
-            InitializationService::new(config, Arc::new(mock_repo), abi_service, script_validator);
+        let initialization_service = InitializationService::new(
+            config,
+            Arc::new(mock_repo),
+            abi_service,
+            script_validator,
+            provider,
+        );
 
         let result = initialization_service.run().await;
 
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "Expected run to succeed, but got error: {:?}", result.err());
     }
 
     #[tokio::test]
     async fn test_run_skips_loading_if_db_not_empty() {
+        let (provider, _asserter) = mock_provider();
         let network_id = "testnet";
 
         let monitor = MonitorBuilder::new().network(network_id).name("Existing Monitor").build();
@@ -361,6 +451,7 @@ monitors:
             .with(eq(network_id))
             .times(2) // Called once for monitor loading, once for ABI loading
             .returning(move |_| Ok(vec![monitor.clone()]));
+
         // Return existing notifiers
         mock_repo
             .expect_get_notifiers()
@@ -368,23 +459,37 @@ monitors:
             .once()
             .returning(move |_| Ok(vec![trigger.clone()]));
 
+        // Block state
+        mock_repo
+            .expect_get_last_processed_block()
+            .with(eq(network_id))
+            .once()
+            .returning(|_| Ok(Some(100)));
+
         // Ensure file loading is NOT called
         mock_repo.expect_add_monitors().times(0);
         mock_repo.expect_add_notifiers().times(0);
+        mock_repo.expect_get_last_processed_block().times(0);
 
         let config = AppConfig::builder().network_id(network_id).build();
         let temp_dir = tempdir().unwrap();
         let (abi_service, _) = create_test_abi_service(&temp_dir, &[]); // Dummy path, won't be used
         let script_validator = create_script_validator();
-        let initialization_service =
-            InitializationService::new(config, Arc::new(mock_repo), abi_service, script_validator);
+        let initialization_service = InitializationService::new(
+            config,
+            Arc::new(mock_repo),
+            abi_service,
+            script_validator,
+            provider,
+        );
 
         let result = initialization_service.run().await;
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "Expected run to succeed, but got error: {:?}", result.err());
     }
 
     #[tokio::test]
     async fn test_load_monitors_from_file_repo_error() {
+        let (provider, _asserter) = mock_provider();
         let temp_dir = tempdir().unwrap();
         let config_path = create_dummy_config_file(&temp_dir, "monitors.yaml", "monitors: []");
         let network_id = "testnet";
@@ -403,8 +508,13 @@ monitors:
 
         let (abi_service, _) = create_test_abi_service(&temp_dir, &[]); // Dummy path, won't be used
         let script_validator = create_script_validator();
-        let initialization_service =
-            InitializationService::new(config, Arc::new(mock_repo), abi_service, script_validator);
+        let initialization_service = InitializationService::new(
+            config,
+            Arc::new(mock_repo),
+            abi_service,
+            script_validator,
+            provider,
+        );
 
         let result = initialization_service.load_monitors_from_file().await;
         assert!(result.is_err());
@@ -416,6 +526,7 @@ monitors:
 
     #[tokio::test]
     async fn test_load_abis_from_monitors_invalid_address() {
+        let (provider, _asserter) = mock_provider();
         let network_id = "testnet";
 
         let monitor = MonitorBuilder::new()
@@ -436,8 +547,13 @@ monitors:
         let temp_dir = tempdir().unwrap();
         let (abi_service, _) = create_test_abi_service(&temp_dir, &[]); // Dummy path, won't be used
         let script_validator = create_script_validator();
-        let initialization_service =
-            InitializationService::new(config, Arc::new(mock_repo), abi_service, script_validator);
+        let initialization_service = InitializationService::new(
+            config,
+            Arc::new(mock_repo),
+            abi_service,
+            script_validator,
+            provider,
+        );
 
         let result = initialization_service.load_abis_from_monitors().await;
         assert!(result.is_err());
@@ -449,6 +565,7 @@ monitors:
 
     #[tokio::test]
     async fn test_load_abis_from_monitors_abi_not_found_in_repo() {
+        let (provider, _asserter) = mock_provider();
         let temp_dir = tempdir().unwrap();
         // No ABI file created, so repository will be empty
         let network_id = "testnet";
@@ -470,8 +587,13 @@ monitors:
 
         let config = AppConfig::builder().network_id(network_id).build();
         let script_validator = create_script_validator();
-        let initialization_service =
-            InitializationService::new(config, Arc::new(mock_repo), abi_service, script_validator);
+        let initialization_service = InitializationService::new(
+            config,
+            Arc::new(mock_repo),
+            abi_service,
+            script_validator,
+            provider,
+        );
 
         let result = initialization_service.load_abis_from_monitors().await;
         assert!(result.is_err());
@@ -483,6 +605,7 @@ monitors:
 
     #[tokio::test]
     async fn test_load_monitors_from_file_when_db_empty() {
+        let (provider, _asserter) = mock_provider();
         let temp_dir = tempdir().unwrap();
         let config_path =
             create_dummy_config_file(&temp_dir, "monitors.yaml", create_test_monitor_config_str());
@@ -515,8 +638,13 @@ monitors:
             .link_abi(address!("0x0000000000000000000000000000000000000123"), "test_abi")
             .unwrap();
         let script_validator = create_script_validator();
-        let initialization_service =
-            InitializationService::new(config, Arc::new(mock_repo), abi_service, script_validator);
+        let initialization_service = InitializationService::new(
+            config,
+            Arc::new(mock_repo),
+            abi_service,
+            script_validator,
+            provider,
+        );
 
         let result = initialization_service.load_monitors_from_file().await;
         assert!(result.is_ok());
@@ -524,6 +652,7 @@ monitors:
 
     #[tokio::test]
     async fn test_load_monitors_from_file_when_db_empty_invalid_monitor() {
+        let (provider, _asserter) = mock_provider();
         let temp_dir = tempdir().unwrap();
         let config_path = create_dummy_config_file(
             &temp_dir,
@@ -552,8 +681,13 @@ monitors:
 
         let (abi_service, _) = create_test_abi_service(&temp_dir, &[]); // Dummy path, won't be used
         let script_validator = create_script_validator();
-        let initialization_service =
-            InitializationService::new(config, Arc::new(mock_repo), abi_service, script_validator);
+        let initialization_service = InitializationService::new(
+            config,
+            Arc::new(mock_repo),
+            abi_service,
+            script_validator,
+            provider,
+        );
 
         let result = initialization_service.load_monitors_from_file().await;
 
@@ -566,6 +700,7 @@ monitors:
 
     #[tokio::test]
     async fn test_load_monitors_from_file_when_db_not_empty() {
+        let (provider, _asserter) = mock_provider();
         let temp_dir = tempdir().unwrap();
         let config_path =
             create_dummy_config_file(&temp_dir, "monitors.yaml", create_test_monitor_config_str());
@@ -591,8 +726,13 @@ monitors:
 
         let (abi_service, _) = create_test_abi_service(&temp_dir, &[]); // Dummy path, won't be used
         let script_validator = create_script_validator();
-        let initialization_service =
-            InitializationService::new(config, Arc::new(mock_repo), abi_service, script_validator);
+        let initialization_service = InitializationService::new(
+            config,
+            Arc::new(mock_repo),
+            abi_service,
+            script_validator,
+            provider,
+        );
 
         let result = initialization_service.load_monitors_from_file().await;
         assert!(result.is_ok());
@@ -600,6 +740,7 @@ monitors:
 
     #[tokio::test]
     async fn test_load_notifiers_from_file_when_db_empty() {
+        let (provider, _asserter) = mock_provider();
         let temp_dir = tempdir().unwrap();
         let config_path = create_dummy_config_file(
             &temp_dir,
@@ -627,8 +768,13 @@ monitors:
 
         let (abi_service, _) = create_test_abi_service(&temp_dir, &[]); // Dummy path, won't be used
         let script_validator = create_script_validator();
-        let initialization_service =
-            InitializationService::new(config, Arc::new(mock_repo), abi_service, script_validator);
+        let initialization_service = InitializationService::new(
+            config,
+            Arc::new(mock_repo),
+            abi_service,
+            script_validator,
+            provider,
+        );
 
         let result = initialization_service.load_notifiers_from_file().await;
         assert!(result.is_ok());
@@ -636,6 +782,7 @@ monitors:
 
     #[tokio::test]
     async fn test_load_notifiers_from_file_when_db_not_empty() {
+        let (provider, _asserter) = mock_provider();
         let temp_dir = tempdir().unwrap();
         let config_path = create_dummy_config_file(
             &temp_dir,
@@ -669,8 +816,13 @@ monitors:
 
         let (abi_service, _) = create_test_abi_service(&temp_dir, &[]); // Dummy path, won't be used
         let script_validator = create_script_validator();
-        let initialization_service =
-            InitializationService::new(config, Arc::new(mock_repo), abi_service, script_validator);
+        let initialization_service = InitializationService::new(
+            config,
+            Arc::new(mock_repo),
+            abi_service,
+            script_validator,
+            provider,
+        );
 
         let result = initialization_service.load_notifiers_from_file().await;
         assert!(result.is_ok());
@@ -678,6 +830,7 @@ monitors:
 
     #[tokio::test]
     async fn test_load_abis_from_monitors() {
+        let (provider, _asserter) = mock_provider();
         let temp_dir = tempdir().unwrap();
         let network_id = "testnet";
         let monitor = MonitorBuilder::new()
@@ -709,6 +862,7 @@ monitors:
             Arc::new(mock_repo),
             Arc::clone(&abi_service),
             script_validator,
+            provider,
         );
 
         let result = initialization_service.load_abis_from_monitors().await;
@@ -721,6 +875,7 @@ monitors:
 
     #[tokio::test]
     async fn test_load_abis_from_monitors_global_abi() {
+        let (provider, _asserter) = mock_provider();
         let temp_dir = tempdir().unwrap();
         let network_id = "testnet";
         let monitor = MonitorBuilder::new()
@@ -751,6 +906,7 @@ monitors:
             Arc::new(mock_repo),
             Arc::clone(&abi_service),
             script_validator,
+            provider,
         );
 
         let result = initialization_service.load_abis_from_monitors().await;

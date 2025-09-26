@@ -85,6 +85,7 @@ async fn run_supervisor(config_dir: Option<String>) -> Result<(), Box<dyn std::e
         Arc::clone(&repo) as Arc<dyn AppRepository>,
         Arc::clone(&abi_service),
         script_validator,
+        provider.clone(),
     );
     initialization_service.run().await?;
     tracing::info!("Application state initialized.");
