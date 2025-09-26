@@ -80,17 +80,17 @@ impl KeyValueStore for SqliteStateRepository {
             )
             .await?;
 
-        let mut states = Vec::new();
-        for row in rows {
-            let key: String = row.key;
-            let value_str: String = row.value;
-            match serde_json::from_str(&value_str) {
-                Ok(value) => states.push((key, value)),
-                Err(e) => {
+        let states = rows
+            .into_iter()
+            .map(|row| {
+                let key: String = row.key;
+                let value_str: String = row.value;
+                serde_json::from_str(&value_str).map(|value| (key.clone(), value)).map_err(|e| {
                     tracing::error!(key, "Failed to decode JSON state: {}", e);
-                }
-            }
-        }
+                    PersistenceError::SerializationError(e.to_string())
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(states)
     }
