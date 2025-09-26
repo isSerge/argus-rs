@@ -12,7 +12,6 @@ use async_trait::async_trait;
 use mockall::automock;
 use thiserror::Error;
 
-use super::block_fetcher::BlockFetcherError;
 use crate::persistence::error::PersistenceError;
 
 /// Custom error type for data source operations.
@@ -25,10 +24,6 @@ pub enum DataSourceError {
     /// Error when interacting with the provider.
     #[error("Provider error: {0}")]
     Provider(#[from] Box<dyn std::error::Error + Send + Sync>),
-
-    /// Error originating from the `BlockFetcher`.
-    #[error("Block fetcher error: {0}")]
-    BlockFetcher(#[from] BlockFetcherError),
 
     /// Indicates that the requested block was not found.
     #[error("Block not found: {0}")]
