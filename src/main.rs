@@ -7,6 +7,7 @@ use argus::{
     engine::rhai::{RhaiCompiler, RhaiScriptValidator},
     initialization::InitializationService,
     persistence::{sqlite::SqliteStateRepository, traits::AppRepository},
+    providers::rpc::create_provider,
     supervisor::Supervisor,
 };
 use clap::{Parser, Subcommand};
@@ -71,6 +72,11 @@ async fn run_supervisor(config_dir: Option<String>) -> Result<(), Box<dyn std::e
     let script_compiler = Arc::new(RhaiCompiler::new(config.rhai.clone()));
     let script_validator = RhaiScriptValidator::new(script_compiler.clone());
 
+    // Initialize EVM data provider
+    tracing::debug!(rpc_urls = ?config.rpc_urls, "Initializing EVM data provider...");
+    let provider =
+        Arc::new(create_provider(config.rpc_urls.clone(), config.rpc_retry_config.clone())?);
+
     // Initialize application state (monitors, triggers, ABIs) from files into
     // DB/ABI service
     tracing::debug!("Initializing application state...");
@@ -88,6 +94,7 @@ async fn run_supervisor(config_dir: Option<String>) -> Result<(), Box<dyn std::e
         .abi_service(abi_service)
         .script_compiler(script_compiler)
         .state(repo)
+        .provider(provider)
         .build()
         .await?;
 

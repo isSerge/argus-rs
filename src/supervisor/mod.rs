@@ -95,6 +95,10 @@ pub enum SupervisorError {
     /// An error occurred while trying to create a provider.
     #[error("Provider creation failed: {0}")]
     ProviderError(#[from] ProviderError),
+
+    /// A provider was not provided to the `SupervisorBuilder`.
+    #[error("Missing provider for Supervisor")]
+    MissingProvider,
 }
 
 /// The primary runtime manager for the application.

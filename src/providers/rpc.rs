@@ -25,26 +25,23 @@ use super::{
 use crate::{config::RpcRetryConfig, monitor::MonitorManager};
 
 /// A `DataSource` implementation that fetches data from an EVM RPC endpoint.
-pub struct EvmRpcSource<P> {
-    block_fetcher: BlockFetcher<P>,
+pub struct EvmRpcSource {
+    block_fetcher: BlockFetcher,
 }
 
-impl<P> EvmRpcSource<P>
-where
-    P: Provider,
-{
+impl EvmRpcSource {
     /// Creates a new `EvmRpcSource`.
     #[tracing::instrument(skip(provider), level = "debug")]
-    pub fn new(provider: P, monitor_manager: Arc<MonitorManager>) -> Self {
+    pub fn new(
+        provider: Arc<dyn Provider + Send + Sync>,
+        monitor_manager: Arc<MonitorManager>,
+    ) -> Self {
         Self { block_fetcher: BlockFetcher::new(provider, monitor_manager) }
     }
 }
 
 #[async_trait]
-impl<P> DataSource for EvmRpcSource<P>
-where
-    P: Provider + Send + Sync,
-{
+impl DataSource for EvmRpcSource {
     #[tracing::instrument(skip(self), level = "debug")]
     async fn fetch_block_core_data(
         &self,
@@ -143,7 +140,6 @@ mod tests {
     use std::str::FromStr;
 
     use alloy::{
-        network::Ethereum,
         primitives::{B256, Bloom, BloomInput, U256, address, b256},
         providers::{Provider, ProviderBuilder},
         transports::mock::Asserter,
@@ -155,9 +151,9 @@ mod tests {
         test_helpers::{BlockBuilder, LogBuilder, ReceiptBuilder, create_test_monitor_manager},
     };
 
-    fn mock_provider() -> (impl Provider<Ethereum>, Asserter) {
+    fn mock_provider() -> (Arc<dyn Provider + Send + Sync>, Asserter) {
         let asserter = Asserter::new();
-        let provider = ProviderBuilder::new().connect_mocked_client(asserter.clone());
+        let provider = Arc::new(ProviderBuilder::new().connect_mocked_client(asserter.clone()));
         (provider, asserter)
     }
 

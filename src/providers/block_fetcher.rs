@@ -25,20 +25,20 @@ pub enum BlockFetcherError {
 }
 
 /// A component responsible for fetching all data related to a single block.
-pub struct BlockFetcher<P> {
+pub struct BlockFetcher {
     /// The RPC provider used to fetch block data.
-    provider: P,
+    provider: Arc<dyn Provider + Send + Sync>,
 
     /// The monitor manager to access Interest registry
     monitor_manager: Arc<MonitorManager>,
 }
 
-impl<P> BlockFetcher<P>
-where
-    P: Provider + Send + Sync,
-{
+impl BlockFetcher {
     /// Creates a new `BlockFetcher`.
-    pub fn new(provider: P, monitor_manager: Arc<MonitorManager>) -> Self {
+    pub fn new(
+        provider: Arc<dyn Provider + Send + Sync>,
+        monitor_manager: Arc<MonitorManager>,
+    ) -> Self {
         Self { provider, monitor_manager }
     }
 
@@ -167,7 +167,6 @@ where
 #[cfg(test)]
 mod tests {
     use alloy::{
-        network::Ethereum,
         primitives::{Address, B256, Bloom, U256, address, b256},
         providers::{Provider, ProviderBuilder},
         rpc::types::{Block, Log},
@@ -181,9 +180,9 @@ mod tests {
     };
 
     // Helper to create a provider and asserter from the user's example.
-    fn mock_provider() -> (impl Provider<Ethereum>, Asserter) {
+    fn mock_provider() -> (Arc<dyn Provider + Send + Sync>, Asserter) {
         let asserter = Asserter::new();
-        let provider = ProviderBuilder::new().connect_mocked_client(asserter.clone());
+        let provider = Arc::new(ProviderBuilder::new().connect_mocked_client(asserter.clone()));
         (provider, asserter)
     }
 
