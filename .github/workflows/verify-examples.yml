@@ -31,14 +31,16 @@ jobs:
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Build binaries
-      run: cargo build --workspace --release
+      run: |
+        cargo build --workspace --release
+        cargo build --release --manifest-path crates/js_executor/Cargo.toml
 
     - name: Run examples
       env:
         # Set dummy environment variables for Telegram notifier to satisfy config loading
         TELEGRAM_TOKEN: "dummy"
         TELEGRAM_CHAT_ID: "dummy"
-        JS_EXECUTOR_BIN_PATH: "target/release/js_executor"
+        JS_EXECUTOR_BIN_PATH: "crates/js_executor/target/release/js_executor"
       run: |
         chmod +x ./run_examples.sh
         ./run_examples.sh

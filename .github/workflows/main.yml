@@ -58,6 +58,12 @@ jobs:
           SQLX_OFFLINE: '1'
         run: cargo build --workspace --all-targets
 
+      # Build js_executor separately (not in workspace)
+      - name: Build js_executor
+        env:
+          SQLX_OFFLINE: '1'
+        run: cargo build --manifest-path crates/js_executor/Cargo.toml
+
       # Run tests
       - name: Run tests
         env:
@@ -91,6 +97,10 @@ jobs:
       # The build step is still a good practice to ensure the binary exists
       - name: Build all targets
         run: cargo build --workspace --all-targets
+      
+      # Build js_executor separately for coverage tests
+      - name: Build js_executor
+        run: cargo build --manifest-path crates/js_executor/Cargo.toml
 
       # Run tests with coverage using llvm-cov
       - name: Run tests with coverage using llvm-cov
