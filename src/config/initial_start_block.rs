@@ -39,9 +39,15 @@ impl<'de> Deserialize<'de> for InitialStartBlock {
             where
                 E: de::Error,
             {
-                if value >= 0 {
+                if value == 0 {
+                    // If the user explicitly types 0, treat it as the default.
+                    Ok(Default::default())
+                } else if value > 0 {
+                    // Positive numbers are absolute block numbers.
                     Ok(InitialStartBlock::Absolute(value as u64))
                 } else {
+                    // value < 0
+                    // Negative numbers are offsets.
                     Ok(InitialStartBlock::Offset(value))
                 }
             }
@@ -114,5 +120,23 @@ mod tests {
             .unwrap()
             .get::<InitialStartBlock>("initial_start_block");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_default_initial_start_block() {
+        let default = InitialStartBlock::default();
+        assert_eq!(default, InitialStartBlock::Offset(-100));
+    }
+
+    #[test]
+    fn test_deserialize_zero_as_default() {
+        let yaml = "initial_start_block: 0";
+        let zero: InitialStartBlock = Config::builder()
+            .add_source(config::File::from_str(yaml, config::FileFormat::Yaml))
+            .build()
+            .unwrap()
+            .get::<InitialStartBlock>("initial_start_block")
+            .unwrap();
+        assert_eq!(zero, InitialStartBlock::Offset(-100));
     }
 }
