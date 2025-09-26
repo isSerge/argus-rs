@@ -13,6 +13,7 @@ use mockall::automock;
 use thiserror::Error;
 
 use super::block_fetcher::BlockFetcherError;
+use crate::persistence::error::PersistenceError;
 
 /// Custom error type for data source operations.
 #[derive(Error, Debug)]
@@ -40,7 +41,7 @@ pub enum DataSourceError {
 
     /// An error occurred while interacting with the state repository.
     #[error("State repository error: {0}")]
-    StateRepository(#[from] sqlx::Error),
+    StateRepository(#[from] PersistenceError),
 }
 
 /// A trait for a data source that can fetch blockchain data.

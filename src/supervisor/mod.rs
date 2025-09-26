@@ -35,7 +35,7 @@ use crate::{
     },
     models::{BlockData, CorrelatedBlockData, monitor::Monitor, monitor_match::MonitorMatch},
     monitor::{MonitorManager, MonitorValidationError},
-    persistence::{sqlite::SqliteStateRepository, traits::AppRepository},
+    persistence::{error::PersistenceError, sqlite::SqliteStateRepository, traits::AppRepository},
     providers::{
         rpc::ProviderError,
         traits::{DataSource, DataSourceError},
@@ -69,7 +69,7 @@ pub enum SupervisorError {
     /// An error occurred while trying to load monitors from the state
     /// repository.
     #[error("Failed to load monitors from state repository: {0}")]
-    MonitorLoadError(#[from] sqlx::Error),
+    MonitorLoadError(#[from] PersistenceError),
 
     /// A critical error occurred in the data source during block fetching.
     #[error("Data source error: {0}")]

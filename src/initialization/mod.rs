@@ -225,7 +225,7 @@ mod tests {
             notification::NotificationMessage,
             notifier::{NotifierConfig, NotifierTypeConfig, SlackConfig},
         },
-        persistence::traits::MockAppRepository,
+        persistence::{error::PersistenceError, traits::MockAppRepository},
         test_helpers::{MonitorBuilder, create_test_abi_service},
     };
 
@@ -394,7 +394,7 @@ monitors:
             .expect_get_monitors()
             .with(eq(network_id))
             .once()
-            .returning(|_| Err(sqlx::Error::RowNotFound)); // Simulate a DB error
+            .returning(|_| Err(PersistenceError::NotFound)); // Simulate a DB error
 
         let config = AppConfig::builder()
             .network_id(network_id)

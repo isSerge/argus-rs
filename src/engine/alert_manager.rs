@@ -13,7 +13,7 @@ use crate::{
         notifier::{NotifierConfig, NotifierPolicy},
     },
     notification::{NotificationPayload, NotificationService, error::NotificationError},
-    persistence::traits::KeyValueStore,
+    persistence::{error::PersistenceError, traits::KeyValueStore},
 };
 
 /// The AlertManager is responsible for processing monitor matches, applying
@@ -40,10 +40,9 @@ pub enum AlertManagerError {
     #[error("Notification error: {0}")]
     NotificationError(#[from] NotificationError),
 
-    // TODO: replace sqlx error with custom error type
     /// Error occurred in the state repository
     #[error("State repository error: {0}")]
-    StateRepositoryError(#[from] sqlx::Error),
+    StateRepositoryError(#[from] PersistenceError),
 }
 
 impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
@@ -556,7 +555,7 @@ mod tests {
             .expect_get_json_state::<ThrottleState>()
             .with(eq(format!("throttle_state:{}", notifier_name.clone())))
             .times(1)
-            .returning(|_| Err(sqlx::Error::RowNotFound)); // Simulate retrieval error
+            .returning(|_| Err(PersistenceError::NotFound)); // Simulate retrieval error
 
         // Should attempt to save new throttle state with count = 1
         let notifier_name_for_withf = notifier_name.clone();
