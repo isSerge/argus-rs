@@ -133,7 +133,7 @@ fn find_js_executor_command() -> Command {
     // 4. Fallback for development: `cargo run` from js_executor directory
     let mut cmd = Command::new("cargo");
     cmd.arg("run").arg("--");
-    
+
     // Set working directory to js_executor crate
     if let Ok(mut workspace_root) = env::current_dir() {
         // If we're in a subdirectory, try to find the workspace root
@@ -145,7 +145,7 @@ fn find_js_executor_command() -> Command {
             cmd.current_dir(js_executor_dir);
         }
     }
-    
+
     cmd
 }
 
