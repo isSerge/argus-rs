@@ -4,6 +4,7 @@ mod app_config;
 mod helpers;
 mod http_base;
 mod http_retry;
+mod initial_start_block;
 mod rhai;
 mod rpc_retry;
 
