@@ -26,8 +26,10 @@ RUN cargo chef cook --release --recipe-path recipe.json
 FROM builder AS app_builder
 WORKDIR /app
 COPY . .
-# Build the application binary
+# Build the main application binary
 RUN cargo build --release --bin argus
+# Build the js_executor binary separately (not in workspace)
+RUN cargo build --release --manifest-path crates/js_executor/Cargo.toml
 
 # ---- Final Image ----
 # Use a slim Debian Bookworm image to match the build environment and ensure
@@ -36,8 +38,10 @@ FROM debian:bookworm-slim
 # Install required shared libraries and certificates for HTTPS functionality.
 RUN apt-get update && apt-get install -y libssl3 ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-# Copy the application binary
+# Copy the main application binary
 COPY --from=app_builder /app/target/release/argus /usr/local/bin/
+# Copy the js_executor binary  
+COPY --from=app_builder /app/crates/js_executor/target/release/js_executor /usr/local/bin/
 # Copy the migrations directory needed by sqlx at runtime.
 COPY migrations /app/migrations
 # Set the entrypoint
