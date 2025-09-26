@@ -221,13 +221,12 @@ mod tests {
         config::{AppConfig, HttpRetryConfig, RhaiConfig},
         engine::rhai::RhaiCompiler,
         models::{
-            builder::MonitorBuilder,
             monitor::MonitorConfig,
             notification::NotificationMessage,
             notifier::{NotifierConfig, NotifierTypeConfig, SlackConfig},
         },
         persistence::traits::MockStateRepository,
-        test_helpers::create_test_abi_service,
+        test_helpers::{MonitorBuilder, create_test_abi_service},
     };
 
     // Helper to create a dummy config file

@@ -2,7 +2,6 @@
 
 pub mod alert_manager_state;
 pub mod block_data;
-pub mod builder;
 pub mod correlated_data;
 pub mod decoded_block;
 pub mod log;
