@@ -26,7 +26,7 @@ use crate::{
     },
     monitor::{MonitorManager, MonitorValidationError, MonitorValidator},
     notification::NotificationService,
-    persistence::{sqlite::SqliteStateRepository, traits::StateRepository},
+    persistence::{error::PersistenceError, sqlite::SqliteStateRepository, traits::AppRepository},
     providers::{
         rpc::{EvmRpcSource, ProviderError, create_provider},
         traits::{DataSource, DataSourceError},
@@ -83,11 +83,7 @@ pub enum DryRunError {
 
     /// An error occurred in the state repository.
     #[error("State repository error: {0}")]
-    StateRepository(#[from] sqlx::Error),
-
-    /// An error occurred during database migrations.
-    #[error("Migration error: {0}")]
-    Migration(#[from] sqlx::migrate::MigrateError),
+    StateRepository(#[from] PersistenceError),
 
     /// An error occurred in the ABI service.
     #[error("ABI service error: {0}")]

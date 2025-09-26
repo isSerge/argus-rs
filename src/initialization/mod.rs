@@ -13,7 +13,7 @@ use crate::{
     loader::load_config,
     models::{monitor::MonitorConfig, notifier::NotifierConfig},
     monitor::MonitorValidator,
-    persistence::traits::StateRepository,
+    persistence::traits::AppRepository,
 };
 
 // TODO: wrap the specific underlying error instead of String after introducing
@@ -37,7 +37,7 @@ pub enum InitializationError {
 /// A service responsible for initializing application state at startup.
 pub struct InitializationService {
     config: AppConfig,
-    repo: Arc<dyn StateRepository>,
+    repo: Arc<dyn AppRepository>,
     abi_service: Arc<AbiService>,
     script_validator: RhaiScriptValidator,
 }
@@ -46,7 +46,7 @@ impl InitializationService {
     /// Creates a new `InitializationService`.
     pub fn new(
         config: AppConfig,
-        repo: Arc<dyn StateRepository>,
+        repo: Arc<dyn AppRepository>,
         abi_service: Arc<AbiService>,
         script_validator: RhaiScriptValidator,
     ) -> Self {
@@ -225,7 +225,7 @@ mod tests {
             notification::NotificationMessage,
             notifier::{NotifierConfig, NotifierTypeConfig, SlackConfig},
         },
-        persistence::traits::MockStateRepository,
+        persistence::{error::PersistenceError, traits::MockAppRepository},
         test_helpers::{MonitorBuilder, create_test_abi_service},
     };
 
@@ -294,7 +294,7 @@ monitors:
         );
         let network_id = "testnet";
 
-        let mut mock_repo = MockStateRepository::new();
+        let mut mock_repo = MockAppRepository::new();
         // Monitors
         mock_repo
             .expect_get_monitors()
@@ -354,7 +354,7 @@ monitors:
             policy: None,
         };
 
-        let mut mock_repo = MockStateRepository::new();
+        let mut mock_repo = MockAppRepository::new();
         // Return existing monitors
         mock_repo
             .expect_get_monitors()
@@ -389,12 +389,12 @@ monitors:
         let config_path = create_dummy_config_file(&temp_dir, "monitors.yaml", "monitors: []");
         let network_id = "testnet";
 
-        let mut mock_repo = MockStateRepository::new();
+        let mut mock_repo = MockAppRepository::new();
         mock_repo
             .expect_get_monitors()
             .with(eq(network_id))
             .once()
-            .returning(|_| Err(sqlx::Error::RowNotFound)); // Simulate a DB error
+            .returning(|_| Err(PersistenceError::NotFound)); // Simulate a DB error
 
         let config = AppConfig::builder()
             .network_id(network_id)
@@ -425,7 +425,7 @@ monitors:
             .abi("test_abi")
             .build();
 
-        let mut mock_repo = MockStateRepository::new();
+        let mut mock_repo = MockAppRepository::new();
         mock_repo
             .expect_get_monitors()
             .with(eq(network_id))
@@ -459,7 +459,7 @@ monitors:
             .abi("non_existent_abi")
             .build();
 
-        let mut mock_repo = MockStateRepository::new();
+        let mut mock_repo = MockAppRepository::new();
         mock_repo
             .expect_get_monitors()
             .with(eq(network_id))
@@ -488,7 +488,7 @@ monitors:
             create_dummy_config_file(&temp_dir, "monitors.yaml", create_test_monitor_config_str());
         let network_id = "testnet";
 
-        let mut mock_repo = MockStateRepository::new();
+        let mut mock_repo = MockAppRepository::new();
         // Expect get_monitors to be called and return empty
         mock_repo.expect_get_monitors().with(eq(network_id)).once().returning(|_| Ok(vec![]));
         // Expect get_notifiers to be called for validation
@@ -538,7 +538,7 @@ monitors:
         );
         let network_id = "testnet";
 
-        let mut mock_repo = MockStateRepository::new();
+        let mut mock_repo = MockAppRepository::new();
         // Expect get_monitors to be called and return empty
         mock_repo.expect_get_monitors().with(eq(network_id)).once().returning(|_| Ok(vec![]));
         // Expect get_notifiers to be called for validation
@@ -572,7 +572,7 @@ monitors:
         let network_id = "testnet";
         let monitor = MonitorBuilder::new().network(network_id).name("Dummy Monitor").build();
 
-        let mut mock_repo = MockStateRepository::new();
+        let mut mock_repo = MockAppRepository::new();
         // Expect get_monitors to be called and return non-empty
         mock_repo
             .expect_get_monitors()
@@ -608,7 +608,7 @@ monitors:
         );
         let network_id = "testnet";
 
-        let mut mock_repo = MockStateRepository::new();
+        let mut mock_repo = MockAppRepository::new();
         // Expect get_notifiers to be called and return empty
         mock_repo.expect_get_notifiers().with(eq(network_id)).once().returning(|_| Ok(vec![]));
         // Expect clear_notifiers and add_notifiers to be called
@@ -644,7 +644,7 @@ monitors:
         );
         let network_id = "testnet";
 
-        let mut mock_repo = MockStateRepository::new();
+        let mut mock_repo = MockAppRepository::new();
         // Expect get_notifiers to be called and return non-empty
         mock_repo.expect_get_notifiers().with(eq(network_id)).once().returning(|_| {
             Ok(vec![NotifierConfig {
@@ -687,7 +687,7 @@ monitors:
             .abi("test_abi")
             .build();
 
-        let mut mock_repo = MockStateRepository::new();
+        let mut mock_repo = MockAppRepository::new();
         // Expect get_monitors to return a monitor with an ABI path
         mock_repo
             .expect_get_monitors()
@@ -730,7 +730,7 @@ monitors:
             .abi("global_test_abi")
             .build();
 
-        let mut mock_repo = MockStateRepository::new();
+        let mut mock_repo = MockAppRepository::new();
         mock_repo
             .expect_get_monitors()
             .with(eq(network_id))

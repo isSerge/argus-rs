@@ -10,7 +10,7 @@ use crate::{
     config::AppConfig,
     engine::filtering::FilteringEngine,
     models::BlockData,
-    persistence::traits::StateRepository,
+    persistence::traits::AppRepository,
     providers::traits::{DataSource, DataSourceError},
 };
 
@@ -20,7 +20,7 @@ use crate::{
 /// respecting confirmation delays and the last processed state. It sends the
 /// raw `BlockData` into a channel for the `BlockProcessor` to consume.
 pub struct BlockIngestor<
-    S: StateRepository + ?Sized,
+    S: AppRepository + ?Sized,
     D: DataSource + ?Sized,
     F: FilteringEngine + ?Sized,
 > {
@@ -38,7 +38,7 @@ pub struct BlockIngestor<
     cancellation_token: CancellationToken,
 }
 
-impl<S: StateRepository + ?Sized, D: DataSource + ?Sized, F: FilteringEngine + ?Sized>
+impl<S: AppRepository + ?Sized, D: DataSource + ?Sized, F: FilteringEngine + ?Sized>
     BlockIngestor<S, D, F>
 {
     /// Creates a new BlockIngestor instance.
@@ -140,7 +140,7 @@ mod tests {
     use super::*;
     use crate::{
         engine::filtering::MockFilteringEngine,
-        persistence::traits::MockStateRepository,
+        persistence::traits::MockAppRepository,
         providers::traits::MockDataSource,
         test_helpers::{BlockBuilder, ReceiptBuilder, TransactionBuilder},
     };
@@ -149,7 +149,7 @@ mod tests {
 
     struct TestHarness {
         config: Arc<AppConfig>,
-        mock_state_repo: MockStateRepository,
+        mock_state_repo: MockAppRepository,
         mock_data_source: MockDataSource,
         mock_filtering_engine: MockFilteringEngine,
     }
@@ -161,7 +161,7 @@ mod tests {
             );
             Self {
                 config,
-                mock_state_repo: MockStateRepository::new(),
+                mock_state_repo: MockAppRepository::new(),
                 mock_data_source: MockDataSource::new(),
                 mock_filtering_engine: MockFilteringEngine::new(),
             }
@@ -171,7 +171,7 @@ mod tests {
             self,
             tx: mpsc::Sender<BlockData>,
             token: CancellationToken,
-        ) -> BlockIngestor<MockStateRepository, MockDataSource, MockFilteringEngine> {
+        ) -> BlockIngestor<MockAppRepository, MockDataSource, MockFilteringEngine> {
             BlockIngestor::new(
                 self.config,
                 Arc::new(self.mock_state_repo),

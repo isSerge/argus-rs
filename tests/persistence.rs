@@ -6,7 +6,7 @@ use argus::{
         notification::NotificationMessage,
         notifier::{DiscordConfig, NotifierConfig, NotifierTypeConfig},
     },
-    persistence::{sqlite::SqliteStateRepository, traits::StateRepository},
+    persistence::{sqlite::SqliteStateRepository, traits::AppRepository},
 };
 
 async fn setup_db() -> SqliteStateRepository {

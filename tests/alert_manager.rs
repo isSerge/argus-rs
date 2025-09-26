@@ -15,7 +15,7 @@ use argus::{
         },
     },
     notification::NotificationService,
-    persistence::{sqlite::SqliteStateRepository, traits::GenericStateRepository},
+    persistence::{sqlite::SqliteStateRepository, traits::KeyValueStore},
 };
 use mockito;
 use serde_json::json;

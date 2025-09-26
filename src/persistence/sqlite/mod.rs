@@ -3,18 +3,14 @@
 
 use std::str::FromStr;
 
-use async_trait::async_trait;
-use chrono::{DateTime, NaiveDateTime, Utc};
-use serde::{Serialize, de::DeserializeOwned};
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 
-use super::traits::{GenericStateRepository, StateRepository};
-use crate::models::{
-    monitor::{Monitor, MonitorConfig},
-    notifier::NotifierConfig,
-};
+pub mod app_repository;
+pub mod key_value_store;
 
-/// A concrete implementation of the StateRepository using SQLite.
+use crate::persistence::error::PersistenceError;
+
+/// A concrete implementation of the AppRepository using SQLite.
 pub struct SqliteStateRepository {
     /// The SQLite connection pool used for database operations.
     pool: SqlitePool,
@@ -25,21 +21,25 @@ impl SqliteStateRepository {
     /// database URL. This will create the database file if it does not
     /// exist.
     #[tracing::instrument(level = "info")]
-    pub async fn new(database_url: &str) -> Result<Self, sqlx::Error> {
+    pub async fn new(database_url: &str) -> Result<Self, PersistenceError> {
         tracing::debug!(database_url, "Attempting to connect to SQLite database.");
-        let options = SqliteConnectOptions::from_str(database_url)?.create_if_missing(true);
-        let pool = SqlitePool::connect_with(options).await?;
+        let options = SqliteConnectOptions::from_str(database_url)
+            .map_err(|e| PersistenceError::InvalidInput(e.to_string()))?
+            .create_if_missing(true);
+        let pool = SqlitePool::connect_with(options).await.map_err(|e| {
+            PersistenceError::OperationFailed(format!("Failed to connect to database: {}", e))
+        })?;
         tracing::info!(database_url, "Successfully connected to SQLite database.");
         Ok(Self { pool })
     }
 
     /// Runs database migrations.
     #[tracing::instrument(skip(self), level = "info")]
-    pub async fn run_migrations(&self) -> Result<(), sqlx::migrate::MigrateError> {
+    pub async fn run_migrations(&self) -> Result<(), PersistenceError> {
         tracing::debug!("Running database migrations.");
         sqlx::migrate!("./migrations").run(&self.pool).await.map_err(|e| {
             tracing::error!(error = %e, "Failed to run database migrations.");
-            e
+            PersistenceError::MigrationError(e.to_string())
         })?;
         tracing::info!("Database migrations completed successfully.");
         Ok(())
@@ -59,520 +59,57 @@ impl SqliteStateRepository {
     }
 
     /// Internal helper to execute a PRAGMA command with error handling
-    async fn execute_pragma(&self, pragma: &str, operation: &str) -> Result<(), sqlx::Error> {
+    async fn execute_pragma(&self, pragma: &str, operation: &str) -> Result<(), PersistenceError> {
         sqlx::query(pragma)
             .execute(&self.pool)
             .await
             .map_err(|e| {
                 tracing::error!(error = %e, pragma = %pragma, operation = %operation, "Failed to execute PRAGMA command.");
-                e
+                PersistenceError::OperationFailed(e.to_string())
             })?;
         Ok(())
     }
 
     /// Performs a WAL checkpoint with the specified mode
-    async fn checkpoint_wal(&self, mode: &str) -> Result<(), sqlx::Error> {
+    async fn checkpoint_wal(&self, mode: &str) -> Result<(), PersistenceError> {
         let allowed_modes = ["PASSIVE", "TRUNCATE", "RESTART", "RESTART_OR_TRUNCATE"];
         if !allowed_modes.contains(&mode) {
-            return Err(sqlx::Error::Protocol(format!("Invalid WAL checkpoint mode: {mode}")));
+            return Err(PersistenceError::InvalidInput(format!(
+                "Invalid WAL checkpoint mode: {}",
+                mode
+            )));
         }
         let pragma = format!("PRAGMA wal_checkpoint({mode})");
         self.execute_pragma(&pragma, &format!("WAL checkpoint {mode}")).await
     }
 
     /// Sets the synchronous mode
-    async fn set_synchronous_mode(&self, mode: &str) -> Result<(), sqlx::Error> {
+    async fn set_synchronous_mode(&self, mode: &str) -> Result<(), PersistenceError> {
         let allowed_modes = ["OFF", "NORMAL", "FULL"];
         if !allowed_modes.contains(&mode) {
-            return Err(sqlx::Error::Protocol(format!("Invalid synchronous mode: {mode}")));
+            return Err(PersistenceError::InvalidInput(format!(
+                "Invalid synchronous mode: {}",
+                mode
+            )));
         }
         let pragma = format!("PRAGMA synchronous = {mode}");
         self.execute_pragma(&pragma, &format!("set synchronous mode to {mode}")).await
     }
 
     /// Helper to execute database queries with consistent error handling
-    async fn execute_query_with_error_handling<F, T>(
+    async fn execute_query_with_error_handling<F, T, E>(
         &self,
         operation: &str,
         query_fn: F,
-    ) -> Result<T, sqlx::Error>
+    ) -> Result<T, PersistenceError>
     where
-        F: std::future::Future<Output = Result<T, sqlx::Error>>,
+        F: std::future::Future<Output = Result<T, E>>,
+        E: std::error::Error,
     {
         query_fn.await.map_err(|e| {
             tracing::error!(error = %e, operation = %operation, "Database operation failed.");
-            e
+            PersistenceError::OperationFailed(e.to_string())
         })
-    }
-}
-
-#[async_trait]
-impl StateRepository for SqliteStateRepository {
-    /// Retrieves the last processed block number for a given network.
-    #[tracing::instrument(skip(self), level = "debug")]
-    async fn get_last_processed_block(&self, network_id: &str) -> Result<Option<u64>, sqlx::Error> {
-        tracing::debug!(network_id, "Querying for last processed block.");
-
-        let result = self
-            .execute_query_with_error_handling(
-                "query last processed block",
-                sqlx::query!(
-                    "SELECT block_number FROM processed_blocks WHERE network_id = ?",
-                    network_id
-                )
-                .fetch_optional(&self.pool),
-            )
-            .await?;
-
-        match result {
-            Some(record) => {
-                let block_number: i64 = record.block_number;
-                match block_number.try_into() {
-                    Ok(block_number_u64) => {
-                        tracing::debug!(
-                            network_id,
-                            block_number = block_number_u64,
-                            "Last processed block found."
-                        );
-                        Ok(Some(block_number_u64))
-                    }
-                    Err(error) => {
-                        tracing::error!(error = %error, network_id, "Failed to convert block_number from i64 to u64.");
-                        Err(sqlx::Error::ColumnDecode {
-                            index: "block_number".to_string(),
-                            source: Box::new(error),
-                        })
-                    }
-                }
-            }
-            None => {
-                tracing::debug!(network_id, "No last processed block found.");
-                Ok(None)
-            }
-        }
-    }
-
-    /// Sets the last processed block number for a given network.
-    #[tracing::instrument(skip(self), level = "debug")]
-    async fn set_last_processed_block(
-        &self,
-        network_id: &str,
-        block_number: u64,
-    ) -> Result<(), sqlx::Error> {
-        tracing::debug!(network_id, block_number, "Attempting to set last processed block.");
-
-        let block_number_i64 = i64::try_from(block_number).map_err(|error| {
-            tracing::error!(error = %error, block_number, "Failed to convert block_number to i64 for database insertion.");
-            sqlx::Error::ColumnDecode {
-                index: "block_number".to_string(),
-                source: Box::new(error),
-            }
-        })?;
-
-        self.execute_query_with_error_handling(
-            "set last processed block",
-            sqlx::query!(
-                "INSERT OR REPLACE INTO processed_blocks (network_id, block_number) VALUES (?, ?)",
-                network_id,
-                block_number_i64
-            )
-            .execute(&self.pool),
-        )
-        .await?;
-
-        tracing::info!(network_id, block_number, "Last processed block set successfully.");
-        Ok(())
-    }
-
-    /// Performs any necessary cleanup operations before shutdown.
-    #[tracing::instrument(skip(self), level = "debug")]
-    async fn cleanup(&self) -> Result<(), sqlx::Error> {
-        tracing::debug!("Performing state repository cleanup.");
-
-        // Force a checkpoint to ensure all WAL data is written to the main database
-        // file
-        self.checkpoint_wal("TRUNCATE").await?;
-
-        tracing::debug!("State repository cleanup completed.");
-        Ok(())
-    }
-
-    /// Ensures all pending writes are flushed to disk.
-    #[tracing::instrument(skip(self), level = "debug")]
-    async fn flush(&self) -> Result<(), sqlx::Error> {
-        tracing::debug!("Flushing pending writes to disk.");
-
-        // Temporarily set synchronous mode to FULL for maximum durability
-        self.set_synchronous_mode("FULL").await?;
-
-        // Force a checkpoint to flush WAL to main database
-        self.checkpoint_wal("TRUNCATE").await?;
-
-        // Revert synchronous mode to NORMAL for better performance during normal
-        // operations
-        self.set_synchronous_mode("NORMAL").await?;
-
-        tracing::debug!("Pending writes flushed successfully.");
-        Ok(())
-    }
-
-    /// Saves emergency state during shutdown (e.g., partial progress).
-    #[tracing::instrument(skip(self), level = "debug")]
-    async fn save_emergency_state(
-        &self,
-        network_id: &str,
-        block_number: u64,
-        note: &str,
-    ) -> Result<(), sqlx::Error> {
-        tracing::warn!(
-            network_id = %network_id,
-            block_number = %block_number,
-            note = %note,
-            "Saving emergency state during shutdown."
-        );
-
-        // Save the current state and flush to ensure it's persisted
-        self.set_last_processed_block(network_id, block_number).await?;
-        self.flush().await?;
-
-        tracing::info!(
-            network_id = %network_id,
-            block_number = %block_number,
-            note = %note,
-            "Emergency state saved and flushed successfully."
-        );
-
-        Ok(())
-    }
-
-    // Monitor management operations
-
-    /// Retrieves all monitors for a specific network.
-    #[tracing::instrument(skip(self), level = "debug")]
-    async fn get_monitors(&self, network_id: &str) -> Result<Vec<Monitor>, sqlx::Error> {
-        tracing::debug!(network_id, "Querying for monitors.");
-
-        // Helper struct for mapping from the database row
-        #[derive(sqlx::FromRow)]
-        struct MonitorRow {
-            monitor_id: i64,
-            name: String,
-            network: String,
-            address: Option<String>,
-            abi: Option<String>,
-            filter_script: String,
-            notifiers: String,
-            created_at: NaiveDateTime,
-            updated_at: NaiveDateTime,
-        }
-
-        let monitor_rows = self
-            .execute_query_with_error_handling("query monitors", async {
-                sqlx::query_as!(
-                    MonitorRow,
-                    r#"
-                SELECT 
-                    monitor_id as "monitor_id!", 
-                    name, 
-                    network, 
-                    address, 
-                    abi, 
-                    filter_script, 
-                    notifiers,
-                    created_at as "created_at!", 
-                    updated_at as "updated_at!"
-                FROM monitors 
-                WHERE network = ?
-                "#,
-                    network_id
-                )
-                .fetch_all(&self.pool)
-                .await
-            })
-            .await?;
-
-        let monitors = monitor_rows
-            .into_iter()
-            .map(|row| {
-                let notifiers: Vec<String> = serde_json::from_str(&row.notifiers)
-                    .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
-
-                let created_at = DateTime::<Utc>::from_naive_utc_and_offset(row.created_at, Utc);
-                let updated_at = DateTime::<Utc>::from_naive_utc_and_offset(row.updated_at, Utc);
-
-                Ok(Monitor {
-                    id: row.monitor_id,
-                    name: row.name,
-                    network: row.network,
-                    address: row.address,
-                    abi: row.abi,
-                    filter_script: row.filter_script,
-                    notifiers,
-                    created_at,
-                    updated_at,
-                })
-            })
-            .collect::<Result<Vec<_>, sqlx::Error>>()?;
-
-        tracing::debug!(
-            network_id,
-            monitor_count = monitors.len(),
-            "Monitors retrieved successfully."
-        );
-        Ok(monitors)
-    }
-
-    /// Adds multiple monitors for a specific network.
-    #[tracing::instrument(skip(self, monitors), level = "debug")]
-    async fn add_monitors(
-        &self,
-        network_id: &str,
-        monitors: Vec<MonitorConfig>,
-    ) -> Result<(), sqlx::Error> {
-        tracing::debug!(network_id, monitor_count = monitors.len(), "Adding monitors.");
-
-        // Validate that all monitors belong to the correct network
-        for monitor in &monitors {
-            if monitor.network != network_id {
-                tracing::error!(
-                    expected_network = network_id,
-                    actual_network = monitor.network,
-                    monitor_name = monitor.name,
-                    "Monitor network mismatch."
-                );
-                return Err(sqlx::Error::Protocol(format!(
-                    "Monitor '{}' has network '{}' but expected '{}'",
-                    monitor.name, monitor.network, network_id
-                )));
-            }
-        }
-
-        // Insert monitors in a transaction for atomicity
-        let mut tx = self.pool.begin().await?;
-
-        for monitor in monitors {
-            let notifiers_str = serde_json::to_string(&monitor.notifiers)
-                .map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
-
-            sqlx::query!(
-                "INSERT INTO monitors (name, network, address, abi, filter_script, notifiers) \
-                 VALUES (?, ?, ?, ?, ?, ?)",
-                monitor.name,
-                monitor.network,
-                monitor.address,
-                monitor.abi,
-                monitor.filter_script,
-                notifiers_str,
-            )
-            .execute(&mut *tx)
-            .await?;
-        }
-
-        tx.commit().await?;
-
-        tracing::info!(network_id, "Monitors added successfully.");
-        Ok(())
-    }
-
-    /// Clears all monitors for a specific network.
-    #[tracing::instrument(skip(self), level = "debug")]
-    async fn clear_monitors(&self, network_id: &str) -> Result<(), sqlx::Error> {
-        tracing::debug!(network_id, "Clearing monitors.");
-
-        let result = self
-            .execute_query_with_error_handling(
-                "clear monitors",
-                sqlx::query!("DELETE FROM monitors WHERE network = ?", network_id)
-                    .execute(&self.pool),
-            )
-            .await?;
-
-        let deleted_count = result.rows_affected();
-        tracing::info!(network_id, deleted_count, "Monitors cleared successfully.");
-        Ok(())
-    }
-
-    // Notifier management operations
-
-    /// Retrieves all notifiers for a specific network.
-    #[tracing::instrument(skip(self), level = "debug")]
-    async fn get_notifiers(&self, network_id: &str) -> Result<Vec<NotifierConfig>, sqlx::Error> {
-        tracing::debug!(network_id, "Querying for notifiers.");
-
-        // Helper struct for mapping from the database row
-        #[derive(sqlx::FromRow)]
-        struct NotifierRow {
-            config: String,
-        }
-
-        let notifier_rows = self
-            .execute_query_with_error_handling(
-                "query notifiers",
-                sqlx::query_as!(
-                    NotifierRow,
-                    "SELECT config FROM notifiers WHERE network_id = ?",
-                    network_id
-                )
-                .fetch_all(&self.pool),
-            )
-            .await?;
-
-        let notifiers = notifier_rows
-            .into_iter()
-            .map(|row| {
-                serde_json::from_str(&row.config).map_err(|e| sqlx::Error::Decode(Box::new(e)))
-            })
-            .collect::<Result<Vec<NotifierConfig>, sqlx::Error>>()?;
-
-        tracing::debug!(
-            network_id,
-            notifier_count = notifiers.len(),
-            "Notifiers retrieved successfully."
-        );
-        Ok(notifiers)
-    }
-
-    /// Adds multiple notifiers for a specific network.
-    #[tracing::instrument(skip(self, notifiers), level = "debug")]
-    async fn add_notifiers(
-        &self,
-        network_id: &str,
-        notifiers: Vec<NotifierConfig>,
-    ) -> Result<(), sqlx::Error> {
-        tracing::debug!(network_id, notifier_count = notifiers.len(), "Adding notifiers.");
-
-        // Note: We are not validating network_id here because notifiers are
-        // network-agnostic. A single notifier (e.g., a webhook) can be used by
-        // monitors on any network. The `network_id` in the database table is
-        // for organizational purposes.
-
-        let mut tx = self.pool.begin().await?;
-
-        for notifier in notifiers {
-            let config =
-                serde_json::to_string(&notifier).map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
-
-            sqlx::query!(
-                "INSERT INTO notifiers (name, network_id, config) VALUES (?, ?, ?)",
-                notifier.name,
-                network_id,
-                config
-            )
-            .execute(&mut *tx)
-            .await?;
-        }
-
-        tx.commit().await?;
-
-        tracing::info!(network_id, "Notifiers added successfully.");
-        Ok(())
-    }
-
-    /// Clears all notifiers for a specific network.
-    #[tracing::instrument(skip(self), level = "debug")]
-    async fn clear_notifiers(&self, network_id: &str) -> Result<(), sqlx::Error> {
-        tracing::debug!(network_id, "Clearing notifiers.");
-
-        let result = self
-            .execute_query_with_error_handling(
-                "clear notifiers",
-                sqlx::query!("DELETE FROM notifiers WHERE network_id = ?", network_id)
-                    .execute(&self.pool),
-            )
-            .await?;
-
-        let deleted_count = result.rows_affected();
-        tracing::info!(network_id, deleted_count, "Notifiers cleared successfully.");
-        Ok(())
-    }
-}
-
-#[async_trait]
-impl GenericStateRepository for SqliteStateRepository {
-    /// Retrieves a JSON-serializable state object by its key.
-    #[tracing::instrument(skip(self), level = "debug")]
-    async fn get_json_state<T: DeserializeOwned + Send + Sync + 'static>(
-        &self,
-        key: &str,
-    ) -> Result<Option<T>, sqlx::Error> {
-        tracing::debug!(key, "Attempting to retrieve JSON state.");
-
-        let result = self
-            .execute_query_with_error_handling(
-                "get JSON state",
-                sqlx::query!("SELECT value FROM application_state WHERE key = ?", key)
-                    .fetch_optional(&self.pool),
-            )
-            .await?;
-
-        match result {
-            Some(record) => {
-                let value_str: String = record.value;
-                serde_json::from_str(&value_str)
-                    .map(Some)
-                    .map_err(|e| sqlx::Error::Decode(Box::new(e)))
-            }
-            None => Ok(None),
-        }
-    }
-
-    /// Sets or updates a JSON-serializable state object by its key.
-    #[tracing::instrument(skip(self, value), level = "debug")]
-    async fn set_json_state<T: Serialize + Send + Sync + 'static>(
-        &self,
-        key: &str,
-        value: &T,
-    ) -> Result<(), sqlx::Error> {
-        tracing::debug!(key, "Attempting to set JSON state.");
-
-        let value_str =
-            serde_json::to_string(value).map_err(|e| sqlx::Error::Encode(Box::new(e)))?;
-
-        self.execute_query_with_error_handling(
-            "set JSON state",
-            sqlx::query!(
-                "INSERT OR REPLACE INTO application_state (key, value) VALUES (?, ?)",
-                key,
-                value_str
-            )
-            .execute(&self.pool),
-        )
-        .await?;
-
-        Ok(())
-    }
-
-    async fn get_all_json_states_by_prefix<T: DeserializeOwned + Send + Sync + 'static>(
-        &self,
-        prefix: &str,
-    ) -> Result<Vec<(String, T)>, sqlx::Error> {
-        tracing::debug!(prefix = prefix, "Attempting to retrieve all JSON states by prefix.");
-
-        let like_prefix = format!("{}%", prefix);
-        let rows = self
-            .execute_query_with_error_handling(
-                "get all JSON states by prefix",
-                sqlx::query!(
-                    "SELECT key, value FROM application_state WHERE key LIKE ?",
-                    like_prefix
-                )
-                .fetch_all(&self.pool),
-            )
-            .await?;
-
-        let mut states = Vec::new();
-        for row in rows {
-            let key: String = row.key;
-            let value_str: String = row.value;
-            match serde_json::from_str(&value_str) {
-                Ok(value) => states.push((key, value)),
-                Err(e) => {
-                    tracing::error!(key, "Failed to decode JSON state: {}", e);
-                }
-            }
-        }
-
-        Ok(states)
     }
 }
 
@@ -580,16 +117,19 @@ impl GenericStateRepository for SqliteStateRepository {
 mod tests {
     use std::time::Duration;
 
-    use serde::Deserialize;
+    use serde::{Deserialize, Serialize};
 
     use super::*;
-    use crate::models::{
-        monitor::MonitorConfig,
-        notification::NotificationMessage,
-        notifier::{
-            AggregationPolicy, DiscordConfig, NotifierPolicy, NotifierTypeConfig, SlackConfig,
-            ThrottlePolicy,
+    use crate::{
+        models::{
+            monitor::MonitorConfig,
+            notification::NotificationMessage,
+            notifier::{
+                AggregationPolicy, DiscordConfig, NotifierConfig, NotifierPolicy,
+                NotifierTypeConfig, SlackConfig, ThrottlePolicy,
+            },
         },
+        persistence::traits::{AppRepository, KeyValueStore},
     };
 
     async fn setup_test_db() -> SqliteStateRepository {
@@ -833,12 +373,12 @@ mod tests {
         // Verify error message contains network information
         let error = result.unwrap_err();
         match error {
-            sqlx::Error::Protocol(msg) => {
+            PersistenceError::InvalidInput(msg) => {
                 assert!(msg.contains("Wrong Network Monitor"));
                 assert!(msg.contains("polygon"));
                 assert!(msg.contains("ethereum"));
             }
-            _ => panic!("Expected Protocol error with network mismatch message"),
+            _ => panic!("Expected InvalidInput error with network mismatch message"),
         }
 
         // Verify no monitors were added

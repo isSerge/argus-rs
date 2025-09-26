@@ -35,7 +35,7 @@ use crate::{
     },
     models::{BlockData, CorrelatedBlockData, monitor::Monitor, monitor_match::MonitorMatch},
     monitor::{MonitorManager, MonitorValidationError},
-    persistence::{sqlite::SqliteStateRepository, traits::StateRepository},
+    persistence::{error::PersistenceError, sqlite::SqliteStateRepository, traits::AppRepository},
     providers::{
         rpc::ProviderError,
         traits::{DataSource, DataSourceError},
@@ -69,7 +69,7 @@ pub enum SupervisorError {
     /// An error occurred while trying to load monitors from the state
     /// repository.
     #[error("Failed to load monitors from state repository: {0}")]
-    MonitorLoadError(#[from] sqlx::Error),
+    MonitorLoadError(#[from] PersistenceError),
 
     /// A critical error occurred in the data source during block fetching.
     #[error("Data source error: {0}")]
@@ -108,7 +108,7 @@ pub struct Supervisor {
     config: Arc<AppConfig>,
 
     /// The persistent state repository for managing application state.
-    state: Arc<dyn StateRepository>,
+    state: Arc<dyn AppRepository>,
 
     /// The data source for fetching new blockchain data (e.g., from an RPC
     /// endpoint).
