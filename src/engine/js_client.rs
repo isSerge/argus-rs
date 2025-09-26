@@ -130,9 +130,22 @@ fn find_js_executor_command() -> Command {
         return Command::new(bin_path);
     }
 
-    // 4. Fallback for development: `cargo run`
+    // 4. Fallback for development: `cargo run` from js_executor directory
     let mut cmd = Command::new("cargo");
-    cmd.arg("run").arg("-p").arg("js_executor").arg("--bin").arg("js_executor").arg("--");
+    cmd.arg("run").arg("--");
+    
+    // Set working directory to js_executor crate
+    if let Ok(mut workspace_root) = env::current_dir() {
+        // If we're in a subdirectory, try to find the workspace root
+        while !workspace_root.join("Cargo.toml").exists() && workspace_root.parent().is_some() {
+            workspace_root = workspace_root.parent().unwrap().to_path_buf();
+        }
+        let js_executor_dir = workspace_root.join("crates").join("js_executor");
+        if js_executor_dir.exists() {
+            cmd.current_dir(js_executor_dir);
+        }
+    }
+    
     cmd
 }
 
