@@ -67,6 +67,10 @@ rpc_urls:
   - "https://1rpc.io/eth"
   - "https://rpc.mevblocker.io"
 network_id: "mainnet"
+
+# Start 100 blocks behind the chain tip to avoid issues with block reorganizations.
+initial_start_block: -100
+
 block_chunk_size: 5
 polling_interval_ms: 10000
 confirmation_blocks: 12

@@ -192,7 +192,8 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
         Arc::new(MonitorManager::new(monitors.clone(), rhai_compiler.clone(), abi_service.clone()));
 
     // Init EVM data source for fetching blockchain data.
-    let provider = create_provider(config.rpc_urls.clone(), config.rpc_retry_config.clone())?;
+    let provider =
+        Arc::new(create_provider(config.rpc_urls.clone(), config.rpc_retry_config.clone())?);
     let evm_source = EvmRpcSource::new(provider, monitor_manager.clone());
 
     // Init services for notifications and filtering logic.

@@ -3,6 +3,8 @@
 
 use std::{collections::HashMap, sync::Arc};
 
+use alloy::providers::Provider;
+
 use super::{Supervisor, SupervisorError};
 use crate::{
     abi::AbiService,
@@ -13,7 +15,7 @@ use crate::{
     monitor::MonitorManager,
     notification::NotificationService,
     persistence::{sqlite::SqliteStateRepository, traits::AppRepository},
-    providers::rpc::{EvmRpcSource, create_provider},
+    providers::rpc::EvmRpcSource,
 };
 
 /// A builder for creating a `Supervisor` instance.
@@ -23,6 +25,7 @@ pub struct SupervisorBuilder {
     state: Option<Arc<SqliteStateRepository>>,
     abi_service: Option<Arc<AbiService>>,
     script_compiler: Option<Arc<RhaiCompiler>>,
+    provider: Option<Arc<dyn Provider + Send + Sync>>,
 }
 
 impl SupervisorBuilder {
@@ -55,6 +58,12 @@ impl SupervisorBuilder {
         self
     }
 
+    /// Sets the data provider for the `Supervisor`.
+    pub fn provider(mut self, provider: Arc<dyn Provider + Send + Sync>) -> Self {
+        self.provider = Some(provider);
+        self
+    }
+
     /// Assembles and validates the components to build a `Supervisor`.
     ///
     /// This method performs the final "wiring" of the application's services.
@@ -66,6 +75,7 @@ impl SupervisorBuilder {
         let state = self.state.ok_or(SupervisorError::MissingStateRepository)?;
         let abi_service = self.abi_service.ok_or(SupervisorError::MissingAbiService)?;
         let script_compiler = self.script_compiler.ok_or(SupervisorError::MissingScriptCompiler)?;
+        let provider = self.provider.ok_or(SupervisorError::MissingProvider)?;
 
         // The FilteringEngine is created here, loading its initial set of monitors
         // from the database. This makes the database the single source of truth.
@@ -77,7 +87,6 @@ impl SupervisorBuilder {
             Arc::new(MonitorManager::new(monitors, script_compiler.clone(), abi_service.clone()));
 
         tracing::debug!(rpc_urls = ?config.rpc_urls, "Initializing EVM data source...");
-        let provider = create_provider(config.rpc_urls.clone(), config.rpc_retry_config.clone())?;
         let evm_data_source = EvmRpcSource::new(provider, monitor_manager.clone());
         tracing::info!(retry_policy = ?config.rpc_retry_config, "EVM data source initialized with fallback and retry policy.");
 
@@ -121,7 +130,9 @@ mod tests {
 
     use super::*;
     use crate::{
-        config::RhaiConfig, models::monitor::MonitorConfig, test_helpers::create_test_abi_service,
+        config::RhaiConfig,
+        models::monitor::MonitorConfig,
+        test_helpers::{create_test_abi_service, mock_provider},
     };
 
     async fn setup_test_db() -> SqliteStateRepository {
@@ -134,6 +145,8 @@ mod tests {
 
     #[tokio::test]
     async fn build_succeeds_with_valid_monitors() {
+        let (provider, _) = mock_provider();
+
         let network_id = "testnet";
         let abi_name = "abi";
         let dir = tempdir().unwrap();
@@ -162,6 +175,7 @@ mod tests {
             .config(app_config)
             .state(state_repo)
             .abi_service(abi_service)
+            .provider(provider)
             .script_compiler(Arc::new(RhaiCompiler::new(RhaiConfig::default())));
 
         let result = builder.build().await;

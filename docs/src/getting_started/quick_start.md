@@ -8,7 +8,9 @@ Ensure you have completed the [Docker installation steps](./installation.md), in
 
 ## 1. Review Application Configuration (`app.yaml`)
 
-The `configs/app.yaml` file contains the core settings for the application. The most critical settings are the RPC endpoints. The default file includes public endpoints for Ethereum mainnet, which are fine for this quick start.
+The `configs/app.yaml` file contains the core settings for the application. The most critical settings are the RPC endpoints and the initial starting block.
+
+We set `initial_start_block` to a negative offset. This tells Argus to start processing from a block that is slightly behind the absolute tip of the chain. This is a critical reliability feature to avoid issues with **chain reorganizations (reorgs)**, where the most recent blocks can be altered. Starting from a slightly older, more "finalized" block ensures that the data Argus processes is stable and that no events are missed.
 
 ```yaml
 # configs/app.yaml
@@ -17,6 +19,8 @@ rpc_urls:
   - "https://eth.llamarpc.com"
   - "https://1rpc.io/eth"
 network_id: "ethereum"
+# Start 1000 blocks behind the chain tip to avoid issues with block reorganizations.
+initial_start_block: -1000 
 # ... other settings
 ```
 **Note**: The `database_url` is relative to the container's working directory. The `docker compose.yml` file mounts the local `./data` directory to `/app`, so the database file will be created at `./data/argus.db` on your host machine.

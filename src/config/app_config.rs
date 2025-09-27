@@ -8,10 +8,10 @@ use serde::Deserialize;
 use url::Url;
 
 use super::{
-    HttpRetryConfig, RhaiConfig, RpcRetryConfig, deserialize_duration_from_ms,
-    deserialize_duration_from_seconds, deserialize_urls,
+    BaseHttpClientConfig, HttpRetryConfig, RhaiConfig, RpcRetryConfig,
+    deserialize_duration_from_ms, deserialize_duration_from_seconds, deserialize_urls,
+    initial_start_block::InitialStartBlock,
 };
-use crate::config::BaseHttpClientConfig;
 
 /// Provides the default value for shutdown_timeout_secs.
 fn default_shutdown_timeout() -> Duration {
@@ -100,6 +100,11 @@ pub struct AppConfig {
         default = "default_aggregation_check_interval_secs"
     )]
     pub aggregation_check_interval_secs: Duration,
+
+    /// The block number or tag (e.g., "latest", "-100") to start from on
+    /// initial run.
+    #[serde(default)]
+    pub initial_start_block: InitialStartBlock,
 }
 
 impl AppConfig {
@@ -182,6 +187,11 @@ impl AppConfigBuilder {
 
     pub fn polling_interval(mut self, interval_ms: u64) -> Self {
         self.config.polling_interval_ms = Duration::from_millis(interval_ms);
+        self
+    }
+
+    pub fn initial_start_block(mut self, block: InitialStartBlock) -> Self {
+        self.config.initial_start_block = block;
         self
     }
 }
