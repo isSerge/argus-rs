@@ -20,6 +20,10 @@ network_id: "ethereum"
 # The directory where contract ABI JSON files are located.
 abi_config_path: abis/
 
+# Controls where Argus starts on a fresh database.
+# Can be a block number (e.g., 18000000), 'latest', or a negative offset (e.g., -100).
+initial_start_block: -100
+
 # Performance and reliability settings.
 block_chunk_size: 5
 polling_interval_ms: 10000
@@ -36,6 +40,7 @@ confirmation_blocks: 12
 | `rpc_urls` | A list of RPC endpoint URLs for the EVM network. Argus will use them in a fallback sequence if one fails. **At least one URL is required.** | (none) |
 | `network_id` | A unique identifier for the network being monitored (e.g., "ethereum", "sepolia"). **This field is required.** | (none) |
 | `abi_config_path` | The directory where contract ABI JSON files are located. | `abis/` |
+| `initial_start_block` | Controls where Argus starts processing blocks on a fresh database. Can be an absolute block number (e.g., `18000000`), a negative offset from the latest block (e.g., `-100`), or the string `'latest'`. | `-100` |
 
 ### Performance & Reliability
 
