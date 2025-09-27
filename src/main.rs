@@ -33,7 +33,7 @@ enum Commands {
     DryRun(DryRunArgs),
 }
 
-/// Parses the start block argument, which can be either "latest" or an integer.
+/// Parses the start block argument, which can be either "latest", positive or negative integer.
 fn parse_start_block_arg(s: &str) -> Result<InitialStartBlock, String> {
     if s.eq_ignore_ascii_case("latest") {
         Ok(InitialStartBlock::Latest)
