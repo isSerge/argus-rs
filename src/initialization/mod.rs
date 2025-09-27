@@ -463,7 +463,7 @@ monitors:
         // Ensure file loading is NOT called
         mock_repo.expect_add_monitors().times(0);
         mock_repo.expect_add_notifiers().times(0);
-        mock_repo.expect_get_last_processed_block().times(0);
+        mock_repo.expect_set_last_processed_block().times(0);
 
         let config = AppConfig::builder().network_id(network_id).build();
         let temp_dir = tempdir().unwrap();
