@@ -42,7 +42,7 @@ use crate::{
         NotificationMessage,
         monitor_match::MonitorMatch,
         notifier::{
-            DiscordConfig, NotifierConfig, NotifierTypeConfig, SlackConfig, TelegramConfig,
+            self, DiscordConfig, NotifierConfig, NotifierTypeConfig, SlackConfig, TelegramConfig,
             WebhookConfig,
         },
     },
@@ -257,6 +257,30 @@ impl NotificationService {
         })?;
         tracing::debug!(notifier = %notifier_name, "Found notifier configuration.");
 
+        // Handle different notifier types separately
+        match &notifier_config.config {
+            // Standard output notifier
+            NotifierTypeConfig::Stdout(stdout_config) =>
+                self.execute_stdout(stdout_config, &context)?,
+            // All webhook-based notifiers are handled here
+            NotifierTypeConfig::Discord(_)
+            | NotifierTypeConfig::Slack(_)
+            | NotifierTypeConfig::Telegram(_)
+            | NotifierTypeConfig::Webhook(_) =>
+                self.execute_webhook(notifier_config, &context, custom_template).await?,
+        }
+
+        Ok(())
+    }
+
+    /// Executes a webhook notification.
+    async fn execute_webhook(
+        &self,
+        notifier_config: &NotifierConfig,
+        context: &serde_json::Value,
+        custom_template: Option<NotificationMessage>,
+    ) -> Result<(), NotificationError> {
+        let notifier_name = &notifier_config.name;
         // Use the AsWebhookComponents trait to get config, retry policy and payload
         // builder
         let mut components = notifier_config.config.as_webhook_components()?;
@@ -275,7 +299,7 @@ impl NotificationService {
         let rendered_title =
             self.template_service.render(&components.config.title, context.clone())?;
         let rendered_body =
-            self.template_service.render(&components.config.body_template, context)?;
+            self.template_service.render(&components.config.body_template, context.clone())?;
         tracing::debug!(notifier = %notifier_name, body = %rendered_body, "Rendered notification template.");
 
         // Build the payload
@@ -289,6 +313,24 @@ impl NotificationService {
         tracing::info!(notifier = %notifier_name, "Notification dispatched successfully.");
 
         Ok(())
+    }
+
+    /// Executes a stdout notification.
+    fn execute_stdout(
+        &self,
+        stdout_config: &notifier::StdoutConfig,
+        context: &serde_json::Value,
+    ) -> Result<(), NotificationError> {
+        if let Some(message) = &stdout_config.message {
+            let rendered_title = self.template_service.render(&message.title, context.clone())?;
+            let rendered_body = self.template_service.render(&message.body, context.clone())?;
+
+            println!("=== Stdout Notification: ===\n {} \n{}\n", rendered_title, rendered_body);
+            return Ok(());
+        } else {
+            println!("=== Stdout Notification: ===\n {}", context);
+            return Ok(());
+        }
     }
 
     /// Runs the notification service, listening for incoming monitor matches
