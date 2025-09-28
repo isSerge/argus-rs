@@ -70,18 +70,28 @@ pub struct TelegramConfig {
     pub retry_policy: HttpRetryConfig,
 }
 
-/// An enum representing the different types of notifier configurations.
+/// Configuration for a Stdout notification.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct StdoutConfig {
+    /// The optional message content for the notification.
+    /// If not provided, the full event payload will be serialized to JSON.
+    pub message: Option<NotificationMessage>,
+}
+
+/// The type of notifier configuration.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub enum NotifierTypeConfig {
-    /// A generic webhook notifier.
+    /// A generic webhook.
     Webhook(WebhookConfig),
-    /// A Slack notification notifier.
+    /// A Slack notification.
     Slack(SlackConfig),
-    /// A Discord notification notifier.
+    /// A Discord notification.
     Discord(DiscordConfig),
-    /// A Telegram notification notifier.
+    /// A Telegram notification.
     Telegram(TelegramConfig),
+    /// A stdout notification.
+    Stdout(StdoutConfig),
 }
 
 /// Error types for notifier configuration validation.
@@ -98,6 +108,10 @@ pub enum NotifierTypeConfigError {
     /// Error for empty Telegram chat ID.
     #[error("Telegram chat ID cannot be empty.")]
     EmptyTelegramChatId,
+
+    /// Error for invalid Discord webhook URL.
+    #[error("Invalid Discord URL: must be a valid Discord webhook URL.")]
+    InvalidDiscordUrl,
 
     /// Error for invalid Slack webhook URL.
     #[error("Invalid Slack URL: must be a valid Slack webhook URL.")]
@@ -120,8 +134,10 @@ impl NotifierTypeConfig {
                 }
                 Ok(())
             }
-            NotifierTypeConfig::Discord(_) => {
-                //
+            NotifierTypeConfig::Discord(config) => {
+                if config.discord_url.domain() != Some("discord.com") {
+                    return Err(NotifierTypeConfigError::InvalidDiscordUrl);
+                }
                 Ok(())
             }
             NotifierTypeConfig::Telegram(config) => {
@@ -133,6 +149,8 @@ impl NotifierTypeConfig {
                 }
                 Ok(())
             }
+            // Standard output notifier requires no validation.
+            NotifierTypeConfig::Stdout(_) => Ok(()),
         }
     }
 }
@@ -286,6 +304,18 @@ mod tests {
             retry_policy: HttpRetryConfig::default(),
         });
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_discord_invalid_url() {
+        let config = NotifierTypeConfig::Discord(DiscordConfig {
+            discord_url: Url::parse("https://example.com/not-discord").unwrap(),
+            message: notification_message(),
+            retry_policy: HttpRetryConfig::default(),
+        });
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), NotifierTypeConfigError::InvalidDiscordUrl));
     }
 
     #[test]
