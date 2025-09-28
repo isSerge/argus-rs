@@ -305,8 +305,7 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
                     );
                 } else {
                     // Increment dispatch counter on successful notification
-                    let notifier_name = state_key.split('_').last().unwrap_or("unknown");
-                    *self.dispatched_notifications.entry(notifier_name.to_string()).or_insert(0) += 1;
+                    *self.dispatched_notifications.entry(notifier_config.name.clone()).or_insert(0) += 1;
                 }
 
                 // And finally, clear the state.
