@@ -18,7 +18,7 @@ use serde_json::json;
 use url::Url;
 
 #[tokio::test]
-async fn test_success() {
+async fn test_webhook_notifier_success() {
     let mut server = mockito::Server::new_async().await;
 
     let mock_discord_notifier = NotifierConfig {
@@ -65,6 +65,30 @@ async fn test_success() {
 
     assert!(result.is_ok());
     mock.assert();
+}
+
+#[tokio::test]
+async fn test_stdout_notifier_success() {
+    let stdout_notifier = NotifierBuilder::new("test_stdout").stdout_config(None).build();
+
+    let http_client_pool = Arc::new(HttpClientPool::default());
+    let notifiers =
+        Arc::new(vec![stdout_notifier].into_iter().map(|n| (n.name.clone(), n)).collect());
+    let notification_service = NotificationService::new(notifiers, http_client_pool);
+
+    let monitor_match = MonitorMatch::new_tx_match(
+        1,
+        "Test Monitor".to_string(),
+        "test_stdout".to_string(),
+        123,
+        Default::default(),
+        json!({"value": "100"}),
+    );
+
+    let payload = NotificationPayload::Single(monitor_match.clone());
+    let result = notification_service.execute(payload).await;
+
+    assert!(result.is_ok(), "Stdout notifier should succeed, got error: {:?}", result.err());
 }
 
 #[tokio::test]

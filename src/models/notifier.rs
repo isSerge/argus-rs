@@ -354,4 +354,10 @@ mod tests {
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), NotifierTypeConfigError::EmptyTelegramChatId));
     }
+
+    #[test]
+    fn test_validate_stdout_ok() {
+        let config = NotifierTypeConfig::Stdout(StdoutConfig { message: None });
+        assert!(config.validate().is_ok());
+    }
 }
