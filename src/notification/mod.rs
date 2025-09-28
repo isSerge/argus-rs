@@ -315,7 +315,7 @@ impl NotificationService {
             let rendered_title = self.template_service.render(&message.title, context.clone())?;
             let rendered_body = self.template_service.render(&message.body, context.clone())?;
 
-            println!("=== Stdout Notification: ===\n {} \n{}\n", rendered_title, rendered_body);
+            println!("=== Stdout Notification: ===\n{}\n{}\n", rendered_title, rendered_body);
             return Ok(());
         } else {
             println!("=== Stdout Notification: ===\n {}", context);
