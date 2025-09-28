@@ -316,10 +316,10 @@ impl NotificationService {
             let rendered_body = self.template_service.render(&message.body, context.clone())?;
 
             println!("=== Stdout Notification: ===\n{}\n{}\n", rendered_title, rendered_body);
-            return Ok(());
+            Ok(())
         } else {
-            println!("=== Stdout Notification: ===\n {}\n", context);
-            return Ok(());
+            println!("=== Stdout Notification: ===\n {}", context);
+            Ok(())
         }
     }
 
