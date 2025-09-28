@@ -216,11 +216,52 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
         run_dry_run_loop(args.from, args.to, Box::new(evm_source), filtering_engine, alert_manager)
             .await?;
 
-    // Serialize and print the final report.
-    let report = serde_json::to_string_pretty(&matches)?;
-    println!("{}", report);
+    // Print the summary report.
+    print_summary_report(args.from, args.to, &matches);
 
     Ok(())
+}
+
+/// Prints a summary report of the dry run results.
+fn print_summary_report(from_block: u64, to_block: u64, matches: &[MonitorMatch]) {
+    let total_blocks = to_block - from_block + 1;
+    let total_matches = matches.len();
+
+    let mut matches_by_monitor: HashMap<String, usize> = HashMap::new();
+    let mut notifications_dispatched: HashMap<String, usize> = HashMap::new();
+
+    for m in matches {
+        *matches_by_monitor.entry(m.monitor_name.clone()).or_insert(0) += 1;
+        *notifications_dispatched.entry(m.notifier_name.clone()).or_insert(0) += 1;
+    }
+
+    println!("\nDry Run Report");
+    println!("==============");
+
+    println!("\nSummary");
+    println!("-------");
+    println!("- Blocks Processed: {} to {} ({} blocks)", from_block, to_block, total_blocks);
+    println!("- Total Matches Found: {}", total_matches);
+
+    println!("\nMatches by Monitor");
+    println!("------------------");
+    if matches_by_monitor.is_empty() {
+        println!("- No matches found.");
+    } else {
+        for (monitor_name, count) in &matches_by_monitor {
+            println!("- \"{}\": {}", monitor_name, count);
+        }
+    }
+
+    println!("\nNotifications Dispatched");
+    println!("------------------------");
+    if notifications_dispatched.is_empty() {
+        println!("- No notifications dispatched.");
+    } else {
+        for (notifier_name, count) in &notifications_dispatched {
+            println!("- \"{}\": {}", notifier_name, count);
+        }
+    }
 }
 
 /// The core processing logic for the dry run.
