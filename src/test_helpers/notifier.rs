@@ -6,7 +6,7 @@ use crate::{
         notification::NotificationMessage,
         notifier::{
             DiscordConfig, NotifierConfig, NotifierPolicy, NotifierTypeConfig, SlackConfig,
-            WebhookConfig,
+            StdoutConfig, WebhookConfig,
         },
     },
 };
@@ -65,6 +65,12 @@ impl NotifierBuilder {
             message: NotificationMessage::default(),
             retry_policy: HttpRetryConfig::default(),
         });
+        self
+    }
+
+    /// Sets the notifier to use Stdout configuration.
+    pub fn stdout_config(mut self, message: Option<NotificationMessage>) -> Self {
+        self.config = NotifierTypeConfig::Stdout(StdoutConfig { message });
         self
     }
 

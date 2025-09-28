@@ -361,6 +361,7 @@ mod tests {
             notification::NotificationMessage,
             notifier::{DiscordConfig, SlackConfig, TelegramConfig, WebhookConfig},
         },
+        test_helpers::NotifierBuilder,
     };
 
     fn create_mock_monitor_match(notifier_name: &str) -> MonitorMatch {
@@ -514,5 +515,89 @@ mod tests {
         let payload = components.builder.build_payload(title, message);
         assert_eq!(payload.get("title").unwrap(), title);
         assert_eq!(payload.get("body").unwrap(), message);
+    }
+
+    #[test]
+    fn as_webhook_components_trait_fails_for_stdout_config() {
+        let stdout_config = NotifierTypeConfig::Stdout(notifier::StdoutConfig { message: None });
+
+        let result = stdout_config.as_webhook_components();
+
+        assert!(result.is_err());
+        match result {
+            Err(NotificationError::ConfigError(msg)) => {
+                assert!(msg.contains("Stdout notifier does not support webhook components"));
+            }
+            _ => panic!("Expected ConfigError"),
+        }
+    }
+
+    #[test]
+    fn test_execute_stdout_with_message() {
+        let notifier_config = NotifierBuilder::new("stdout_test")
+            .stdout_config(Some(NotificationMessage {
+                title: "Test Title".to_string(),
+                body: "This is a test body.".to_string(),
+            }))
+            .build();
+
+        let stdout_config = match &notifier_config.config {
+            NotifierTypeConfig::Stdout(c) => c,
+            _ => panic!("Expected StdoutConfig"),
+        };
+
+        let context = serde_json::json!({
+            "monitor_name": "Test Monitor",
+            "block_number": 123,
+            "transaction_hash": "0xabc123",
+            "tx": {
+                "from": "0xfromaddress",
+                "to": "0xtoaddress",
+                "value": 1000
+            }
+        });
+
+        let service = NotificationService::new(
+            Arc::new(
+                vec![(notifier_config.name.clone(), notifier_config.clone())].into_iter().collect(),
+            ),
+            Arc::new(HttpClientPool::default()),
+        );
+
+        let result = service.execute_stdout(stdout_config, &context);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_execute_stdout_without_message() {
+        let notifier_config = NotifierBuilder::new("stdout_test").stdout_config(None).build();
+
+        let stdout_config = match &notifier_config.config {
+            NotifierTypeConfig::Stdout(c) => c,
+            _ => panic!("Expected StdoutConfig"),
+        };
+
+        let context = serde_json::json!({
+            "monitor_name": "Test Monitor",
+            "block_number": 123,
+            "transaction_hash": "0xabc123",
+            "tx": {
+                "from": "0xfromaddress",
+                "to": "0xtoaddress",
+                "value": 1000
+            }
+        });
+
+        let service = NotificationService::new(
+            Arc::new(
+                vec![(notifier_config.name.clone(), notifier_config.clone())].into_iter().collect(),
+            ),
+            Arc::new(HttpClientPool::default()),
+        );
+
+        let result = service.execute_stdout(stdout_config, &context);
+
+        assert!(result.is_ok());
     }
 }
