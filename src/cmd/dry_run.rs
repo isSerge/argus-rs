@@ -4,8 +4,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use alloy::primitives;
-use dashmap::DashMap;
 use clap::Parser;
+use dashmap::DashMap;
 use thiserror::Error;
 
 use crate::{
@@ -213,9 +213,14 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let alert_manager = Arc::new(AlertManager::new(notification_service, state_repo, notifiers));
 
     // Execute the core processing loop.
-    let matches =
-        run_dry_run_loop(args.from, args.to, Box::new(evm_source), filtering_engine, alert_manager.clone())
-            .await?;
+    let matches = run_dry_run_loop(
+        args.from,
+        args.to,
+        Box::new(evm_source),
+        filtering_engine,
+        alert_manager.clone(),
+    )
+    .await?;
 
     // Get actual dispatch statistics from AlertManager
     let dispatched_notifications = alert_manager.get_dispatched_notifications();
@@ -228,10 +233,10 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
 
 /// Prints a summary report of the dry run results.
 fn print_summary_report(
-    from_block: u64, 
-    to_block: u64, 
-    matches: &[MonitorMatch], 
-    dispatched_notifications: &DashMap<String, usize>
+    from_block: u64,
+    to_block: u64,
+    matches: &[MonitorMatch],
+    dispatched_notifications: &DashMap<String, usize>,
 ) {
     let total_blocks = to_block - from_block + 1;
     let total_matches = matches.len();

@@ -55,10 +55,10 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
         state_repository: Arc<T>,
         notifiers: Arc<HashMap<String, NotifierConfig>>,
     ) -> Self {
-        Self { 
-            notification_service, 
-            state_repository, 
-            notifiers, 
+        Self {
+            notification_service,
+            state_repository,
+            notifiers,
             notifier_locks: DashMap::new(),
             dispatched_notifications: DashMap::new(),
         }
@@ -182,7 +182,10 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
                 );
             } else {
                 // Increment dispatch counter on successful notification
-                *self.dispatched_notifications.entry(monitor_match.notifier_name.clone()).or_insert(0) += 1;
+                *self
+                    .dispatched_notifications
+                    .entry(monitor_match.notifier_name.clone())
+                    .or_insert(0) += 1;
             }
             throttle_state.count += 1;
         } else {
@@ -305,7 +308,10 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
                     );
                 } else {
                     // Increment dispatch counter on successful notification
-                    *self.dispatched_notifications.entry(notifier_config.name.clone()).or_insert(0) += 1;
+                    *self
+                        .dispatched_notifications
+                        .entry(notifier_config.name.clone())
+                        .or_insert(0) += 1;
                 }
 
                 // And finally, clear the state.
