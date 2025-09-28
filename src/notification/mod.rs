@@ -179,6 +179,10 @@ impl NotifierTypeConfig {
             NotifierTypeConfig::Discord(c) => c.into(),
             NotifierTypeConfig::Telegram(c) => c.into(),
             NotifierTypeConfig::Slack(c) => c.into(),
+            NotifierTypeConfig::Stdout(_) =>
+                return Err(NotificationError::ConfigError(
+                    "Stdout notifier does not support webhook components".to_string(),
+                )),
         })
     }
 }

@@ -81,6 +81,7 @@ impl NotifierBuilder {
             NotifierTypeConfig::Slack(cfg) => cfg.retry_policy = retry_policy,
             NotifierTypeConfig::Discord(cfg) => cfg.retry_policy = retry_policy,
             NotifierTypeConfig::Telegram(cfg) => cfg.retry_policy = retry_policy,
+            NotifierTypeConfig::Stdout(_) => { /* No retry policy for stdout */ }
         }
         self
     }
