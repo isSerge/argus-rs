@@ -1,8 +1,23 @@
 # 9. Admin Function Call Monitor
 
-This example demonstrates how to monitor for calls to a specific function on a contract using Argus's `decode_calldata` feature. This is the recommended approach for monitoring critical or administrative functions, as it is more robust and readable than manually checking function selectors.
+This example demonstrates how to monitor for calls to a specific function on a contract using Argus's `decode_calldata` feature. This is the recommended approach for monitoring critical or administrative functions, as it is more robust and readable than manually checking function selectors. It uses the `stdout` notifier for simple console output.
 
 This example uses a real-world event: the execution of an Aave governance proposal.
+
+### Configuration Files
+
+- [`app.yaml`](../../docs/src/user_guide/config_app.md): Basic application configuration, pointing to public RPC endpoints.
+- [`monitors.yaml`](../../docs/src/user_guide/config_monitors.md): Defines the "Admin Function Call (Aave Governance V2)" monitor.
+- [`notifiers.yaml`](../../docs/src/user_guide/config_notifiers.md): Defines the stdout notifier for console output.
+
+### Notifier Options
+
+This example uses the stdout notifier which prints notifications directly to the console. This is ideal for:
+- Local development and testing
+- Debugging monitor configurations and admin function detection
+- Dry-run scenarios
+
+For production use, you can configure other notifiers like Slack, Discord, Telegram, or webhooks. See the [Notifier Configuration documentation](../../docs/src/user_guide/notifiers_yaml.md) for all available options.
 
 ### Monitor Configuration
 
@@ -17,7 +32,7 @@ monitors:
     filter_script: |
       decoded_call.name == "execute"
     notifiers:
-      - "Telegram Admin"
+      - "Stdout Admin"
 ```
 
 - **`address`**: The specific contract to monitor.
@@ -55,34 +70,26 @@ Replace `18864956` with any Ethereum block number to test against.
 
 #### Expected Output
 
-As blocks within the specified range are processed, you should receive notifications on Telegram (or another specified notifier) with aggregated values.
+As blocks within the specified range are processed, you should see notifications printed directly to the console when admin function calls are detected.
 
-![Sample notification output (Telegram)](image.png)
+Once processing is complete, you should see a summary report like this:
 
-Once processing is complete, you should see the following output in your terminal, which is a JSON array with all detected monitor matches:
+```
+Dry Run Report
+==============
 
-```json
-[
-  {
-    "monitor_id": 0,
-    "monitor_name": "Admin Function Call (Aave Governance V2)",
-    "notifier_name": "Telegram Admin",
-    "block_number": 18864956,
-    "transaction_hash": "0xf0006da578698a36e8d6d9d2a3f0d2ce63ec1bc472a3d28fb55b62095c4fddf3",
-    "tx": {
-      "from": "0xf71fc92e2949ccF6A5Fd369a0b402ba80Bc61E02",
-      "gas_limit": 355494,
-      "hash": "0xf0006da578698a36e8d6d9d2a3f0d2ce63ec1bc472a3d28fb55b62095c4fddf3",
-      "input": "0xfe0d94c1000000000000000000000000000000000000000000000000000000000000018b",
-      "max_fee_per_gas": "21000000000",
-      "max_priority_fee_per_gas": "100000000",
-      "nonce": 315,
-      "to": "0xEC568fffba86c094cf06b22134B23074DFE2252c",
-      "transaction_index": 95,
-      "value": "0"
-    }
-  }
-]
+Summary
+-------
+- Blocks Processed: 18864956 to 18864958 (3 blocks)
+- Total Matches Found: 1
+
+Matches by Monitor
+------------------
+- "Admin Function Call (Aave Governance V2)": 1
+
+Notifications Dispatched
+------------------------
+- "Stdout Admin": 1
 ```
 
 

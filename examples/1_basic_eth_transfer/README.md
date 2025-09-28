@@ -1,33 +1,23 @@
 # 1. Basic ETH Transfer Monitor
 
 This example sets up a monitor that triggers when a transaction with a value
-greater than 10 ETH is detected on the Ethereum mainnet. It uses a basic
-Telegram notifier.
+greater than 10 ETH is detected on the Ethereum mainnet. It uses the `stdout`
+notifier for simple console output.
 
 ### Configuration Files
 
 - [`app.yaml`](../../docs/src/user_guide/config_app.md): Basic application configuration, pointing to public RPC endpoints.
 - [`monitors.yaml`](../../docs/src/user_guide/config_monitors.md): Defines the "Large ETH Transfers" monitor.
-- [`notifiers.yaml`](../../docs/src/user_guide/config_notifiers.md): Defines "Telegram Large ETH Transfers" notifier.
+- [`notifiers.yaml`](../../docs/src/user_guide/config_notifiers.md): Defines the stdout notifier for console output.
 
-### Environment Variables for Notifier Secrets
+### Notifier Options
 
-> **Important:** All secrets and sensitive values in `notifiers.yaml` (such as API tokens, webhook URLs, chat IDs, etc.) must be provided as environment variables.
-> For example, if your `notifiers.yaml` contains:
->
-> ```yaml
-> token: "${TELEGRAM_TOKEN}"
-> chat_id: "${TELEGRAM_CHAT_ID}"
-> ```
->
-> You must set these in your shell before running Argus:
->
-> ```sh
-> export TELEGRAM_TOKEN="your-telegram-token"
-> export TELEGRAM_CHAT_ID="your-chat-id"
-> ```
->
-> See the example `notifiers.yaml` for all required variables for each notifier type.
+This example uses the stdout notifier which prints notifications directly to the console. This is ideal for:
+- Local development and testing
+- Debugging monitor configurations
+- Dry-run scenarios
+
+For production use, you can configure other notifiers like Slack, Discord, Telegram, or webhooks. See the [Notifier Configuration documentation](../../docs/src/user_guide/notifiers_yaml.md) for all available options.
 
 ### Monitor Configuration
 
@@ -40,7 +30,7 @@ monitors:
     filter_script: |
       tx.value > ether(10)
     notifiers:
-      - 'Telegram Large ETH Transfers'
+      - 'stdout-notifier'
 ```
 
 - **`name`**: A human-readable name for the monitor.
@@ -51,45 +41,37 @@ monitors:
   if the transaction's value is greater than 10 ETH. The [`ether()`](../../docs/src/user_guide/rhai_helpers.md#ethervalue) function is a
   convenient wrapper, which handles `BigInt` conversions.
 - **`notifiers`**: A list of notifier names (defined in `notifiers.yaml`) that
-  will receive alerts when this monitor triggers. Here, it references "Telegram
-  Large ETH Transfers".
+  will receive alerts when this monitor triggers. Here, it references "stdout-notifier".
 
 ### Notifier Configuration
 
-The `notifiers.yaml` in this example defines a single Telegram notifier. For a complete reference on notifier configuration, see the [Notifier Configuration documentation](../../docs/src/user_guide/config_notifiers.md).
+The `notifiers.yaml` in this example defines a `stdout` notifier that prints notifications to the console. For a complete reference on notifier configuration, see the [Notifier Configuration documentation](../../docs/src/user_guide/notifiers_yaml.md).
 
 ```yaml
 notifiers:
-  - name: 'Telegram Large ETH Transfers'
-    telegram:
-      token: '<TELEGRAM TOKEN>'
-      chat_id: '<TELEGRAM CHAT ID>'
-      disable_web_preview: true
+  - name: 'stdout-notifier'
+    stdout:
       message:
-        title: 'Large ETH Transfer'
+        title: 'Large ETH Transfer Detected'
         body: |
           A transfer of over 10 ETH was detected by monitor {{ monitor_name }}.
-          - *From*: `{{ tx.from }}`
-          - *To*: `{{ tx.to }}`
-          - *Value*: `{{ tx.value | ether }}` ETH
+          - From: `{{ tx.from }}`
+          - To: `{{ tx.to }}`
+          - Value: `{{ tx.value | ether }} ETH`
           [View on Etherscan](https://etherscan.io/tx/{{ transaction_hash }})
 ```
 
 - **`name`**: A unique, human-readable name for the notifier. This name is
   referenced by monitors in their `notifiers` list.
-- **`telegram`**: This block configures a Telegram notifier.
-  - **`token`**: Your Telegram bot token.
-  - **`chat_id`**: The ID of the Telegram chat where notifications will be sent.
-  - **`disable_web_preview`**: (Optional) Set to `true` to disable link previews
-    in Telegram messages.
+- **`stdout`**: This block configures a stdout notifier that prints to the console.
   - **`message`**: Defines the structure and content of the notification
     message. For more details on templating, see the [Notifier Templating documentation](../../docs/src/user_guide/notifier_templating.md).
     - **`title`**: The title of the notification. Supports
       [Jinja2-like templating](https://docs.rs/minijinja/latest/minijinja/) to
       include dynamic data from the monitor match (e.g., `{{ monitor_name }}`).
     - **`body`**: The main content of the notification. Supports
-      [Jinja2-like templating](https://docs.rs/minijinja/latest/minijinja/) and
-      Markdown formatting.
+      [Jinja2-like templating](https://docs.rs/minijinja/latest/minijinja/) for
+      dynamic content.
 
 ### How to Run ([Dry-Run Mode](../../docs/src/operations/cli.md#dry-run-mode))
 
@@ -122,53 +104,38 @@ against.
 
 #### Expected Output
 
-As blocks within the specified range are processed, you should receive
-notifications on Telegram (or another specified notifier):
+As blocks within the specified range are processed, you should see notifications
+printed to the console via the stdout notifier. Each notification will be
+formatted according to the message template defined in the notifier configuration.
 
-![Sample notification output (Telegram)](image.png)
+For example, when a large ETH transfer is detected, you'll see output like:
+```
+Large ETH Transfer Detected
+A transfer of over 10 ETH was detected by monitor Large ETH Transfers.
+- From: `0x30F2864e7bf6E89a3955217C78c8689594228940`
+- To: `0xCFFAd3200574698b78f32232aa9D63eABD290703`
+- Value: `13.859958 ETH`
+[View on Etherscan](https://etherscan.io/tx/0x92a19bc7912f993ed94faa3ea102f4fd244aaf78f5439071bd1126ab419f2ce6)
+```
 
-After `dry-run` processing is complete, you should see the following output in
-your terminal, which is a JSON array with all detected monitor matches:
+After `dry-run` processing is complete, you should see a summary report:
 
-```json
-[
-  {
-    "monitor_id": 0,
-    "monitor_name": "Large ETH Transfers",
-    "notifier_name": "Telegram Large ETH Transfers",
-    "block_number": 23159291,
-    "transaction_hash": "0x92a19bc7912f993ed94faa3ea102f4fd244aaf78f5439071bd1126ab419f2ce6",
-    "tx": {
-      "from": "0x30F2864e7bf6E89a3955217C78c8689594228940",
-      "gas_limit": 21000,
-      "gas_price": "2000000000",
-      "hash": "0x92a19bc7912f993ed94faa3ea102f4fd244aaf78f5439071bd1126ab419f2ce6",
-      "input": "0x",
-      "nonce": 5361,
-      "to": "0xCFFAd3200574698b78f32232aa9D63eABD290703",
-      "transaction_index": 46,
-      "value": "13859958000000000000"
-    }
-  },
-  {
-    "monitor_id": 0,
-    "monitor_name": "Large ETH Transfers",
-    "notifier_name": "Telegram Large ETH Transfers",
-    "block_number": 23159291,
-    "transaction_hash": "0x36a00cbdec61ed072e4a5e6ab0af1cbbb72f13cf8dbdc6b313c52ebc9abc6a19",
-    "tx": {
-      "from": "0x133eEf17Bf97C3ca9647E206D9c3Ac41Fd345a20",
-      "gas_limit": 25500,
-      "gas_price": "1000000000",
-      "hash": "0x36a00cbdec61ed072e4a5e6ab0af1cbbb72f13cf8dbdc6b313c52ebc9abc6a19",
-      "input": "0x",
-      "nonce": 50,
-      "to": "0xA33D00CF429CE29691C8215259B4Bb749EF70e29",
-      "transaction_index": 54,
-      "value": "25000000000000000000"
-    }
-  }
-]
+```
+Dry Run Report
+==============
+
+Summary
+-------
+- Blocks Processed: 23159290 to 23159291 (2 blocks)
+- Total Matches Found: 2
+
+Matches by Monitor
+------------------
+- "Large ETH Transfers": 2
+
+Notifications Dispatched
+------------------------
+- "stdout-notifier": 2
 ```
 
 ### How to Run (Default Mode)

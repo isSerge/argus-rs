@@ -1,15 +1,18 @@
+# This example uses the stdout notifier for console output, perfect for testing and development.
+# For production use, you can configure other notifiers like Slack, Discord, Telegram, or webhooks.
+# See the documentation for all available notifier types:
+# https://github.com/isSerge/argus-rs/blob/main/docs/src/user_guide/notifiers_yaml.md
+
 notifiers:
-  - name: "Telegram MEV"
-    telegram:
-      token: "${TELEGRAM_TOKEN}"
-      chat_id: "${TELEGRAM_CHAT_ID}"
-      disable_web_preview: true
+  - name: "Stdout High Priority Fee"
+    stdout:
+      # Message is optional for stdout. If omitted, the full event JSON payload is printed.
       message:
         title: "High Priority Fee Detected"
         body: |
           A transaction with a high priority fee was detected by monitor `{{ monitor_name }}`.
-          - **Tx Hash**: `{{ transaction_hash }}`
-          - **From**: `{{ tx.from }}`
-          - **To**: `{{ tx.to }}`
-          - **Priority Fee**: `{{ tx.max_priority_fee_per_gas | gwei }}` Gwei
+          - Tx Hash: `{{ transaction_hash }}`
+          - From: `{{ tx.from }}`
+          - To: `{{ tx.to }}`
+          - Priority Fee: `{{ tx.max_priority_fee_per_gas | gwei }}` Gwei
           [View on Etherscan](https://etherscan.io/tx/{{ transaction_hash }})

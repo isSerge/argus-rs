@@ -4,4 +4,4 @@ monitors:
     filter_script: |
       tx.value > ether(10)
     notifiers:
-      - "Telegram Large ETH Transfers"
+      - "stdout-notifier"

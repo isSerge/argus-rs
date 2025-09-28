@@ -1,15 +1,18 @@
+# This example uses the stdout notifier for console output, perfect for testing and development.
+# For production use, you can configure other notifiers like Slack, Discord, Telegram, or webhooks.
+# See the documentation for all available notifier types:
+# https://github.com/isSerge/argus-rs/blob/main/docs/src/user_guide/notifiers_yaml.md
+
 notifiers:
-  - name: "Telegram Admin"
-    telegram:
-      token: "${TELEGRAM_TOKEN}"
-      chat_id: "${TELEGRAM_CHAT_ID}"
-      disable_web_preview: true
+  - name: "Stdout Admin"
+    stdout:
+      # Message is optional for stdout. If omitted, the full event JSON payload is printed.
       message:
         title: "Admin Function Called"
         body: |
           An admin function was called in monitor `{{ monitor_name }}`.
-          - **Tx Hash**: `{{ transaction_hash }}`
-          - **Caller**: `{{ tx.from }}`
-          - **Contract**: `{{ tx.to }}`
-          - **Function Signature**: `{{ tx.input }}`
+          - Tx Hash: `{{ transaction_hash }}`
+          - Caller: `{{ tx.from }}`
+          - Contract: `{{ tx.to }}`
+          - Function Signature: `{{ tx.input }}`
           [View on Etherscan](https://etherscan.io/tx/{{ transaction_hash }})
