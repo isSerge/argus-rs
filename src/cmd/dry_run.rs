@@ -335,15 +335,11 @@ mod tests {
         config::RhaiConfig,
         engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
         http_client::HttpClientPool,
-        models::{
-            NotificationMessage,
-            monitor_match::{MatchData, TransactionMatchData},
-            notifier::{NotifierTypeConfig, SlackConfig},
-        },
+        models::monitor_match::{MatchData, TransactionMatchData},
         notification::NotificationService,
         persistence::sqlite::SqliteStateRepository,
         providers::traits::MockDataSource,
-        test_helpers::{BlockBuilder, MonitorBuilder, TransactionBuilder},
+        test_helpers::{BlockBuilder, MonitorBuilder, NotifierBuilder, TransactionBuilder},
     };
 
     // A helper function to create an AlertManager with a mock state repository.
@@ -403,20 +399,11 @@ mod tests {
         );
         let notifiers = HashMap::from([(
             "test-notifier".to_string(),
-            NotifierConfig {
-                name: "test-notifier".to_string(),
-                config: NotifierTypeConfig::Slack(
-                    SlackConfig {
-                        slack_url: "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX".to_string(),
-                        message: NotificationMessage {
-                            title: "Test Alert".to_string(),
-                            body: "A test alert was triggered by monitor {{ monitor_name }}.".to_string(),
-                        },
-                        retry_policy: Default::default(),
-                    },
-                ),
-                policy: None,
-            },
+            NotifierBuilder::new("test-notifier")
+                .slack_config(
+                    "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX",
+                )
+                .build(),
         )]);
         let alert_manager = create_test_alert_manager(Arc::new(notifiers)).await;
 
@@ -661,25 +648,14 @@ mod tests {
             rhai_config,
             monitor_manager.clone(),
         );
-        let notifiers = HashMap::from([
-            (
-                "test-notifier".to_string(),
-                NotifierConfig {
-                    name: "test-notifier".to_string(),
-                    config: NotifierTypeConfig::Slack(
-                        SlackConfig {
-                            slack_url: "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX".to_string(),
-                            message: NotificationMessage {
-                                title: "Test Alert".to_string(),
-                                body: "A test alert was triggered by monitor {{ monitor_name }}.".to_string(),
-                            },
-                            retry_policy: Default::default(),
-                        },
-                    ),
-                    policy: None,
-                },
-            ),
-        ]);
+        let notifiers = HashMap::from([(
+            "test-notifier".to_string(),
+            NotifierBuilder::new("test-notifier")
+                .slack_config(
+                    "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX",
+                )
+                .build(),
+        )]);
         let alert_manager = create_test_alert_manager(Arc::new(notifiers)).await;
 
         // Act

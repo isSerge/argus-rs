@@ -11,9 +11,11 @@ use argus::{
         notifier::{DiscordConfig, NotifierConfig, NotifierTypeConfig},
     },
     notification::{NotificationPayload, NotificationService},
+    test_helpers::NotifierBuilder,
 };
 use mockito;
 use serde_json::json;
+use url::Url;
 
 #[tokio::test]
 async fn test_success() {
@@ -22,7 +24,7 @@ async fn test_success() {
     let mock_discord_notifier = NotifierConfig {
         name: "test_discord".to_string(),
         config: NotifierTypeConfig::Discord(DiscordConfig {
-            discord_url: server.url(),
+            discord_url: Url::parse(&server.url()).unwrap(),
             message: NotificationMessage {
                 title: "Test Title".to_string(),
                 body: "Monitor {{ monitor_id }} matched on block {{ block_number }} with tx value \
@@ -71,18 +73,10 @@ async fn test_failure_with_retryable_error() {
 
     let retry_policy = HttpRetryConfig { max_retry: 2, ..Default::default() };
 
-    let mock_discord_notifier = NotifierConfig {
-        name: "test_discord_retry".to_string(),
-        config: NotifierTypeConfig::Discord(DiscordConfig {
-            discord_url: server.url(),
-            message: NotificationMessage {
-                title: "Retry Test".to_string(),
-                body: "This should retry".to_string(),
-            },
-            retry_policy: retry_policy.clone(),
-        }),
-        policy: None,
-    };
+    let mock_discord_notifier = NotifierBuilder::new("test_discord_retry")
+        .discord_config(&server.url())
+        .retry_policy(retry_policy.clone())
+        .build();
 
     // Mock a server that fails twice with a retryable error, then succeeds.
     let mock = server
@@ -122,18 +116,10 @@ async fn test_failure_with_non_retryable_error() {
 
     let retry_policy = HttpRetryConfig { max_retry: 3, ..Default::default() };
 
-    let mock_discord_notifier = NotifierConfig {
-        name: "test_discord_no_retry".to_string(),
-        config: NotifierTypeConfig::Discord(DiscordConfig {
-            discord_url: server.url(),
-            message: NotificationMessage {
-                title: "No Retry Test".to_string(),
-                body: "This should not retry".to_string(),
-            },
-            retry_policy: retry_policy.clone(),
-        }),
-        policy: None,
-    };
+    let mock_discord_notifier = NotifierBuilder::new("test_discord_no_retry")
+        .discord_config(&server.url())
+        .retry_policy(retry_policy.clone())
+        .build();
 
     // Mock a server that returns a 400 Bad Request, which is a non-retryable error.
     let mock = server
@@ -167,22 +153,14 @@ async fn test_failure_with_non_retryable_error() {
 
 #[tokio::test]
 async fn test_failure_with_invalid_url() {
-    let mock_discord_notifier = NotifierConfig {
-        name: "test_invalid_url".to_string(),
-        config: NotifierTypeConfig::Discord(DiscordConfig {
-            discord_url: "http://127.0.0.1:1".to_string(), // URL with invalid port
-            message: NotificationMessage {
-                title: "Invalid URL Test".to_string(),
-                body: "This should fail".to_string(),
-            },
-            retry_policy: HttpRetryConfig {
-                max_retry: 0,
-                initial_backoff_ms: std::time::Duration::from_millis(1),
-                ..Default::default()
-            },
-        }),
-        policy: None,
-    };
+    let mock_discord_notifier = NotifierBuilder::new("test_invalid_url")
+        .discord_config("http://127.0.0.1:1") // Invalid URL that will fail to connect
+        .retry_policy(HttpRetryConfig {
+            max_retry: 0,
+            initial_backoff_ms: std::time::Duration::from_millis(1),
+            ..Default::default()
+        })
+        .build();
 
     let http_client_pool = Arc::new(HttpClientPool::default());
     let notifiers =

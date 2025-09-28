@@ -59,6 +59,7 @@ use payload_builder::{
     TelegramPayloadBuilder, WebhookPayloadBuilder,
 };
 use tokio::sync::mpsc;
+use url::Url;
 
 use self::{template::TemplateService, webhook::WebhookNotifier};
 
@@ -133,7 +134,8 @@ impl From<&TelegramConfig> for WebhookComponents {
     fn from(c: &TelegramConfig) -> Self {
         WebhookComponents {
             config: webhook::WebhookConfig {
-                url: format!("https://api.telegram.org/bot{}/sendMessage", c.token),
+                url: Url::parse(&format!("https://api.telegram.org/bot{}/sendMessage", c.token))
+                    .unwrap(),
                 title: c.message.title.clone(),
                 body_template: c.message.body.clone(),
                 method: Some("POST".to_string()),
@@ -354,9 +356,10 @@ mod tests {
     fn as_webhook_components_trait_for_slack_config() {
         let title = "Slack Title";
         let message = "Slack Body";
+        let url = Url::parse("https://slack.example.com").unwrap();
 
         let slack_config = NotifierTypeConfig::Slack(SlackConfig {
-            slack_url: "https://slack.example.com".to_string(),
+            slack_url: url.clone(),
             message: NotificationMessage { title: title.to_string(), body: message.to_string() },
             retry_policy: HttpRetryConfig::default(),
         });
@@ -364,7 +367,7 @@ mod tests {
         let components = slack_config.as_webhook_components().unwrap();
 
         // Assert WebhookConfig is correct
-        assert_eq!(components.config.url, "https://slack.example.com");
+        assert_eq!(components.config.url, url);
         assert_eq!(components.config.title, title);
         assert_eq!(components.config.body_template, message);
         assert_eq!(components.config.method, Some("POST".to_string()));
@@ -380,9 +383,10 @@ mod tests {
     fn as_webhook_components_trait_for_discord_config() {
         let title = "Discord Title"; // Not directly used in Discord payload, but part of the message struct
         let message = "Discord Body";
+        let url = Url::parse("https://discord.example.com").unwrap();
 
         let discord_config = NotifierTypeConfig::Discord(DiscordConfig {
-            discord_url: "https://discord.example.com".to_string(),
+            discord_url: url.clone(),
             message: NotificationMessage { title: title.to_string(), body: message.to_string() },
             retry_policy: HttpRetryConfig::default(),
         });
@@ -390,7 +394,7 @@ mod tests {
         let components = discord_config.as_webhook_components().unwrap();
 
         // Assert WebhookConfig is correct
-        assert_eq!(components.config.url, "https://discord.example.com");
+        assert_eq!(components.config.url, url);
         assert_eq!(components.config.title, title);
         assert_eq!(components.config.body_template, message);
         assert_eq!(components.config.method, Some("POST".to_string()));
@@ -422,7 +426,7 @@ mod tests {
         // Assert WebhookConfig is correct
         assert_eq!(
             components.config.url,
-            format!("https://api.telegram.org/bot{token}/sendMessage")
+            Url::parse(&format!("https://api.telegram.org/bot{token}/sendMessage")).unwrap()
         );
         assert_eq!(components.config.title, title);
         assert_eq!(components.config.body_template, message);
@@ -439,11 +443,12 @@ mod tests {
     fn as_webhook_components_trait_for_generic_webhook_config() {
         let title = "Webhook Title";
         let message = "Webhook Body";
+        let url = Url::parse("https://webhook.example.com").unwrap();
         let mut headers = HashMap::new();
         headers.insert("X-Test-Header".to_string(), "Value".to_string());
 
         let webhook_config = NotifierTypeConfig::Webhook(WebhookConfig {
-            url: "https://webhook.example.com".to_string(),
+            url: url.clone(),
             message: NotificationMessage { title: title.to_string(), body: message.to_string() },
             method: Some("PUT".to_string()),
             secret: Some("my-secret".to_string()),
@@ -454,7 +459,7 @@ mod tests {
         let components = webhook_config.as_webhook_components().unwrap();
 
         // Assert WebhookConfig is correct
-        assert_eq!(components.config.url, "https://webhook.example.com");
+        assert_eq!(components.config.url, url);
         assert_eq!(components.config.method, Some("PUT".to_string()));
         assert_eq!(components.config.secret, Some("my-secret".to_string()));
         assert_eq!(components.config.headers, Some(headers));

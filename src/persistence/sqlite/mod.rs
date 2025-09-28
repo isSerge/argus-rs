@@ -124,12 +124,10 @@ mod tests {
         models::{
             monitor::MonitorConfig,
             notification::NotificationMessage,
-            notifier::{
-                AggregationPolicy, DiscordConfig, NotifierConfig, NotifierPolicy,
-                NotifierTypeConfig, SlackConfig, ThrottlePolicy,
-            },
+            notifier::{AggregationPolicy, NotifierPolicy, ThrottlePolicy},
         },
         persistence::traits::{AppRepository, KeyValueStore},
+        test_helpers::NotifierBuilder,
     };
 
     async fn setup_test_db() -> SqliteStateRepository {
@@ -472,19 +470,10 @@ mod tests {
         assert!(notifiers.is_empty());
 
         // Create test notifiers
-        let test_notifiers = vec![NotifierConfig {
-            name: "Test Slack".to_string(),
-            config: NotifierTypeConfig::Slack(SlackConfig {
-                slack_url: "https://hooks.slack.com/services/123".to_string(),
-                message: NotificationMessage {
-                    title: "Test".to_string(),
-                    body: "Body".to_string(),
-                    ..Default::default()
-                },
-                retry_policy: Default::default(),
-            }),
-            policy: None,
-        }];
+        let notifier = NotifierBuilder::new("Test Slack")
+            .slack_config("https://hooks.slack.com/services/123")
+            .build();
+        let test_notifiers = vec![notifier];
 
         // Add notifiers
         repo.add_notifiers(network_id, test_notifiers.clone()).await.unwrap();
@@ -509,24 +498,15 @@ mod tests {
         let network2 = "polygon";
 
         // Create notifiers for different networks
-        let ethereum_notifiers = vec![NotifierConfig {
-            name: "Ethereum Slack".to_string(),
-            config: NotifierTypeConfig::Slack(SlackConfig {
-                slack_url: "https://hooks.slack.com/services/eth".to_string(),
-                message: Default::default(),
-                retry_policy: Default::default(),
-            }),
-            policy: None,
-        }];
-        let polygon_notifiers = vec![NotifierConfig {
-            name: "Polygon Discord".to_string(),
-            config: NotifierTypeConfig::Discord(DiscordConfig {
-                discord_url: "https://discord.com/api/webhooks/poly".to_string(),
-                message: Default::default(),
-                retry_policy: Default::default(),
-            }),
-            policy: None,
-        }];
+        let ethereum_notifier = NotifierBuilder::new("Ethereum Slack")
+            .slack_config("https://hooks.slack.com/services/123")
+            .build();
+        let ethereum_notifiers = vec![ethereum_notifier];
+
+        let polygon_notifier = NotifierBuilder::new("Polygon Discord")
+            .discord_config("https://discord.com/api/webhooks/poly")
+            .build();
+        let polygon_notifiers = vec![polygon_notifier];
 
         // Add notifiers to different networks
         repo.add_notifiers(network1, ethereum_notifiers).await.unwrap();
@@ -560,28 +540,20 @@ mod tests {
         // create an invalid JSON, but we can simulate a constraint violation.
         // Here, we'll rely on the UNIQUE constraint.
         let notifiers1 = vec![
-            NotifierConfig {
-                name: "Unique Notifier".to_string(),
-                config: NotifierTypeConfig::Slack(SlackConfig::default()),
-                policy: None,
-            },
-            NotifierConfig {
-                name: "Another Unique Notifier".to_string(),
-                config: NotifierTypeConfig::Slack(SlackConfig::default()),
-                policy: None,
-            },
+            NotifierBuilder::new("Unique Notifier")
+                .slack_config("https://hooks.slack.com/services/unique")
+                .build(),
+            NotifierBuilder::new("Another Unique Notifier")
+                .slack_config("https://hooks.slack.com/services/another")
+                .build(),
         ];
         let notifiers2 = vec![
-            NotifierConfig {
-                name: "Third Notifier".to_string(),
-                config: NotifierTypeConfig::Slack(SlackConfig::default()),
-                policy: None,
-            },
-            NotifierConfig {
-                name: "Unique Notifier".to_string(), // Duplicate name, will cause failure
-                config: NotifierTypeConfig::Slack(SlackConfig::default()),
-                policy: None,
-            },
+            NotifierBuilder::new("Third Notifier")
+                .slack_config("https://hooks.slack.com/services/third")
+                .build(),
+            NotifierBuilder::new("Unique Notifier") // Duplicate name to violate UNIQUE constraint
+                .slack_config("https://hooks.slack.com/services/duplicate")
+                .build(),
         ];
 
         // This should succeed
@@ -610,19 +582,10 @@ mod tests {
             },
         });
 
-        let test_notifier = NotifierConfig {
-            name: "Policy Notifier".to_string(),
-            config: NotifierTypeConfig::Slack(SlackConfig {
-                slack_url: "https://hooks.slack.com/services/policy".to_string(),
-                message: NotificationMessage {
-                    title: "Policy Test".to_string(),
-                    body: "Body".to_string(),
-                    ..Default::default()
-                },
-                retry_policy: Default::default(),
-            }),
-            policy: Some(aggregation_policy.clone()),
-        };
+        let test_notifier = NotifierBuilder::new("Policy Notifier")
+            .slack_config("https://hooks.slack.com/services/policy")
+            .policy(aggregation_policy.clone())
+            .build();
 
         // Add notifier with policy
         repo.add_notifiers(network_id, vec![test_notifier.clone()]).await.unwrap();
@@ -642,19 +605,10 @@ mod tests {
             time_window_secs: Duration::from_secs(10),
         });
 
-        let throttled_notifier = NotifierConfig {
-            name: "Throttled Notifier".to_string(),
-            config: NotifierTypeConfig::Discord(DiscordConfig {
-                discord_url: "https://discord.com/api/webhooks/throttle".to_string(),
-                message: NotificationMessage {
-                    title: "Throttle Test".to_string(),
-                    body: "Body".to_string(),
-                    ..Default::default()
-                },
-                retry_policy: Default::default(),
-            }),
-            policy: Some(throttle_policy.clone()),
-        };
+        let throttled_notifier = NotifierBuilder::new("Throttled Notifier")
+            .discord_config("https://discord.com/api/webhooks/throttle")
+            .policy(throttle_policy.clone())
+            .build();
 
         repo.add_notifiers(network_id, vec![throttled_notifier.clone()]).await.unwrap();
 

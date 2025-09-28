@@ -1,12 +1,9 @@
 //! Integration tests for the persistence layer
 
 use argus::{
-    models::{
-        monitor::MonitorConfig,
-        notification::NotificationMessage,
-        notifier::{DiscordConfig, NotifierConfig, NotifierTypeConfig},
-    },
+    models::{monitor::MonitorConfig, notifier::NotifierConfig},
     persistence::{sqlite::SqliteStateRepository, traits::AppRepository},
+    test_helpers::NotifierBuilder,
 };
 
 async fn setup_db() -> SqliteStateRepository {
@@ -29,18 +26,7 @@ fn create_test_monitor(name: &str, network: &str) -> MonitorConfig {
 }
 
 fn create_test_notifier(name: &str) -> NotifierConfig {
-    NotifierConfig {
-        name: name.to_string(),
-        config: NotifierTypeConfig::Discord(DiscordConfig {
-            discord_url: "https://discord.com/api/webhooks/test".to_string(),
-            message: NotificationMessage {
-                title: "Test Title".to_string(),
-                body: "Test Body".to_string(),
-            },
-            retry_policy: Default::default(),
-        }),
-        policy: None,
-    }
+    NotifierBuilder::new(name).discord_config("https://discord.com/api/webhooks/test").build()
 }
 
 #[tokio::test]
