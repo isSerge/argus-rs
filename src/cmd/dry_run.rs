@@ -4,6 +4,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use alloy::primitives;
+use dashmap::DashMap;
 use clap::Parser;
 use thiserror::Error;
 
@@ -213,26 +214,32 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
 
     // Execute the core processing loop.
     let matches =
-        run_dry_run_loop(args.from, args.to, Box::new(evm_source), filtering_engine, alert_manager)
+        run_dry_run_loop(args.from, args.to, Box::new(evm_source), filtering_engine, alert_manager.clone())
             .await?;
 
+    // Get actual dispatch statistics from AlertManager
+    let dispatched_notifications = alert_manager.get_dispatched_notifications();
+
     // Print the summary report.
-    print_summary_report(args.from, args.to, &matches);
+    print_summary_report(args.from, args.to, &matches, dispatched_notifications);
 
     Ok(())
 }
 
 /// Prints a summary report of the dry run results.
-fn print_summary_report(from_block: u64, to_block: u64, matches: &[MonitorMatch]) {
+fn print_summary_report(
+    from_block: u64, 
+    to_block: u64, 
+    matches: &[MonitorMatch], 
+    dispatched_notifications: &DashMap<String, usize>
+) {
     let total_blocks = to_block - from_block + 1;
     let total_matches = matches.len();
 
     let mut matches_by_monitor: HashMap<String, usize> = HashMap::new();
-    let mut notifications_dispatched: HashMap<String, usize> = HashMap::new();
 
     for m in matches {
         *matches_by_monitor.entry(m.monitor_name.clone()).or_insert(0) += 1;
-        *notifications_dispatched.entry(m.notifier_name.clone()).or_insert(0) += 1;
     }
 
     println!("\nDry Run Report");
@@ -255,11 +262,11 @@ fn print_summary_report(from_block: u64, to_block: u64, matches: &[MonitorMatch]
 
     println!("\nNotifications Dispatched");
     println!("------------------------");
-    if notifications_dispatched.is_empty() {
+    if dispatched_notifications.is_empty() {
         println!("- No notifications dispatched.");
     } else {
-        for (notifier_name, count) in &notifications_dispatched {
-            println!("- \"{}\": {}", notifier_name, count);
+        for entry in dispatched_notifications.iter() {
+            println!("- \"{}\": {}", entry.key(), entry.value());
         }
     }
 }

@@ -31,6 +31,9 @@ pub struct AlertManager<T: KeyValueStore> {
 
     /// A map of notifier names to their locks to prevent race conditions.
     notifier_locks: DashMap<String, Arc<Mutex<()>>>,
+
+    /// Track dispatched notifications for dry-run reporting
+    dispatched_notifications: DashMap<String, usize>,
 }
 
 /// Errors that can occur within the AlertManager
@@ -52,7 +55,13 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
         state_repository: Arc<T>,
         notifiers: Arc<HashMap<String, NotifierConfig>>,
     ) -> Self {
-        Self { notification_service, state_repository, notifiers, notifier_locks: DashMap::new() }
+        Self { 
+            notification_service, 
+            state_repository, 
+            notifiers, 
+            notifier_locks: DashMap::new(),
+            dispatched_notifications: DashMap::new(),
+        }
     }
 
     /// Processes a monitor match
@@ -96,6 +105,9 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
                         notifier_name,
                         e
                     );
+                } else {
+                    // Increment dispatch counter on successful notification
+                    *self.dispatched_notifications.entry(notifier_name.clone()).or_insert(0) += 1;
                 }
             }
         }
@@ -168,6 +180,9 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
                     notifier_name,
                     e
                 );
+            } else {
+                // Increment dispatch counter on successful notification
+                *self.dispatched_notifications.entry(monitor_match.notifier_name.clone()).or_insert(0) += 1;
             }
             throttle_state.count += 1;
         } else {
@@ -288,6 +303,10 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
                         state_key,
                         e
                     );
+                } else {
+                    // Increment dispatch counter on successful notification
+                    let notifier_name = state_key.split('_').last().unwrap_or("unknown");
+                    *self.dispatched_notifications.entry(notifier_name.to_string()).or_insert(0) += 1;
                 }
 
                 // And finally, clear the state.
@@ -321,6 +340,11 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
                 tracing::error!("Error in aggregation dispatcher cycle: {}", e);
             }
         }
+    }
+
+    /// Gets the count of dispatched notifications by notifier name.
+    pub fn get_dispatched_notifications(&self) -> &DashMap<String, usize> {
+        &self.dispatched_notifications
     }
 
     /// Flushes any pending aggregated notifications.
