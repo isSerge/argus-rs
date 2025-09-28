@@ -1,37 +1,27 @@
 //! # Notification Service
 //!
 //! This module is responsible for sending notifications through various
-//! webhook-based channels based on notifier configurations. It acts as the
-//! central hub for dispatching alerts when a monitor finds a match.
+//! channels based on notifier configurations. It acts as the central hub for
+//! dispatching alerts when a monitor finds a match.
 //!
 //! ## Core Components
 //!
 //! - **`NotificationService`**: The main struct that holds the loaded notifier
 //!   configurations and a shared `HttpClientPool`. It is responsible for
 //!   executing notifications.
-//! - **`WebhookComponents` struct**: This struct provides a common interface
-//!   for the `NotificationService` to work with, regardless of the underlying
-//!   provider (e.g., Slack, Discord).
-//! - **Payload Builders**: Located in the `payload_builder` module, these are
-//!   responsible for constructing the JSON payload specific to each
-//!   notification channel.
+//! - **`Notifier` Trait**: A generic interface for all notification channels,
+//!   allowing for a unified dispatch mechanism.
 //!
 //! ## Workflow
 //!
 //! 1. The `NotificationService` is initialized with a collection of validated
 //!    `NotifierConfig`s, which are loaded at application startup.
-//! 2. When a monitor match occurs, the `execute` method is called with the name
-//!    of the notifier to be executed and a set of variables for template
-//!    substitution.
-//! 3. The service looks up the corresponding `NotifierTypeConfig` by its name.
-//! 4. The `NotifierTypeConfig` is transformed into a `WebhookComponents`
-//!    struct, which includes the generic webhook configuration, retry policy,
-//!    and the payload builder specific to the notifier type.
-//! 5. An HTTP client is retrieved from the `HttpClientPool`, configured with
-//!    the appropriate retry policy for the specific notifier.
-//! 6. The appropriate `WebhookPayloadBuilder` constructs the final JSON
-//!    payload.
-//! 7. The `WebhookNotifier` sends the request to the provider's endpoint.
+//! 2. For each `NotifierConfig`, a corresponding `Notifier` implementation
+//!    (e.g., `WebhookNotifierWrapper`, `StdoutNotifier`) is created and stored.
+//! 3. When a monitor match occurs, the `execute` method is called with the name
+//!    of the notifier to be executed.
+//! 4. The manager looks up the corresponding `Notifier` trait object and calls
+//!    its `notify` method with the appropriate payload.
 
 use std::{collections::HashMap, sync::Arc};
 

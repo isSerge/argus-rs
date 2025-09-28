@@ -104,8 +104,8 @@ pub enum DryRunError {
 /// This command initializes the application's services in a one-shot mode to
 /// test monitor configurations against historical blockchain data. It fetches,
 /// processes, and filters data for each block in the range, dispatches real
-/// notifications for any matches, and prints a JSON report of all matches to
-/// standard output.
+/// notifications for any matches, and prints a final summary report of all
+/// matches to standard output.
 #[derive(Parser, Debug)]
 pub struct DryRunArgs {
     /// Path to configuration directory containing app, monitor and notifier

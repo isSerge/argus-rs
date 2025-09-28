@@ -48,7 +48,7 @@ The `dry-run` command is an essential tool for testing and validating your monit
 3.  **Block Processing**: It fetches and processes blocks in batches (defaulting to 50 blocks per batch) within the specified `--from` and `--to` range.
 4.  **Script Evaluation**: For each transaction and log in the processed blocks, it evaluates your monitor's `filter_script`.
 5.  **Real Notifications (Test Mode)**: Any matches found will trigger *real* notifications to your configured notifiers. During development, it's highly recommended to configure your notifiers to point to test endpoints (e.g., [Webhook.site](https://webhook.site/)) to avoid sending unwanted alerts.
-6.  **JSON Report**: After processing the entire block range, the command prints a comprehensive JSON array of all detected `MonitorMatch`es to standard output. This output is invaluable for verifying your script logic and understanding what events would trigger alerts.
+6.  **Summary Report**: After processing the entire block range, the command prints a human-readable summary report of all detected matches to standard output. This provides a clear overview of the results, including total blocks processed, total matches, and breakdowns by monitor and notifier.
 
 **Usage:**
 
@@ -73,7 +73,28 @@ To test your monitors against blocks 15,000,000 to 15,000,100 on the network def
 cargo run --release -- dry-run --from 15000000 --to 15000100
 ```
 
-For a practical example of using `dry-run` to test a monitor, refer to the [Basic ETH Transfer Monitor example](../examples/1_basic_eth_transfer/README.md#how-to-run-dry-run-mode).
+This will produce a report similar to the following:
+```
+Dry Run Report
+==============
+
+Summary
+-------
+- Blocks Processed: 15000000 to 15000100 (101 blocks)
+- Total Matches Found: 27
+
+Matches by Monitor
+------------------
+- "Large USDC Transfers": 15
+- "Admin Function Calls": 12
+
+Notifications Dispatched
+------------------------
+- "slack-critical": 15
+- "stdout-verbose": 12
+```
+
+For a practical example of using `dry-run` to test a monitor, refer to the [Basic ETH Transfer Monitor example](https://github.com/isSerge/argus-rs/tree/main/examples/1_basic_eth_transfer#how-to-run-dry-run-mode).
 
 ## Database Migrations
 
