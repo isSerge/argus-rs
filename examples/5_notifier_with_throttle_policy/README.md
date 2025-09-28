@@ -1,32 +1,23 @@
 # 5. Monitor with Throttling Policy
 
 This example demonstrates how to configure a notifier with a `throttle` policy
-to limit the rate of notifications and prevent alert fatigue.
+to limit the rate of notifications and prevent alert fatigue. It uses the `stdout`
+notifier for simple console output.
 
 ### Configuration Files
 
 - [`app.yaml`](../../docs/src/user_guide/config_app.md): Basic application configuration.
 - [`monitors.yaml`](../../docs/src/user_guide/config_monitors.md): Defines the "Large ETH Transfers with Throttling" monitor.
-- [`notifiers.yaml`](../../docs/src/user_guide/config_notifiers.md): Defines a Telegram notifier with a `throttle` policy.
+- [`notifiers.yaml`](../../docs/src/user_guide/config_notifiers.md): Defines a stdout notifier with a `throttle` policy.
 
-### Environment Variables for Notifier Secrets
+### Notifier Options
 
-> **Important:** All secrets and sensitive values in `notifiers.yaml` (such as API tokens, webhook URLs, chat IDs, etc.) must be provided as environment variables.
-> For example, if your `notifiers.yaml` contains:
->
-> ```yaml
-> token: "${TELEGRAM_TOKEN}"
-> chat_id: "${TELEGRAM_CHAT_ID}"
-> ```
->
-> You must set these in your shell before running Argus:
->
-> ```sh
-> export TELEGRAM_TOKEN="your-telegram-token"
-> export TELEGRAM_CHAT_ID="your-chat-id"
-> ```
->
-> See the example `notifiers.yaml` for all required variables for each notifier type.
+This example uses the stdout notifier which prints notifications directly to the console. This is ideal for:
+- Local development and testing
+- Debugging monitor configurations and throttling behavior
+- Dry-run scenarios
+
+For production use, you can configure other notifiers like Slack, Discord, Telegram, or webhooks. See the [Notifier Configuration documentation](../../docs/src/user_guide/notifiers_yaml.md) for all available options.
 
 ### Monitor Configuration
 
@@ -40,28 +31,25 @@ monitors:
     filter_script: |
       tx.value > ether(1)
     notifiers:
-      - 'Throttled Telegram Notifier'
+      - 'Throttled Stdout Notifier'
 ```
 
 ### Notifier Configuration
 
-The `notifiers.yaml` file defines a single Telegram notifier with a `throttle`
-policy. For a complete reference on notifier configuration, including policies, see the [Notifier Configuration documentation](../../docs/src/user_guide/config_notifiers.md).
+The `notifiers.yaml` file defines a stdout notifier with a `throttle`
+policy. For a complete reference on notifier configuration, including policies, see the [Notifier Configuration documentation](../../docs/src/user_guide/notifiers_yaml.md).
 
 ```yaml
 notifiers:
-  - name: 'Throttled Telegram Notifier'
-    telegram:
-      token: '<TELEGRAM TOKEN>'
-      chat_id: '<TELEGRAM CHAT ID>'
-      disable_web_preview: true
+  - name: 'Throttled Stdout Notifier'
+    stdout:
       message:
         title: 'Large ETH Transfer (Throttled)'
         body: |
           A transfer of over 1 ETH was detected by monitor {{ monitor_name }}.
-          - *From*: `{{ tx.from }}`
-          - *To*: `{{ tx.to }}`
-          - *Value*: `{{ tx.value | ether }}` ETH
+          - From: `{{ tx.from }}`
+          - To: `{{ tx.to }}`
+          - Value: `{{ tx.value | ether }} ETH`
           [View on Etherscan](https://etherscan.io/tx/{{ tx.hash }})
     policy:
       throttle:
@@ -104,37 +92,38 @@ Replace `23159290` and `23159300` with any Ethereum block numbers to test agains
 
 #### Expected Output
 
-As blocks within the specified range are processed, you should receive only 5
-notifications (or another amount specified in notifier config) similar to this:
+As blocks within the specified range are processed, you should see **only 5 notifications** printed to the console (due to the throttle policy), even though more matches are found. Each notification will be formatted according to the message template:
 
-![Sample notification output (Telegram)](image.png)
-
-While the final JSON output should contain all 45 matches:
-
-```json
-[
-  {
-    "monitor_id": 0,
-    "monitor_name": "Large ETH Transfers with Throttling",
-    "notifier_name": "Throttled Telegram Notifier",
-    "block_number": 23159290,
-    "transaction_hash": "0x3ab53e8efc91dbace37b6f390208e2dae4f9959415bcff61a92d8fad4fa133cc",
-    "tx": {
-      "from": "0x841FA51e9DCb53844720cDFdb13286554B4854eD",
-      "gas_limit": 21000,
-      "hash": "0x3ab53e8efc91dbace37b6f390208e2dae4f9959415bcff61a92d8fad4fa133cc",
-      "input": "0x",
-      "max_fee_per_gas": "181210806",
-      "max_priority_fee_per_gas": "181210806",
-      "nonce": 1,
-      "to": "0xa51a5FA9A309942f67Ad0872d8860A468EB91851",
-      "transaction_index": 103,
-      "value": "1197082720736539353"
-    }
-  },
-  // 44 more items
-]
 ```
+Large ETH Transfer (Throttled)
+A transfer of over 1 ETH was detected by monitor Large ETH Transfers with Throttling.
+- From: `0x841FA51e9DCb53844720cDFdb13286554B4854eD`
+- To: `0xa51a5FA9A309942f67Ad0872d8860A468EB91851`
+- Value: `1.197082720736539353 ETH`
+[View on Etherscan](https://etherscan.io/tx/0x3ab53e8efc91dbace37b6f390208e2dae4f9959415bcff61a92d8fad4fa133cc)
+```
+
+After `dry-run` processing is complete, you should see a summary report showing that while 45 matches were found, only 5 notifications were actually dispatched due to throttling:
+
+```
+Dry Run Report
+==============
+
+Summary
+-------
+- Blocks Processed: 23159290 to 23159300 (11 blocks)
+- Total Matches Found: 45
+
+Matches by Monitor
+------------------
+- "Large ETH Transfers with Throttling": 45
+
+Notifications Dispatched
+------------------------
+- "Throttled Stdout Notifier": 5
+```
+
+This demonstrates the throttling policy in action: all 45 matches were detected, but only the first 5 triggered actual notifications within the 10-minute time window.
 
 ### How to Run (Default Mode)
 

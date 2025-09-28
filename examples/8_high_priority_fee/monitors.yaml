@@ -7,4 +7,4 @@ monitors:
 
       tx.max_priority_fee_per_gas > priority_fee_threshold
     notifiers:
-      - "Telegram MEV"
+      - "Stdout High Priority Fee"

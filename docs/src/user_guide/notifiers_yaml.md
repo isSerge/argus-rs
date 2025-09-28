@@ -101,6 +101,21 @@ Sends a message to a Telegram chat via a bot.
         [View on Etherscan](https://etherscan.io/tx/{{ transaction_hash }})
 ```
 
+### Stdout
+
+Prints the notification to standard output (the console). This is primarily useful for local development, testing, and debugging.
+
+If a `message` template is provided, it will be rendered and printed. If `message` is omitted, the full, raw `MonitorMatch` JSON payload will be printed.
+
+```yaml
+- name: "stdout-for-debugging"
+  stdout:
+    # Message is optional for stdout. If omitted, the full event JSON payload is printed.
+    message:
+      title: "Debug Event: {{ monitor_name }}"
+      body: "tx hash: {{ transaction_hash }}"
+```
+
 ---
 
 ## Notification Policies

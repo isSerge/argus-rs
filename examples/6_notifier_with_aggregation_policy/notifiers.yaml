@@ -1,9 +1,12 @@
+# This example uses the stdout notifier for console output, perfect for testing and development.
+# For production use, you can configure other notifiers like Slack, Discord, Telegram, or webhooks.
+# See the documentation for all available notifier types:
+# https://github.com/isSerge/argus-rs/blob/main/docs/src/user_guide/notifiers_yaml.md
+
 notifiers:
-  - name: "Telegram Aggregated WBTC Transfers"
-    telegram:
-      token: "${TELEGRAM_TOKEN}"
-      chat_id: "${TELEGRAM_CHAT_ID}"
-      disable_web_preview: true
+  - name: "Stdout Aggregated WBTC Transfers"
+    stdout:
+      # Message is optional for stdout. If omitted, the full event JSON payload is printed.
       message:
         title: "Aggregated WBTC Transfers"
         body: |

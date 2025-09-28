@@ -9,13 +9,11 @@ use argus::{
         NotificationMessage,
         alert_manager_state::{AggregationState, ThrottleState},
         monitor_match::MonitorMatch,
-        notifier::{
-            AggregationPolicy, DiscordConfig, NotifierConfig, NotifierPolicy, NotifierTypeConfig,
-            ThrottlePolicy,
-        },
+        notifier::{AggregationPolicy, NotifierConfig, NotifierPolicy, ThrottlePolicy},
     },
     notification::NotificationService,
     persistence::{sqlite::SqliteStateRepository, traits::KeyValueStore},
+    test_helpers::NotifierBuilder,
 };
 use mockito;
 use serde_json::json;
@@ -67,18 +65,11 @@ async fn test_aggregation_policy_dispatches_summary_after_window() {
         },
     };
 
-    let notifier_config = NotifierConfig {
-        name: notifier_name.clone(),
-        config: NotifierTypeConfig::Discord(DiscordConfig {
-            discord_url: server.url(),
-            message: NotificationMessage {
-                title: "Single Alert".to_string(),
-                body: "Single event body".to_string(),
-            },
-            retry_policy: Default::default(),
-        }),
-        policy: Some(NotifierPolicy::Aggregation(aggregation_policy.clone())),
-    };
+    let notifier_config = NotifierBuilder::new(&notifier_name)
+        .discord_config(&server.url())
+        .policy(NotifierPolicy::Aggregation(aggregation_policy.clone()))
+        .build();
+
     let mut notifiers = HashMap::new();
     notifiers.insert(notifier_name.clone(), notifier_config);
 
@@ -135,18 +126,11 @@ async fn test_throttle_policy_limits_notifications() {
     let throttle_policy =
         ThrottlePolicy { max_count, time_window_secs: Duration::from_secs(time_window_secs) };
 
-    let notifier_config = NotifierConfig {
-        name: notifier_name.clone(),
-        config: NotifierTypeConfig::Discord(DiscordConfig {
-            discord_url: server.url(),
-            message: NotificationMessage {
-                title: "Throttled Alert".to_string(),
-                body: "Throttled event body".to_string(),
-            },
-            retry_policy: Default::default(),
-        }),
-        policy: Some(NotifierPolicy::Throttle(throttle_policy.clone())),
-    };
+    let notifier_config = NotifierBuilder::new(&notifier_name)
+        .discord_config(&server.url())
+        .policy(NotifierPolicy::Throttle(throttle_policy.clone()))
+        .build();
+
     let mut notifiers = HashMap::new();
     notifiers.insert(notifier_name.clone(), notifier_config);
 
@@ -216,18 +200,10 @@ async fn test_no_policy_sends_notification_per_match() {
     let notifier_name = "test_no_policy".to_string();
     let monitor_name = "Test Monitor".to_string();
 
-    let notifier_config = NotifierConfig {
-        name: notifier_name.clone(),
-        config: NotifierTypeConfig::Discord(DiscordConfig {
-            discord_url: server.url(),
-            message: NotificationMessage {
-                title: "Simple Alert".to_string(),
-                body: "Simple event body".to_string(),
-            },
-            retry_policy: Default::default(),
-        }),
-        policy: None, // No policy
-    };
+    // No policy configured by default
+    let notifier_config =
+        NotifierBuilder::new(&notifier_name).discord_config(&server.url()).build();
+
     let mut notifiers = HashMap::new();
     notifiers.insert(notifier_name.clone(), notifier_config);
 
@@ -270,18 +246,11 @@ async fn test_throttle_policy_shared_across_monitors() {
     let throttle_policy =
         ThrottlePolicy { max_count, time_window_secs: Duration::from_secs(time_window_secs) };
 
-    let notifier_config = NotifierConfig {
-        name: notifier_name.clone(),
-        config: NotifierTypeConfig::Discord(DiscordConfig {
-            discord_url: server.url(),
-            message: NotificationMessage {
-                title: "Shared Throttle Alert".to_string(),
-                body: "Event body".to_string(),
-            },
-            retry_policy: Default::default(),
-        }),
-        policy: Some(NotifierPolicy::Throttle(throttle_policy.clone())),
-    };
+    let notifier_config = NotifierBuilder::new(&notifier_name)
+        .discord_config(&server.url())
+        .policy(NotifierPolicy::Throttle(throttle_policy.clone()))
+        .build();
+
     let mut notifiers = HashMap::new();
     notifiers.insert(notifier_name.clone(), notifier_config);
 
@@ -334,15 +303,11 @@ async fn test_aggregation_state_persistence_on_restart() {
         },
     };
 
-    let notifier_config = NotifierConfig {
-        name: notifier_name.clone(),
-        config: NotifierTypeConfig::Discord(DiscordConfig {
-            discord_url: server.url(),
-            message: Default::default(),
-            retry_policy: Default::default(),
-        }),
-        policy: Some(NotifierPolicy::Aggregation(aggregation_policy.clone())),
-    };
+    let notifier_config = NotifierBuilder::new(&notifier_name)
+        .discord_config(&server.url())
+        .policy(NotifierPolicy::Aggregation(aggregation_policy.clone()))
+        .build();
+
     let mut notifiers = HashMap::new();
     notifiers.insert(notifier_name.clone(), notifier_config);
     let notifiers_arc = Arc::new(notifiers);

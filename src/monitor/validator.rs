@@ -348,13 +348,9 @@ mod tests {
         abi::{AbiService, repository::AbiRepository},
         config::RhaiConfig,
         engine::rhai::{RhaiCompiler, RhaiScriptValidationError, RhaiScriptValidator},
-        models::{
-            NotificationMessage,
-            monitor::MonitorConfig,
-            notifier::{NotifierConfig, NotifierTypeConfig, WebhookConfig},
-        },
+        models::{monitor::MonitorConfig, notifier::NotifierConfig},
         monitor::{MonitorValidationError, MonitorValidator},
-        test_helpers::erc20_abi_json,
+        test_helpers::{NotifierBuilder, erc20_abi_json},
     };
 
     fn create_test_monitor(
@@ -375,15 +371,7 @@ mod tests {
     }
 
     fn create_test_notifier(name: &str) -> NotifierConfig {
-        NotifierConfig {
-            name: name.to_string(),
-            config: NotifierTypeConfig::Webhook(WebhookConfig {
-                url: "http://localhost".to_string(),
-                message: NotificationMessage::default(),
-                ..Default::default()
-            }),
-            policy: None,
-        }
+        NotifierBuilder::new(name).discord_config("https://discord.com/api/webhooks/test").build()
     }
 
     fn create_monitor_validator<'a>(

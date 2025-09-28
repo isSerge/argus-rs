@@ -1,16 +1,19 @@
+# This example uses the stdout notifier for console output, perfect for testing and development.
+# For production use, you can configure other notifiers like Slack, Discord, Telegram, or webhooks.
+# See the documentation for all available notifier types:
+# https://github.com/isSerge/argus-rs/blob/main/docs/src/user_guide/notifiers_yaml.md
+
 notifiers:
-  - name: "Throttled Telegram Notifier"
-    telegram:
-      token: "${TELEGRAM_TOKEN}"
-      chat_id: "${TELEGRAM_CHAT_ID}"
-      disable_web_preview: true
+  - name: "Throttled Stdout Notifier"
+    stdout:
+      # Message is optional for stdout. If omitted, the full event JSON payload is printed.
       message:
         title: "Large ETH Transfer (Throttled)"
         body: |
           A transfer of over 1 ETH was detected by monitor {{ monitor_name }}.
-          - *From*: `{{ tx.from }}`
-          - *To*: `{{ tx.to }}`
-          - *Value*: `{{ tx.value | ether }} ETH`
+          - From: `{{ tx.from }}`
+          - To: `{{ tx.to }}`
+          - Value: `{{ tx.value | ether }} ETH`
           [View on Etherscan](https://etherscan.io/tx/{{ tx.hash }})
     policy:
       throttle:

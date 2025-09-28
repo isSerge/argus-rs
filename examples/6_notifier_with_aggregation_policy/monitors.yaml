@@ -6,4 +6,4 @@ monitors:
     filter_script: |
       log.name == "Transfer" && log.params.value > wbtc(0.001)
     notifiers:
-      - "Telegram Aggregated WBTC Transfers"
+      - "Stdout Aggregated WBTC Transfers"

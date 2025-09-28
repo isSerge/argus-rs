@@ -1,37 +1,27 @@
 //! # Notification Service
 //!
 //! This module is responsible for sending notifications through various
-//! webhook-based channels based on notifier configurations. It acts as the
-//! central hub for dispatching alerts when a monitor finds a match.
+//! channels based on notifier configurations. It acts as the central hub for
+//! dispatching alerts when a monitor finds a match.
 //!
 //! ## Core Components
 //!
 //! - **`NotificationService`**: The main struct that holds the loaded notifier
 //!   configurations and a shared `HttpClientPool`. It is responsible for
 //!   executing notifications.
-//! - **`WebhookComponents` struct**: This struct provides a common interface
-//!   for the `NotificationService` to work with, regardless of the underlying
-//!   provider (e.g., Slack, Discord).
-//! - **Payload Builders**: Located in the `payload_builder` module, these are
-//!   responsible for constructing the JSON payload specific to each
-//!   notification channel.
+//! - **`Notifier` Trait**: A generic interface for all notification channels,
+//!   allowing for a unified dispatch mechanism.
 //!
 //! ## Workflow
 //!
 //! 1. The `NotificationService` is initialized with a collection of validated
 //!    `NotifierConfig`s, which are loaded at application startup.
-//! 2. When a monitor match occurs, the `execute` method is called with the name
-//!    of the notifier to be executed and a set of variables for template
-//!    substitution.
-//! 3. The service looks up the corresponding `NotifierTypeConfig` by its name.
-//! 4. The `NotifierTypeConfig` is transformed into a `WebhookComponents`
-//!    struct, which includes the generic webhook configuration, retry policy,
-//!    and the payload builder specific to the notifier type.
-//! 5. An HTTP client is retrieved from the `HttpClientPool`, configured with
-//!    the appropriate retry policy for the specific notifier.
-//! 6. The appropriate `WebhookPayloadBuilder` constructs the final JSON
-//!    payload.
-//! 7. The `WebhookNotifier` sends the request to the provider's endpoint.
+//! 2. For each `NotifierConfig`, a corresponding `Notifier` implementation
+//!    (e.g., `WebhookNotifierWrapper`, `StdoutNotifier`) is created and stored.
+//! 3. When a monitor match occurs, the `execute` method is called with the name
+//!    of the notifier to be executed.
+//! 4. The manager looks up the corresponding `Notifier` trait object and calls
+//!    its `notify` method with the appropriate payload.
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -42,7 +32,7 @@ use crate::{
         NotificationMessage,
         monitor_match::MonitorMatch,
         notifier::{
-            DiscordConfig, NotifierConfig, NotifierTypeConfig, SlackConfig, TelegramConfig,
+            self, DiscordConfig, NotifierConfig, NotifierTypeConfig, SlackConfig, TelegramConfig,
             WebhookConfig,
         },
     },
@@ -59,6 +49,7 @@ use payload_builder::{
     TelegramPayloadBuilder, WebhookPayloadBuilder,
 };
 use tokio::sync::mpsc;
+use url::Url;
 
 use self::{template::TemplateService, webhook::WebhookNotifier};
 
@@ -133,7 +124,8 @@ impl From<&TelegramConfig> for WebhookComponents {
     fn from(c: &TelegramConfig) -> Self {
         WebhookComponents {
             config: webhook::WebhookConfig {
-                url: format!("https://api.telegram.org/bot{}/sendMessage", c.token),
+                url: Url::parse(&format!("https://api.telegram.org/bot{}/sendMessage", c.token))
+                    .unwrap(),
                 title: c.message.title.clone(),
                 body_template: c.message.body.clone(),
                 method: Some("POST".to_string()),
@@ -177,6 +169,10 @@ impl NotifierTypeConfig {
             NotifierTypeConfig::Discord(c) => c.into(),
             NotifierTypeConfig::Telegram(c) => c.into(),
             NotifierTypeConfig::Slack(c) => c.into(),
+            NotifierTypeConfig::Stdout(_) =>
+                return Err(NotificationError::ConfigError(
+                    "Stdout notifier does not support webhook components".to_string(),
+                )),
         })
     }
 }
@@ -251,6 +247,30 @@ impl NotificationService {
         })?;
         tracing::debug!(notifier = %notifier_name, "Found notifier configuration.");
 
+        // Handle different notifier types separately
+        match &notifier_config.config {
+            // Standard output notifier
+            NotifierTypeConfig::Stdout(stdout_config) =>
+                self.execute_stdout(stdout_config, &context)?,
+            // All webhook-based notifiers are handled here
+            NotifierTypeConfig::Discord(_)
+            | NotifierTypeConfig::Slack(_)
+            | NotifierTypeConfig::Telegram(_)
+            | NotifierTypeConfig::Webhook(_) =>
+                self.execute_webhook(notifier_config, &context, custom_template).await?,
+        }
+
+        Ok(())
+    }
+
+    /// Executes a webhook notification.
+    async fn execute_webhook(
+        &self,
+        notifier_config: &NotifierConfig,
+        context: &serde_json::Value,
+        custom_template: Option<NotificationMessage>,
+    ) -> Result<(), NotificationError> {
+        let notifier_name = &notifier_config.name;
         // Use the AsWebhookComponents trait to get config, retry policy and payload
         // builder
         let mut components = notifier_config.config.as_webhook_components()?;
@@ -269,7 +289,7 @@ impl NotificationService {
         let rendered_title =
             self.template_service.render(&components.config.title, context.clone())?;
         let rendered_body =
-            self.template_service.render(&components.config.body_template, context)?;
+            self.template_service.render(&components.config.body_template, context.clone())?;
         tracing::debug!(notifier = %notifier_name, body = %rendered_body, "Rendered notification template.");
 
         // Build the payload
@@ -283,6 +303,24 @@ impl NotificationService {
         tracing::info!(notifier = %notifier_name, "Notification dispatched successfully.");
 
         Ok(())
+    }
+
+    /// Executes a stdout notification.
+    fn execute_stdout(
+        &self,
+        stdout_config: &notifier::StdoutConfig,
+        context: &serde_json::Value,
+    ) -> Result<(), NotificationError> {
+        if let Some(message) = &stdout_config.message {
+            let rendered_title = self.template_service.render(&message.title, context.clone())?;
+            let rendered_body = self.template_service.render(&message.body, context.clone())?;
+
+            println!("=== Stdout Notification: ===\n{}\n{}\n", rendered_title, rendered_body);
+            Ok(())
+        } else {
+            println!("=== Stdout Notification: ===\n {}", context);
+            Ok(())
+        }
     }
 
     /// Runs the notification service, listening for incoming monitor matches
@@ -313,6 +351,7 @@ mod tests {
             notification::NotificationMessage,
             notifier::{DiscordConfig, SlackConfig, TelegramConfig, WebhookConfig},
         },
+        test_helpers::NotifierBuilder,
     };
 
     fn create_mock_monitor_match(notifier_name: &str) -> MonitorMatch {
@@ -354,9 +393,10 @@ mod tests {
     fn as_webhook_components_trait_for_slack_config() {
         let title = "Slack Title";
         let message = "Slack Body";
+        let url = Url::parse("https://slack.example.com").unwrap();
 
         let slack_config = NotifierTypeConfig::Slack(SlackConfig {
-            slack_url: "https://slack.example.com".to_string(),
+            slack_url: url.clone(),
             message: NotificationMessage { title: title.to_string(), body: message.to_string() },
             retry_policy: HttpRetryConfig::default(),
         });
@@ -364,7 +404,7 @@ mod tests {
         let components = slack_config.as_webhook_components().unwrap();
 
         // Assert WebhookConfig is correct
-        assert_eq!(components.config.url, "https://slack.example.com");
+        assert_eq!(components.config.url, url);
         assert_eq!(components.config.title, title);
         assert_eq!(components.config.body_template, message);
         assert_eq!(components.config.method, Some("POST".to_string()));
@@ -380,9 +420,10 @@ mod tests {
     fn as_webhook_components_trait_for_discord_config() {
         let title = "Discord Title"; // Not directly used in Discord payload, but part of the message struct
         let message = "Discord Body";
+        let url = Url::parse("https://discord.example.com").unwrap();
 
         let discord_config = NotifierTypeConfig::Discord(DiscordConfig {
-            discord_url: "https://discord.example.com".to_string(),
+            discord_url: url.clone(),
             message: NotificationMessage { title: title.to_string(), body: message.to_string() },
             retry_policy: HttpRetryConfig::default(),
         });
@@ -390,7 +431,7 @@ mod tests {
         let components = discord_config.as_webhook_components().unwrap();
 
         // Assert WebhookConfig is correct
-        assert_eq!(components.config.url, "https://discord.example.com");
+        assert_eq!(components.config.url, url);
         assert_eq!(components.config.title, title);
         assert_eq!(components.config.body_template, message);
         assert_eq!(components.config.method, Some("POST".to_string()));
@@ -422,7 +463,7 @@ mod tests {
         // Assert WebhookConfig is correct
         assert_eq!(
             components.config.url,
-            format!("https://api.telegram.org/bot{token}/sendMessage")
+            Url::parse(&format!("https://api.telegram.org/bot{token}/sendMessage")).unwrap()
         );
         assert_eq!(components.config.title, title);
         assert_eq!(components.config.body_template, message);
@@ -439,11 +480,12 @@ mod tests {
     fn as_webhook_components_trait_for_generic_webhook_config() {
         let title = "Webhook Title";
         let message = "Webhook Body";
+        let url = Url::parse("https://webhook.example.com").unwrap();
         let mut headers = HashMap::new();
         headers.insert("X-Test-Header".to_string(), "Value".to_string());
 
         let webhook_config = NotifierTypeConfig::Webhook(WebhookConfig {
-            url: "https://webhook.example.com".to_string(),
+            url: url.clone(),
             message: NotificationMessage { title: title.to_string(), body: message.to_string() },
             method: Some("PUT".to_string()),
             secret: Some("my-secret".to_string()),
@@ -454,7 +496,7 @@ mod tests {
         let components = webhook_config.as_webhook_components().unwrap();
 
         // Assert WebhookConfig is correct
-        assert_eq!(components.config.url, "https://webhook.example.com");
+        assert_eq!(components.config.url, url);
         assert_eq!(components.config.method, Some("PUT".to_string()));
         assert_eq!(components.config.secret, Some("my-secret".to_string()));
         assert_eq!(components.config.headers, Some(headers));
@@ -463,5 +505,89 @@ mod tests {
         let payload = components.builder.build_payload(title, message);
         assert_eq!(payload.get("title").unwrap(), title);
         assert_eq!(payload.get("body").unwrap(), message);
+    }
+
+    #[test]
+    fn as_webhook_components_trait_fails_for_stdout_config() {
+        let stdout_config = NotifierTypeConfig::Stdout(notifier::StdoutConfig { message: None });
+
+        let result = stdout_config.as_webhook_components();
+
+        assert!(result.is_err());
+        match result {
+            Err(NotificationError::ConfigError(msg)) => {
+                assert!(msg.contains("Stdout notifier does not support webhook components"));
+            }
+            _ => panic!("Expected ConfigError"),
+        }
+    }
+
+    #[test]
+    fn test_execute_stdout_with_message() {
+        let notifier_config = NotifierBuilder::new("stdout_test")
+            .stdout_config(Some(NotificationMessage {
+                title: "Test Title".to_string(),
+                body: "This is a test body.".to_string(),
+            }))
+            .build();
+
+        let stdout_config = match &notifier_config.config {
+            NotifierTypeConfig::Stdout(c) => c,
+            _ => panic!("Expected StdoutConfig"),
+        };
+
+        let context = serde_json::json!({
+            "monitor_name": "Test Monitor",
+            "block_number": 123,
+            "transaction_hash": "0xabc123",
+            "tx": {
+                "from": "0xfromaddress",
+                "to": "0xtoaddress",
+                "value": 1000
+            }
+        });
+
+        let service = NotificationService::new(
+            Arc::new(
+                vec![(notifier_config.name.clone(), notifier_config.clone())].into_iter().collect(),
+            ),
+            Arc::new(HttpClientPool::default()),
+        );
+
+        let result = service.execute_stdout(stdout_config, &context);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_execute_stdout_without_message() {
+        let notifier_config = NotifierBuilder::new("stdout_test").stdout_config(None).build();
+
+        let stdout_config = match &notifier_config.config {
+            NotifierTypeConfig::Stdout(c) => c,
+            _ => panic!("Expected StdoutConfig"),
+        };
+
+        let context = serde_json::json!({
+            "monitor_name": "Test Monitor",
+            "block_number": 123,
+            "transaction_hash": "0xabc123",
+            "tx": {
+                "from": "0xfromaddress",
+                "to": "0xtoaddress",
+                "value": 1000
+            }
+        });
+
+        let service = NotificationService::new(
+            Arc::new(
+                vec![(notifier_config.name.clone(), notifier_config.clone())].into_iter().collect(),
+            ),
+            Arc::new(HttpClientPool::default()),
+        );
+
+        let result = service.execute_stdout(stdout_config, &context);
+
+        assert!(result.is_ok());
     }
 }

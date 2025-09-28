@@ -4,4 +4,4 @@ monitors:
     filter_script: |
       tx.value > ether(1)
     notifiers:
-      - "Throttled Telegram Notifier"
+      - "Throttled Stdout Notifier"

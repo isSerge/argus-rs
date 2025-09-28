@@ -279,15 +279,11 @@ mod tests {
 
     use super::*;
     use crate::{
-        config::{AppConfig, HttpRetryConfig, RhaiConfig},
+        config::{AppConfig, RhaiConfig},
         engine::rhai::RhaiCompiler,
-        models::{
-            monitor::MonitorConfig,
-            notification::NotificationMessage,
-            notifier::{NotifierConfig, NotifierTypeConfig, SlackConfig},
-        },
+        models::{monitor::MonitorConfig, notifier::NotifierConfig},
         persistence::{error::PersistenceError, traits::MockAppRepository},
-        test_helpers::{MonitorBuilder, create_test_abi_service, mock_provider},
+        test_helpers::{MonitorBuilder, NotifierBuilder, create_test_abi_service, mock_provider},
     };
 
     // Helper to create a dummy config file
@@ -432,11 +428,8 @@ monitors:
 
         let monitor = MonitorBuilder::new().network(network_id).name("Existing Monitor").build();
 
-        let trigger = NotifierConfig {
-            name: "Existing Trigger".to_string(),
-            config: NotifierTypeConfig::Webhook(Default::default()),
-            policy: None,
-        };
+        let trigger =
+            NotifierBuilder::new("Existing Trigger").webhook_config("http://example.com").build();
 
         let mut mock_repo = MockAppRepository::new();
         // Return existing monitors
@@ -785,19 +778,16 @@ monitors:
         );
         let network_id = "testnet";
 
+        let notifier =
+            NotifierBuilder::new("Dummy Notifier").webhook_config("http://example.com").build();
+
         let mut mock_repo = MockAppRepository::new();
         // Expect get_notifiers to be called and return non-empty
-        mock_repo.expect_get_notifiers().with(eq(network_id)).once().returning(|_| {
-            Ok(vec![NotifierConfig {
-                name: "Dummy Notifier".to_string(),
-                config: NotifierTypeConfig::Slack(SlackConfig {
-                    slack_url: "http://dummy.url".to_string(),
-                    message: NotificationMessage::default(),
-                    retry_policy: HttpRetryConfig::default(),
-                }),
-                policy: None,
-            }])
-        }); // Return a dummy notifier
+        mock_repo
+            .expect_get_notifiers()
+            .with(eq(network_id))
+            .once()
+            .returning(move |_| Ok(vec![notifier.clone()]));
         // Expect clear_notifiers and add_notifiers to NOT be called
         mock_repo.expect_clear_notifiers().times(0);
         mock_repo.expect_add_notifiers().times(0);

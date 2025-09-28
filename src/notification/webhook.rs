@@ -24,7 +24,7 @@ type HmacSha256 = Hmac<Sha256>;
 /// Represents a webhook configuration
 #[derive(Clone)]
 pub struct WebhookConfig {
-    pub url: String,
+    pub url: Url,
     pub url_params: Option<HashMap<String, String>>,
     pub title: String,
     pub body_template: String,
@@ -69,12 +69,8 @@ impl WebhookNotifier {
             headers.insert("Content-Type".to_string(), "application/json".to_string());
         }
 
-        let url = Url::parse(&config.url).map_err(|e| {
-            NotificationError::ConfigError(format!("Invalid webhook URL '{}': {e}", config.url))
-        })?;
-
         Ok(Self {
-            url,
+            url: config.url,
             url_params: config.url_params,
             client: http_client,
             method: Some(config.method.unwrap_or("POST".to_string())),
@@ -217,7 +213,7 @@ mod tests {
     ) -> WebhookNotifier {
         let http_client = create_test_http_client();
         let config = WebhookConfig {
-            url: url.to_string(),
+            url: Url::parse(url).unwrap(),
             url_params: None,
             title: "Alert".to_string(),
             body_template: "Test message".to_string(),

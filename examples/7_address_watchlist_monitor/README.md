@@ -1,31 +1,21 @@
 # 7. Address Watchlist Monitor
 
-This example demonstrates a powerful Rhai script feature: using an array as a watchlist to monitor for any activity involving a specific set of addresses, in this case we're using Ethereum Foundation addresses.
+This example demonstrates a powerful Rhai script feature: using an array as a watchlist to monitor for any activity involving a specific set of addresses, in this case we're using Ethereum Foundation addresses. It uses the `stdout` notifier for simple console output.
 
 ### Configuration Files
 
 - [`app.yaml`](../../docs/src/user_guide/config_app.md): Basic application configuration, pointing to public RPC endpoints.
-- [`monitors.yaml`](../../docs/src/user_guide/config_monitors.md): Defines the "Large ETH Transfers" monitor.
-- [`notifiers.yaml`](../../docs/src/user_guide/config_notifiers.md): Defines "Telegram Large ETH Transfers" notifier.
+- [`monitors.yaml`](../../docs/src/user_guide/config_monitors.md): Defines the "Address Watchlist" monitor.
+- [`notifiers.yaml`](../../docs/src/user_guide/config_notifiers.md): Defines the stdout notifier for console output.
 
-### Environment Variables for Notifier Secrets
+### Notifier Options
 
-> **Important:** All secrets and sensitive values in `notifiers.yaml` (such as API tokens, webhook URLs, chat IDs, etc.) must be provided as environment variables.
-> For example, if your `notifiers.yaml` contains:
->
-> ```yaml
-> token: "${TELEGRAM_TOKEN}"
-> chat_id: "${TELEGRAM_CHAT_ID}"
-> ```
->
-> You must set these in your shell before running Argus:
->
-> ```sh
-> export TELEGRAM_TOKEN="your-telegram-token"
-> export TELEGRAM_CHAT_ID="your-chat-id"
-> ```
->
-> See the example `notifiers.yaml` for all required variables for each notifier type.
+This example uses the stdout notifier which prints notifications directly to the console. This is ideal for:
+- Local development and testing
+- Debugging monitor configurations and watchlist behavior
+- Dry-run scenarios
+
+For production use, you can configure other notifiers like Slack, Discord, Telegram, or webhooks. See the [Notifier Configuration documentation](../../docs/src/user_guide/notifiers_yaml.md) for all available options.
 
 ### Monitor Configuration
 
@@ -81,34 +71,26 @@ Replace `22895951` and `22895952` with any Ethereum block numbers to test agains
 
 #### Expected Output
 
-As blocks within the specified range are processed, you should receive notifications on Telegram (or another specified notifier) with aggregated values.
+As blocks within the specified range are processed, you should see notifications printed directly to the console when transactions involve the watched addresses.
 
-![Sample notification output (Telegram)](image.png)
+Once processing is complete, you should see a summary report like this:
 
-Once processing is complete, you should see the following output in your terminal, which is a JSON array with all detected monitor matches:
+```
+Dry Run Report
+==============
 
-```json
-[
-  {
-    "monitor_id": 0,
-    "monitor_name": "Address Watchlist",
-    "notifier_name": "Telegram Watchlist",
-    "block_number": 22895951,
-    "transaction_hash": "0xe46fd6d66323ccf136a7785bd9c7cf2768f45cc36f72acbafa0e915093087c0a",
-    "tx": {
-      "from": "0xa0988fAfe56F4e103C8A592257c1af3F17890597",
-      "gas_limit": 81777,
-      "hash": "0xe46fd6d66323ccf136a7785bd9c7cf2768f45cc36f72acbafa0e915093087c0a",
-      "input": "0x6a761202000000000000000000000000353657acd92f4c83a9dba7cdab84289efffa4feb00000000000000000000000000000000000000000000021e19e0c9bab24000000000000000000000000000000000000000000000000000000000000000000140000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000016000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000104fccecd6007372618ee82afec57e0c42203173acd10f872c57f0dd6738a6f59512cae7196177e7b62bbce0767f0f9399d6dd2fe93740a2b065494e3edc2a227e21cc529bbc03fd66b2101521659d5eb9131f5e29d9d770026fabc641b2c441ab99f3767dd5deb07cde7f2c81f4cb922feec669237d9636cbf7143e8b8abe9be8ecf1cfc2c09bce3dca54181258c0d33f1bb90c0891e61b9e9251b69a19195909b1e7b2d1dc7e86a0c6f6e9c328e9cf7c37e1407a823dd7f0d63eb80cf14122f73d9401b804463acc29b3820d98e7c9a37676d6a212ad0d9e2418ba703071c1b2de10b245072591c7e63e82cb2de7cca56d734f5640cb5d3fb191c60e35c9cce8453eb721b00000000000000000000000000000000000000000000000000000000",
-      "max_fee_per_gas": "4026485592",
-      "max_priority_fee_per_gas": "500000000",
-      "nonce": 2,
-      "to": "0xc06145782F31030dB1C40B203bE6B0fD53410B6d",
-      "transaction_index": 246,
-      "value": "0"
-    }
-  }
-]
+Summary
+-------
+- Blocks Processed: 22895951 to 22895952 (2 blocks)
+- Total Matches Found: 1
+
+Matches by Monitor
+------------------
+- "Address Watchlist": 1
+
+Notifications Dispatched
+------------------------
+- "Stdout Watchlist": 1
 ```
 
 ### How to Run (Default Mode)

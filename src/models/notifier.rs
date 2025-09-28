@@ -13,10 +13,10 @@ use crate::{
 };
 
 /// Configuration for a generic webhook.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct WebhookConfig {
     /// The URL of the webhook endpoint.
-    pub url: String,
+    pub url: Url,
     /// The HTTP method to use for the webhook (e.g., "POST", "GET").
     pub method: Option<String>,
     /// An optional secret for signing webhook requests.
@@ -31,10 +31,10 @@ pub struct WebhookConfig {
 }
 
 /// Configuration for a Slack notification.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct SlackConfig {
     /// The Slack webhook URL.
-    pub slack_url: String,
+    pub slack_url: Url,
     /// The message content for the notification.
     pub message: NotificationMessage,
     /// The retry policy configuration for HTTP requests.
@@ -43,10 +43,10 @@ pub struct SlackConfig {
 }
 
 /// Configuration for a Discord notification.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct DiscordConfig {
     /// The Discord webhook URL.
-    pub discord_url: String,
+    pub discord_url: Url,
     /// The message content for the notification.
     pub message: NotificationMessage,
     /// The retry policy configuration for HTTP requests.
@@ -70,27 +70,33 @@ pub struct TelegramConfig {
     pub retry_policy: HttpRetryConfig,
 }
 
-/// An enum representing the different types of notifier configurations.
+/// Configuration for a Stdout notification.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct StdoutConfig {
+    /// The optional message content for the notification.
+    /// If not provided, the full event payload will be serialized to JSON.
+    pub message: Option<NotificationMessage>,
+}
+
+/// The type of notifier configuration.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub enum NotifierTypeConfig {
-    /// A generic webhook notifier.
+    /// A generic webhook.
     Webhook(WebhookConfig),
-    /// A Slack notification notifier.
+    /// A Slack notification.
     Slack(SlackConfig),
-    /// A Discord notification notifier.
+    /// A Discord notification.
     Discord(DiscordConfig),
-    /// A Telegram notification notifier.
+    /// A Telegram notification.
     Telegram(TelegramConfig),
+    /// A stdout notification.
+    Stdout(StdoutConfig),
 }
 
 /// Error types for notifier configuration validation.
 #[derive(Debug, Clone, Error)]
 pub enum NotifierTypeConfigError {
-    /// Error for invalid URL formats.
-    #[error("Invalid URL: {0}")]
-    InvalidUrl(String),
-
     /// Error for empty title in webhook message.
     #[error("Webhook title cannot be empty.")]
     EmptyTitle,
@@ -102,6 +108,14 @@ pub enum NotifierTypeConfigError {
     /// Error for empty Telegram chat ID.
     #[error("Telegram chat ID cannot be empty.")]
     EmptyTelegramChatId,
+
+    /// Error for invalid Discord webhook URL.
+    #[error("Invalid Discord URL: must be a valid Discord webhook URL.")]
+    InvalidDiscordUrl,
+
+    /// Error for invalid Slack webhook URL.
+    #[error("Invalid Slack URL: must be a valid Slack webhook URL.")]
+    InvalidSlackUrl,
 }
 
 impl NotifierTypeConfig {
@@ -109,26 +123,20 @@ impl NotifierTypeConfig {
     pub fn validate(&self) -> Result<(), NotifierTypeConfigError> {
         match self {
             NotifierTypeConfig::Webhook(config) => {
-                if Url::parse(&config.url).is_err() {
-                    return Err(NotifierTypeConfigError::InvalidUrl(config.url.clone()));
-                }
                 if config.message.title.is_empty() {
                     return Err(NotifierTypeConfigError::EmptyTitle);
                 }
                 Ok(())
             }
             NotifierTypeConfig::Slack(config) => {
-                if Url::parse(&config.slack_url).is_err() {
-                    return Err(NotifierTypeConfigError::InvalidUrl(config.slack_url.clone()));
-                }
-                if !config.slack_url.starts_with("https://hooks.slack.com/") {
-                    return Err(NotifierTypeConfigError::InvalidUrl(config.slack_url.clone()));
+                if config.slack_url.domain() != Some("hooks.slack.com") {
+                    return Err(NotifierTypeConfigError::InvalidSlackUrl);
                 }
                 Ok(())
             }
             NotifierTypeConfig::Discord(config) => {
-                if Url::parse(&config.discord_url).is_err() {
-                    return Err(NotifierTypeConfigError::InvalidUrl(config.discord_url.clone()));
+                if config.discord_url.domain() != Some("discord.com") {
+                    return Err(NotifierTypeConfigError::InvalidDiscordUrl);
                 }
                 Ok(())
             }
@@ -141,6 +149,8 @@ impl NotifierTypeConfig {
                 }
                 Ok(())
             }
+            // Standard output notifier requires no validation.
+            NotifierTypeConfig::Stdout(_) => Ok(()),
         }
     }
 }
@@ -236,31 +246,25 @@ mod tests {
     #[test]
     fn test_validate_webhook_ok() {
         let config = NotifierTypeConfig::Webhook(WebhookConfig {
-            url: "http://localhost/webhook".to_string(),
+            url: Url::parse("http://localhost/webhook").unwrap(),
             message: notification_message(),
-            ..Default::default()
+            method: None,
+            secret: None,
+            headers: None,
+            retry_policy: HttpRetryConfig::default(),
         });
         assert!(config.validate().is_ok());
     }
 
     #[test]
-    fn test_validate_webhook_invalid_url() {
-        let config = NotifierTypeConfig::Webhook(WebhookConfig {
-            url: "not a url".to_string(),
-            message: notification_message(),
-            ..Default::default()
-        });
-        let result = config.validate();
-        assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), NotifierTypeConfigError::InvalidUrl(_)));
-    }
-
-    #[test]
     fn test_validate_webhook_empty_title() {
         let config = NotifierTypeConfig::Webhook(WebhookConfig {
-            url: "http://localhost/webhook".to_string(),
+            url: Url::parse("http://localhost/webhook").unwrap(),
             message: NotificationMessage { title: "".to_string(), body: "Test Body".to_string() },
-            ..Default::default()
+            method: None,
+            secret: None,
+            headers: None,
+            retry_policy: HttpRetryConfig::default(),
         });
         let result = config.validate();
         assert!(result.is_err());
@@ -270,45 +274,34 @@ mod tests {
     #[test]
     fn test_validate_slack_ok() {
         let config = NotifierTypeConfig::Slack(SlackConfig {
-            slack_url:
-                "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX"
-                    .to_string(),
+            slack_url: Url::parse(
+                "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX",
+            )
+            .unwrap(),
             message: notification_message(),
-            ..Default::default()
+            retry_policy: HttpRetryConfig::default(),
         });
         assert!(config.validate().is_ok());
     }
 
     #[test]
-    fn test_validate_slack_invalid_url() {
-        let config = NotifierTypeConfig::Slack(SlackConfig {
-            slack_url: "not a url".to_string(),
-            message: notification_message(),
-            ..Default::default()
-        });
-        let result = config.validate();
-        assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), NotifierTypeConfigError::InvalidUrl(_)));
-    }
-
-    #[test]
     fn test_validate_slack_not_a_slack_url() {
         let config = NotifierTypeConfig::Slack(SlackConfig {
-            slack_url: "https://example.com/not-slack".to_string(),
+            slack_url: Url::parse("https://example.com/not-slack").unwrap(),
             message: notification_message(),
-            ..Default::default()
+            retry_policy: HttpRetryConfig::default(),
         });
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), NotifierTypeConfigError::InvalidUrl(_)));
+        assert!(matches!(result.unwrap_err(), NotifierTypeConfigError::InvalidSlackUrl));
     }
 
     #[test]
     fn test_validate_discord_ok() {
         let config = NotifierTypeConfig::Discord(DiscordConfig {
-            discord_url: "https://discord.com/api/webhooks/1234567890/abcdef".to_string(),
+            discord_url: Url::parse("https://discord.com/api/webhooks/1234567890/abcdef").unwrap(),
             message: notification_message(),
-            ..Default::default()
+            retry_policy: HttpRetryConfig::default(),
         });
         assert!(config.validate().is_ok());
     }
@@ -316,13 +309,13 @@ mod tests {
     #[test]
     fn test_validate_discord_invalid_url() {
         let config = NotifierTypeConfig::Discord(DiscordConfig {
-            discord_url: "not a url".to_string(),
+            discord_url: Url::parse("https://example.com/not-discord").unwrap(),
             message: notification_message(),
-            ..Default::default()
+            retry_policy: HttpRetryConfig::default(),
         });
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), NotifierTypeConfigError::InvalidUrl(_)));
+        assert!(matches!(result.unwrap_err(), NotifierTypeConfigError::InvalidDiscordUrl));
     }
 
     #[test]
@@ -360,5 +353,11 @@ mod tests {
         let result = config.validate();
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), NotifierTypeConfigError::EmptyTelegramChatId));
+    }
+
+    #[test]
+    fn test_validate_stdout_ok() {
+        let config = NotifierTypeConfig::Stdout(StdoutConfig { message: None });
+        assert!(config.validate().is_ok());
     }
 }

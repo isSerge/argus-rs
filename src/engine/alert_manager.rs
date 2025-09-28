@@ -31,6 +31,9 @@ pub struct AlertManager<T: KeyValueStore> {
 
     /// A map of notifier names to their locks to prevent race conditions.
     notifier_locks: DashMap<String, Arc<Mutex<()>>>,
+
+    /// Track dispatched notifications for dry-run reporting
+    dispatched_notifications: DashMap<String, usize>,
 }
 
 /// Errors that can occur within the AlertManager
@@ -52,7 +55,13 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
         state_repository: Arc<T>,
         notifiers: Arc<HashMap<String, NotifierConfig>>,
     ) -> Self {
-        Self { notification_service, state_repository, notifiers, notifier_locks: DashMap::new() }
+        Self {
+            notification_service,
+            state_repository,
+            notifiers,
+            notifier_locks: DashMap::new(),
+            dispatched_notifications: DashMap::new(),
+        }
     }
 
     /// Processes a monitor match
@@ -96,6 +105,9 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
                         notifier_name,
                         e
                     );
+                } else {
+                    // Increment dispatch counter on successful notification
+                    *self.dispatched_notifications.entry(notifier_name.clone()).or_insert(0) += 1;
                 }
             }
         }
@@ -168,6 +180,12 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
                     notifier_name,
                     e
                 );
+            } else {
+                // Increment dispatch counter on successful notification
+                *self
+                    .dispatched_notifications
+                    .entry(monitor_match.notifier_name.clone())
+                    .or_insert(0) += 1;
             }
             throttle_state.count += 1;
         } else {
@@ -288,6 +306,12 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
                         state_key,
                         e
                     );
+                } else {
+                    // Increment dispatch counter on successful notification
+                    *self
+                        .dispatched_notifications
+                        .entry(notifier_config.name.clone())
+                        .or_insert(0) += 1;
                 }
 
                 // And finally, clear the state.
@@ -323,6 +347,11 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
         }
     }
 
+    /// Gets the count of dispatched notifications by notifier name.
+    pub fn get_dispatched_notifications(&self) -> &DashMap<String, usize> {
+        &self.dispatched_notifications
+    }
+
     /// Flushes any pending aggregated notifications.
     pub async fn flush(&self) -> Result<(), AlertManagerError> {
         self.check_and_dispatch_expired_windows(true).await
@@ -342,9 +371,10 @@ mod tests {
         models::{
             NotificationMessage,
             monitor_match::{LogDetails, LogMatchData, MatchData},
-            notifier::{AggregationPolicy, DiscordConfig, NotifierTypeConfig, ThrottlePolicy},
+            notifier::{AggregationPolicy, ThrottlePolicy},
         },
         persistence::traits::MockKeyValueStore,
+        test_helpers::NotifierBuilder,
     };
 
     fn create_monitor_match(notifier_name: String) -> MonitorMatch {
@@ -403,18 +433,8 @@ mod tests {
     #[tokio::test]
     async fn test_process_match_notifier_no_policy_send_immediately() {
         let notifier_name = "Test Notifier".to_string();
-        let notifier_config = NotifierConfig {
-            name: notifier_name.clone(),
-            config: NotifierTypeConfig::Discord(DiscordConfig {
-                discord_url: "http://example.com".to_string(),
-                message: NotificationMessage {
-                    title: "Test".to_string(),
-                    body: "This is a test".to_string(),
-                },
-                retry_policy: Default::default(),
-            }),
-            policy: None,
-        };
+        let notifier_config =
+            NotifierBuilder::new(&notifier_name).discord_config("http://example.com").build();
         let mut notifiers = HashMap::new();
         notifiers.insert(notifier_name.to_string(), notifier_config);
         let state_repo = MockKeyValueStore::new();
@@ -435,18 +455,11 @@ mod tests {
         let throttle_policy =
             ThrottlePolicy { max_count: 5, time_window_secs: Duration::from_secs(60) };
 
-        let notifier_config = NotifierConfig {
-            name: notifier_name.clone(),
-            config: NotifierTypeConfig::Discord(DiscordConfig {
-                discord_url: "http://example.com".to_string(),
-                message: NotificationMessage {
-                    title: "Test".to_string(),
-                    body: "This is a test".to_string(),
-                },
-                retry_policy: Default::default(),
-            }),
-            policy: Some(NotifierPolicy::Throttle(throttle_policy)),
-        };
+        let notifier_config = NotifierBuilder::new(&notifier_name)
+            .discord_config("http://example.com")
+            .policy(NotifierPolicy::Throttle(throttle_policy))
+            .build();
+
         let mut notifiers = HashMap::new();
         notifiers.insert(notifier_name.to_string(), notifier_config);
 
@@ -483,18 +496,11 @@ mod tests {
         let throttle_policy =
             ThrottlePolicy { max_count: 5, time_window_secs: Duration::from_secs(60) };
 
-        let notifier_config = NotifierConfig {
-            name: notifier_name.clone(),
-            config: NotifierTypeConfig::Discord(DiscordConfig {
-                discord_url: "http://example.com".to_string(),
-                message: NotificationMessage {
-                    title: "Test".to_string(),
-                    body: "This is a test".to_string(),
-                },
-                retry_policy: Default::default(),
-            }),
-            policy: Some(NotifierPolicy::Throttle(throttle_policy)),
-        };
+        let notifier_config = NotifierBuilder::new(&notifier_name)
+            .discord_config("http://example.com")
+            .policy(NotifierPolicy::Throttle(throttle_policy))
+            .build();
+
         let mut notifiers = HashMap::new();
         notifiers.insert(notifier_name.to_string(), notifier_config);
 
@@ -533,18 +539,10 @@ mod tests {
         let throttle_policy =
             ThrottlePolicy { max_count: 5, time_window_secs: Duration::from_secs(60) };
 
-        let notifier_config = NotifierConfig {
-            name: notifier_name.clone(),
-            config: NotifierTypeConfig::Discord(DiscordConfig {
-                discord_url: "http://example.com".to_string(),
-                message: NotificationMessage {
-                    title: "Test".to_string(),
-                    body: "This is a test".to_string(),
-                },
-                retry_policy: Default::default(),
-            }),
-            policy: Some(NotifierPolicy::Throttle(throttle_policy)),
-        };
+        let notifier_config = NotifierBuilder::new(&notifier_name)
+            .discord_config("http://example.com")
+            .policy(NotifierPolicy::Throttle(throttle_policy))
+            .build();
         let mut notifiers = HashMap::new();
         notifiers.insert(notifier_name.to_string(), notifier_config);
 
@@ -586,18 +584,11 @@ mod tests {
             },
         };
 
-        let notifier_config = NotifierConfig {
-            name: notifier_name.clone(),
-            config: NotifierTypeConfig::Discord(DiscordConfig {
-                discord_url: "http://example.com".to_string(),
-                message: NotificationMessage {
-                    title: "Test".to_string(),
-                    body: "This is a test".to_string(),
-                },
-                retry_policy: Default::default(),
-            }),
-            policy: Some(NotifierPolicy::Aggregation(aggregation_policy)),
-        };
+        let notifier_config = NotifierBuilder::new(&notifier_name)
+            .discord_config("http://example.com")
+            .policy(NotifierPolicy::Aggregation(aggregation_policy))
+            .build();
+
         let mut notifiers = HashMap::new();
         notifiers.insert(notifier_name.to_string(), notifier_config);
 
@@ -639,18 +630,11 @@ mod tests {
             },
         };
 
-        let notifier_config = NotifierConfig {
-            name: notifier_name.clone(),
-            config: NotifierTypeConfig::Discord(DiscordConfig {
-                discord_url: "http://example.com".to_string(),
-                message: NotificationMessage {
-                    title: "Test".to_string(),
-                    body: "This is a test".to_string(),
-                },
-                retry_policy: Default::default(),
-            }),
-            policy: Some(NotifierPolicy::Aggregation(aggregation_policy)),
-        };
+        let notifier_config = NotifierBuilder::new(&notifier_name)
+            .discord_config("http://example.com")
+            .policy(NotifierPolicy::Aggregation(aggregation_policy))
+            .build();
+
         let mut notifiers = HashMap::new();
         notifiers.insert(notifier_name.to_string(), notifier_config);
 
@@ -696,18 +680,11 @@ mod tests {
             },
         };
 
-        let notifier_config = NotifierConfig {
-            name: notifier_name.clone(),
-            config: NotifierTypeConfig::Discord(DiscordConfig {
-                discord_url: "http://example.com".to_string(),
-                message: NotificationMessage {
-                    title: "Test".to_string(),
-                    body: "This is a test".to_string(),
-                },
-                retry_policy: Default::default(),
-            }),
-            policy: Some(NotifierPolicy::Aggregation(aggregation_policy.clone())),
-        };
+        let notifier_config = NotifierBuilder::new(&notifier_name)
+            .discord_config("http://example.com")
+            .policy(NotifierPolicy::Aggregation(aggregation_policy))
+            .build();
+
         let mut notifiers = HashMap::new();
         notifiers.insert(notifier_name.to_string(), notifier_config.clone());
 

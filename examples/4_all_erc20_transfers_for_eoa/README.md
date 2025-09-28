@@ -1,31 +1,21 @@
 # 4. All ERC20 Transfers Monitor For A Specific EOA
 
-This example sets up a global log monitor that triggers for any `Transfer` event from any ERC20-compliant contract on the Ethereum mainnet involving specific EOA. It uses a Telegram notifier.
+This example sets up a global log monitor that triggers for any `Transfer` event from any ERC20-compliant contract on the Ethereum mainnet involving specific EOA. It uses the `stdout` notifier for simple console output.
 
 ### Configuration Files
 
 - [`app.yaml`](../../docs/src/user_guide/config_app.md): Basic application configuration, pointing to public RPC endpoints.
 - [`monitors.yaml`](../../docs/src/user_guide/config_monitors.md): Defines the "All ERC20 Transfers (Ethereum)" monitor.
-- [`notifiers.yaml`](../../docs/src/user_guide/config_notifiers.md): Defines "Telegram ERC20 Transfers" notifier.
+- [`notifiers.yaml`](../../docs/src/user_guide/config_notifiers.md): Defines the stdout notifier for console output.
 
-### Environment Variables for Notifier Secrets
+### Notifier Options
 
-> **Important:** All secrets and sensitive values in `notifiers.yaml` (such as API tokens, webhook URLs, chat IDs, etc.) must be provided as environment variables.
-> For example, if your `notifiers.yaml` contains:
->
-> ```yaml
-> token: "${TELEGRAM_TOKEN}"
-> chat_id: "${TELEGRAM_CHAT_ID}"
-> ```
->
-> You must set these in your shell before running Argus:
->
-> ```sh
-> export TELEGRAM_TOKEN="your-telegram-token"
-> export TELEGRAM_CHAT_ID="your-chat-id"
-> ```
->
-> See the example `notifiers.yaml` for all required variables for each notifier type.
+This example uses the stdout notifier which prints notifications directly to the console. This is ideal for:
+- Local development and testing
+- Debugging monitor configurations
+- Dry-run scenarios
+
+For production use, you can configure other notifiers like Slack, Discord, Telegram, or webhooks. See the [Notifier Configuration documentation](../../docs/src/user_guide/notifiers_yaml.md) for all available options.
 
 ### Monitor Configuration
 

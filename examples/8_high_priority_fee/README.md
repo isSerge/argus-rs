@@ -1,31 +1,21 @@
 # 8. High Priority Fee
 
-This example demonstrates how to monitor for transactions with unusually high priority fees, which can be an indicator of MEV (Maximal Extractable Value) activity, front-running, or other urgent on-chain actions.
+This example demonstrates how to monitor for transactions with unusually high priority fees, which can be an indicator of MEV (Maximal Extractable Value) activity, front-running, or other urgent on-chain actions. It uses the `stdout` notifier for simple console output.
 
 ### Configuration Files
 
 - [`app.yaml`](../../docs/src/user_guide/config_app.md): Basic application configuration, pointing to public RPC endpoints.
-- [`monitors.yaml`](../../docs/src/user_guide/config_monitors.md): Defines the "Large ETH Transfers" monitor.
-- [`notifiers.yaml`](../../docs/src/user_guide/config_notifiers.md): Defines "Telegram Large ETH Transfers" notifier.
+- [`monitors.yaml`](../../docs/src/user_guide/config_monitors.md): Defines the "High Priority Fee Alert" monitor.
+- [`notifiers.yaml`](../../docs/src/user_guide/config_notifiers.md): Defines the stdout notifier for console output.
 
-### Environment Variables for Notifier Secrets
+### Notifier Options
 
-> **Important:** All secrets and sensitive values in `notifiers.yaml` (such as API tokens, webhook URLs, chat IDs, etc.) must be provided as environment variables.
-> For example, if your `notifiers.yaml` contains:
->
-> ```yaml
-> token: "${TELEGRAM_TOKEN}"
-> chat_id: "${TELEGRAM_CHAT_ID}"
-> ```
->
-> You must set these in your shell before running Argus:
->
-> ```sh
-> export TELEGRAM_TOKEN="your-telegram-token"
-> export TELEGRAM_CHAT_ID="your-chat-id"
-> ```
->
-> See the example `notifiers.yaml` for all required variables for each notifier type.
+This example uses the stdout notifier which prints notifications directly to the console. This is ideal for:
+- Local development and testing
+- Debugging monitor configurations and MEV detection
+- Dry-run scenarios
+
+For production use, you can configure other notifiers like Slack, Discord, Telegram, or webhooks. See the [Notifier Configuration documentation](../../docs/src/user_guide/notifiers_yaml.md) for all available options.
 
 ### Monitor Configuration
 
@@ -80,34 +70,26 @@ Replace `23315052` and `23315052` with any Ethereum block numbers to test agains
 
 #### Expected Output
 
-As blocks within the specified range are processed, you should receive notifications on Telegram (or another specified notifier) with aggregated values.
+As blocks within the specified range are processed, you should see notifications printed directly to the console when transactions with high priority fees are detected.
 
-![Sample notification output (Telegram)](image.png)
+Once processing is complete, you should see a summary report like this:
 
-Once processing is complete, you should see the following output in your terminal, which is a JSON array with all detected monitor matches:
+```
+Dry Run Report
+==============
 
-```json
-[
-  {
-    "monitor_id": 0,
-    "monitor_name": "High Priority Fee Alert",
-    "notifier_name": "Telegram MEV",
-    "block_number": 23315052,
-    "transaction_hash": "0x2a4636c9cdc4f6dea8c75af500fbd4bfeb909c5972785115cfbe24cb6a51d63e",
-    "tx": {
-      "from": "0x3aA524D8bB47Edb0833446E8F3886eB662607286",
-      "gas_limit": 177218,
-      "hash": "0x2a4636c9cdc4f6dea8c75af500fbd4bfeb909c5972785115cfbe24cb6a51d63e",
-      "input": "0x020bf14f000000000000000000000000000000000000000000000000000000000000000000000000000000000000000072331fcb696b0151904c03584b66dc8365bc63f80000000000000000000000000000000000000000000000049796a842e8b6c00000000000000000000000000000000000000000000000000000000054a964fa1d00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000068be2f5f",
-      "max_fee_per_gas": "151690832425",
-      "max_priority_fee_per_gas": "151690832425",
-      "nonce": 1445,
-      "to": "0xBa47cbFdD61029833841fcaA2ec2591dDfa87e51",
-      "transaction_index": 7,
-      "value": "0"
-    }
-  }
-]
+Summary
+-------
+- Blocks Processed: 23315052 to 23315054 (3 blocks)
+- Total Matches Found: 1
+
+Matches by Monitor
+------------------
+- "High Priority Fee Alert": 1
+
+Notifications Dispatched
+------------------------
+- "Stdout High Priority Fee": 1
 ```
 
 

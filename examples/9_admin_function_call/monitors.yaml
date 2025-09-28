@@ -6,4 +6,4 @@ monitors:
     filter_script: |
       decoded_call.name == "execute"
     notifiers:
-      - "Telegram Admin"
+      - "Stdout Admin"

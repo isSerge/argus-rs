@@ -1,31 +1,21 @@
 # 6. Notifier with Aggregation Policy
 
-This example demonstrates how to use `aggregation` policy for notifiers as well as `sum` and `avg` filters in templates to aggregate values from multiple monitor matches.
+This example demonstrates how to use `aggregation` policy for notifiers as well as `sum` and `avg` filters in templates to aggregate values from multiple monitor matches. It uses the `stdout` notifier for simple console output.
 
 ### Configuration Files
 
 - [`app.yaml`](../../docs/src/user_guide/config_app.md): Basic application configuration.
 - [`monitors.yaml`](../../docs/src/user_guide/config_monitors.md): Defines the "Aggregated WBTC Transfers" monitor.
-- [`notifiers.yaml`](../../docs/src/user_guide/config_notifiers.md): Defines a Telegram notifier that aggregates WBTC transfer values.
+- [`notifiers.yaml`](../../docs/src/user_guide/config_notifiers.md): Defines a stdout notifier that aggregates WBTC transfer values.
 
-### Environment Variables for Notifier Secrets
+### Notifier Options
 
-> **Important:** All secrets and sensitive values in `notifiers.yaml` (such as API tokens, webhook URLs, chat IDs, etc.) must be provided as environment variables.
-> For example, if your `notifiers.yaml` contains:
->
-> ```yaml
-> token: "${TELEGRAM_TOKEN}"
-> chat_id: "${TELEGRAM_CHAT_ID}"
-> ```
->
-> You must set these in your shell before running Argus:
->
-> ```sh
-> export TELEGRAM_TOKEN="your-telegram-token"
-> export TELEGRAM_CHAT_ID="your-chat-id"
-> ```
->
-> See the example `notifiers.yaml` for all required variables for each notifier type.
+This example uses the stdout notifier which prints notifications directly to the console. This is ideal for:
+- Local development and testing
+- Debugging monitor configurations and aggregation behavior
+- Dry-run scenarios
+
+For production use, you can configure other notifiers like Slack, Discord, Telegram, or webhooks. See the [Notifier Configuration documentation](../../docs/src/user_guide/notifiers_yaml.md) for all available options.
 
 ### Monitor Configuration
 
@@ -40,20 +30,17 @@ monitors:
     filter_script: |
       log.name == "Transfer" && log.params.value > wbtc(0.001)
     notifiers:
-      - 'Telegram Aggregated WBTC Transfers'
+      - 'Stdout Aggregated WBTC Transfers'
 ```
 
 ### Notifier Configuration
 
-The `notifiers.yaml` file defines a Telegram notifier that uses the `sum` and `avg` filters to aggregate the values of the detected WBTC transfers, and an `aggregation` policy to group notifications within a time window. For a complete reference on notifier configuration, including policies and templating, see the [Notifier Configuration documentation](../../docs/src/user_guide/config_notifiers.md) and [Notifier Templating documentation](../../docs/src/user_guide/notifier_templating.md).
+The `notifiers.yaml` file defines a stdout notifier that uses the `sum` and `avg` filters to aggregate the values of the detected WBTC transfers, and an `aggregation` policy to group notifications within a time window. For a complete reference on notifier configuration, including policies and templating, see the [Notifier Configuration documentation](../../docs/src/user_guide/config_notifiers.md) and [Notifier Templating documentation](../../docs/src/user_guide/notifier_templating.md).
 
 ```yaml
 notifiers:
-  - name: "Telegram Aggregated WBTC Transfers"
-    telegram:
-      token: "<TELEGRAM TOKEN>"
-      chat_id: "<TELEGRAM CHAT ID>"
-      disable_web_preview: true
+  - name: "Stdout Aggregated WBTC Transfers"
+    stdout:
       message:
         title: "Aggregated WBTC Transfers"
         body: |
@@ -109,46 +96,29 @@ Replace `23289380` and `23289383` with any Ethereum block numbers to test agains
 
 #### Expected Output
 
-As blocks within the specified range are processed, you should receive notifications on Telegram (or another specified notifier) with aggregated values.
+As blocks within the specified range are processed, you should see notifications printed directly to the console with aggregated values. The stdout notifier will display the aggregated notification when the time window expires.
 
-![Sample notification output (Telegram)](image.png)
+Once processing is complete, you should see a summary report like this:
 
-Once processing is complete, you should see the following output in your terminal, which is a JSON array with all detected monitor matches:
-
-```json
-[
-  {
-    "monitor_id": 0,
-    "monitor_name": "Aggregated WBTC Transfers",
-    "notifier_name": "Telegram Aggregated WBTC Transfers",
-    "block_number": 23289380,
-    "transaction_hash": "0x1a702cba6f4d41833facfea9315ad125f8716ea0a44ba4dd5795852438104953",
-    "tx": {
-      "from": "0x82C74A84520DC27771E8BEF42EAcD43087b13c9A",
-      "gas_limit": 272227,
-      "hash": "0x1a702cba6f4d41833facfea9315ad125f8716ea0a44ba4dd5795852438104953",
-      "input": "0x51337d4400000000000000000000000000000000000000000000000000000000000000000000000000000000000000003c0441b42195f4ad6aa9a0978e06096ea616cda70000000000000000000000002260fac5e5542a773aa44fbcfedf7c193bc2c59900000000000000000000000000000000000000000000000000000000022e6d58000000000000000000000000cbb7c0000ab88b473b1f5afd9ef808440eed33bf00000000000000000000000000000000000000000000000000000000022e5d2d0000000000000000000000000000000000000000000000000000000000000001",
-      "max_fee_per_gas": "648840937",
-      "max_priority_fee_per_gas": "648840937",
-      "nonce": 18507,
-      "to": "0xBa47cbFdD61029833841fcaA2ec2591dDfa87e51",
-      "transaction_index": 130,
-      "value": "0"
-    },
-    "log": {
-      "address": "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599",
-      "log_index": 427,
-      "name": "Transfer",
-      "params": {
-        "from": "0x51C72848c68a965f66FA7a88855F9f7784502a7F",
-        "to": "0x52Aa899454998Be5b000Ad077a46Bbe360F4e497",
-        "value": 36597080
-      }
-    }
-  },
-  // 3 more items
-]
 ```
+Dry Run Report
+==============
+
+Summary
+-------
+- Blocks Processed: 23289380 to 23289383 (4 blocks)
+- Total Matches Found: 4
+
+Matches by Monitor
+------------------
+- "Aggregated WBTC Transfers": 4
+
+Notifications Dispatched
+------------------------
+- "Stdout Aggregated WBTC Transfers": 1
+```
+
+Note that with the aggregation policy, even though 4 matches were found, only 1 notification was dispatched because the matches were aggregated within the configured time window (300 seconds).
 
 ### How to Run (Default Mode)
 

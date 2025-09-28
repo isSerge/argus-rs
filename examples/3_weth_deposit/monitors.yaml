@@ -6,4 +6,4 @@ monitors:
     filter_script: |
       log.name == "Deposit" && tx.value > ether(5)
     notifiers:
-      - "Telegram WETH Deposits"
+      - "stdout-notifier"

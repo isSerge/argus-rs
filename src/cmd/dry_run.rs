@@ -5,6 +5,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use alloy::primitives;
 use clap::Parser;
+use dashmap::DashMap;
 use thiserror::Error;
 
 use crate::{
@@ -104,8 +105,8 @@ pub enum DryRunError {
 /// This command initializes the application's services in a one-shot mode to
 /// test monitor configurations against historical blockchain data. It fetches,
 /// processes, and filters data for each block in the range, dispatches real
-/// notifications for any matches, and prints a JSON report of all matches to
-/// standard output.
+/// notifications for any matches, and prints a final summary report of all
+/// matches to standard output.
 #[derive(Parser, Debug)]
 pub struct DryRunArgs {
     /// Path to configuration directory containing app, monitor and notifier
@@ -212,15 +213,67 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let alert_manager = Arc::new(AlertManager::new(notification_service, state_repo, notifiers));
 
     // Execute the core processing loop.
-    let matches =
-        run_dry_run_loop(args.from, args.to, Box::new(evm_source), filtering_engine, alert_manager)
-            .await?;
+    let matches = run_dry_run_loop(
+        args.from,
+        args.to,
+        Box::new(evm_source),
+        filtering_engine,
+        alert_manager.clone(),
+    )
+    .await?;
 
-    // Serialize and print the final report.
-    let report = serde_json::to_string_pretty(&matches)?;
-    println!("{}", report);
+    // Get actual dispatch statistics from AlertManager
+    let dispatched_notifications = alert_manager.get_dispatched_notifications();
+
+    // Print the summary report.
+    print_summary_report(args.from, args.to, &matches, dispatched_notifications);
 
     Ok(())
+}
+
+/// Prints a summary report of the dry run results.
+fn print_summary_report(
+    from_block: u64,
+    to_block: u64,
+    matches: &[MonitorMatch],
+    dispatched_notifications: &DashMap<String, usize>,
+) {
+    let total_blocks = to_block - from_block + 1;
+    let total_matches = matches.len();
+
+    let mut matches_by_monitor: HashMap<String, usize> = HashMap::new();
+
+    for m in matches {
+        *matches_by_monitor.entry(m.monitor_name.clone()).or_insert(0) += 1;
+    }
+
+    println!("\nDry Run Report");
+    println!("==============");
+
+    println!("\nSummary");
+    println!("-------");
+    println!("- Blocks Processed: {} to {} ({} blocks)", from_block, to_block, total_blocks);
+    println!("- Total Matches Found: {}", total_matches);
+
+    println!("\nMatches by Monitor");
+    println!("------------------");
+    if matches_by_monitor.is_empty() {
+        println!("- No matches found.");
+    } else {
+        for (monitor_name, count) in &matches_by_monitor {
+            println!("- \"{}\": {}", monitor_name, count);
+        }
+    }
+
+    println!("\nNotifications Dispatched");
+    println!("------------------------");
+    if dispatched_notifications.is_empty() {
+        println!("- No notifications dispatched.");
+    } else {
+        for entry in dispatched_notifications.iter() {
+            println!("- \"{}\": {}", entry.key(), entry.value());
+        }
+    }
 }
 
 /// The core processing logic for the dry run.
@@ -335,15 +388,11 @@ mod tests {
         config::RhaiConfig,
         engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
         http_client::HttpClientPool,
-        models::{
-            NotificationMessage,
-            monitor_match::{MatchData, TransactionMatchData},
-            notifier::{NotifierTypeConfig, SlackConfig},
-        },
+        models::monitor_match::{MatchData, TransactionMatchData},
         notification::NotificationService,
         persistence::sqlite::SqliteStateRepository,
         providers::traits::MockDataSource,
-        test_helpers::{BlockBuilder, MonitorBuilder, TransactionBuilder},
+        test_helpers::{BlockBuilder, MonitorBuilder, NotifierBuilder, TransactionBuilder},
     };
 
     // A helper function to create an AlertManager with a mock state repository.
@@ -403,20 +452,11 @@ mod tests {
         );
         let notifiers = HashMap::from([(
             "test-notifier".to_string(),
-            NotifierConfig {
-                name: "test-notifier".to_string(),
-                config: NotifierTypeConfig::Slack(
-                    SlackConfig {
-                        slack_url: "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX".to_string(),
-                        message: NotificationMessage {
-                            title: "Test Alert".to_string(),
-                            body: "A test alert was triggered by monitor {{ monitor_name }}.".to_string(),
-                        },
-                        retry_policy: Default::default(),
-                    },
-                ),
-                policy: None,
-            },
+            NotifierBuilder::new("test-notifier")
+                .slack_config(
+                    "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX",
+                )
+                .build(),
         )]);
         let alert_manager = create_test_alert_manager(Arc::new(notifiers)).await;
 
@@ -661,25 +701,14 @@ mod tests {
             rhai_config,
             monitor_manager.clone(),
         );
-        let notifiers = HashMap::from([
-            (
-                "test-notifier".to_string(),
-                NotifierConfig {
-                    name: "test-notifier".to_string(),
-                    config: NotifierTypeConfig::Slack(
-                        SlackConfig {
-                            slack_url: "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX".to_string(),
-                            message: NotificationMessage {
-                                title: "Test Alert".to_string(),
-                                body: "A test alert was triggered by monitor {{ monitor_name }}.".to_string(),
-                            },
-                            retry_policy: Default::default(),
-                        },
-                    ),
-                    policy: None,
-                },
-            ),
-        ]);
+        let notifiers = HashMap::from([(
+            "test-notifier".to_string(),
+            NotifierBuilder::new("test-notifier")
+                .slack_config(
+                    "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX",
+                )
+                .build(),
+        )]);
         let alert_manager = create_test_alert_manager(Arc::new(notifiers)).await;
 
         // Act

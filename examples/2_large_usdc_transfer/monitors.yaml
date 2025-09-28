@@ -10,4 +10,4 @@ monitors:
     filter_script: |
       log.name == "Transfer" && log.params.value > usdc(1_000_000)
     notifiers:
-      - "Telegram Large USDC Transfers"
+      - "stdout-notifier"
