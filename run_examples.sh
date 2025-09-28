@@ -2,8 +2,8 @@
 
 # This script iterates through all numbered example directories, extracts the
 # dry-run command from their README.md, and executes it, verifying that the output
-# is not an empty array. If any command fails or returns an empty array, the script
-# exits with an error.
+# contains the expected dry-run report format. If any command fails or doesn't
+# produce the expected output format, the script exits with an error.
 
 export RUST_LOG=debug
 set -e
@@ -44,12 +44,16 @@ for example_dir in $(find "$EXAMPLES_DIR" -mindepth 1 -maxdepth 1 -type d -name 
         exit 1
     fi
 
-    # Trim whitespace from output for comparison
-    trimmed_output=$(echo "$output" | tr -d '[:space:]')
+    # Check if the output contains the expected dry-run report format
+    if ! echo "$output" | grep -q "Dry Run Report"; then
+        echo "ERROR: Example did not produce expected dry-run report format."
+        echo "$output"
+        exit 1
+    fi
 
-    if [[ "$trimmed_output" == "[]" ]]; then
-        echo "ERROR: Example returned an empty array."
-        # Optionally print the empty array for clarity
+    # Check if any matches were found - all examples should have at least one match
+    if echo "$output" | grep -q "Total Matches Found: 0"; then
+        echo "ERROR: Example found 0 matches. All examples should be configured to find at least one match."
         echo "$output"
         exit 1
     fi
