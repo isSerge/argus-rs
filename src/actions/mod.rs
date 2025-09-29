@@ -98,17 +98,16 @@ impl ActionDispatcher {
             let action: Box<dyn Action> = match &config.config {
                 // Kafka publisher action
                 ActionTypeConfig::Kafka(c) => {
-                    let publisher = match KafkaEventPublisher::from_config(&c) {
+                    let publisher = match KafkaEventPublisher::from_config(c) {
+                        Ok(p) => p,
                         Err(e) => {
                             tracing::error!(
-                                "Failed to create Kafka publisher for action '{}': {}",
-                                name,
-                                e
+                                action_name = name,
+                                error = ?e,
+                                "Failed to create Kafka publisher"
                             );
-                            // Skip adding this action if the publisher creation fails
                             continue;
                         }
-                        Ok(p) => p,
                     };
 
                     Box::new(PublisherAction::new(c.topic.clone(), Box::new(publisher)))

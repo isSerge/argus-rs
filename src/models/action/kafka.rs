@@ -19,12 +19,11 @@ pub struct KafkaConfig {
     pub producer: KafkaProducerConfig,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct KafkaSecurityConfig {
     /// The security protocol to use. Common values are PLAINTEXT, SSL,
     // SASL_PLAINTEXT, SASL_SSL.
-    #[serde(default = "default_security_protocol")]
     pub protocol: String,
 
     /// The SASL mechanism to use for authentication.
@@ -48,8 +47,16 @@ pub struct KafkaSecurityConfig {
     pub ssl_ca_location: Option<String>,
 }
 
-fn default_security_protocol() -> String {
-    "PLAINTEXT".to_string()
+impl Default for KafkaSecurityConfig {
+    fn default() -> Self {
+        Self {
+            protocol: "PLAINTEXT".to_string(),
+            sasl_mechanism: None,
+            sasl_username: None,
+            sasl_password: None,
+            ssl_ca_location: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]

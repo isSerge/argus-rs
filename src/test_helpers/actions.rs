@@ -5,7 +5,7 @@ use crate::{
     models::{
         action::{
             ActionConfig, ActionPolicy, ActionTypeConfig, DiscordConfig, GenericWebhookConfig,
-            SlackConfig, StdoutConfig,
+            KafkaConfig, SlackConfig, StdoutConfig,
         },
         notification::NotificationMessage,
     },
@@ -71,6 +71,16 @@ impl ActionBuilder {
     /// Sets the Action to use Stdout configuration.
     pub fn stdout_config(mut self, message: Option<NotificationMessage>) -> Self {
         self.config = ActionTypeConfig::Stdout(StdoutConfig { message });
+        self
+    }
+
+    /// Sets the Action to use Kafka configuration.
+    pub fn kafka_config(mut self, brokers: &str, topic: &str) -> Self {
+        self.config = ActionTypeConfig::Kafka(KafkaConfig {
+            brokers: brokers.to_string(),
+            topic: topic.to_string(),
+            ..Default::default()
+        });
         self
     }
 

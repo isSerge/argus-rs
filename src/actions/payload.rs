@@ -4,6 +4,7 @@ use crate::{
 };
 
 /// An enum representing the different types of action payloads.
+#[derive(Clone)]
 pub enum ActionPayload {
     /// A single monitor match.
     Single(MonitorMatch),
