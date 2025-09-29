@@ -26,7 +26,12 @@
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    actions::{stdout::StdoutAction, traits::Action, webhook::WebhookAction},
+    actions::{
+        publisher::{PublisherAction, create_kafka_publisher},
+        stdout::StdoutAction,
+        traits::Action,
+        webhook::WebhookAction,
+    },
     http_client::HttpClientPool,
     models::{
         action::{ActionConfig, ActionTypeConfig},
@@ -36,6 +41,7 @@ use crate::{
 
 pub mod error;
 mod payload;
+mod publisher;
 mod stdout;
 pub mod template;
 mod traits;
@@ -57,10 +63,11 @@ impl ActionTypeConfig {
             ActionTypeConfig::Discord(c) => c.into(),
             ActionTypeConfig::Telegram(c) => c.into(),
             ActionTypeConfig::Slack(c) => c.into(),
-            ActionTypeConfig::Stdout(_) =>
-                return Err(ActionDispatcherError::ConfigError(
-                    "Stdout action does not support webhook components".to_string(),
-                )),
+            _ =>
+                return Err(ActionDispatcherError::ConfigError(format!(
+                    "{:?} action does not support webhook components",
+                    self
+                ))),
         })
     }
 }
@@ -68,13 +75,7 @@ impl ActionTypeConfig {
 /// A service responsible for dispatching actions based on pre-loaded
 /// action configurations (webhook notifiers, publishers, etc.)
 pub struct ActionDispatcher {
-    // /// A thread-safe pool for creating and reusing HTTP clients with different
-    // /// retry policies.
-    // client_pool: Arc<HttpClientPool>,
-    // /// A map of action names to their loaded and validated configurations.
-    // actions: Arc<HashMap<String, ActionConfig>>,
-    // /// The service for rendering notification templates.
-    // template_service: TemplateService,
+    /// A map of action names to their corresponding action implementations.
     actions: HashMap<String, Box<dyn Action>>,
 }
 
@@ -95,6 +96,11 @@ impl ActionDispatcher {
 
         for (name, config) in action_configs.iter() {
             let action: Box<dyn Action> = match &config.config {
+                ActionTypeConfig::Kafka(c) => {
+                    let kafka_publisher = create_kafka_publisher(&c).await?;
+                    Box::new(PublisherAction::new(c.topic.clone(), Box::new(kafka_publisher)))
+                }
+
                 // Standard output action
                 ActionTypeConfig::Stdout(c) =>
                     Box::new(StdoutAction::new(c.clone(), template_service.clone())),
@@ -325,7 +331,7 @@ mod tests {
         assert!(result.is_err());
         match result {
             Err(ActionDispatcherError::ConfigError(msg)) => {
-                assert!(msg.contains("Stdout action does not support webhook components"));
+                assert!(msg.contains("action does not support webhook components"));
             }
             _ => panic!("Expected ConfigError"),
         }

@@ -87,7 +87,7 @@ impl ActionBuilder {
             ActionTypeConfig::Slack(cfg) => cfg.retry_policy = retry_policy,
             ActionTypeConfig::Discord(cfg) => cfg.retry_policy = retry_policy,
             ActionTypeConfig::Telegram(cfg) => cfg.retry_policy = retry_policy,
-            ActionTypeConfig::Stdout(_) => { /* No retry policy for stdout */ }
+            _ => { /* No retry policy for other action types */ }
         }
         self
     }

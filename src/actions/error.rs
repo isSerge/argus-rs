@@ -2,7 +2,10 @@
 
 use thiserror::Error;
 
-use crate::{actions::template::TemplateServiceError, http_client::HttpClientPoolError};
+use crate::{
+    actions::{publisher::PublisherError, template::TemplateServiceError},
+    http_client::HttpClientPoolError,
+};
 
 /// Defines the possible errors that can occur within the notification service.
 #[derive(Debug, Error)]
@@ -40,4 +43,8 @@ pub enum ActionDispatcherError {
     /// An error related to the template rendering process.
     #[error("Template rendering error: {0}")]
     TemplateError(#[from] TemplateServiceError),
+
+    /// An error originating from the event publisher.
+    #[error("Publisher error: {0}")]
+    Publisher(#[from] PublisherError),
 }

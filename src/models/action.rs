@@ -78,6 +78,17 @@ pub struct StdoutConfig {
     pub message: Option<NotificationMessage>,
 }
 
+/// Configuration for a Kafka event publisher.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct KafkaConfig {
+    /// The Kafka topic to publish messages to.
+    pub topic: String,
+
+    /// Comma-separated list of Kafka broker addresses.
+    pub brokers: String,
+    // TODO: add security config and producer config
+}
+
 /// The type of action configuration.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -92,6 +103,8 @@ pub enum ActionTypeConfig {
     Telegram(TelegramConfig),
     /// A stdout notification.
     Stdout(StdoutConfig),
+    /// A Kafka event publisher.
+    Kafka(KafkaConfig),
 }
 
 /// Error types for Action configuration validation.
@@ -116,6 +129,14 @@ pub enum ActionTypeConfigError {
     /// Error for invalid Slack webhook URL.
     #[error("Invalid Slack URL: must be a valid Slack webhook URL.")]
     InvalidSlackUrl,
+
+    /// Error for empty Kafka publisher topic.
+    #[error("Event publisher topic cannot be empty.")]
+    EmptyPublisherTopic,
+
+    /// Error for empty Kafka publisher brokers.
+    #[error("Event publisher brokers cannot be empty.")]
+    EmptyPublisherBrokers,
 }
 
 impl ActionTypeConfig {
@@ -151,6 +172,18 @@ impl ActionTypeConfig {
             }
             // Standard output Action requires no validation.
             ActionTypeConfig::Stdout(_) => Ok(()),
+
+            ActionTypeConfig::Kafka(config) => {
+                if config.topic.is_empty() {
+                    return Err(ActionTypeConfigError::EmptyPublisherTopic);
+                }
+
+                if config.brokers.is_empty() {
+                    return Err(ActionTypeConfigError::EmptyPublisherBrokers);
+                }
+
+                Ok(())
+            }
         }
     }
 }
