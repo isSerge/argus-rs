@@ -5,13 +5,5 @@ mod traits;
 
 pub use action::PublisherAction;
 pub use error::PublisherError;
-pub use kafka::KafkaEventPublisher;
+pub use kafka::create_kafka_publisher;
 pub use traits::EventPublisher;
-
-use crate::models::action::KafkaConfig;
-
-pub async fn create_kafka_publisher(
-    config: &KafkaConfig,
-) -> Result<KafkaEventPublisher, PublisherError> {
-    unimplemented!()
-}

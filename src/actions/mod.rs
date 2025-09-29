@@ -96,14 +96,28 @@ impl ActionDispatcher {
 
         for (name, config) in action_configs.iter() {
             let action: Box<dyn Action> = match &config.config {
+                // Kafka publisher action
                 ActionTypeConfig::Kafka(c) => {
-                    let kafka_publisher = create_kafka_publisher(&c).await?;
-                    Box::new(PublisherAction::new(c.topic.clone(), Box::new(kafka_publisher)))
+                    let publisher = match create_kafka_publisher(&c).await {
+                        Err(e) => {
+                            tracing::error!(
+                                "Failed to create Kafka publisher for action '{}': {}",
+                                name,
+                                e
+                            );
+                            // Skip adding this action if the publisher creation fails
+                            continue;
+                        }
+                        Ok(p) => p,
+                    };
+
+                    Box::new(PublisherAction::new(c.topic.clone(), Box::new(publisher)))
                 }
 
                 // Standard output action
                 ActionTypeConfig::Stdout(c) =>
                     Box::new(StdoutAction::new(c.clone(), template_service.clone())),
+
                 // All webhook-based actions are constructed here
                 ActionTypeConfig::Webhook(_)
                 | ActionTypeConfig::Discord(_)

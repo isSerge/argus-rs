@@ -1,8 +1,14 @@
 use std::time::Duration;
 
-use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
+use rdkafka::{
+    ClientConfig,
+    producer::{FutureProducer, FutureRecord, Producer},
+};
 
-use crate::actions::publisher::{EventPublisher, PublisherError};
+use crate::{
+    actions::publisher::{EventPublisher, PublisherError},
+    models::action::KafkaConfig,
+};
 
 /// A Kafka event publisher.
 pub struct KafkaEventPublisher {
@@ -26,4 +32,19 @@ impl EventPublisher for KafkaEventPublisher {
     async fn flush(&self, timeout: Duration) -> Result<(), PublisherError> {
         self.producer.flush(timeout).map_err(|e| e.into())
     }
+}
+
+/// Creates a new `KafkaEventPublisher` from the given `KafkaConfig`.
+pub async fn create_kafka_publisher(
+    config: &KafkaConfig,
+) -> Result<KafkaEventPublisher, PublisherError> {
+    let mut client_config = ClientConfig::new();
+
+    client_config.set("bootstrap.servers", &config.brokers);
+    // TODO: set additional config options from KafkaConfig
+
+    let producer =
+        client_config.create::<FutureProducer>().map_err(|e| PublisherError::KafkaError(e))?;
+
+    Ok(KafkaEventPublisher { producer })
 }
