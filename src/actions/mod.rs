@@ -31,8 +31,8 @@ use crate::{
     models::{
         NotificationMessage,
         action::{
-            self, ActionConfig, ActionTypeConfig, DiscordConfig, SlackConfig, TelegramConfig,
-            WebhookConfig,
+            ActionConfig, ActionTypeConfig, DiscordConfig, SlackConfig, StdoutConfig,
+            TelegramConfig, WebhookConfig,
         },
         monitor_match::MonitorMatch,
     },
@@ -41,6 +41,7 @@ use crate::{
 pub mod error;
 pub mod payload_builder;
 pub mod template;
+mod traits;
 mod webhook;
 
 use error::NotificationError;
@@ -53,13 +54,13 @@ use url::Url;
 
 use self::{template::TemplateService, webhook::WebhookAction};
 
-/// An enum representing the different types of notification payloads.
-pub enum NotificationPayload {
-    /// A single notification for a single monitor match.
+/// An enum representing the different types of action payloads.
+pub enum ActionPayload {
+    /// A single monitor match.
     Single(MonitorMatch),
-    /// An aggregated notification for multiple monitor matches.
+    /// An aggregated item for multiple monitor matches.
     Aggregated {
-        /// The name of the action to use for this aggregated notification.
+        /// The name of the action to use for this aggregated item.
         action_name: String,
         /// The list of monitor matches to include in the aggregation.
         matches: Vec<MonitorMatch>,
@@ -219,9 +220,9 @@ impl ActionDispatcher {
     /// * `Result<(), NotificationError>` - Returns `Ok(())` on success, or a
     ///   `NotificationError` if the action is not found, the HTTP client fails,
     ///   or the notification fails to send.
-    pub async fn execute(&self, payload: NotificationPayload) -> Result<(), NotificationError> {
+    pub async fn execute(&self, payload: ActionPayload) -> Result<(), NotificationError> {
         let (action_name, context, custom_template) = match payload {
-            NotificationPayload::Single(monitor_match) => {
+            ActionPayload::Single(monitor_match) => {
                 let context = serde_json::to_value(&monitor_match).map_err(|e| {
                     NotificationError::InternalError(format!(
                         "Failed to serialize monitor match: {e}"
@@ -229,7 +230,7 @@ impl ActionDispatcher {
                 })?;
                 (monitor_match.action_name, context, None)
             }
-            NotificationPayload::Aggregated { action_name, matches, template } => {
+            ActionPayload::Aggregated { action_name, matches, template } => {
                 let monitor_name = matches.first().map(|m| m.monitor_name.clone());
                 let context = serde_json::json!({
                     "matches": matches,
@@ -308,7 +309,7 @@ impl ActionDispatcher {
     /// Executes a stdout notification.
     fn execute_stdout(
         &self,
-        stdout_config: &action::StdoutConfig,
+        stdout_config: &StdoutConfig,
         context: &serde_json::Value,
     ) -> Result<(), NotificationError> {
         if let Some(message) = &stdout_config.message {
@@ -327,7 +328,7 @@ impl ActionDispatcher {
     /// and executing notifications based on the configured actions.
     pub async fn run(&self, mut notifications_rx: mpsc::Receiver<MonitorMatch>) {
         while let Some(monitor_match) = notifications_rx.recv().await {
-            if let Err(e) = self.execute(NotificationPayload::Single(monitor_match.clone())).await {
+            if let Err(e) = self.execute(ActionPayload::Single(monitor_match.clone())).await {
                 tracing::error!(
                     "Failed to execute notification for action '{}': {}",
                     monitor_match.action_name,
@@ -377,7 +378,7 @@ mod tests {
         let http_client_pool = Arc::new(HttpClientPool::default());
         let service = ActionDispatcher::new(Arc::new(HashMap::new()), http_client_pool);
         let monitor_match = create_mock_monitor_match("nonexistent");
-        let notification_payload = NotificationPayload::Single(monitor_match.clone());
+        let notification_payload = ActionPayload::Single(monitor_match.clone());
         let result = service.execute(notification_payload).await;
 
         assert!(result.is_err());
@@ -509,7 +510,7 @@ mod tests {
 
     #[test]
     fn as_webhook_components_trait_fails_for_stdout_config() {
-        let stdout_config = ActionTypeConfig::Stdout(action::StdoutConfig { message: None });
+        let stdout_config = ActionTypeConfig::Stdout(StdoutConfig { message: None });
 
         let result = stdout_config.as_webhook_components();
 

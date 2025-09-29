@@ -1,9 +1,9 @@
-//! Integration tests for the notification service
+//! Integration tests for the ActionDispatcher service
 
 use std::sync::Arc;
 
 use argus::{
-    actions::{ActionDispatcher, NotificationPayload},
+    actions::{ActionDispatcher, ActionPayload},
     config::HttpRetryConfig,
     http_client::HttpClientPool,
     models::{
@@ -60,7 +60,7 @@ async fn test_webhook_action_success() {
         json!({"value": "100"}),
     );
 
-    let payload = NotificationPayload::Single(monitor_match.clone());
+    let payload = ActionPayload::Single(monitor_match.clone());
     let result = notification_service.execute(payload).await;
 
     assert!(result.is_ok());
@@ -84,7 +84,7 @@ async fn test_stdout_action_success() {
         json!({"value": "100"}),
     );
 
-    let payload = NotificationPayload::Single(monitor_match.clone());
+    let payload = ActionPayload::Single(monitor_match.clone());
     let result = notification_service.execute(payload).await;
 
     assert!(result.is_ok(), "Stdout action should succeed, got error: {:?}", result.err());
@@ -124,7 +124,7 @@ async fn test_failure_with_retryable_error() {
         json!({}),
     );
 
-    let payload = NotificationPayload::Single(monitor_match.clone());
+    let payload = ActionPayload::Single(monitor_match.clone());
     let result = notification_service.execute(payload).await;
 
     // The final result should be an error because the mock never returns a success
@@ -167,7 +167,7 @@ async fn test_failure_with_non_retryable_error() {
         json!({}),
     );
 
-    let payload = NotificationPayload::Single(monitor_match.clone());
+    let payload = ActionPayload::Single(monitor_match.clone());
     let result = notification_service.execute(payload).await;
 
     assert!(result.is_err());
@@ -199,7 +199,7 @@ async fn test_failure_with_invalid_url() {
         json!({}),
     );
 
-    let payload = NotificationPayload::Single(monitor_match.clone());
+    let payload = ActionPayload::Single(monitor_match.clone());
     let result = notification_service.execute(payload).await;
 
     assert!(result.is_err());

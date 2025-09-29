@@ -7,7 +7,7 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 
 use crate::{
-    actions::{ActionDispatcher, NotificationPayload, error::NotificationError},
+    actions::{ActionDispatcher, ActionPayload, error::NotificationError},
     models::{
         action::{ActionConfig, ActionPolicy},
         alert_manager_state::{AggregationState, ThrottleState},
@@ -98,7 +98,7 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
                 tracing::debug!("No policy for action {}, sending immediately.", action_name);
                 if let Err(e) = self
                     .action_dispatcher
-                    .execute(NotificationPayload::Single(monitor_match.clone()))
+                    .execute(ActionPayload::Single(monitor_match.clone()))
                     .await
                 {
                     tracing::error!(
@@ -171,10 +171,8 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
                 throttle_state.count + 1,
                 policy.max_count
             );
-            if let Err(e) = self
-                .action_dispatcher
-                .execute(NotificationPayload::Single(monitor_match.clone()))
-                .await
+            if let Err(e) =
+                self.action_dispatcher.execute(ActionPayload::Single(monitor_match.clone())).await
             {
                 tracing::error!(
                     "Failed to execute notification for throttled action '{}': {}",
@@ -294,7 +292,7 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
                 );
 
                 // And we use the policy's template to build the payload.
-                let payload = NotificationPayload::Aggregated {
+                let payload = ActionPayload::Aggregated {
                     action_name: action_config.name.clone(),
                     matches: state.matches,
                     template: policy.template.clone(),
