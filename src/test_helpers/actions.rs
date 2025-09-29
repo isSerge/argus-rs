@@ -4,8 +4,8 @@ use crate::{
     config::HttpRetryConfig,
     models::{
         action::{
-            ActionConfig, ActionPolicy, ActionTypeConfig, DiscordConfig, SlackConfig, StdoutConfig,
-            WebhookConfig,
+            ActionConfig, ActionPolicy, ActionTypeConfig, DiscordConfig, GenericWebhookConfig,
+            SlackConfig, StdoutConfig,
         },
         notification::NotificationMessage,
     },
@@ -23,7 +23,7 @@ impl ActionBuilder {
     pub fn new(name: &str) -> Self {
         Self {
             name: name.to_string(),
-            config: ActionTypeConfig::Webhook(WebhookConfig {
+            config: ActionTypeConfig::Webhook(GenericWebhookConfig {
                 url: Url::parse("http://localhost").unwrap(),
                 message: NotificationMessage::default(),
                 method: None,
@@ -37,7 +37,7 @@ impl ActionBuilder {
 
     /// Sets the Action to use webhook configuration.
     pub fn webhook_config(mut self, url: &str) -> Self {
-        self.config = ActionTypeConfig::Webhook(WebhookConfig {
+        self.config = ActionTypeConfig::Webhook(GenericWebhookConfig {
             url: Url::parse(url).unwrap(),
             message: NotificationMessage::default(),
             method: None,

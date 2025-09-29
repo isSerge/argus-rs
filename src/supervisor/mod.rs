@@ -28,6 +28,7 @@ use thiserror::Error;
 use tokio::{signal, sync::mpsc};
 
 use crate::{
+    actions::error::ActionDispatcherError,
     config::AppConfig,
     engine::{
         alert_manager::AlertManager, block_ingestor::BlockIngestor,
@@ -99,6 +100,10 @@ pub enum SupervisorError {
     /// A provider was not provided to the `SupervisorBuilder`.
     #[error("Missing provider for Supervisor")]
     MissingProvider,
+
+    /// An error occurred in the action dispatcher.
+    #[error("Action dispatcher error: {0}")]
+    ActionDispatcher(#[from] ActionDispatcherError),
 }
 
 /// The primary runtime manager for the application.

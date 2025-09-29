@@ -49,7 +49,7 @@ async fn test_webhook_action_success() {
     let http_client_pool = Arc::new(HttpClientPool::default());
     let actions =
         Arc::new(vec![mock_discord_action].into_iter().map(|n| (n.name.clone(), n)).collect());
-    let notification_service = ActionDispatcher::new(actions, http_client_pool);
+    let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
 
     let monitor_match = MonitorMatch::new_tx_match(
         1,
@@ -61,7 +61,7 @@ async fn test_webhook_action_success() {
     );
 
     let payload = ActionPayload::Single(monitor_match.clone());
-    let result = notification_service.execute(payload).await;
+    let result = action_dispatcher.execute(payload).await;
 
     assert!(result.is_ok());
     mock.assert();
@@ -73,7 +73,7 @@ async fn test_stdout_action_success() {
 
     let http_client_pool = Arc::new(HttpClientPool::default());
     let actions = Arc::new(vec![stdout_action].into_iter().map(|n| (n.name.clone(), n)).collect());
-    let notification_service = ActionDispatcher::new(actions, http_client_pool);
+    let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
 
     let monitor_match = MonitorMatch::new_tx_match(
         1,
@@ -85,7 +85,7 @@ async fn test_stdout_action_success() {
     );
 
     let payload = ActionPayload::Single(monitor_match.clone());
-    let result = notification_service.execute(payload).await;
+    let result = action_dispatcher.execute(payload).await;
 
     assert!(result.is_ok(), "Stdout action should succeed, got error: {:?}", result.err());
 }
@@ -113,7 +113,7 @@ async fn test_failure_with_retryable_error() {
     let http_client_pool = Arc::new(HttpClientPool::default());
     let actions =
         Arc::new(vec![mock_discord_action].into_iter().map(|n| (n.name.clone(), n)).collect());
-    let notification_service = ActionDispatcher::new(actions, http_client_pool);
+    let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
 
     let monitor_match = MonitorMatch::new_tx_match(
         2,
@@ -125,7 +125,7 @@ async fn test_failure_with_retryable_error() {
     );
 
     let payload = ActionPayload::Single(monitor_match.clone());
-    let result = notification_service.execute(payload).await;
+    let result = action_dispatcher.execute(payload).await;
 
     // The final result should be an error because the mock never returns a success
     // status.
@@ -156,7 +156,7 @@ async fn test_failure_with_non_retryable_error() {
     let http_client_pool = Arc::new(HttpClientPool::default());
     let actions =
         Arc::new(vec![mock_discord_action].into_iter().map(|n| (n.name.clone(), n)).collect());
-    let notification_service = ActionDispatcher::new(actions, http_client_pool);
+    let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
 
     let monitor_match = MonitorMatch::new_tx_match(
         3,
@@ -168,7 +168,7 @@ async fn test_failure_with_non_retryable_error() {
     );
 
     let payload = ActionPayload::Single(monitor_match.clone());
-    let result = notification_service.execute(payload).await;
+    let result = action_dispatcher.execute(payload).await;
 
     assert!(result.is_err());
     mock.assert();
@@ -188,7 +188,7 @@ async fn test_failure_with_invalid_url() {
     let http_client_pool = Arc::new(HttpClientPool::default());
     let actions =
         Arc::new(vec![mock_discord_action].into_iter().map(|t| (t.name.clone(), t)).collect());
-    let notification_service = ActionDispatcher::new(actions, http_client_pool);
+    let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
 
     let monitor_match = MonitorMatch::new_tx_match(
         4,
@@ -200,7 +200,7 @@ async fn test_failure_with_invalid_url() {
     );
 
     let payload = ActionPayload::Single(monitor_match.clone());
-    let result = notification_service.execute(payload).await;
+    let result = action_dispatcher.execute(payload).await;
 
     assert!(result.is_err());
 }

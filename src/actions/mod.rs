@@ -26,10 +26,10 @@
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
+    actions::{stdout::StdoutAction, traits::Action, webhook::WebhookAction},
     http_client::HttpClientPool,
     models::{
-        NotificationMessage,
-        action::{ActionConfig, ActionTypeConfig, StdoutConfig},
+        action::{ActionConfig, ActionTypeConfig},
         monitor_match::MonitorMatch,
     },
 };
@@ -46,7 +46,7 @@ pub use payload::ActionPayload;
 use tokio::sync::mpsc;
 use webhook::WebhookComponents;
 
-use self::{template::TemplateService, webhook::WebhookClient};
+use self::template::TemplateService;
 
 impl ActionTypeConfig {
     /// Transforms the specific action configuration into a generic set of
@@ -68,13 +68,14 @@ impl ActionTypeConfig {
 /// A service responsible for dispatching actions based on pre-loaded
 /// action configurations (webhook notifiers, publishers, etc.)
 pub struct ActionDispatcher {
-    /// A thread-safe pool for creating and reusing HTTP clients with different
-    /// retry policies.
-    client_pool: Arc<HttpClientPool>,
-    /// A map of action names to their loaded and validated configurations.
-    actions: Arc<HashMap<String, ActionConfig>>,
-    /// The service for rendering notification templates.
-    template_service: TemplateService,
+    // /// A thread-safe pool for creating and reusing HTTP clients with different
+    // /// retry policies.
+    // client_pool: Arc<HttpClientPool>,
+    // /// A map of action names to their loaded and validated configurations.
+    // actions: Arc<HashMap<String, ActionConfig>>,
+    // /// The service for rendering notification templates.
+    // template_service: TemplateService,
+    actions: HashMap<String, Box<dyn Action>>,
 }
 
 impl ActionDispatcher {
@@ -85,130 +86,46 @@ impl ActionDispatcher {
     /// * `actions` - A vector of `ActionConfig` loaded and validated at
     ///   application startup.
     /// * `client_pool` - A shared pool of HTTP clients.
-    pub fn new(
-        actions: Arc<HashMap<String, ActionConfig>>,
+    pub async fn new(
+        action_configs: Arc<HashMap<String, ActionConfig>>,
         client_pool: Arc<HttpClientPool>,
-    ) -> Self {
-        ActionDispatcher { client_pool, actions, template_service: TemplateService::new() }
+    ) -> Result<Self, ActionDispatcherError> {
+        let template_service = Arc::new(TemplateService::new());
+        let mut actions: HashMap<String, Box<dyn Action>> = HashMap::new();
+
+        for (name, config) in action_configs.iter() {
+            let action: Box<dyn Action> = match &config.config {
+                // Standard output action
+                ActionTypeConfig::Stdout(c) =>
+                    Box::new(StdoutAction::new(c.clone(), template_service.clone())),
+                // All webhook-based actions are constructed here
+                ActionTypeConfig::Webhook(_)
+                | ActionTypeConfig::Discord(_)
+                | ActionTypeConfig::Slack(_)
+                | ActionTypeConfig::Telegram(_) => {
+                    // This unwrap is safe because we've already filtered non-webhook types
+                    let components = config.config.as_webhook_components().unwrap();
+                    let http_client = client_pool.get_or_create(&components.retry_policy).await?;
+                    Box::new(WebhookAction::new(components, http_client, template_service.clone()))
+                }
+            };
+            actions.insert(name.clone(), action);
+        }
+
+        Ok(ActionDispatcher { actions })
     }
 
     /// Executes a notification for a given action.
-    ///
-    /// This method looks up the action by name, constructs the necessary
-    /// components, and dispatches the notification.
-    ///
-    /// # Arguments
-    ///
-    /// * `payload` - The notification payload, which can be either a single
-    ///   match or an aggregated summary.
-    ///
-    /// # Returns
-    ///
-    /// * `Result<(), ActionDispatcherError>` - Returns `Ok(())` on success, or
-    ///   a `ActionDispatcherError` if the action is not found, the HTTP client
-    ///   fails, or the notification fails to send.
     pub async fn execute(&self, payload: ActionPayload) -> Result<(), ActionDispatcherError> {
-        let (action_name, context, custom_template) = match payload {
-            ActionPayload::Single(monitor_match) => {
-                let context = serde_json::to_value(&monitor_match).map_err(|e| {
-                    ActionDispatcherError::InternalError(format!(
-                        "Failed to serialize monitor match: {e}"
-                    ))
-                })?;
-                (monitor_match.action_name, context, None)
-            }
-            ActionPayload::Aggregated { action_name, matches, template } => {
-                let monitor_name = matches.first().map(|m| m.monitor_name.clone());
-                let context = serde_json::json!({
-                    "matches": matches,
-                    "monitor_name": monitor_name,
-                });
-                (action_name, context, Some(template))
-            }
-        };
+        let action_name = payload.action_name();
 
-        tracing::info!(action = %action_name, "Executing notification action.");
+        tracing::debug!(action = %action_name, "Executing action.");
 
-        let action_config = self.actions.get(&action_name).ok_or_else(|| {
-            tracing::warn!(action = %action_name, "Action configuration not found.");
-            ActionDispatcherError::ConfigError(format!("Action '{action_name}' not found"))
+        let action = &self.actions.get(&action_name).ok_or_else(|| {
+            ActionDispatcherError::ConfigError(format!("Action '{}' not found", action_name))
         })?;
-        tracing::debug!(action = %action_name, "Found action configuration.");
 
-        // Handle different action types separately
-        match &action_config.config {
-            // Standard output action
-            ActionTypeConfig::Stdout(stdout_config) =>
-                self.execute_stdout(stdout_config, &context)?,
-            // All webhook-based actions are handled here
-            ActionTypeConfig::Discord(_)
-            | ActionTypeConfig::Slack(_)
-            | ActionTypeConfig::Telegram(_)
-            | ActionTypeConfig::Webhook(_) =>
-                self.execute_webhook(action_config, &context, custom_template).await?,
-        }
-
-        Ok(())
-    }
-
-    /// Executes a webhook notification.
-    async fn execute_webhook(
-        &self,
-        action_config: &ActionConfig,
-        context: &serde_json::Value,
-        custom_template: Option<NotificationMessage>,
-    ) -> Result<(), ActionDispatcherError> {
-        let action_name = &action_config.name;
-        // Use the AsWebhookComponents trait to get config, retry policy and payload
-        // builder
-        let mut components = action_config.config.as_webhook_components()?;
-
-        // If a custom template is provided (e.g., for aggregation), override the
-        // default one.
-        if let Some(template) = custom_template {
-            components.config.title = template.title;
-            components.config.body_template = template.body;
-        }
-
-        // Get or create the HTTP client from the pool based on the retry policy
-        let http_client = self.client_pool.get_or_create(&components.retry_policy).await?;
-
-        // Render the title and body templates.
-        let rendered_title =
-            self.template_service.render(&components.config.title, context.clone())?;
-        let rendered_body =
-            self.template_service.render(&components.config.body_template, context.clone())?;
-        tracing::debug!(action = %action_name, body = %rendered_body, "Rendered notification template.");
-
-        // Build the payload
-        let payload = components.builder.build_payload(&rendered_title, &rendered_body);
-
-        // Create the action
-        tracing::info!(action = %action_name, url = %components.config.url, "Dispatching notification.");
-        let action = WebhookClient::new(components.config, http_client)?;
-
-        action.notify_json(&payload).await?;
-        tracing::info!(action = %action_name, "Notification dispatched successfully.");
-
-        Ok(())
-    }
-
-    /// Executes a stdout notification.
-    fn execute_stdout(
-        &self,
-        stdout_config: &StdoutConfig,
-        context: &serde_json::Value,
-    ) -> Result<(), ActionDispatcherError> {
-        if let Some(message) = &stdout_config.message {
-            let rendered_title = self.template_service.render(&message.title, context.clone())?;
-            let rendered_body = self.template_service.render(&message.body, context.clone())?;
-
-            println!("=== Stdout Notification: ===\n{}\n{}\n", rendered_title, rendered_body);
-            Ok(())
-        } else {
-            println!("=== Stdout Notification: ===\n {}", context);
-            Ok(())
-        }
+        action.execute(payload).await
     }
 
     /// Runs the notification service, listening for incoming monitor matches
@@ -236,7 +153,9 @@ mod tests {
     use crate::{
         config::HttpRetryConfig,
         models::{
-            action::{DiscordConfig, GenericWebhookConfig, SlackConfig, TelegramConfig},
+            action::{
+                DiscordConfig, GenericWebhookConfig, SlackConfig, StdoutConfig, TelegramConfig,
+            },
             monitor_match::LogDetails,
             notification::NotificationMessage,
         },
@@ -264,7 +183,8 @@ mod tests {
     #[tokio::test]
     async fn test_missing_action_error() {
         let http_client_pool = Arc::new(HttpClientPool::default());
-        let service = ActionDispatcher::new(Arc::new(HashMap::new()), http_client_pool);
+        let service =
+            ActionDispatcher::new(Arc::new(HashMap::new()), http_client_pool).await.unwrap();
         let monitor_match = create_mock_monitor_match("nonexistent");
         let notification_payload = ActionPayload::Single(monitor_match.clone());
         let result = service.execute(notification_payload).await;
@@ -411,8 +331,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_execute_stdout_with_message() {
+    #[tokio::test]
+    async fn test_execute_stdout_with_message() {
         let action_config = ActionBuilder::new("stdout_test")
             .stdout_config(Some(NotificationMessage {
                 title: "Test Title".to_string(),
@@ -420,62 +340,38 @@ mod tests {
             }))
             .build();
 
-        let stdout_config = match &action_config.config {
-            ActionTypeConfig::Stdout(c) => c,
-            _ => panic!("Expected StdoutConfig"),
-        };
-
-        let context = serde_json::json!({
-            "monitor_name": "Test Monitor",
-            "block_number": 123,
-            "transaction_hash": "0xabc123",
-            "tx": {
-                "from": "0xfromaddress",
-                "to": "0xtoaddress",
-                "value": 1000
-            }
-        });
+        let action_payload = ActionPayload::Single(create_mock_monitor_match(&action_config.name));
 
         let service = ActionDispatcher::new(
             Arc::new(
                 vec![(action_config.name.clone(), action_config.clone())].into_iter().collect(),
             ),
             Arc::new(HttpClientPool::default()),
-        );
+        )
+        .await
+        .unwrap();
 
-        let result = service.execute_stdout(stdout_config, &context);
+        let result = service.execute(action_payload).await;
 
         assert!(result.is_ok());
     }
 
-    #[test]
-    fn test_execute_stdout_without_message() {
+    #[tokio::test]
+    async fn test_execute_stdout_without_message() {
         let action_config = ActionBuilder::new("stdout_test").stdout_config(None).build();
 
-        let stdout_config = match &action_config.config {
-            ActionTypeConfig::Stdout(c) => c,
-            _ => panic!("Expected StdoutConfig"),
-        };
-
-        let context = serde_json::json!({
-            "monitor_name": "Test Monitor",
-            "block_number": 123,
-            "transaction_hash": "0xabc123",
-            "tx": {
-                "from": "0xfromaddress",
-                "to": "0xtoaddress",
-                "value": 1000
-            }
-        });
+        let action_payload = ActionPayload::Single(create_mock_monitor_match(&action_config.name));
 
         let service = ActionDispatcher::new(
             Arc::new(
                 vec![(action_config.name.clone(), action_config.clone())].into_iter().collect(),
             ),
             Arc::new(HttpClientPool::default()),
-        );
+        )
+        .await
+        .unwrap();
 
-        let result = service.execute_stdout(stdout_config, &context);
+        let result = service.execute(action_payload).await;
 
         assert!(result.is_ok());
     }

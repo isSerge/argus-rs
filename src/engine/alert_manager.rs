@@ -401,16 +401,17 @@ mod tests {
         }
     }
 
-    fn create_alert_manager(
+    async fn create_alert_manager(
         actions: HashMap<String, ActionConfig>,
         state_repo: MockKeyValueStore,
     ) -> AlertManager<MockKeyValueStore> {
         let state_repo = Arc::new(state_repo);
         let actions_arc = Arc::new(actions);
-        let action_dispatcher = Arc::new(ActionDispatcher::new(
-            actions_arc.clone(),
-            Arc::new(HttpClientPool::default()),
-        ));
+        let action_dispatcher = Arc::new(
+            ActionDispatcher::new(actions_arc.clone(), Arc::new(HttpClientPool::default()))
+                .await
+                .unwrap(),
+        );
         AlertManager::new(action_dispatcher, state_repo, actions_arc)
     }
 
@@ -419,7 +420,7 @@ mod tests {
         // Arrange
         let actions = HashMap::new(); // Empty actions map
         let state_repo = MockKeyValueStore::new();
-        let alert_manager = create_alert_manager(actions, state_repo);
+        let alert_manager = create_alert_manager(actions, state_repo).await;
         let monitor_match = create_monitor_match("NonExistentAction".to_string());
 
         // Act
@@ -440,7 +441,7 @@ mod tests {
         let mut actions = HashMap::new();
         actions.insert(action_name.to_string(), action_config);
         let state_repo = MockKeyValueStore::new();
-        let alert_manager = create_alert_manager(actions, state_repo);
+        let alert_manager = create_alert_manager(actions, state_repo).await;
         let monitor_match = create_monitor_match(action_name);
 
         // Act
@@ -484,7 +485,7 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(())); // Simulate successful state save
 
-        let alert_manager = create_alert_manager(actions, state_repo);
+        let alert_manager = create_alert_manager(actions, state_repo).await;
         let monitor_match = create_monitor_match(action_name);
 
         let result = alert_manager.process_match(&monitor_match).await;
@@ -527,7 +528,7 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(())); // Simulate successful state save
 
-        let alert_manager = create_alert_manager(actions, state_repo);
+        let alert_manager = create_alert_manager(actions, state_repo).await;
         let monitor_match = create_monitor_match(action_name);
 
         let result = alert_manager.process_match(&monitor_match).await;
@@ -567,7 +568,7 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(())); // Simulate successful state save
 
-        let alert_manager = create_alert_manager(actions, state_repo);
+        let alert_manager = create_alert_manager(actions, state_repo).await;
         let monitor_match = create_monitor_match(action_name);
 
         let result = alert_manager.process_match(&monitor_match).await;
@@ -613,7 +614,7 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(()));
 
-        let alert_manager = create_alert_manager(actions, state_repo);
+        let alert_manager = create_alert_manager(actions, state_repo).await;
 
         let result = alert_manager.process_match(&monitor_match).await;
         assert!(result.is_ok());
@@ -665,7 +666,7 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(()));
 
-        let alert_manager = create_alert_manager(actions, state_repo);
+        let alert_manager = create_alert_manager(actions, state_repo).await;
 
         let result = alert_manager.process_match(&monitor_match).await;
         assert!(result.is_ok());
@@ -717,7 +718,7 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(()));
 
-        let alert_manager = create_alert_manager(actions, state_repo);
+        let alert_manager = create_alert_manager(actions, state_repo).await;
 
         // Act
         let result = alert_manager.check_and_dispatch_expired_windows(false).await;
@@ -730,7 +731,7 @@ mod tests {
     async fn test_get_action_lock_is_shared_and_distinct() {
         // Arrange
         let state_repo = MockKeyValueStore::new();
-        let alert_manager = create_alert_manager(HashMap::new(), state_repo);
+        let alert_manager = create_alert_manager(HashMap::new(), state_repo).await;
         let action1_name = "action1";
         let action2_name = "action2";
 

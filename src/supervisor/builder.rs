@@ -107,10 +107,10 @@ impl SupervisorBuilder {
         // Set up the ActionDispatcher and AlertManager
         let actions_map: Arc<HashMap<String, ActionConfig>> =
             Arc::new(actions.into_iter().map(|t| (t.name.clone(), t)).collect());
-        let notification_service =
-            Arc::new(ActionDispatcher::new(actions_map.clone(), http_client_pool));
+        let action_dispatcher =
+            Arc::new(ActionDispatcher::new(actions_map.clone(), http_client_pool).await?);
         let alert_manager =
-            Arc::new(AlertManager::new(notification_service, state.clone(), actions_map));
+            Arc::new(AlertManager::new(action_dispatcher, state.clone(), actions_map));
 
         // Finally, construct the Supervisor with all its components.
         Ok(Supervisor::new(
