@@ -35,7 +35,7 @@ pub struct WebhookConfig {
 
 /// Implementation of webhook notifications via webhooks
 #[derive(Debug)]
-pub struct WebhookAction {
+pub struct WebhookClient {
     /// Webhook URL for message delivery
     pub url: Url,
     /// URL parameters to use for the webhook request
@@ -50,7 +50,7 @@ pub struct WebhookAction {
     pub headers: Option<HashMap<String, String>>,
 }
 
-impl WebhookAction {
+impl WebhookClient {
     /// Creates a new Webhook action instance
     ///
     /// # Arguments
@@ -211,7 +211,7 @@ mod tests {
         url: &str,
         secret: Option<&str>,
         headers: Option<HashMap<String, String>>,
-    ) -> WebhookAction {
+    ) -> WebhookClient {
         let http_client = create_test_http_client();
         let config = WebhookConfig {
             url: Url::parse(url).unwrap(),
@@ -222,7 +222,7 @@ mod tests {
             secret: secret.map(|s| s.to_string()),
             headers,
         };
-        WebhookAction::new(config, http_client).unwrap()
+        WebhookClient::new(config, http_client).unwrap()
     }
 
     fn create_test_payload() -> serde_json::Value {

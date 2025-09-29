@@ -17,7 +17,7 @@
 //! 1. The `ActionDispatcher` is initialized with a collection of validated
 //!    `ActionConfig`s, which are loaded at application startup.
 //! 2. For each `ActionConfig`, a corresponding `Action` implementation (e.g.,
-//!    `WebhookActionWrapper`, `StdoutAction`) is created and stored.
+//!    `WebhookClientWrapper`, `StdoutAction`) is created and stored.
 //! 3. When a monitor match occurs, the `execute` method is called with the name
 //!    of the action to be executed.
 //! 4. The manager looks up the corresponding `Action` trait object and calls
@@ -40,6 +40,7 @@ use crate::{
 
 pub mod error;
 pub mod payload_builder;
+mod stdout;
 pub mod template;
 mod traits;
 mod webhook;
@@ -52,7 +53,7 @@ use payload_builder::{
 use tokio::sync::mpsc;
 use url::Url;
 
-use self::{template::TemplateService, webhook::WebhookAction};
+use self::{template::TemplateService, webhook::WebhookClient};
 
 /// An enum representing the different types of action payloads.
 pub enum ActionPayload {
@@ -67,6 +68,36 @@ pub enum ActionPayload {
         /// The template to use for the notification message.
         template: NotificationMessage,
     },
+}
+
+impl ActionPayload {
+    /// Serializes the payload context to a JSON value.
+    pub fn context(&self) -> Result<serde_json::Value, ActionDispatcherError> {
+        match self {
+            ActionPayload::Single(monitor_match) =>
+                serde_json::to_value(monitor_match).map_err(|e| {
+                    ActionDispatcherError::InternalError(format!(
+                        "Failed to serialize monitor match: {e}"
+                    ))
+                }),
+            ActionPayload::Aggregated { matches, .. } => {
+                let monitor_name = matches.first().map(|m| m.monitor_name.clone());
+                let context = serde_json::json!({
+                    "matches": matches,
+                    "monitor_name": monitor_name,
+                });
+                Ok(context)
+            }
+        }
+    }
+
+    /// Returns the name of the action associated with this payload.
+    pub fn action_name(&self) -> String {
+        match self {
+            ActionPayload::Single(monitor_match) => monitor_match.action_name.clone(),
+            ActionPayload::Aggregated { action_name, .. } => action_name.clone(),
+        }
+    }
 }
 
 /// A private container struct holding the generic components required to send
@@ -298,7 +329,7 @@ impl ActionDispatcher {
 
         // Create the action
         tracing::info!(action = %action_name, url = %components.config.url, "Dispatching notification.");
-        let action = WebhookAction::new(components.config, http_client)?;
+        let action = WebhookClient::new(components.config, http_client)?;
 
         action.notify_json(&payload).await?;
         tracing::info!(action = %action_name, "Notification dispatched successfully.");
