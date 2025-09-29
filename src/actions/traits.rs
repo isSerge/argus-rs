@@ -6,4 +6,9 @@ use crate::actions::{ActionPayload, error::ActionDispatcherError};
 pub trait Action: Send + Sync {
     /// Executes the action with the given notification payload.
     async fn execute(&self, payload: ActionPayload) -> Result<(), ActionDispatcherError>;
+
+    /// Shuts down the action, performing any necessary cleanup.
+    async fn shutdown(&self) -> Result<(), ActionDispatcherError> {
+        Ok(())
+    }
 }

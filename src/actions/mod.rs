@@ -160,6 +160,19 @@ impl ActionDispatcher {
             }
         }
     }
+
+    /// Shuts down all the actions managed by the dispatcher.
+    pub async fn shutdown(&self) {
+        tracing::info!("Shutting down all actions...");
+        let shutdowns = self.actions.values().map(|action| action.shutdown());
+        let results = futures::future::join_all(shutdowns).await;
+
+        for result in results {
+            if let Err(e) = result {
+                tracing::error!("Error shutting down action: {}", e);
+            }
+        }
+    }
 }
 
 #[cfg(test)]

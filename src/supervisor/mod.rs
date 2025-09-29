@@ -313,6 +313,9 @@ impl Supervisor {
         let shutdown_timeout = self.config.shutdown_timeout;
 
         let cleanup_logic = async {
+            // Shutdown the alert manager to flush any pending notifications.
+            self.alert_manager.shutdown().await;
+
             if let Err(e) = self.state.flush().await {
                 tracing::error!(error = %e, "Failed to flush pending writes, but continuing cleanup.");
             }

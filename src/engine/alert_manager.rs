@@ -357,6 +357,16 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
     pub async fn flush(&self) -> Result<(), AlertManagerError> {
         self.check_and_dispatch_expired_windows(true).await
     }
+
+    /// Shuts down the alert manager, flushing any pending notifications and
+    /// shutting down the action dispatcher.
+    pub async fn shutdown(&self) {
+        tracing::info!("Shutting down alert manager...");
+        if let Err(e) = self.flush().await {
+            tracing::error!("Failed to flush pending notifications: {}", e);
+        }
+        self.action_dispatcher.shutdown().await;
+    }
 }
 
 #[cfg(test)]

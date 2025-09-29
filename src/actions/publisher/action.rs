@@ -33,6 +33,13 @@ impl Action for PublisherAction {
 
         Ok(())
     }
+
+    async fn shutdown(&self) -> Result<(), ActionDispatcherError> {
+        self.publisher
+            .flush(std::time::Duration::from_secs(5))
+            .await
+            .map_err(ActionDispatcherError::Publisher)
+    }
 }
 
 #[cfg(test)]
