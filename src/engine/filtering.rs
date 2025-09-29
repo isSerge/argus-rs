@@ -272,7 +272,7 @@ impl RhaiFilteringEngine {
             &context.item.transaction,
             context.item.receipt.as_ref(),
         );
-        for notifier in &monitor.notifiers {
+        for action in &monitor.actions {
             let log_details = LogDetails {
                 log_index: decoded_log.log.log_index().unwrap_or_default(),
                 address: decoded_log.log.address(),
@@ -282,7 +282,7 @@ impl RhaiFilteringEngine {
             context.matches.push(MonitorMatch::new_log_match(
                 monitor.id,
                 monitor.name.clone(),
-                notifier.clone(),
+                action.clone(),
                 context.item.transaction.block_number().unwrap_or_default(),
                 context.item.transaction.hash(),
                 log_details,
@@ -297,11 +297,11 @@ impl RhaiFilteringEngine {
             &context.item.transaction,
             context.item.receipt.as_ref(),
         );
-        for notifier in &monitor.notifiers {
+        for action in &monitor.actions {
             context.matches.push(MonitorMatch::new_tx_match(
                 monitor.id,
                 monitor.name.clone(),
-                notifier.clone(),
+                action.clone(),
                 context.item.transaction.block_number().unwrap_or_default(),
                 context.item.transaction.hash(),
                 tx_match_payload.clone(),
@@ -436,7 +436,7 @@ mod tests {
             .address(&CONTRACT_ADDRESS.to_checksum(None))
             .abi("erc20")
             .filter_script("log.name == \"Transfer\" ")
-            .notifiers(vec!["notifier1".to_string(), "notifier2".to_string()])
+            .actions(vec!["action1".to_string(), "action2".to_string()])
             .build();
         let monitors = vec![monitor];
         let engine = setup_engine_with_monitors(monitors, abi_service.clone());
@@ -452,9 +452,9 @@ mod tests {
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert_eq!(matches.len(), 2);
         assert_eq!(matches[0].monitor_id, 1);
-        assert_eq!(matches[0].notifier_name, "notifier1");
+        assert_eq!(matches[0].action_name, "action1");
         assert_eq!(matches[1].monitor_id, 1);
-        assert_eq!(matches[1].notifier_name, "notifier2");
+        assert_eq!(matches[1].action_name, "action2");
     }
 
     #[tokio::test]
@@ -464,7 +464,7 @@ mod tests {
         let monitor = MonitorBuilder::new()
             .id(1)
             .filter_script("tx.value > bigint(\"100\")")
-            .notifiers(vec!["notifier1".to_string()])
+            .actions(vec!["action1".to_string()])
             .build();
         let monitors = vec![monitor];
         let engine = setup_engine_with_monitors(monitors, abi_service);
@@ -476,7 +476,7 @@ mod tests {
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].monitor_id, 1);
-        assert_eq!(matches[0].notifier_name, "notifier1");
+        assert_eq!(matches[0].action_name, "action1");
     }
 
     #[tokio::test]
@@ -487,7 +487,7 @@ mod tests {
         let monitor = MonitorBuilder::new()
             .id(1)
             .filter_script("tx.value > bigint(\"200\")")
-            .notifiers(vec!["notifier1".to_string()])
+            .actions(vec!["action1".to_string()])
             .build();
         let monitors = vec![monitor];
         let engine = setup_engine_with_monitors(monitors, abi_service);
@@ -510,12 +510,12 @@ mod tests {
             .address(&CONTRACT_ADDRESS.to_checksum(None))
             .abi("erc20")
             .filter_script("log.name == \"Transfer\" ")
-            .notifiers(vec!["log_notifier".to_string()])
+            .actions(vec!["log_action".to_string()])
             .build();
         let tx_monitor = MonitorBuilder::new()
             .id(2)
             .filter_script("tx.value > bigint(\"100\")")
-            .notifiers(vec!["tx_notifier".to_string()])
+            .actions(vec!["tx_action".to_string()])
             .build();
         let monitors = vec![log_monitor.clone(), tx_monitor.clone()];
         let engine = setup_engine_with_monitors(monitors, abi_service);
@@ -552,7 +552,7 @@ mod tests {
             .address(&CONTRACT_ADDRESS.to_checksum(None))
             .abi("erc20")
             .filter_script("log.name == \"Transfer\" && log.params.value > bigint(\"100\")")
-            .notifiers(vec!["notifier1".to_string()])
+            .actions(vec!["action1".to_string()])
             .build();
         let monitors = vec![monitor];
         let engine = setup_engine_with_monitors(monitors, abi_service);
@@ -570,7 +570,7 @@ mod tests {
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].monitor_id, 1);
-        assert_eq!(matches[0].notifier_name, "notifier1");
+        assert_eq!(matches[0].action_name, "action1");
         assert!(
             matches!(&matches[0].match_data, MatchData::Log(log_match) if log_match.log_details.name == "Transfer")
         );
@@ -580,7 +580,7 @@ mod tests {
     async fn test_evaluate_item_no_decoded_logs_still_triggers_tx_monitor() {
         let temp_dir = tempdir().unwrap();
         let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
-        let monitor = MonitorBuilder::new().id(1).notifiers(vec!["notifier1".to_string()]).build();
+        let monitor = MonitorBuilder::new().id(1).actions(vec!["action1".to_string()]).build();
         let monitors = vec![monitor];
         let engine = setup_engine_with_monitors(monitors, abi_service);
         let tx = TransactionBuilder::new().build();
@@ -606,7 +606,7 @@ mod tests {
             .filter_script(
                 r#"decoded_call.name == "transfer" && decoded_call.params._value > bigint(1000)"#,
             )
-            .notifiers(vec!["test-notifier".to_string()])
+            .actions(vec!["test-action".to_string()])
             .build();
         let engine = setup_engine_with_monitors(vec![monitor], abi_service.clone());
 
@@ -636,7 +636,7 @@ mod tests {
             .filter_script(
                 r#"log.name == "Transfer" && decoded_call.name == "transfer" && decoded_call.params._value > bigint(1000)"#,
             )
-            .notifiers(vec!["test-notifier".to_string()])
+            .actions(vec!["test-action".to_string()])
             .build();
         let engine = setup_engine_with_monitors(vec![monitor], abi_service.clone());
 
@@ -667,7 +667,7 @@ mod tests {
         let monitor = MonitorBuilder::new()
             .id(1)
             .filter_script("decoded_call.name == \"\"") // Check for empty decoded_call name
-            .notifiers(vec!["notifier1".to_string()])
+            .actions(vec!["action1".to_string()])
             .build();
         let monitors = vec![monitor];
         let engine = setup_engine_with_monitors(monitors, abi_service);
@@ -770,7 +770,7 @@ mod tests {
         let monitor = MonitorBuilder::new()
             .id(1)
             .filter_script("tx.value > ether(1.5)")
-            .notifiers(vec!["notifier1".to_string()])
+            .actions(vec!["action1".to_string()])
             .build();
         let monitors = vec![monitor];
         let engine = setup_engine_with_monitors(monitors, abi_service);
@@ -819,7 +819,7 @@ mod tests {
             .id(100)
             .abi("erc20")
             .filter_script("log.name == \"Transfer\" ")
-            .notifiers(vec!["global_notifier".to_string()])
+            .actions(vec!["global_action".to_string()])
             .build();
 
         let monitors = vec![global_monitor];
@@ -877,7 +877,7 @@ mod tests {
             tx.value > bigint(100) || log.name == "Transfer"
         "#,
             )
-            .notifiers(vec!["test-notifier".to_string()])
+            .actions(vec!["test-action".to_string()])
             .build();
         let engine = setup_engine_with_monitors(vec![monitor], abi_service.clone());
 
@@ -905,7 +905,7 @@ mod tests {
             tx.value > bigint(100) || log.name == "Transfer"
         "#,
             )
-            .notifiers(vec!["test-notifier".to_string()])
+            .actions(vec!["test-action".to_string()])
             .build();
         let engine = setup_engine_with_monitors(vec![monitor], abi_service.clone());
 
@@ -939,7 +939,7 @@ mod tests {
             tx.value > bigint(100) || log.name == "Transfer"
         "#,
             )
-            .notifiers(vec!["test-notifier".to_string()])
+            .actions(vec!["test-action".to_string()])
             .build();
         let engine = setup_engine_with_monitors(vec![monitor], abi_service.clone());
 
@@ -971,7 +971,7 @@ mod tests {
         let monitor = MonitorBuilder::new()
             .id(1)
             .filter_script(r#"decoded_call.name == "nonexistent""#)
-            .notifiers(vec!["test-notifier".to_string()])
+            .actions(vec!["test-action".to_string()])
             .build();
         let engine = setup_engine_with_monitors(vec![monitor], abi_service.clone());
 
@@ -994,7 +994,7 @@ mod tests {
         let monitor = MonitorBuilder::new()
             .id(1)
             .filter_script(r#"log.name == "nonexistent""#)
-            .notifiers(vec!["test-notifier".to_string()])
+            .actions(vec!["test-action".to_string()])
             .build();
         let engine = setup_engine_with_monitors(vec![monitor], abi_service.clone());
 
@@ -1018,7 +1018,7 @@ mod tests {
             .address(&CONTRACT_ADDRESS.to_checksum(None))
             .abi("erc20")
             .filter_script(r#"decoded_call.name == "transfer""#)
-            .notifiers(vec!["test-notifier".to_string()])
+            .actions(vec!["test-action".to_string()])
             .build();
         let engine = setup_engine_with_monitors(vec![monitor], abi_service.clone());
 
@@ -1045,7 +1045,7 @@ mod tests {
         let item = CorrelatedBlockItem::new(tx.clone(), vec![log.clone()], None);
         let mut context = EvaluationContext::new(&item);
 
-        let monitor = MonitorBuilder::new().notifiers(vec!["n1".to_string()]).build();
+        let monitor = MonitorBuilder::new().actions(vec!["n1".to_string()]).build();
         let decoded_log =
             DecodedLog { log: log.into(), name: "TestEvent".to_string(), params: vec![] };
 
@@ -1082,7 +1082,7 @@ mod tests {
         let item = CorrelatedBlockItem::new(tx.clone(), vec![], None);
         let mut context = EvaluationContext::new(&item);
 
-        let monitor = MonitorBuilder::new().notifiers(vec!["n1".to_string()]).build();
+        let monitor = MonitorBuilder::new().actions(vec!["n1".to_string()]).build();
 
         engine.create_tx_matches(&mut context, &monitor);
 

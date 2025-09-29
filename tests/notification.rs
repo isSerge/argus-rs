@@ -7,23 +7,23 @@ use argus::{
     http_client::HttpClientPool,
     models::{
         NotificationMessage,
+        action::{ActionConfig, ActionTypeConfig, DiscordConfig},
         monitor_match::MonitorMatch,
-        notifier::{DiscordConfig, NotifierConfig, NotifierTypeConfig},
     },
     notification::{NotificationPayload, NotificationService},
-    test_helpers::NotifierBuilder,
+    test_helpers::ActionBuilder,
 };
 use mockito;
 use serde_json::json;
 use url::Url;
 
 #[tokio::test]
-async fn test_webhook_notifier_success() {
+async fn test_webhook_action_success() {
     let mut server = mockito::Server::new_async().await;
 
-    let mock_discord_notifier = NotifierConfig {
+    let mock_discord_action = ActionConfig {
         name: "test_discord".to_string(),
-        config: NotifierTypeConfig::Discord(DiscordConfig {
+        config: ActionTypeConfig::Discord(DiscordConfig {
             discord_url: Url::parse(&server.url()).unwrap(),
             message: NotificationMessage {
                 title: "Test Title".to_string(),
@@ -47,9 +47,9 @@ async fn test_webhook_notifier_success() {
         .await;
 
     let http_client_pool = Arc::new(HttpClientPool::default());
-    let notifiers =
-        Arc::new(vec![mock_discord_notifier].into_iter().map(|n| (n.name.clone(), n)).collect());
-    let notification_service = NotificationService::new(notifiers, http_client_pool);
+    let actions =
+        Arc::new(vec![mock_discord_action].into_iter().map(|n| (n.name.clone(), n)).collect());
+    let notification_service = NotificationService::new(actions, http_client_pool);
 
     let monitor_match = MonitorMatch::new_tx_match(
         1,
@@ -68,13 +68,12 @@ async fn test_webhook_notifier_success() {
 }
 
 #[tokio::test]
-async fn test_stdout_notifier_success() {
-    let stdout_notifier = NotifierBuilder::new("test_stdout").stdout_config(None).build();
+async fn test_stdout_action_success() {
+    let stdout_action = ActionBuilder::new("test_stdout").stdout_config(None).build();
 
     let http_client_pool = Arc::new(HttpClientPool::default());
-    let notifiers =
-        Arc::new(vec![stdout_notifier].into_iter().map(|n| (n.name.clone(), n)).collect());
-    let notification_service = NotificationService::new(notifiers, http_client_pool);
+    let actions = Arc::new(vec![stdout_action].into_iter().map(|n| (n.name.clone(), n)).collect());
+    let notification_service = NotificationService::new(actions, http_client_pool);
 
     let monitor_match = MonitorMatch::new_tx_match(
         1,
@@ -88,7 +87,7 @@ async fn test_stdout_notifier_success() {
     let payload = NotificationPayload::Single(monitor_match.clone());
     let result = notification_service.execute(payload).await;
 
-    assert!(result.is_ok(), "Stdout notifier should succeed, got error: {:?}", result.err());
+    assert!(result.is_ok(), "Stdout action should succeed, got error: {:?}", result.err());
 }
 
 #[tokio::test]
@@ -97,7 +96,7 @@ async fn test_failure_with_retryable_error() {
 
     let retry_policy = HttpRetryConfig { max_retry: 2, ..Default::default() };
 
-    let mock_discord_notifier = NotifierBuilder::new("test_discord_retry")
+    let mock_discord_action = ActionBuilder::new("test_discord_retry")
         .discord_config(&server.url())
         .retry_policy(retry_policy.clone())
         .build();
@@ -112,9 +111,9 @@ async fn test_failure_with_retryable_error() {
         .await;
 
     let http_client_pool = Arc::new(HttpClientPool::default());
-    let notifiers =
-        Arc::new(vec![mock_discord_notifier].into_iter().map(|n| (n.name.clone(), n)).collect());
-    let notification_service = NotificationService::new(notifiers, http_client_pool);
+    let actions =
+        Arc::new(vec![mock_discord_action].into_iter().map(|n| (n.name.clone(), n)).collect());
+    let notification_service = NotificationService::new(actions, http_client_pool);
 
     let monitor_match = MonitorMatch::new_tx_match(
         2,
@@ -140,7 +139,7 @@ async fn test_failure_with_non_retryable_error() {
 
     let retry_policy = HttpRetryConfig { max_retry: 3, ..Default::default() };
 
-    let mock_discord_notifier = NotifierBuilder::new("test_discord_no_retry")
+    let mock_discord_action = ActionBuilder::new("test_discord_no_retry")
         .discord_config(&server.url())
         .retry_policy(retry_policy.clone())
         .build();
@@ -155,9 +154,9 @@ async fn test_failure_with_non_retryable_error() {
         .await;
 
     let http_client_pool = Arc::new(HttpClientPool::default());
-    let notifiers =
-        Arc::new(vec![mock_discord_notifier].into_iter().map(|n| (n.name.clone(), n)).collect());
-    let notification_service = NotificationService::new(notifiers, http_client_pool);
+    let actions =
+        Arc::new(vec![mock_discord_action].into_iter().map(|n| (n.name.clone(), n)).collect());
+    let notification_service = NotificationService::new(actions, http_client_pool);
 
     let monitor_match = MonitorMatch::new_tx_match(
         3,
@@ -177,7 +176,7 @@ async fn test_failure_with_non_retryable_error() {
 
 #[tokio::test]
 async fn test_failure_with_invalid_url() {
-    let mock_discord_notifier = NotifierBuilder::new("test_invalid_url")
+    let mock_discord_action = ActionBuilder::new("test_invalid_url")
         .discord_config("http://127.0.0.1:1") // Invalid URL that will fail to connect
         .retry_policy(HttpRetryConfig {
             max_retry: 0,
@@ -187,9 +186,9 @@ async fn test_failure_with_invalid_url() {
         .build();
 
     let http_client_pool = Arc::new(HttpClientPool::default());
-    let notifiers =
-        Arc::new(vec![mock_discord_notifier].into_iter().map(|t| (t.name.clone(), t)).collect());
-    let notification_service = NotificationService::new(notifiers, http_client_pool);
+    let actions =
+        Arc::new(vec![mock_discord_action].into_iter().map(|t| (t.name.clone(), t)).collect());
+    let notification_service = NotificationService::new(actions, http_client_pool);
 
     let monitor_match = MonitorMatch::new_tx_match(
         4,

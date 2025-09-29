@@ -254,8 +254,8 @@ impl Supervisor {
             while let Some(monitor_match) = monitor_matches_rx.recv().await {
                 if let Err(e) = alert_manager_clone.process_match(&monitor_match).await {
                     tracing::error!(
-                        "Failed to process monitor match for notifier '{}': {}",
-                        monitor_match.notifier_name,
+                        "Failed to process monitor match for action '{}': {}",
+                        monitor_match.action_name,
                         e
                     );
                 }

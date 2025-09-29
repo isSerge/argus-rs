@@ -12,7 +12,7 @@ pub struct MonitorBuilder {
     address: Option<String>,
     abi: Option<String>,
     filter_script: Option<String>,
-    notifiers: Option<Vec<String>>,
+    actions: Option<Vec<String>>,
     created_at: Option<DateTime<Utc>>,
     updated_at: Option<DateTime<Utc>>,
 }
@@ -33,7 +33,7 @@ impl MonitorBuilder {
             address: None,
             abi: None,
             filter_script: None,
-            notifiers: None,
+            actions: None,
             created_at: None,
             updated_at: None,
         }
@@ -51,9 +51,9 @@ impl MonitorBuilder {
         self
     }
 
-    /// Sets the notifiers for the monitor.
-    pub fn notifiers(mut self, notifiers: Vec<String>) -> Self {
-        self.notifiers = Some(notifiers);
+    /// Sets the actions for the monitor.
+    pub fn actions(mut self, actions: Vec<String>) -> Self {
+        self.actions = Some(actions);
         self
     }
 
@@ -102,7 +102,7 @@ impl MonitorBuilder {
             address: self.address,
             abi: self.abi,
             filter_script: self.filter_script.unwrap_or("true".to_string()),
-            notifiers: self.notifiers.unwrap_or_default(),
+            actions: self.actions.unwrap_or_default(),
             created_at: self.created_at.unwrap_or_default(),
             updated_at: self.updated_at.unwrap_or_default(),
         }

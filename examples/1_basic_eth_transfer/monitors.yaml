@@ -3,5 +3,5 @@ monitors:
     network: "ethereum"
     filter_script: |
       tx.value > ether(10)
-    notifiers:
-      - "stdout-notifier"
+    actions:
+      - "stdout-action"

@@ -6,7 +6,7 @@ Argus is using the [Rhai](https://rhai.rs) scripting language for its filtering 
 
 The `filter_script` is a short piece of Rhai code that must evaluate to a boolean (`true` or `false`).
 
--   If the script evaluates to `true`, the monitor is considered a "match," and a notification is sent to its configured notifiers.
+-   If the script evaluates to `true`, the monitor is considered a "match," and a notification is sent to its configured actions.
 -   If the script evaluates to `false`, no action is taken.
 
 ### Example: Simple ETH Transfer

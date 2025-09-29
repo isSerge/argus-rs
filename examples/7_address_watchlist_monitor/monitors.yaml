@@ -10,5 +10,5 @@ monitors:
       ];
 
       tx.from in watchlist || tx.to in watchlist
-    notifiers:
+    actions:
       - "Stdout Watchlist"

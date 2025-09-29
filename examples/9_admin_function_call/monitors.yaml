@@ -5,5 +5,5 @@ monitors:
     abi: "aave_governance_v2"
     filter_script: |
       decoded_call.name == "execute"
-    notifiers:
+    actions:
       - "Stdout Admin"

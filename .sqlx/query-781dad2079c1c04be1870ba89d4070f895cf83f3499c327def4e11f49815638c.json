@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM actions WHERE network_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "781dad2079c1c04be1870ba89d4070f895cf83f3499c327def4e11f49815638c"
+}

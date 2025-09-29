@@ -31,7 +31,7 @@ The repository provides example configurations. Let's copy them to create your l
 
 ```bash
 cp configs/monitors.example.yaml configs/monitors.yaml
-cp configs/notifiers.example.yaml configs/notifiers.yaml
+cp configs/actions.example.yaml configs/actions.yaml
 ```
 
 Now, open `configs/monitors.yaml`. For this example, we'll use the pre-configured "Large ETH Transfers" monitor.
@@ -43,23 +43,23 @@ monitors:
     network: "ethereum"
     filter_script: |
       tx.value > ether(10)
-    notifiers:
+    actions:
       - "my-webhook"
 ```
 
-This monitor will trigger for any transaction on `ethereum` where more than 10 ETH is transferred. It will send a notification using the `my-webhook` notifier.
+This monitor will trigger for any transaction on `ethereum` where more than 10 ETH is transferred. It will send a notification using the `my-webhook` action.
 
-## 3. Configure a Notifier (`notifiers.yaml`)
+## 3. Configure an Action (`actions.yaml`)
 
-Finally, let's configure *how* we get notified. Open `configs/notifiers.yaml`.
+Finally, let's configure *how* we get notified. Open `configs/actions.yaml`.
 
 To receive alerts, you'll need a webhook endpoint. For testing, you can use a service like [Webhook.site](https://webhook.site/) to get a temporary URL.
 
-Update the `url` in the `my-webhook` notifier configuration with your actual webhook URL. **Remember to use environment variables for secrets!**
+Update the `url` in the `my-webhook` action configuration with your actual webhook URL. **Remember to use environment variables for secrets!**
 
 ```yaml
-# configs/notifiers.yaml
-notifiers:
+# configs/actions.yaml
+actions:
   - name: "my-webhook"
     webhook:
       url: "${WEBHOOK_URL}" # <-- SET THIS IN YOUR .env FILE

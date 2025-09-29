@@ -1,10 +1,10 @@
--- A migration to create the 'notifiers' table.
+-- A migration to create the 'actions' table.
 
-CREATE TABLE IF NOT EXISTS notifiers (
-    notifier_id INTEGER PRIMARY KEY AUTOINCREMENT,
+CREATE TABLE IF NOT EXISTS actions (
+    action_id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     network_id TEXT NOT NULL,
-    config TEXT NOT NULL, -- JSON representation of the NotifierConfig
+    config TEXT NOT NULL, -- JSON representation of the ActionConfig
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(name, network_id)

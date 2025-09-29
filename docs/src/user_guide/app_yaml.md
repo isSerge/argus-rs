@@ -51,7 +51,7 @@ confirmation_blocks: 12
 | `confirmation_blocks` | Number of blocks to wait for before processing to protect against reorgs. A higher number is safer but introduces more latency. | `12` |
 | `notification_channel_capacity` | The capacity of the internal channel for sending notifications. | `1024` |
 | `shutdown_timeout` | The maximum time in seconds to wait for a graceful shutdown. | `30` |
-| `aggregation_check_interval` | The interval in seconds to check for aggregated matches for notifiers with policies. | `5` |
+| `aggregation_check_interval` | The interval in seconds to check for aggregated matches for action with policies. | `5` |
 
 ---
 

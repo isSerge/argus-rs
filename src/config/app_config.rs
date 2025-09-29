@@ -45,9 +45,9 @@ pub struct AppConfig {
     #[serde(skip_deserializing)]
     pub monitor_config_path: PathBuf,
 
-    /// Path to notifier configuration file.
+    /// Path to action configuration file.
     #[serde(skip_deserializing)]
-    pub notifier_config_path: PathBuf,
+    pub action_config_path: PathBuf,
 
     /// Optional retry configuration.
     #[serde(default)]
@@ -124,8 +124,8 @@ impl AppConfig {
         let monitor_path = config_path.join("monitors.yaml");
         config.monitor_config_path = monitor_path;
 
-        let notifier_path = config_path.join("notifiers.yaml");
-        config.notifier_config_path = notifier_path;
+        let action_path = config_path.join("actions.yaml");
+        config.action_config_path = action_path;
 
         Ok(config)
     }
@@ -161,8 +161,8 @@ impl AppConfigBuilder {
         self
     }
 
-    pub fn notifier_config_path(mut self, path: &str) -> Self {
-        self.config.notifier_config_path = path.into();
+    pub fn action_config_path(mut self, path: &str) -> Self {
+        self.config.action_config_path = path.into();
         self
     }
 
@@ -207,7 +207,7 @@ mod tests {
             .rpc_urls(rpc_urls)
             .network_id("testnet")
             .monitor_config_path("test_monitor.yaml")
-            .notifier_config_path("test_notifier.yaml")
+            .action_config_path("test_action.yaml")
             .database_url("sqlite::memory:")
             .confirmation_blocks(12)
             .abi_config_path("abis/")
@@ -216,7 +216,7 @@ mod tests {
         assert_eq!(config.rpc_urls.len(), 1);
         assert_eq!(config.network_id, "testnet");
         assert_eq!(config.monitor_config_path, PathBuf::from("test_monitor.yaml"));
-        assert_eq!(config.notifier_config_path, PathBuf::from("test_notifier.yaml"));
+        assert_eq!(config.action_config_path, PathBuf::from("test_action.yaml"));
         assert_eq!(config.database_url, "sqlite::memory:");
         assert_eq!(config.confirmation_blocks, 12);
     }
@@ -246,8 +246,8 @@ mod tests {
         let expected_monitor_path = temp_dir_path.join("monitors.yaml");
         assert_eq!(config.monitor_config_path, PathBuf::from(expected_monitor_path));
 
-        let expected_notifier_path = temp_dir_path.join("notifiers.yaml");
-        assert_eq!(config.notifier_config_path, PathBuf::from(expected_notifier_path));
+        let expected_action_path = temp_dir_path.join("actions.yaml");
+        assert_eq!(config.action_config_path, PathBuf::from(expected_action_path));
 
         assert_eq!(config.database_url, "sqlite::memory:");
         assert_eq!(config.confirmation_blocks, 12);

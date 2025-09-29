@@ -2,22 +2,22 @@
 
 This example sets up a monitor that triggers when a transaction with a value
 greater than 10 ETH is detected on the Ethereum mainnet. It uses the `stdout`
-notifier for simple console output.
+action for simple console output.
 
 ### Configuration Files
 
 - [`app.yaml`](../../docs/src/user_guide/config_app.md): Basic application configuration, pointing to public RPC endpoints.
 - [`monitors.yaml`](../../docs/src/user_guide/config_monitors.md): Defines the "Large ETH Transfers" monitor.
-- [`notifiers.yaml`](../../docs/src/user_guide/config_notifiers.md): Defines the stdout notifier for console output.
+- [`actions.yaml`](../../docs/src/user_guide/config_actions.md): Defines the stdout action for console output.
 
-### Notifier Options
+### Action Options
 
-This example uses the stdout notifier which prints notifications directly to the console. This is ideal for:
+This example uses the stdout action which prints notifications directly to the console. This is ideal for:
 - Local development and testing
 - Debugging monitor configurations
 - Dry-run scenarios
 
-For production use, you can configure other notifiers like Slack, Discord, Telegram, or webhooks. See the [Notifier Configuration documentation](../../docs/src/user_guide/notifiers_yaml.md) for all available options.
+For production use, you can configure other actions like Slack, Discord, Telegram, or webhooks. See the [Action Configuration documentation](../../docs/src/user_guide/actions_yaml.md) for all available options.
 
 ### Monitor Configuration
 
@@ -29,8 +29,8 @@ monitors:
     network: 'ethereum'
     filter_script: |
       tx.value > ether(10)
-    notifiers:
-      - 'stdout-notifier'
+    actions:
+      - 'stdout-action'
 ```
 
 - **`name`**: A human-readable name for the monitor.
@@ -40,16 +40,16 @@ monitors:
   which the monitor will trigger. In this example, `tx.value > ether(10)` checks
   if the transaction's value is greater than 10 ETH. The [`ether()`](../../docs/src/user_guide/rhai_helpers.md#ethervalue) function is a
   convenient wrapper, which handles `BigInt` conversions.
-- **`notifiers`**: A list of notifier names (defined in `notifiers.yaml`) that
-  will receive alerts when this monitor triggers. Here, it references "stdout-notifier".
+- **`actions`**: A list of action names (defined in `actions.yaml`) that
+  will receive alerts when this monitor triggers. Here, it references "stdout-action".
 
-### Notifier Configuration
+### Action Configuration
 
-The `notifiers.yaml` in this example defines a `stdout` notifier that prints notifications to the console. For a complete reference on notifier configuration, see the [Notifier Configuration documentation](../../docs/src/user_guide/notifiers_yaml.md).
+The `actions.yaml` in this example defines a `stdout` action that prints notifications to the console. For a complete reference on action configuration, see the [Action Configuration documentation](../../docs/src/user_guide/actions_yaml.md).
 
 ```yaml
-notifiers:
-  - name: 'stdout-notifier'
+actions:
+  - name: 'stdout-action'
     stdout:
       message:
         title: 'Large ETH Transfer Detected'
@@ -61,11 +61,11 @@ notifiers:
           [View on Etherscan](https://etherscan.io/tx/{{ transaction_hash }})
 ```
 
-- **`name`**: A unique, human-readable name for the notifier. This name is
-  referenced by monitors in their `notifiers` list.
-- **`stdout`**: This block configures a stdout notifier that prints to the console.
+- **`name`**: A unique, human-readable name for the action. This name is
+  referenced by monitors in their `actions` list.
+- **`stdout`**: This block configures a stdout action that prints to the console.
   - **`message`**: Defines the structure and content of the notification
-    message. For more details on templating, see the [Notifier Templating documentation](../../docs/src/user_guide/notifier_templating.md).
+    message. For more details on templating, see the [Action Templating documentation](../../docs/src/user_guide/action_templating.md).
     - **`title`**: The title of the notification. Supports
       [Jinja2-like templating](https://docs.rs/minijinja/latest/minijinja/) to
       include dynamic data from the monitor match (e.g., `{{ monitor_name }}`).
@@ -105,8 +105,8 @@ against.
 #### Expected Output
 
 As blocks within the specified range are processed, you should see notifications
-printed to the console via the stdout notifier. Each notification will be
-formatted according to the message template defined in the notifier configuration.
+printed to the console via the stdout action. Each notification will be
+formatted according to the message template defined in the action configuration.
 
 For example, when a large ETH transfer is detected, you'll see output like:
 ```
@@ -135,7 +135,7 @@ Matches by Monitor
 
 Notifications Dispatched
 ------------------------
-- "stdout-notifier": 2
+- "stdout-action": 2
 ```
 
 ### How to Run (Default Mode)
@@ -143,7 +143,7 @@ Notifications Dispatched
 Once you have verified your monitor works against historical data in `dry-run`
 mode, you can start it in default (live monitoring) mode. In this mode, the
 monitor will continuously poll for new blocks and dispatch actual notifications
-via the configured notifier when a match is found.
+via the configured action when a match is found.
 
 ```bash
 cargo run --release -- run --config-dir examples/1_basic_eth_transfer/

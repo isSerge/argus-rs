@@ -1,5 +1,5 @@
 //! This module provides the `InitializationService` responsible for loading
-//! initial application data (monitors, notifiers, ABIs) into the database and
+//! initial application data (monitors, actions, ABIs) into the database and
 //! ABI service at startup.
 
 use std::{path::PathBuf, sync::Arc};
@@ -12,7 +12,7 @@ use crate::{
     config::{AppConfig, InitialStartBlock},
     engine::rhai::RhaiScriptValidator,
     loader::load_config,
-    models::{monitor::MonitorConfig, notifier::NotifierConfig},
+    models::{action::ActionConfig, monitor::MonitorConfig},
     monitor::MonitorValidator,
     persistence::traits::AppRepository,
 };
@@ -24,9 +24,9 @@ pub enum InitializationError {
     #[error("Failed to load monitors from file: {0}")]
     MonitorLoad(String),
 
-    /// An error occurred while loading notifier from the configuration file.
-    #[error("Failed to load notifier from file: {0}")]
-    NotifierLoad(String),
+    /// An error occurred while loading action from the configuration file.
+    #[error("Failed to load action from file: {0}")]
+    ActionLoad(String),
 
     /// An error occurred while loading ABIs from monitors.
     #[error("Failed to load ABIs from monitors: {0}")]
@@ -58,12 +58,12 @@ impl InitializationService {
         Self { config, repo, abi_service, script_validator, provider }
     }
 
-    /// Runs the initialization process, loading monitors, notifiers, and ABIs.
+    /// Runs the initialization process, loading monitors, actions, and ABIs.
     pub async fn run(&self) -> Result<(), InitializationError> {
         self.initialize_block_state().await?;
 
-        // Load notifiers from the configuration file if specified and DB is empty.
-        self.load_notifiers_from_file().await?;
+        // Load actions from the configuration file if specified and DB is empty.
+        self.load_actions_from_file().await?;
 
         // Load monitors from the configuration file if specified and DB is empty.
         self.load_monitors_from_file().await?;
@@ -158,9 +158,9 @@ impl InitializationService {
         })?;
 
         // Validate monitors
-        let notifiers = self.repo.get_notifiers(network_id).await.map_err(|e| {
+        let actions = self.repo.get_actions(network_id).await.map_err(|e| {
             InitializationError::MonitorLoad(format!(
-                "Failed to fetch notifiers for monitor validation: {e}"
+                "Failed to fetch actions for monitor validation: {e}"
             ))
         })?;
 
@@ -168,7 +168,7 @@ impl InitializationService {
             self.script_validator.clone(),
             self.abi_service.clone(),
             network_id,
-            &notifiers,
+            &actions,
         );
         for monitor in &monitors {
             validator.validate(monitor).map_err(|e| {
@@ -193,41 +193,39 @@ impl InitializationService {
         Ok(())
     }
 
-    pub(crate) async fn load_notifiers_from_file(&self) -> Result<(), InitializationError> {
+    pub(crate) async fn load_actions_from_file(&self) -> Result<(), InitializationError> {
         let network_id = &self.config.network_id;
-        let config_path = &self.config.notifier_config_path;
+        let config_path = &self.config.action_config_path;
 
-        tracing::debug!(network_id = %network_id, "Checking for existing notifiers in database...");
-        let existing_notifiers = self.repo.get_notifiers(network_id).await.map_err(|e| {
-            InitializationError::NotifierLoad(format!(
-                "Failed to fetch existing notifiers from DB: {e}"
+        tracing::debug!(network_id = %network_id, "Checking for existing actions in database...");
+        let existing_actions = self.repo.get_actions(network_id).await.map_err(|e| {
+            InitializationError::ActionLoad(format!(
+                "Failed to fetch existing actions from DB: {e}"
             ))
         })?;
 
-        if !existing_notifiers.is_empty() {
+        if !existing_actions.is_empty() {
             tracing::info!(
                 network_id = %network_id,
-                count = existing_notifiers.len(),
-                "Notifiers already exist in the database. Skipping loading from file."
+                count = existing_actions.len(),
+                "actions already exist in the database. Skipping loading from file."
             );
             return Ok(());
         }
 
-        tracing::info!(config_path = %config_path.display(), "No notifiers found in database. Loading from configuration file...");
-        let notifiers = load_config::<NotifierConfig>(PathBuf::from(config_path)).map_err(|e| {
-            InitializationError::NotifierLoad(format!("Failed to load notifiers from file: {e}"))
+        tracing::info!(config_path = %config_path.display(), "No actions found in database. Loading from configuration file...");
+        let actions = load_config::<ActionConfig>(PathBuf::from(config_path)).map_err(|e| {
+            InitializationError::ActionLoad(format!("Failed to load actions from file: {e}"))
         })?;
-        let count = notifiers.len();
-        tracing::info!(count = count, "Loaded notifiers from configuration file.");
-        self.repo.clear_notifiers(network_id).await.map_err(|e| {
-            InitializationError::NotifierLoad(format!(
-                "Failed to clear existing notifiers in DB: {e}"
-            ))
+        let count = actions.len();
+        tracing::info!(count = count, "Loaded actions from configuration file.");
+        self.repo.clear_actions(network_id).await.map_err(|e| {
+            InitializationError::ActionLoad(format!("Failed to clear existing actions in DB: {e}"))
         })?;
-        self.repo.add_notifiers(network_id, notifiers).await.map_err(|e| {
-            InitializationError::NotifierLoad(format!("Failed to add notifiers to DB: {e}"))
+        self.repo.add_actions(network_id, actions).await.map_err(|e| {
+            InitializationError::ActionLoad(format!("Failed to add actions to DB: {e}"))
         })?;
-        tracing::info!(count = count, network_id = %network_id, "Notifiers from file stored in database.");
+        tracing::info!(count = count, network_id = %network_id, "actions from file stored in database.");
         Ok(())
     }
 
@@ -281,9 +279,9 @@ mod tests {
     use crate::{
         config::{AppConfig, RhaiConfig},
         engine::rhai::RhaiCompiler,
-        models::{monitor::MonitorConfig, notifier::NotifierConfig},
+        models::{action::ActionConfig, monitor::MonitorConfig},
         persistence::{error::PersistenceError, traits::MockAppRepository},
-        test_helpers::{MonitorBuilder, NotifierBuilder, create_test_abi_service, mock_provider},
+        test_helpers::{ActionBuilder, MonitorBuilder, create_test_abi_service, mock_provider},
     };
 
     // Helper to create a dummy config file
@@ -293,10 +291,10 @@ mod tests {
         file_path
     }
 
-    fn create_test_notifier_config_str() -> &'static str {
+    fn create_test_action_config_str() -> &'static str {
         r#"
-notifiers:
-  - name: "Test Notifier"
+actions:
+  - name: "Test Action"
     webhook:
       url: "http://example.com"
       message:
@@ -345,11 +343,8 @@ monitors:
         let temp_dir = tempdir().unwrap();
         let monitor_config_path =
             create_dummy_config_file(&temp_dir, "monitors.yaml", create_test_monitor_config_str());
-        let notifier_config_path = create_dummy_config_file(
-            &temp_dir,
-            "notifiers.yaml",
-            create_test_notifier_config_str(),
-        );
+        let action_config_path =
+            create_dummy_config_file(&temp_dir, "actions.yaml", create_test_action_config_str());
         let network_id = "testnet";
 
         let mut mock_repo = MockAppRepository::new();
@@ -367,15 +362,15 @@ monitors:
             .once()
             .returning(|_, _| Ok(()));
 
-        // Notifiers
+        // actions
         mock_repo
-            .expect_get_notifiers()
+            .expect_get_actions()
             .with(eq(network_id))
-            .times(2) // Called for notifier loading and monitor validation
+            .times(2) // Called for action loading and monitor validation
             .returning(|_| Ok(vec![]));
-        mock_repo.expect_clear_notifiers().with(eq(network_id)).once().returning(|_| Ok(()));
+        mock_repo.expect_clear_actions().with(eq(network_id)).once().returning(|_| Ok(()));
         mock_repo
-            .expect_add_notifiers()
+            .expect_add_actions()
             .with(eq(network_id), always())
             .once()
             .returning(|_, _| Ok(()));
@@ -396,7 +391,7 @@ monitors:
         let config = AppConfig::builder()
             .network_id(network_id)
             .monitor_config_path(monitor_config_path.to_str().unwrap())
-            .notifier_config_path(notifier_config_path.to_str().unwrap())
+            .action_config_path(action_config_path.to_str().unwrap())
             .abi_config_path(temp_dir.path().to_str().unwrap())
             .initial_start_block(InitialStartBlock::Offset(-5)) // 5 blocks behind latest
             .build();
@@ -429,7 +424,7 @@ monitors:
         let monitor = MonitorBuilder::new().network(network_id).name("Existing Monitor").build();
 
         let trigger =
-            NotifierBuilder::new("Existing Trigger").webhook_config("http://example.com").build();
+            ActionBuilder::new("Existing Trigger").webhook_config("http://example.com").build();
 
         let mut mock_repo = MockAppRepository::new();
         // Return existing monitors
@@ -439,9 +434,9 @@ monitors:
             .times(2) // Called once for monitor loading, once for ABI loading
             .returning(move |_| Ok(vec![monitor.clone()]));
 
-        // Return existing notifiers
+        // Return existing actions
         mock_repo
-            .expect_get_notifiers()
+            .expect_get_actions()
             .with(eq(network_id))
             .once()
             .returning(move |_| Ok(vec![trigger.clone()]));
@@ -455,7 +450,7 @@ monitors:
 
         // Ensure file loading is NOT called
         mock_repo.expect_add_monitors().times(0);
-        mock_repo.expect_add_notifiers().times(0);
+        mock_repo.expect_add_actions().times(0);
         mock_repo.expect_set_last_processed_block().times(0);
 
         let config = AppConfig::builder().network_id(network_id).build();
@@ -601,8 +596,8 @@ monitors:
         let mut mock_repo = MockAppRepository::new();
         // Expect get_monitors to be called and return empty
         mock_repo.expect_get_monitors().with(eq(network_id)).once().returning(|_| Ok(vec![]));
-        // Expect get_notifiers to be called for validation
-        mock_repo.expect_get_notifiers().with(eq(network_id)).once().returning(|_| Ok(vec![]));
+        // Expect get_actions to be called for validation
+        mock_repo.expect_get_actions().with(eq(network_id)).once().returning(|_| Ok(vec![]));
         // Expect clear_monitors and add_monitors to be called
         mock_repo.expect_clear_monitors().with(eq(network_id)).once().returning(|_| Ok(()));
         mock_repo
@@ -657,8 +652,8 @@ monitors:
         let mut mock_repo = MockAppRepository::new();
         // Expect get_monitors to be called and return empty
         mock_repo.expect_get_monitors().with(eq(network_id)).once().returning(|_| Ok(vec![]));
-        // Expect get_notifiers to be called for validation
-        mock_repo.expect_get_notifiers().with(eq(network_id)).once().returning(|_| Ok(vec![]));
+        // Expect get_actions to be called for validation
+        mock_repo.expect_get_actions().with(eq(network_id)).once().returning(|_| Ok(vec![]));
 
         // Dummy config for AppConfig
         let config = AppConfig::builder()
@@ -726,31 +721,28 @@ monitors:
     }
 
     #[tokio::test]
-    async fn test_load_notifiers_from_file_when_db_empty() {
+    async fn test_load_actions_from_file_when_db_empty() {
         let (provider, _asserter) = mock_provider();
         let temp_dir = tempdir().unwrap();
-        let config_path = create_dummy_config_file(
-            &temp_dir,
-            "notifiers.yaml",
-            create_test_notifier_config_str(),
-        );
+        let config_path =
+            create_dummy_config_file(&temp_dir, "actions.yaml", create_test_action_config_str());
         let network_id = "testnet";
 
         let mut mock_repo = MockAppRepository::new();
-        // Expect get_notifiers to be called and return empty
-        mock_repo.expect_get_notifiers().with(eq(network_id)).once().returning(|_| Ok(vec![]));
-        // Expect clear_notifiers and add_notifiers to be called
-        mock_repo.expect_clear_notifiers().with(eq(network_id)).once().returning(|_| Ok(()));
+        // Expect get_actions to be called and return empty
+        mock_repo.expect_get_actions().with(eq(network_id)).once().returning(|_| Ok(vec![]));
+        // Expect clear_actions and add_actions to be called
+        mock_repo.expect_clear_actions().with(eq(network_id)).once().returning(|_| Ok(()));
         mock_repo
-            .expect_add_notifiers()
-            .with(eq(network_id), function(|notifiers: &Vec<NotifierConfig>| notifiers.len() == 1))
+            .expect_add_actions()
+            .with(eq(network_id), function(|actions: &Vec<ActionConfig>| actions.len() == 1))
             .once()
             .returning(|_, _| Ok(()));
 
         // Dummy config for AppConfig
         let config = AppConfig::builder()
             .network_id(network_id)
-            .notifier_config_path(config_path.to_str().unwrap())
+            .action_config_path(config_path.to_str().unwrap())
             .build();
 
         let (abi_service, _) = create_test_abi_service(&temp_dir, &[]); // Dummy path, won't be used
@@ -763,39 +755,36 @@ monitors:
             provider,
         );
 
-        let result = initialization_service.load_notifiers_from_file().await;
+        let result = initialization_service.load_actions_from_file().await;
         assert!(result.is_ok());
     }
 
     #[tokio::test]
-    async fn test_load_notifiers_from_file_when_db_not_empty() {
+    async fn test_load_actions_from_file_when_db_not_empty() {
         let (provider, _asserter) = mock_provider();
         let temp_dir = tempdir().unwrap();
-        let config_path = create_dummy_config_file(
-            &temp_dir,
-            "notifiers.yaml",
-            create_test_notifier_config_str(),
-        );
+        let config_path =
+            create_dummy_config_file(&temp_dir, "actions.yaml", create_test_action_config_str());
         let network_id = "testnet";
 
-        let notifier =
-            NotifierBuilder::new("Dummy Notifier").webhook_config("http://example.com").build();
+        let action =
+            ActionBuilder::new("Dummy Action").webhook_config("http://example.com").build();
 
         let mut mock_repo = MockAppRepository::new();
-        // Expect get_notifiers to be called and return non-empty
+        // Expect get_actions to be called and return non-empty
         mock_repo
-            .expect_get_notifiers()
+            .expect_get_actions()
             .with(eq(network_id))
             .once()
-            .returning(move |_| Ok(vec![notifier.clone()]));
-        // Expect clear_notifiers and add_notifiers to NOT be called
-        mock_repo.expect_clear_notifiers().times(0);
-        mock_repo.expect_add_notifiers().times(0);
+            .returning(move |_| Ok(vec![action.clone()]));
+        // Expect clear_actions and add_actions to NOT be called
+        mock_repo.expect_clear_actions().times(0);
+        mock_repo.expect_add_actions().times(0);
 
         // Dummy config for AppConfig
         let config = AppConfig::builder()
             .network_id(network_id)
-            .notifier_config_path(config_path.to_str().unwrap())
+            .action_config_path(config_path.to_str().unwrap())
             .build();
 
         let (abi_service, _) = create_test_abi_service(&temp_dir, &[]); // Dummy path, won't be used
@@ -808,7 +797,7 @@ monitors:
             provider,
         );
 
-        let result = initialization_service.load_notifiers_from_file().await;
+        let result = initialization_service.load_actions_from_file().await;
         assert!(result.is_ok());
     }
 

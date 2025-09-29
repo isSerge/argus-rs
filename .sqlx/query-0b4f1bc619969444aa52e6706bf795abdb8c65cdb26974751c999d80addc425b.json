@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT config FROM notifiers WHERE network_id = ?",
+  "query": "SELECT config FROM actions WHERE network_id = ?",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       false
     ]
   },
-  "hash": "89fd0b0078bc565b75a4674a52b0fd97bb29f9f52a34c53eb30b3c51a51fd23f"
+  "hash": "0b4f1bc619969444aa52e6706bf795abdb8c65cdb26974751c999d80addc425b"
 }

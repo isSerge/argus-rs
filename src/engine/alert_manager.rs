@@ -8,9 +8,9 @@ use tokio::sync::Mutex;
 
 use crate::{
     models::{
+        action::{ActionConfig, ActionPolicy},
         alert_manager_state::{AggregationState, ThrottleState},
         monitor_match::MonitorMatch,
-        notifier::{NotifierConfig, NotifierPolicy},
     },
     notification::{NotificationPayload, NotificationService, error::NotificationError},
     persistence::{error::PersistenceError, traits::KeyValueStore},
@@ -26,11 +26,11 @@ pub struct AlertManager<T: KeyValueStore> {
     /// The state repository for storing alert states
     state_repository: Arc<T>,
 
-    /// A map of notifier names to their loaded and validated configurations.
-    notifiers: Arc<HashMap<String, NotifierConfig>>,
+    /// A map of action names to their loaded and validated configurations.
+    actions: Arc<HashMap<String, ActionConfig>>,
 
-    /// A map of notifier names to their locks to prevent race conditions.
-    notifier_locks: DashMap<String, Arc<Mutex<()>>>,
+    /// A map of action names to their locks to prevent race conditions.
+    action_locks: DashMap<String, Arc<Mutex<()>>>,
 
     /// Track dispatched notifications for dry-run reporting
     dispatched_notifications: DashMap<String, usize>,
@@ -53,13 +53,13 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
     pub fn new(
         notification_service: Arc<NotificationService>,
         state_repository: Arc<T>,
-        notifiers: Arc<HashMap<String, NotifierConfig>>,
+        actions: Arc<HashMap<String, ActionConfig>>,
     ) -> Self {
         Self {
             notification_service,
             state_repository,
-            notifiers,
-            notifier_locks: DashMap::new(),
+            actions,
+            action_locks: DashMap::new(),
             dispatched_notifications: DashMap::new(),
         }
     }
@@ -69,45 +69,45 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
         &self,
         monitor_match: &MonitorMatch,
     ) -> Result<(), AlertManagerError> {
-        let notifier_name = &monitor_match.notifier_name;
-        let notifier_config = match self.notifiers.get(notifier_name) {
+        let action_name = &monitor_match.action_name;
+        let action_config = match self.actions.get(action_name) {
             Some(config) => config,
             None => {
                 tracing::warn!(
-                    notifier = %monitor_match.notifier_name,
-                    "Notifier configuration not found for monitor match."
+                    action = %monitor_match.action_name,
+                    "Action configuration not found for monitor match."
                 );
                 return Err(AlertManagerError::NotificationError(NotificationError::ConfigError(
-                    format!("Notifier '{}' not found", monitor_match.notifier_name),
+                    format!("Action '{}' not found", monitor_match.action_name),
                 )));
             }
         };
 
-        match &notifier_config.policy {
+        match &action_config.policy {
             Some(policy) => match policy {
-                NotifierPolicy::Throttle(throttle_policy) => {
+                ActionPolicy::Throttle(throttle_policy) => {
                     self.handle_throttle(monitor_match, throttle_policy).await?;
                 }
-                NotifierPolicy::Aggregation(_) => {
+                ActionPolicy::Aggregation(_) => {
                     self.handle_aggregation(monitor_match).await?;
                 }
             },
             None => {
                 // No policy, send immediately
-                tracing::debug!("No policy for notifier {}, sending immediately.", notifier_name);
+                tracing::debug!("No policy for action {}, sending immediately.", action_name);
                 if let Err(e) = self
                     .notification_service
                     .execute(NotificationPayload::Single(monitor_match.clone()))
                     .await
                 {
                     tracing::error!(
-                        "Failed to execute notification for notifier '{}': {}",
-                        notifier_name,
+                        "Failed to execute notification for action '{}': {}",
+                        action_name,
                         e
                     );
                 } else {
                     // Increment dispatch counter on successful notification
-                    *self.dispatched_notifications.entry(notifier_name.clone()).or_insert(0) += 1;
+                    *self.dispatched_notifications.entry(action_name.clone()).or_insert(0) += 1;
                 }
             }
         }
@@ -115,11 +115,11 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
         Ok(())
     }
 
-    /// Gets or creates a lock for a specific notifier to prevent race
+    /// Gets or creates a lock for a specific action to prevent race
     /// conditions.
-    fn get_notifier_lock(&self, notifier_name: &str) -> Arc<Mutex<()>> {
-        self.notifier_locks
-            .entry(notifier_name.to_string())
+    fn get_action_lock(&self, action_name: &str) -> Arc<Mutex<()>> {
+        self.action_locks
+            .entry(action_name.to_string())
             .or_insert_with(|| Arc::new(Mutex::new(())))
             .clone()
     }
@@ -128,12 +128,12 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
     async fn handle_throttle(
         &self,
         monitor_match: &MonitorMatch,
-        policy: &crate::models::notifier::ThrottlePolicy,
+        policy: &crate::models::action::ThrottlePolicy,
     ) -> Result<(), AlertManagerError> {
-        let notifier_name = &monitor_match.notifier_name;
-        let lock = self.get_notifier_lock(notifier_name);
+        let action_name = &monitor_match.action_name;
+        let lock = self.get_action_lock(action_name);
         let _guard = lock.lock().await;
-        let throttle_state_key = format!("throttle_state:{}", notifier_name);
+        let throttle_state_key = format!("throttle_state:{}", action_name);
         let current_time = chrono::Utc::now();
 
         // Retrieve existing throttle state or initialize a new one
@@ -150,7 +150,7 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
             Err(e) => {
                 // If there's an error retrieving state, log it and proceed with a new state.
                 // This prevents a single state retrieval error from halting throttling.
-                tracing::error!("Failed to retrieve throttle state for {}: {}", notifier_name, e);
+                tracing::error!("Failed to retrieve throttle state for {}: {}", action_name, e);
                 ThrottleState { count: 0, window_start_time: current_time }
             }
         };
@@ -166,7 +166,7 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
         if throttle_state.count < policy.max_count {
             tracing::info!(
                 "Sending throttled notification for {}. Count: {}/{}",
-                notifier_name,
+                action_name,
                 throttle_state.count + 1,
                 policy.max_count
             );
@@ -176,22 +176,22 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
                 .await
             {
                 tracing::error!(
-                    "Failed to execute notification for throttled notifier '{}': {}",
-                    notifier_name,
+                    "Failed to execute notification for throttled action '{}': {}",
+                    action_name,
                     e
                 );
             } else {
                 // Increment dispatch counter on successful notification
                 *self
                     .dispatched_notifications
-                    .entry(monitor_match.notifier_name.clone())
+                    .entry(monitor_match.action_name.clone())
                     .or_insert(0) += 1;
             }
             throttle_state.count += 1;
         } else {
             tracing::debug!(
                 "Throttling notification for {}. Limit {}/{}",
-                notifier_name,
+                action_name,
                 throttle_state.count,
                 policy.max_count
             );
@@ -202,7 +202,7 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
         if let Err(e) =
             self.state_repository.set_json_state(&throttle_state_key, &throttle_state).await
         {
-            tracing::error!("Failed to save throttle state for {}: {}", notifier_name, e);
+            tracing::error!("Failed to save throttle state for {}: {}", action_name, e);
         }
         Ok(())
     }
@@ -212,8 +212,8 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
         &self,
         monitor_match: &MonitorMatch,
     ) -> Result<(), AlertManagerError> {
-        let aggregation_key = &monitor_match.notifier_name;
-        let lock = self.get_notifier_lock(aggregation_key);
+        let aggregation_key = &monitor_match.action_name;
+        let lock = self.get_action_lock(aggregation_key);
         let _guard = lock.lock().await;
 
         let state_key = format!("aggregation_state:{}", aggregation_key);
@@ -254,14 +254,13 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
                 continue;
             }
 
-            // We need to find the notifier and its policy to check the window duration.
+            // We need to find the action and its policy to check the window duration.
             let first_match = &state.matches[0];
-            let notifier_config = match self.notifiers.get(&first_match.notifier_name) {
+            let action_config = match self.actions.get(&first_match.action_name) {
                 Some(config) => config,
                 None => {
                     tracing::warn!(
-                        "Notifier configuration not found for aggregation key '{}'. Clearing \
-                         state.",
+                        "Action configuration not found for aggregation key '{}'. Clearing state.",
                         state_key
                     );
                     self.state_repository
@@ -272,12 +271,12 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
             };
 
             // This is the crucial part: getting the policy to check against.
-            let policy = match &notifier_config.policy {
-                Some(NotifierPolicy::Aggregation(agg_policy)) => agg_policy,
+            let policy = match &action_config.policy {
+                Some(ActionPolicy::Aggregation(agg_policy)) => agg_policy,
                 _ => {
                     tracing::warn!(
-                        "Aggregation policy not found for notifier '{}'. Clearing state.",
-                        notifier_config.name
+                        "Aggregation policy not found for action '{}'. Clearing state.",
+                        action_config.name
                     );
                     self.state_repository
                         .set_json_state(&state_key, &AggregationState::default())
@@ -295,7 +294,7 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
 
                 // And we use the policy's template to build the payload.
                 let payload = NotificationPayload::Aggregated {
-                    notifier_name: notifier_config.name.clone(),
+                    action_name: action_config.name.clone(),
                     matches: state.matches,
                     template: policy.template.clone(),
                 };
@@ -310,7 +309,7 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
                     // Increment dispatch counter on successful notification
                     *self
                         .dispatched_notifications
-                        .entry(notifier_config.name.clone())
+                        .entry(action_config.name.clone())
                         .or_insert(0) += 1;
                 }
 
@@ -347,7 +346,7 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
         }
     }
 
-    /// Gets the count of dispatched notifications by notifier name.
+    /// Gets the count of dispatched notifications by action name.
     pub fn get_dispatched_notifications(&self) -> &DashMap<String, usize> {
         &self.dispatched_notifications
     }
@@ -370,18 +369,19 @@ mod tests {
         http_client::HttpClientPool,
         models::{
             NotificationMessage,
+            action::{AggregationPolicy, ThrottlePolicy},
             monitor_match::{LogDetails, LogMatchData, MatchData},
-            notifier::{AggregationPolicy, ThrottlePolicy},
         },
         persistence::traits::MockKeyValueStore,
-        test_helpers::NotifierBuilder,
+        test_helpers::ActionBuilder,
     };
 
-    fn create_monitor_match(notifier_name: String) -> MonitorMatch {
+    // TODO: replace with builder
+    fn create_monitor_match(action_name: String) -> MonitorMatch {
         MonitorMatch {
             monitor_id: 0,
             monitor_name: "Test Monitor".to_string(),
-            notifier_name,
+            action_name,
             block_number: 123,
             transaction_hash: TxHash::default(),
             match_data: MatchData::Log(LogMatchData {
@@ -400,25 +400,25 @@ mod tests {
     }
 
     fn create_alert_manager(
-        notifiers: HashMap<String, NotifierConfig>,
+        actions: HashMap<String, ActionConfig>,
         state_repo: MockKeyValueStore,
     ) -> AlertManager<MockKeyValueStore> {
         let state_repo = Arc::new(state_repo);
-        let notifiers_arc = Arc::new(notifiers);
+        let actions_arc = Arc::new(actions);
         let notification_service = Arc::new(NotificationService::new(
-            notifiers_arc.clone(),
+            actions_arc.clone(),
             Arc::new(HttpClientPool::default()),
         ));
-        AlertManager::new(notification_service, state_repo, notifiers_arc)
+        AlertManager::new(notification_service, state_repo, actions_arc)
     }
 
     #[tokio::test]
-    async fn test_process_match_notifier_config_missing() {
+    async fn test_process_match_action_config_missing() {
         // Arrange
-        let notifiers = HashMap::new(); // Empty notifiers map
+        let actions = HashMap::new(); // Empty actions map
         let state_repo = MockKeyValueStore::new();
-        let alert_manager = create_alert_manager(notifiers, state_repo);
-        let monitor_match = create_monitor_match("NonExistentNotifier".to_string());
+        let alert_manager = create_alert_manager(actions, state_repo);
+        let monitor_match = create_monitor_match("NonExistentAction".to_string());
 
         // Act
         let result = alert_manager.process_match(&monitor_match).await;
@@ -431,15 +431,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_process_match_notifier_no_policy_send_immediately() {
-        let notifier_name = "Test Notifier".to_string();
-        let notifier_config =
-            NotifierBuilder::new(&notifier_name).discord_config("http://example.com").build();
-        let mut notifiers = HashMap::new();
-        notifiers.insert(notifier_name.to_string(), notifier_config);
+    async fn test_process_match_action_no_policy_send_immediately() {
+        let action_name = "Test Action".to_string();
+        let action_config =
+            ActionBuilder::new(&action_name).discord_config("http://example.com").build();
+        let mut actions = HashMap::new();
+        actions.insert(action_name.to_string(), action_config);
         let state_repo = MockKeyValueStore::new();
-        let alert_manager = create_alert_manager(notifiers, state_repo);
-        let monitor_match = create_monitor_match(notifier_name);
+        let alert_manager = create_alert_manager(actions, state_repo);
+        let monitor_match = create_monitor_match(action_name);
 
         // Act
         let result = alert_manager.process_match(&monitor_match).await;
@@ -450,40 +450,40 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_process_match_notifier_throttle_new_state() {
-        let notifier_name = "Throttle Notifier".to_string();
+    async fn test_process_match_action_throttle_new_state() {
+        let action_name = "Throttle Action".to_string();
         let throttle_policy =
             ThrottlePolicy { max_count: 5, time_window_secs: Duration::from_secs(60) };
 
-        let notifier_config = NotifierBuilder::new(&notifier_name)
+        let action_config = ActionBuilder::new(&action_name)
             .discord_config("http://example.com")
-            .policy(NotifierPolicy::Throttle(throttle_policy))
+            .policy(ActionPolicy::Throttle(throttle_policy))
             .build();
 
-        let mut notifiers = HashMap::new();
-        notifiers.insert(notifier_name.to_string(), notifier_config);
+        let mut actions = HashMap::new();
+        actions.insert(action_name.to_string(), action_config);
 
         let mut state_repo = MockKeyValueStore::new();
 
         // Should attempt to get existing state and find none
         state_repo
             .expect_get_json_state::<ThrottleState>()
-            .with(eq(format!("throttle_state:{}", notifier_name.clone())))
+            .with(eq(format!("throttle_state:{}", action_name.clone())))
             .times(1)
             .returning(|_| Ok(None)); // Simulate no existing state
 
         // Should attempt to save new throttle state with count = 1
-        let notifier_name_for_withf = notifier_name.clone();
+        let action_name_for_withf = action_name.clone();
         state_repo
             .expect_set_json_state::<ThrottleState>()
             .withf(move |key, state| {
-                key == &format!("throttle_state:{}", notifier_name_for_withf) && state.count == 1
+                key == &format!("throttle_state:{}", action_name_for_withf) && state.count == 1
             })
             .times(1)
             .returning(|_, _| Ok(())); // Simulate successful state save
 
-        let alert_manager = create_alert_manager(notifiers, state_repo);
-        let monitor_match = create_monitor_match(notifier_name);
+        let alert_manager = create_alert_manager(actions, state_repo);
+        let monitor_match = create_monitor_match(action_name);
 
         let result = alert_manager.process_match(&monitor_match).await;
 
@@ -491,42 +491,42 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_process_match_notifier_throttle_existing_state() {
-        let notifier_name = "Throttle Notifier".to_string();
+    async fn test_process_match_action_throttle_existing_state() {
+        let action_name = "Throttle Action".to_string();
         let throttle_policy =
             ThrottlePolicy { max_count: 5, time_window_secs: Duration::from_secs(60) };
 
-        let notifier_config = NotifierBuilder::new(&notifier_name)
+        let action_config = ActionBuilder::new(&action_name)
             .discord_config("http://example.com")
-            .policy(NotifierPolicy::Throttle(throttle_policy))
+            .policy(ActionPolicy::Throttle(throttle_policy))
             .build();
 
-        let mut notifiers = HashMap::new();
-        notifiers.insert(notifier_name.to_string(), notifier_config);
+        let mut actions = HashMap::new();
+        actions.insert(action_name.to_string(), action_config);
 
         let mut state_repo = MockKeyValueStore::new();
 
         // Get state for existing throttle
         state_repo
             .expect_get_json_state::<ThrottleState>()
-            .with(eq(format!("throttle_state:{}", notifier_name.clone())))
+            .with(eq(format!("throttle_state:{}", action_name.clone())))
             .times(1)
             .returning(|_| {
                 Ok(Some(ThrottleState { count: 1, window_start_time: chrono::Utc::now() }))
             }); // Simulate existing state
 
         // Should attempt to save new throttle state with count = 2
-        let notifier_name_for_withf = notifier_name.clone();
+        let action_name_for_withf = action_name.clone();
         state_repo
             .expect_set_json_state::<ThrottleState>()
             .withf(move |key, state| {
-                key == &format!("throttle_state:{}", notifier_name_for_withf) && state.count == 2
+                key == &format!("throttle_state:{}", action_name_for_withf) && state.count == 2
             })
             .times(1)
             .returning(|_, _| Ok(())); // Simulate successful state save
 
-        let alert_manager = create_alert_manager(notifiers, state_repo);
-        let monitor_match = create_monitor_match(notifier_name);
+        let alert_manager = create_alert_manager(actions, state_repo);
+        let monitor_match = create_monitor_match(action_name);
 
         let result = alert_manager.process_match(&monitor_match).await;
 
@@ -534,39 +534,39 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_process_match_notifier_throttle_failed_to_retrieve_state() {
-        let notifier_name = "Throttle Notifier".to_string();
+    async fn test_process_match_action_throttle_failed_to_retrieve_state() {
+        let action_name = "Throttle Action".to_string();
         let throttle_policy =
             ThrottlePolicy { max_count: 5, time_window_secs: Duration::from_secs(60) };
 
-        let notifier_config = NotifierBuilder::new(&notifier_name)
+        let action_config = ActionBuilder::new(&action_name)
             .discord_config("http://example.com")
-            .policy(NotifierPolicy::Throttle(throttle_policy))
+            .policy(ActionPolicy::Throttle(throttle_policy))
             .build();
-        let mut notifiers = HashMap::new();
-        notifiers.insert(notifier_name.to_string(), notifier_config);
+        let mut actions = HashMap::new();
+        actions.insert(action_name.to_string(), action_config);
 
         let mut state_repo = MockKeyValueStore::new();
 
         // Fails to retrieve state
         state_repo
             .expect_get_json_state::<ThrottleState>()
-            .with(eq(format!("throttle_state:{}", notifier_name.clone())))
+            .with(eq(format!("throttle_state:{}", action_name.clone())))
             .times(1)
             .returning(|_| Err(PersistenceError::NotFound)); // Simulate retrieval error
 
         // Should attempt to save new throttle state with count = 1
-        let notifier_name_for_withf = notifier_name.clone();
+        let action_name_for_withf = action_name.clone();
         state_repo
             .expect_set_json_state::<ThrottleState>()
             .withf(move |key, state| {
-                key == &format!("throttle_state:{}", notifier_name_for_withf) && state.count == 1
+                key == &format!("throttle_state:{}", action_name_for_withf) && state.count == 1
             })
             .times(1)
             .returning(|_, _| Ok(())); // Simulate successful state save
 
-        let alert_manager = create_alert_manager(notifiers, state_repo);
-        let monitor_match = create_monitor_match(notifier_name);
+        let alert_manager = create_alert_manager(actions, state_repo);
+        let monitor_match = create_monitor_match(action_name);
 
         let result = alert_manager.process_match(&monitor_match).await;
 
@@ -575,7 +575,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_aggregation_new_window() {
-        let notifier_name = "Aggregation Notifier".to_string();
+        let action_name = "Aggregation Action".to_string();
         let aggregation_policy = AggregationPolicy {
             window_secs: Duration::from_secs(1),
             template: NotificationMessage {
@@ -584,17 +584,17 @@ mod tests {
             },
         };
 
-        let notifier_config = NotifierBuilder::new(&notifier_name)
+        let action_config = ActionBuilder::new(&action_name)
             .discord_config("http://example.com")
-            .policy(NotifierPolicy::Aggregation(aggregation_policy))
+            .policy(ActionPolicy::Aggregation(aggregation_policy))
             .build();
 
-        let mut notifiers = HashMap::new();
-        notifiers.insert(notifier_name.to_string(), notifier_config);
+        let mut actions = HashMap::new();
+        actions.insert(action_name.to_string(), action_config);
 
         let mut state_repo = MockKeyValueStore::new();
-        let monitor_match = create_monitor_match(notifier_name.clone());
-        let aggregation_key = &monitor_match.notifier_name;
+        let monitor_match = create_monitor_match(action_name.clone());
+        let aggregation_key = &monitor_match.action_name;
         let state_key = format!("aggregation_state:{}", aggregation_key);
 
         // Expect a call to get the current state, returning None.
@@ -611,7 +611,7 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(()));
 
-        let alert_manager = create_alert_manager(notifiers, state_repo);
+        let alert_manager = create_alert_manager(actions, state_repo);
 
         let result = alert_manager.process_match(&monitor_match).await;
         assert!(result.is_ok());
@@ -621,7 +621,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_aggregation_existing_window() {
-        let notifier_name = "Aggregation Notifier".to_string();
+        let action_name = "Aggregation Action".to_string();
         let aggregation_policy = AggregationPolicy {
             window_secs: Duration::from_secs(60),
             template: NotificationMessage {
@@ -630,21 +630,21 @@ mod tests {
             },
         };
 
-        let notifier_config = NotifierBuilder::new(&notifier_name)
+        let action_config = ActionBuilder::new(&action_name)
             .discord_config("http://example.com")
-            .policy(NotifierPolicy::Aggregation(aggregation_policy))
+            .policy(ActionPolicy::Aggregation(aggregation_policy))
             .build();
 
-        let mut notifiers = HashMap::new();
-        notifiers.insert(notifier_name.to_string(), notifier_config);
+        let mut actions = HashMap::new();
+        actions.insert(action_name.to_string(), action_config);
 
         let mut state_repo = MockKeyValueStore::new();
-        let monitor_match = create_monitor_match(notifier_name.clone());
-        let aggregation_key = &monitor_match.notifier_name;
+        let monitor_match = create_monitor_match(action_name.clone());
+        let aggregation_key = &monitor_match.action_name;
         let state_key = format!("aggregation_state:{}", aggregation_key);
 
         // Expect a call to get the current state, returning an existing state.
-        let existing_match = create_monitor_match(notifier_name.clone());
+        let existing_match = create_monitor_match(action_name.clone());
         state_repo
             .expect_get_json_state::<AggregationState>()
             .with(eq(state_key.clone()))
@@ -663,7 +663,7 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(()));
 
-        let alert_manager = create_alert_manager(notifiers, state_repo);
+        let alert_manager = create_alert_manager(actions, state_repo);
 
         let result = alert_manager.process_match(&monitor_match).await;
         assert!(result.is_ok());
@@ -671,7 +671,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_check_and_dispatch_expired_windows() {
-        let notifier_name = "Aggregation Notifier".to_string();
+        let action_name = "Aggregation Action".to_string();
         let aggregation_policy = AggregationPolicy {
             window_secs: Duration::from_secs(1),
             template: NotificationMessage {
@@ -680,17 +680,17 @@ mod tests {
             },
         };
 
-        let notifier_config = NotifierBuilder::new(&notifier_name)
+        let action_config = ActionBuilder::new(&action_name)
             .discord_config("http://example.com")
-            .policy(NotifierPolicy::Aggregation(aggregation_policy))
+            .policy(ActionPolicy::Aggregation(aggregation_policy))
             .build();
 
-        let mut notifiers = HashMap::new();
-        notifiers.insert(notifier_name.to_string(), notifier_config.clone());
+        let mut actions = HashMap::new();
+        actions.insert(action_name.to_string(), action_config.clone());
 
         let mut state_repo = MockKeyValueStore::new();
-        let monitor_match1 = create_monitor_match(notifier_name.clone());
-        let monitor_match2 = create_monitor_match(notifier_name.clone());
+        let monitor_match1 = create_monitor_match(action_name.clone());
+        let monitor_match2 = create_monitor_match(action_name.clone());
         let aggregation_key = &monitor_match1.monitor_name;
         let state_key = format!("aggregation_state:{}", aggregation_key);
 
@@ -715,7 +715,7 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(()));
 
-        let alert_manager = create_alert_manager(notifiers, state_repo);
+        let alert_manager = create_alert_manager(actions, state_repo);
 
         // Act
         let result = alert_manager.check_and_dispatch_expired_windows(false).await;
@@ -725,23 +725,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_notifier_lock_is_shared_and_distinct() {
+    async fn test_get_action_lock_is_shared_and_distinct() {
         // Arrange
         let state_repo = MockKeyValueStore::new();
         let alert_manager = create_alert_manager(HashMap::new(), state_repo);
-        let notifier1_name = "notifier1";
-        let notifier2_name = "notifier2";
+        let action1_name = "action1";
+        let action2_name = "action2";
 
         // Act
-        let lock1_instance1 = alert_manager.get_notifier_lock(notifier1_name);
-        let lock1_instance2 = alert_manager.get_notifier_lock(notifier1_name);
-        let lock2_instance1 = alert_manager.get_notifier_lock(notifier2_name);
+        let lock1_instance1 = alert_manager.get_action_lock(action1_name);
+        let lock1_instance2 = alert_manager.get_action_lock(action1_name);
+        let lock2_instance1 = alert_manager.get_action_lock(action2_name);
 
         // Assert
-        // The same notifier name should return the same lock instance.
+        // The same action name should return the same lock instance.
         assert!(Arc::ptr_eq(&lock1_instance1, &lock1_instance2));
 
-        // Different notifier names should return different lock instances.
+        // Different action names should return different lock instances.
         assert!(!Arc::ptr_eq(&lock1_instance1, &lock2_instance1));
     }
 }

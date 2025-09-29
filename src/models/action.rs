@@ -1,4 +1,4 @@
-//! This module defines the data structures for notifier configurations.
+//! This module defines the data structures for action configurations.
 
 use std::{collections::HashMap, time::Duration};
 
@@ -78,10 +78,10 @@ pub struct StdoutConfig {
     pub message: Option<NotificationMessage>,
 }
 
-/// The type of notifier configuration.
+/// The type of action configuration.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum NotifierTypeConfig {
+pub enum ActionTypeConfig {
     /// A generic webhook.
     Webhook(WebhookConfig),
     /// A Slack notification.
@@ -94,9 +94,9 @@ pub enum NotifierTypeConfig {
     Stdout(StdoutConfig),
 }
 
-/// Error types for notifier configuration validation.
+/// Error types for Action configuration validation.
 #[derive(Debug, Clone, Error)]
-pub enum NotifierTypeConfigError {
+pub enum ActionTypeConfigError {
     /// Error for empty title in webhook message.
     #[error("Webhook title cannot be empty.")]
     EmptyTitle,
@@ -118,63 +118,63 @@ pub enum NotifierTypeConfigError {
     InvalidSlackUrl,
 }
 
-impl NotifierTypeConfig {
-    /// Validates the notifier configuration.
-    pub fn validate(&self) -> Result<(), NotifierTypeConfigError> {
+impl ActionTypeConfig {
+    /// Validates the Action configuration.
+    pub fn validate(&self) -> Result<(), ActionTypeConfigError> {
         match self {
-            NotifierTypeConfig::Webhook(config) => {
+            ActionTypeConfig::Webhook(config) => {
                 if config.message.title.is_empty() {
-                    return Err(NotifierTypeConfigError::EmptyTitle);
+                    return Err(ActionTypeConfigError::EmptyTitle);
                 }
                 Ok(())
             }
-            NotifierTypeConfig::Slack(config) => {
+            ActionTypeConfig::Slack(config) => {
                 if config.slack_url.domain() != Some("hooks.slack.com") {
-                    return Err(NotifierTypeConfigError::InvalidSlackUrl);
+                    return Err(ActionTypeConfigError::InvalidSlackUrl);
                 }
                 Ok(())
             }
-            NotifierTypeConfig::Discord(config) => {
+            ActionTypeConfig::Discord(config) => {
                 if config.discord_url.domain() != Some("discord.com") {
-                    return Err(NotifierTypeConfigError::InvalidDiscordUrl);
+                    return Err(ActionTypeConfigError::InvalidDiscordUrl);
                 }
                 Ok(())
             }
-            NotifierTypeConfig::Telegram(config) => {
+            ActionTypeConfig::Telegram(config) => {
                 if config.token.is_empty() {
-                    return Err(NotifierTypeConfigError::EmptyTelegramToken);
+                    return Err(ActionTypeConfigError::EmptyTelegramToken);
                 }
                 if config.chat_id.is_empty() {
-                    return Err(NotifierTypeConfigError::EmptyTelegramChatId);
+                    return Err(ActionTypeConfigError::EmptyTelegramChatId);
                 }
                 Ok(())
             }
-            // Standard output notifier requires no validation.
-            NotifierTypeConfig::Stdout(_) => Ok(()),
+            // Standard output Action requires no validation.
+            ActionTypeConfig::Stdout(_) => Ok(()),
         }
     }
 }
 
-/// Represents a single notifier configuration from the YAML file.
+/// Represents a single Action configuration from the YAML file.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct NotifierConfig {
-    /// The unique name of the notifier.
+pub struct ActionConfig {
+    /// The unique name of the Action.
     pub name: String,
 
-    /// The specific configuration for the notifier type.
+    /// The specific configuration for the Action type.
     #[serde(flatten)]
-    pub config: NotifierTypeConfig,
+    pub config: ActionTypeConfig,
 
     /// Optional policy for handling notifications (e.g., aggregation,
     /// throttling).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub policy: Option<NotifierPolicy>,
+    pub policy: Option<ActionPolicy>,
 }
 
 /// Notification policies for handling notifications
 #[derive(Debug, Clone, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
-pub enum NotifierPolicy {
+pub enum ActionPolicy {
     /// Policy for aggregating multiple notifications into a single one.
     Aggregation(AggregationPolicy),
 
@@ -211,25 +211,25 @@ pub struct ThrottlePolicy {
     pub time_window_secs: Duration,
 }
 
-/// Errors that can occur during notifier processing.
+/// Errors that can occur during Action processing.
 #[derive(Debug, Error)]
-pub enum NotifierError {
+pub enum ActionError {
     /// An error occurred during the loading process.
-    #[error("Failed to load notifier configuration.")]
+    #[error("Failed to load Action configuration.")]
     Loader(#[from] LoaderError),
 
     /// An error occurred during validation.
-    #[error("Failed to validate notifier configuration.")]
-    Validation(#[from] NotifierTypeConfigError),
+    #[error("Failed to validate Action configuration.")]
+    Validation(#[from] ActionTypeConfigError),
 }
 
-impl Loadable for NotifierConfig {
-    type Error = NotifierError;
+impl Loadable for ActionConfig {
+    type Error = ActionError;
 
-    const KEY: &'static str = "notifiers";
+    const KEY: &'static str = "actions";
 
     fn validate(&mut self) -> Result<(), Self::Error> {
-        self.config.validate().map_err(NotifierError::Validation)
+        self.config.validate().map_err(ActionError::Validation)
     }
 }
 
@@ -245,7 +245,7 @@ mod tests {
 
     #[test]
     fn test_validate_webhook_ok() {
-        let config = NotifierTypeConfig::Webhook(WebhookConfig {
+        let config = ActionTypeConfig::Webhook(WebhookConfig {
             url: Url::parse("http://localhost/webhook").unwrap(),
             message: notification_message(),
             method: None,
@@ -258,7 +258,7 @@ mod tests {
 
     #[test]
     fn test_validate_webhook_empty_title() {
-        let config = NotifierTypeConfig::Webhook(WebhookConfig {
+        let config = ActionTypeConfig::Webhook(WebhookConfig {
             url: Url::parse("http://localhost/webhook").unwrap(),
             message: NotificationMessage { title: "".to_string(), body: "Test Body".to_string() },
             method: None,
@@ -268,12 +268,12 @@ mod tests {
         });
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), NotifierTypeConfigError::EmptyTitle));
+        assert!(matches!(result.unwrap_err(), ActionTypeConfigError::EmptyTitle));
     }
 
     #[test]
     fn test_validate_slack_ok() {
-        let config = NotifierTypeConfig::Slack(SlackConfig {
+        let config = ActionTypeConfig::Slack(SlackConfig {
             slack_url: Url::parse(
                 "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX",
             )
@@ -286,19 +286,19 @@ mod tests {
 
     #[test]
     fn test_validate_slack_not_a_slack_url() {
-        let config = NotifierTypeConfig::Slack(SlackConfig {
+        let config = ActionTypeConfig::Slack(SlackConfig {
             slack_url: Url::parse("https://example.com/not-slack").unwrap(),
             message: notification_message(),
             retry_policy: HttpRetryConfig::default(),
         });
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), NotifierTypeConfigError::InvalidSlackUrl));
+        assert!(matches!(result.unwrap_err(), ActionTypeConfigError::InvalidSlackUrl));
     }
 
     #[test]
     fn test_validate_discord_ok() {
-        let config = NotifierTypeConfig::Discord(DiscordConfig {
+        let config = ActionTypeConfig::Discord(DiscordConfig {
             discord_url: Url::parse("https://discord.com/api/webhooks/1234567890/abcdef").unwrap(),
             message: notification_message(),
             retry_policy: HttpRetryConfig::default(),
@@ -308,19 +308,19 @@ mod tests {
 
     #[test]
     fn test_validate_discord_invalid_url() {
-        let config = NotifierTypeConfig::Discord(DiscordConfig {
+        let config = ActionTypeConfig::Discord(DiscordConfig {
             discord_url: Url::parse("https://example.com/not-discord").unwrap(),
             message: notification_message(),
             retry_policy: HttpRetryConfig::default(),
         });
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), NotifierTypeConfigError::InvalidDiscordUrl));
+        assert!(matches!(result.unwrap_err(), ActionTypeConfigError::InvalidDiscordUrl));
     }
 
     #[test]
     fn test_validate_telegram_ok() {
-        let config = NotifierTypeConfig::Telegram(TelegramConfig {
+        let config = ActionTypeConfig::Telegram(TelegramConfig {
             token: "test_token".to_string(),
             chat_id: "test_chat_id".to_string(),
             message: notification_message(),
@@ -331,7 +331,7 @@ mod tests {
 
     #[test]
     fn test_validate_telegram_empty_token() {
-        let config = NotifierTypeConfig::Telegram(TelegramConfig {
+        let config = ActionTypeConfig::Telegram(TelegramConfig {
             token: "".to_string(),
             chat_id: "test_chat_id".to_string(),
             message: notification_message(),
@@ -339,12 +339,12 @@ mod tests {
         });
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), NotifierTypeConfigError::EmptyTelegramToken));
+        assert!(matches!(result.unwrap_err(), ActionTypeConfigError::EmptyTelegramToken));
     }
 
     #[test]
     fn test_validate_telegram_empty_chat_id() {
-        let config = NotifierTypeConfig::Telegram(TelegramConfig {
+        let config = ActionTypeConfig::Telegram(TelegramConfig {
             token: "test_token".to_string(),
             chat_id: "".to_string(),
             message: notification_message(),
@@ -352,12 +352,12 @@ mod tests {
         });
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), NotifierTypeConfigError::EmptyTelegramChatId));
+        assert!(matches!(result.unwrap_err(), ActionTypeConfigError::EmptyTelegramChatId));
     }
 
     #[test]
     fn test_validate_stdout_ok() {
-        let config = NotifierTypeConfig::Stdout(StdoutConfig { message: None });
+        let config = ActionTypeConfig::Stdout(StdoutConfig { message: None });
         assert!(config.validate().is_ok());
     }
 }

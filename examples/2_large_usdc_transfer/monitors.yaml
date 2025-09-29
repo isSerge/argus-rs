@@ -9,5 +9,5 @@ monitors:
     abi: "usdc"
     filter_script: |
       log.name == "Transfer" && log.params.value > usdc(1_000_000)
-    notifiers:
-      - "stdout-notifier"
+    actions:
+      - "stdout-action"

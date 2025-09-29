@@ -5,5 +5,5 @@ monitors:
     abi: "wbtc"
     filter_script: |
       log.name == "Transfer" && log.params.value > wbtc(0.001)
-    notifiers:
+    actions:
       - "Stdout Aggregated WBTC Transfers"

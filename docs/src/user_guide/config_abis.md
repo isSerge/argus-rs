@@ -38,7 +38,7 @@ Let's say you want to monitor `Transfer` events from the USDC contract.
         abi: "usdc"
         filter_script: |
           log.name == "Transfer" && log.params.value > usdc(1_000_000)
-        notifiers:
+        actions:
           - "my-webhook"
     ```
 

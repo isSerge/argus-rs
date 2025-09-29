@@ -20,8 +20,8 @@ pub struct MonitorMatch {
     /// Name of the monitor that found the match.
     pub monitor_name: String,
 
-    /// Name of the notifier that will handle notifications for this match.
-    pub notifier_name: String,
+    /// Name of the action that will handle notifications for this match.
+    pub action_name: String,
 
     /// The block number where the match was found.
     pub block_number: u64,
@@ -39,7 +39,7 @@ impl MonitorMatch {
     pub fn new_tx_match(
         monitor_id: i64,
         monitor_name: String,
-        notifier_name: String,
+        action_name: String,
         block_number: u64,
         transaction_hash: TxHash,
         details: Value,
@@ -47,7 +47,7 @@ impl MonitorMatch {
         Self {
             monitor_id,
             monitor_name,
-            notifier_name,
+            action_name,
             block_number,
             transaction_hash,
             match_data: MatchData::Transaction(TransactionMatchData { details }),
@@ -58,7 +58,7 @@ impl MonitorMatch {
     pub fn new_log_match(
         monitor_id: i64,
         monitor_name: String,
-        notifier_name: String,
+        action_name: String,
         block_number: u64,
         transaction_hash: TxHash,
         log_details: LogDetails,
@@ -67,7 +67,7 @@ impl MonitorMatch {
         Self {
             monitor_id,
             monitor_name,
-            notifier_name,
+            action_name,
             block_number,
             transaction_hash,
             match_data: MatchData::Log(LogMatchData { log_details, tx_details }),
@@ -125,7 +125,7 @@ impl Serialize for MonitorMatch {
     where
         S: Serializer,
     {
-        // 5 base fields: monitor_id, monitor_name, notifier_name, block_number,
+        // 5 base fields: monitor_id, monitor_name, action_name, block_number,
         // transaction_hash
         let base_fields = 5;
         let extra_fields = match &self.match_data {
@@ -137,7 +137,7 @@ impl Serialize for MonitorMatch {
         let mut state = serializer.serialize_struct("MonitorMatch", field_count)?;
         state.serialize_field("monitor_id", &self.monitor_id)?;
         state.serialize_field("monitor_name", &self.monitor_name)?;
-        state.serialize_field("notifier_name", &self.notifier_name)?;
+        state.serialize_field("action_name", &self.action_name)?;
         state.serialize_field("block_number", &self.block_number)?;
         state.serialize_field("transaction_hash", &self.transaction_hash)?;
 
@@ -165,7 +165,7 @@ impl<'de> Deserialize<'de> for MonitorMatch {
         enum Field {
             MonitorId,
             MonitorName,
-            NotifierName,
+            ActionName,
             BlockNumber,
             TransactionHash,
             Tx,
@@ -187,7 +187,7 @@ impl<'de> Deserialize<'de> for MonitorMatch {
             {
                 let mut monitor_id = None;
                 let mut monitor_name = None;
-                let mut notifier_name = None;
+                let mut action_name = None;
                 let mut block_number = None;
                 let mut transaction_hash = None;
                 let mut tx = None;
@@ -207,11 +207,11 @@ impl<'de> Deserialize<'de> for MonitorMatch {
                             }
                             monitor_name = Some(map.next_value()?);
                         }
-                        Field::NotifierName => {
-                            if notifier_name.is_some() {
-                                return Err(de::Error::duplicate_field("notifier_name"));
+                        Field::ActionName => {
+                            if action_name.is_some() {
+                                return Err(de::Error::duplicate_field("action_name"));
                             }
-                            notifier_name = Some(map.next_value()?);
+                            action_name = Some(map.next_value()?);
                         }
                         Field::BlockNumber => {
                             if block_number.is_some() {
@@ -244,8 +244,8 @@ impl<'de> Deserialize<'de> for MonitorMatch {
                     monitor_id.ok_or_else(|| de::Error::missing_field("monitor_id"))?;
                 let monitor_name =
                     monitor_name.ok_or_else(|| de::Error::missing_field("monitor_name"))?;
-                let notifier_name =
-                    notifier_name.ok_or_else(|| de::Error::missing_field("notifier_name"))?;
+                let action_name =
+                    action_name.ok_or_else(|| de::Error::missing_field("action_name"))?;
                 let block_number =
                     block_number.ok_or_else(|| de::Error::missing_field("block_number"))?;
                 let transaction_hash =
@@ -261,7 +261,7 @@ impl<'de> Deserialize<'de> for MonitorMatch {
                 Ok(MonitorMatch {
                     monitor_id,
                     monitor_name,
-                    notifier_name,
+                    action_name,
                     block_number,
                     transaction_hash,
                     match_data,
@@ -272,7 +272,7 @@ impl<'de> Deserialize<'de> for MonitorMatch {
         const FIELDS: &[&str] = &[
             "monitor_id",
             "monitor_name",
-            "notifier_name",
+            "action_name",
             "block_number",
             "transaction_hash",
             "tx",
@@ -294,7 +294,7 @@ mod tests {
         let monitor_match = MonitorMatch::new_tx_match(
             1,
             "Test Monitor".to_string(),
-            "Test Notifier".to_string(),
+            "Test Action".to_string(),
             123,
             TxHash::default(),
             json!({"key": "value"}),
@@ -302,7 +302,7 @@ mod tests {
 
         assert_eq!(monitor_match.monitor_id, 1);
         assert_eq!(monitor_match.monitor_name, "Test Monitor");
-        assert_eq!(monitor_match.notifier_name, "Test Notifier");
+        assert_eq!(monitor_match.action_name, "Test Action");
         assert_eq!(monitor_match.block_number, 123);
         assert_eq!(monitor_match.transaction_hash, TxHash::default());
 
@@ -327,7 +327,7 @@ mod tests {
         let monitor_match = MonitorMatch::new_log_match(
             2,
             "Log Monitor".to_string(),
-            "Log Notifier".to_string(),
+            "Log Action".to_string(),
             456,
             TxHash::default(),
             log_details,
@@ -336,7 +336,7 @@ mod tests {
 
         assert_eq!(monitor_match.monitor_id, 2);
         assert_eq!(monitor_match.monitor_name, "Log Monitor");
-        assert_eq!(monitor_match.notifier_name, "Log Notifier");
+        assert_eq!(monitor_match.action_name, "Log Action");
         assert_eq!(monitor_match.block_number, 456);
 
         match monitor_match.match_data {
@@ -354,7 +354,7 @@ mod tests {
         let monitor_match = MonitorMatch::new_tx_match(
             1,
             "Test Monitor".to_string(),
-            "Test Notifier".to_string(),
+            "Test Action".to_string(),
             123,
             TxHash::default(),
             json!({ "from": "0x4976...", "value": "22545..." }),
@@ -363,7 +363,7 @@ mod tests {
         let expected_json = json!({
             "monitor_id": 1,
             "monitor_name": "Test Monitor",
-            "notifier_name": "Test Notifier",
+            "action_name": "Test Action",
             "block_number": 123,
             "transaction_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
             "tx": {
@@ -390,7 +390,7 @@ mod tests {
         let monitor_match = MonitorMatch::new_log_match(
             2,
             "Log Monitor".to_string(),
-            "Log Notifier".to_string(),
+            "Log Action".to_string(),
             456,
             TxHash::default(),
             log_details,
@@ -400,7 +400,7 @@ mod tests {
         let expected_json = json!({
             "monitor_id": 2,
             "monitor_name": "Log Monitor",
-            "notifier_name": "Log Notifier",
+            "action_name": "Log Action",
             "block_number": 456,
             "transaction_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
             "tx": {
@@ -425,7 +425,7 @@ mod tests {
         let json_str = r#"{
             "monitor_id": 1,
             "monitor_name": "Test Monitor",
-            "notifier_name": "Test Notifier",
+            "action_name": "Test Action",
             "block_number": 123,
             "transaction_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
             "tx": {
@@ -452,7 +452,7 @@ mod tests {
             r#"{{
             "monitor_id": 2,
             "monitor_name": "Log Monitor",
-            "notifier_name": "Log Notifier",
+            "action_name": "Log Action",
             "block_number": 456,
             "transaction_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
             "tx": {{
@@ -498,7 +498,7 @@ mod tests {
             r#"{{
             "monitor_id": 2,
             "monitor_name": "Log Monitor",
-            "notifier_name": "Log Notifier",
+            "action_name": "Log Action",
             "block_number": 456,
             "transaction_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
             "log": {{

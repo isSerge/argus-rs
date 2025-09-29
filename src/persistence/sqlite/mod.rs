@@ -122,12 +122,12 @@ mod tests {
     use super::*;
     use crate::{
         models::{
+            action::{ActionPolicy, AggregationPolicy, ThrottlePolicy},
             monitor::MonitorConfig,
             notification::NotificationMessage,
-            notifier::{AggregationPolicy, NotifierPolicy, ThrottlePolicy},
         },
         persistence::traits::{AppRepository, KeyValueStore},
-        test_helpers::NotifierBuilder,
+        test_helpers::ActionBuilder,
     };
 
     async fn setup_test_db() -> SqliteStateRepository {
@@ -245,7 +245,7 @@ mod tests {
                 Some("usdc".to_string()),
                 r#"log.name == "Transfer" && bigint(log.params.value) > bigint("1000000000")"#
                     .to_string(),
-                vec!["test-notifier".to_string()],
+                vec!["test-action".to_string()],
             ),
             MonitorConfig::from_config(
                 "Simple Transfer Monitor".to_string(),
@@ -261,7 +261,7 @@ mod tests {
                 None, // No address for transaction-level monitor
                 None,
                 r#"bigint(tx.value) > bigint("1000000000000000000")"#.to_string(),
-                vec!["eth-notifier".to_string(), "another-notifier".to_string()],
+                vec!["eth-action".to_string(), "another-action".to_string()],
             ),
         ];
 
@@ -281,7 +281,7 @@ mod tests {
             Some("0xa0b86a33e6441b38d4b5e5bfa1bf7a5eb70c5b1e".to_string())
         );
         assert!(usdc_monitor.id > 0);
-        assert_eq!(usdc_monitor.notifiers, vec!["test-notifier".to_string()]);
+        assert_eq!(usdc_monitor.actions, vec!["test-action".to_string()]);
 
         // Check Native ETH monitor
         let eth_monitor = stored_monitors.iter().find(|m| m.name == "Native ETH Monitor").unwrap();
@@ -289,8 +289,8 @@ mod tests {
         assert_eq!(eth_monitor.address, None);
         assert!(eth_monitor.id > 0);
         assert_eq!(
-            eth_monitor.notifiers,
-            vec!["eth-notifier".to_string(), "another-notifier".to_string()]
+            eth_monitor.actions,
+            vec!["eth-action".to_string(), "another-action".to_string()]
         );
 
         // Clear monitors
@@ -461,120 +461,120 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_notifier_management_operations() {
+    async fn test_action_management_operations() {
         let repo = setup_test_db().await;
         let network_id = "ethereum";
 
-        // Initially, should have no notifiers
-        let notifiers = repo.get_notifiers(network_id).await.unwrap();
-        assert!(notifiers.is_empty());
+        // Initially, should have no actions
+        let actions = repo.get_actions(network_id).await.unwrap();
+        assert!(actions.is_empty());
 
-        // Create test notifiers
-        let notifier = NotifierBuilder::new("Test Slack")
+        // Create test actions
+        let action = ActionBuilder::new("Test Slack")
             .slack_config("https://hooks.slack.com/services/123")
             .build();
-        let test_notifiers = vec![notifier];
+        let test_actions = vec![action];
 
-        // Add notifiers
-        repo.add_notifiers(network_id, test_notifiers.clone()).await.unwrap();
+        // Add actions
+        repo.add_actions(network_id, test_actions.clone()).await.unwrap();
 
-        // Retrieve notifiers and verify
-        let stored_notifiers = repo.get_notifiers(network_id).await.unwrap();
-        assert_eq!(stored_notifiers.len(), 1);
-        assert_eq!(stored_notifiers[0].name, "Test Slack");
+        // Retrieve actions and verify
+        let stored_actions = repo.get_actions(network_id).await.unwrap();
+        assert_eq!(stored_actions.len(), 1);
+        assert_eq!(stored_actions[0].name, "Test Slack");
 
-        // Clear notifiers
-        repo.clear_notifiers(network_id).await.unwrap();
+        // Clear actions
+        repo.clear_actions(network_id).await.unwrap();
 
-        // Verify notifiers are cleared
-        let notifiers_after_clear = repo.get_notifiers(network_id).await.unwrap();
-        assert!(notifiers_after_clear.is_empty());
+        // Verify actions are cleared
+        let actions_after_clear = repo.get_actions(network_id).await.unwrap();
+        assert!(actions_after_clear.is_empty());
     }
 
     #[tokio::test]
-    async fn test_notifier_network_isolation() {
+    async fn test_action_network_isolation() {
         let repo = setup_test_db().await;
         let network1 = "ethereum";
         let network2 = "polygon";
 
-        // Create notifiers for different networks
-        let ethereum_notifier = NotifierBuilder::new("Ethereum Slack")
+        // Create actions for different networks
+        let ethereum_action = ActionBuilder::new("Ethereum Slack")
             .slack_config("https://hooks.slack.com/services/123")
             .build();
-        let ethereum_notifiers = vec![ethereum_notifier];
+        let ethereum_actions = vec![ethereum_action];
 
-        let polygon_notifier = NotifierBuilder::new("Polygon Discord")
+        let polygon_action = ActionBuilder::new("Polygon Discord")
             .discord_config("https://discord.com/api/webhooks/poly")
             .build();
-        let polygon_notifiers = vec![polygon_notifier];
+        let polygon_actions = vec![polygon_action];
 
-        // Add notifiers to different networks
-        repo.add_notifiers(network1, ethereum_notifiers).await.unwrap();
-        repo.add_notifiers(network2, polygon_notifiers).await.unwrap();
+        // Add actions to different networks
+        repo.add_actions(network1, ethereum_actions).await.unwrap();
+        repo.add_actions(network2, polygon_actions).await.unwrap();
 
         // Verify network isolation
-        let eth_notifiers = repo.get_notifiers(network1).await.unwrap();
-        let poly_notifiers = repo.get_notifiers(network2).await.unwrap();
+        let eth_actions = repo.get_actions(network1).await.unwrap();
+        let poly_actions = repo.get_actions(network2).await.unwrap();
 
-        assert_eq!(eth_notifiers.len(), 1);
-        assert_eq!(poly_notifiers.len(), 1);
-        assert_eq!(eth_notifiers[0].name, "Ethereum Slack");
-        assert_eq!(poly_notifiers[0].name, "Polygon Discord");
+        assert_eq!(eth_actions.len(), 1);
+        assert_eq!(poly_actions.len(), 1);
+        assert_eq!(eth_actions[0].name, "Ethereum Slack");
+        assert_eq!(poly_actions[0].name, "Polygon Discord");
 
         // Clear one network, should not affect the other
-        repo.clear_notifiers(network1).await.unwrap();
-        let eth_notifiers_after_clear = repo.get_notifiers(network1).await.unwrap();
-        let poly_notifiers_after_clear = repo.get_notifiers(network2).await.unwrap();
+        repo.clear_actions(network1).await.unwrap();
+        let eth_actions_after_clear = repo.get_actions(network1).await.unwrap();
+        let poly_actions_after_clear = repo.get_actions(network2).await.unwrap();
 
-        assert!(eth_notifiers_after_clear.is_empty());
-        assert_eq!(poly_notifiers_after_clear.len(), 1);
+        assert!(eth_actions_after_clear.is_empty());
+        assert_eq!(poly_actions_after_clear.len(), 1);
     }
 
     #[tokio::test]
-    async fn test_notifier_transaction_atomicity() {
+    async fn test_action_transaction_atomicity() {
         let repo = setup_test_db().await;
         let network_id = "ethereum";
 
-        // Create a batch of notifiers where one has a name that is too long, causing a
+        // Create a batch of actions where one has a name that is too long, causing a
         // DB constraint error. This test is a bit contrived as we can't easily
         // create an invalid JSON, but we can simulate a constraint violation.
         // Here, we'll rely on the UNIQUE constraint.
-        let notifiers1 = vec![
-            NotifierBuilder::new("Unique Notifier")
+        let actions1 = vec![
+            ActionBuilder::new("Unique Action")
                 .slack_config("https://hooks.slack.com/services/unique")
                 .build(),
-            NotifierBuilder::new("Another Unique Notifier")
+            ActionBuilder::new("Another Unique Action")
                 .slack_config("https://hooks.slack.com/services/another")
                 .build(),
         ];
-        let notifiers2 = vec![
-            NotifierBuilder::new("Third Notifier")
+        let actions2 = vec![
+            ActionBuilder::new("Third Action")
                 .slack_config("https://hooks.slack.com/services/third")
                 .build(),
-            NotifierBuilder::new("Unique Notifier") // Duplicate name to violate UNIQUE constraint
+            ActionBuilder::new("Unique Action") // Duplicate name to violate UNIQUE constraint
                 .slack_config("https://hooks.slack.com/services/duplicate")
                 .build(),
         ];
 
         // This should succeed
-        repo.add_notifiers(network_id, notifiers1).await.unwrap();
-        assert_eq!(repo.get_notifiers(network_id).await.unwrap().len(), 2);
+        repo.add_actions(network_id, actions1).await.unwrap();
+        assert_eq!(repo.get_actions(network_id).await.unwrap().len(), 2);
 
         // This should fail due to the duplicate name violating the UNIQUE constraint
-        let result = repo.add_notifiers(network_id, notifiers2).await;
+        let result = repo.add_actions(network_id, actions2).await;
         assert!(result.is_err());
 
-        // Verify no new notifiers were added (transaction rolled back)
+        // Verify no new actions were added (transaction rolled back)
         // The count should still be 2 from the first successful insert.
-        assert_eq!(repo.get_notifiers(network_id).await.unwrap().len(), 2);
+        assert_eq!(repo.get_actions(network_id).await.unwrap().len(), 2);
     }
 
     #[tokio::test]
-    async fn test_notifier_policy_persistence() {
+    async fn test_action_policy_persistence() {
         let repo = setup_test_db().await;
         let network_id = "testnet_policy";
 
-        let aggregation_policy = NotifierPolicy::Aggregation(AggregationPolicy {
+        let aggregation_policy = ActionPolicy::Aggregation(AggregationPolicy {
             window_secs: Duration::from_secs(60),
             template: NotificationMessage {
                 title: "Aggregated Alert".to_string(),
@@ -582,46 +582,46 @@ mod tests {
             },
         });
 
-        let test_notifier = NotifierBuilder::new("Policy Notifier")
+        let test_action = ActionBuilder::new("Policy Action")
             .slack_config("https://hooks.slack.com/services/policy")
             .policy(aggregation_policy.clone())
             .build();
 
-        // Add notifier with policy
-        repo.add_notifiers(network_id, vec![test_notifier.clone()]).await.unwrap();
+        // Add action with policy
+        repo.add_actions(network_id, vec![test_action.clone()]).await.unwrap();
 
         // Retrieve and verify
-        let stored_notifiers = repo.get_notifiers(network_id).await.unwrap();
-        assert_eq!(stored_notifiers.len(), 1);
-        let retrieved_notifier = &stored_notifiers[0];
+        let stored_actions = repo.get_actions(network_id).await.unwrap();
+        assert_eq!(stored_actions.len(), 1);
+        let retrieved_action = &stored_actions[0];
 
-        assert_eq!(retrieved_notifier.name, test_notifier.name);
-        assert!(retrieved_notifier.policy.is_some());
-        assert_eq!(retrieved_notifier.policy.as_ref().unwrap(), &aggregation_policy);
+        assert_eq!(retrieved_action.name, test_action.name);
+        assert!(retrieved_action.policy.is_some());
+        assert_eq!(retrieved_action.policy.as_ref().unwrap(), &aggregation_policy);
 
         // Test with a throttle policy as well
-        let throttle_policy = NotifierPolicy::Throttle(ThrottlePolicy {
+        let throttle_policy = ActionPolicy::Throttle(ThrottlePolicy {
             max_count: 5,
             time_window_secs: Duration::from_secs(10),
         });
 
-        let throttled_notifier = NotifierBuilder::new("Throttled Notifier")
+        let throttled_action = ActionBuilder::new("Throttled Action")
             .discord_config("https://discord.com/api/webhooks/throttle")
             .policy(throttle_policy.clone())
             .build();
 
-        repo.add_notifiers(network_id, vec![throttled_notifier.clone()]).await.unwrap();
+        repo.add_actions(network_id, vec![throttled_action.clone()]).await.unwrap();
 
-        let stored_notifiers_after_throttle = repo.get_notifiers(network_id).await.unwrap();
-        assert_eq!(stored_notifiers_after_throttle.len(), 2);
+        let stored_actions_after_throttle = repo.get_actions(network_id).await.unwrap();
+        assert_eq!(stored_actions_after_throttle.len(), 2);
 
-        let retrieved_throttled_notifier = stored_notifiers_after_throttle
+        let retrieved_throttled_action = stored_actions_after_throttle
             .into_iter()
-            .find(|n| n.name == "Throttled Notifier")
+            .find(|n| n.name == "Throttled Action")
             .unwrap();
 
-        assert!(retrieved_throttled_notifier.policy.is_some());
-        assert_eq!(retrieved_throttled_notifier.policy.unwrap(), throttle_policy);
+        assert!(retrieved_throttled_action.policy.is_some());
+        assert_eq!(retrieved_throttled_action.policy.unwrap(), throttle_policy);
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
