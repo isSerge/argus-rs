@@ -27,7 +27,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::{
     actions::{
-        publisher::{PublisherAction, KafkaEventPublisher},
+        publisher::{KafkaEventPublisher, PublisherAction},
         stdout::StdoutAction,
         traits::Action,
         webhook::WebhookAction,

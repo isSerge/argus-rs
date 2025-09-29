@@ -11,6 +11,7 @@ use crate::{
 };
 
 /// A Kafka event publisher.
+#[derive(Clone)]
 pub struct KafkaEventPublisher {
     producer: FutureProducer,
 }
@@ -51,5 +52,103 @@ impl KafkaEventPublisher {
             client_config.create::<FutureProducer>().map_err(|e| PublisherError::KafkaError(e))?;
 
         Ok(Self::new(producer))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rdkafka::{
+        Message,
+        consumer::{Consumer, StreamConsumer},
+        mocking::MockCluster,
+    };
+
+    use super::*;
+
+    #[test]
+    fn test_kafka_event_publisher_creation() {
+        let config =
+            KafkaConfig { brokers: "localhost:9092".to_string(), topic: "test-topic".to_string() };
+
+        let publisher = KafkaEventPublisher::from_config(&config);
+        assert!(publisher.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_kafka_event_publisher_publish() {
+        let mock_cluster = MockCluster::new(1).expect("Failed to create mock cluster");
+        let topic = "test-topic";
+
+        mock_cluster.create_topic(topic, 1, 1).expect("Failed to create topic");
+
+        let consumer = ClientConfig::new()
+            .set("bootstrap.servers", &mock_cluster.bootstrap_servers())
+            .set("group.id", "test-group")
+            .set("auto.offset.reset", "earliest")
+            .create::<StreamConsumer>()
+            .expect("Failed to create consumer");
+
+        consumer.subscribe(&[topic]).expect("Failed to subscribe to topic");
+
+        let config =
+            KafkaConfig { brokers: mock_cluster.bootstrap_servers(), topic: topic.to_string() };
+
+        let publisher =
+            KafkaEventPublisher::from_config(&config).expect("Failed to create publisher");
+
+        let key = "test-key";
+        let payload = b"test-payload";
+
+        let result = publisher.publish(&config.topic, key, payload).await;
+        assert!(result.is_ok());
+
+        let message = consumer.recv().await.expect("Failed to receive message");
+        assert_eq!(message.key(), Some(key.as_bytes()));
+        assert_eq!(message.payload(), Some(payload.as_ref()));
+        assert_eq!(message.topic(), topic.to_string());
+    }
+
+    #[tokio::test]
+    async fn test_kafka_event_publisher_flush() {
+        let mock_cluster = MockCluster::new(1).expect("Failed to create mock cluster");
+        let topic = "test-topic";
+
+        mock_cluster.create_topic(topic, 1, 1).expect("Failed to create topic");
+
+        let consumer = ClientConfig::new()
+            .set("bootstrap.servers", &mock_cluster.bootstrap_servers())
+            .set("group.id", "test-group")
+            .set("auto.offset.reset", "earliest")
+            .create::<StreamConsumer>()
+            .expect("Failed to create consumer");
+
+        consumer.subscribe(&[topic]).expect("Failed to subscribe to topic");
+
+        let config =
+            KafkaConfig { brokers: mock_cluster.bootstrap_servers(), topic: topic.to_string() };
+
+        let publisher =
+            KafkaEventPublisher::from_config(&config).expect("Failed to create publisher");
+
+        let key = "flush-key";
+        let payload = b"test-payload";
+
+        let publisher_clone = publisher.clone();
+
+        tokio::spawn(async move {
+            let result = publisher_clone.publish(&config.topic, key, payload).await;
+            assert!(result.is_ok());
+        });
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let result = publisher.flush(Duration::from_secs(5)).await;
+        assert!(result.is_ok());
+
+        let message = consumer.recv().await.expect("Failed to receive message");
+
+        assert_eq!(message.key(), Some(key.as_bytes()));
+        assert_eq!(message.payload(), Some(payload.as_ref()));
+        assert_eq!(message.topic(), topic.to_string());
     }
 }
