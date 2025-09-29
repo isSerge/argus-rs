@@ -26,171 +26,27 @@
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    config::HttpRetryConfig,
     http_client::HttpClientPool,
     models::{
         NotificationMessage,
-        action::{
-            ActionConfig, ActionTypeConfig, DiscordConfig, SlackConfig, StdoutConfig,
-            TelegramConfig, WebhookConfig,
-        },
+        action::{ActionConfig, ActionTypeConfig, StdoutConfig},
         monitor_match::MonitorMatch,
     },
 };
 
 pub mod error;
-pub mod payload_builder;
+mod payload;
 mod stdout;
 pub mod template;
 mod traits;
 mod webhook;
 
 use error::ActionDispatcherError;
-use payload_builder::{
-    DiscordPayloadBuilder, GenericWebhookPayloadBuilder, SlackPayloadBuilder,
-    TelegramPayloadBuilder, WebhookPayloadBuilder,
-};
+pub use payload::ActionPayload;
 use tokio::sync::mpsc;
-use url::Url;
+use webhook::WebhookComponents;
 
 use self::{template::TemplateService, webhook::WebhookClient};
-
-/// An enum representing the different types of action payloads.
-pub enum ActionPayload {
-    /// A single monitor match.
-    Single(MonitorMatch),
-    /// An aggregated item for multiple monitor matches.
-    Aggregated {
-        /// The name of the action to use for this aggregated item.
-        action_name: String,
-        /// The list of monitor matches to include in the aggregation.
-        matches: Vec<MonitorMatch>,
-        /// The template to use for the notification message.
-        template: NotificationMessage,
-    },
-}
-
-impl ActionPayload {
-    /// Serializes the payload context to a JSON value.
-    pub fn context(&self) -> Result<serde_json::Value, ActionDispatcherError> {
-        match self {
-            ActionPayload::Single(monitor_match) =>
-                serde_json::to_value(monitor_match).map_err(|e| {
-                    ActionDispatcherError::InternalError(format!(
-                        "Failed to serialize monitor match: {e}"
-                    ))
-                }),
-            ActionPayload::Aggregated { matches, .. } => {
-                let monitor_name = matches.first().map(|m| m.monitor_name.clone());
-                let context = serde_json::json!({
-                    "matches": matches,
-                    "monitor_name": monitor_name,
-                });
-                Ok(context)
-            }
-        }
-    }
-
-    /// Returns the name of the action associated with this payload.
-    pub fn action_name(&self) -> String {
-        match self {
-            ActionPayload::Single(monitor_match) => monitor_match.action_name.clone(),
-            ActionPayload::Aggregated { action_name, .. } => action_name.clone(),
-        }
-    }
-}
-
-/// A private container struct holding the generic components required to send
-/// any webhook-based notification.
-///
-/// This struct provides a common interface for the `ActionDispatcher` to
-/// work with, regardless of the underlying provider (e.g., Slack, Discord).
-struct WebhookComponents {
-    /// The generic webhook configuration, including the URL, method, and
-    /// headers.
-    config: webhook::WebhookConfig,
-    /// The specific retry policy for this notification channel.
-    retry_policy: HttpRetryConfig,
-    /// The payload builder responsible for creating the channel-specific JSON
-    /// body.
-    builder: Box<dyn WebhookPayloadBuilder>,
-}
-
-impl From<&WebhookConfig> for WebhookComponents {
-    fn from(c: &WebhookConfig) -> Self {
-        WebhookComponents {
-            config: webhook::WebhookConfig {
-                url: c.url.clone(),
-                title: c.message.title.clone(),
-                body_template: c.message.body.clone(),
-                method: c.method.clone(),
-                secret: c.secret.clone(),
-                headers: c.headers.clone(),
-                url_params: None,
-            },
-            retry_policy: c.retry_policy.clone(),
-            builder: Box::new(GenericWebhookPayloadBuilder),
-        }
-    }
-}
-
-impl From<&DiscordConfig> for WebhookComponents {
-    fn from(c: &DiscordConfig) -> Self {
-        WebhookComponents {
-            config: webhook::WebhookConfig {
-                url: c.discord_url.clone(),
-                title: c.message.title.clone(),
-                body_template: c.message.body.clone(),
-                method: Some("POST".to_string()),
-                secret: None,
-                headers: None,
-                url_params: None,
-            },
-            retry_policy: c.retry_policy.clone(),
-            builder: Box::new(DiscordPayloadBuilder),
-        }
-    }
-}
-
-impl From<&TelegramConfig> for WebhookComponents {
-    fn from(c: &TelegramConfig) -> Self {
-        WebhookComponents {
-            config: webhook::WebhookConfig {
-                url: Url::parse(&format!("https://api.telegram.org/bot{}/sendMessage", c.token))
-                    .unwrap(),
-                title: c.message.title.clone(),
-                body_template: c.message.body.clone(),
-                method: Some("POST".to_string()),
-                secret: None,
-                headers: None,
-                url_params: None,
-            },
-            retry_policy: c.retry_policy.clone(),
-            builder: Box::new(TelegramPayloadBuilder {
-                chat_id: c.chat_id.clone(),
-                disable_web_preview: c.disable_web_preview.unwrap_or(false),
-            }),
-        }
-    }
-}
-
-impl From<&SlackConfig> for WebhookComponents {
-    fn from(c: &SlackConfig) -> Self {
-        WebhookComponents {
-            config: webhook::WebhookConfig {
-                url: c.slack_url.clone(),
-                title: c.message.title.clone(),
-                body_template: c.message.body.clone(),
-                method: Some("POST".to_string()),
-                secret: None,
-                headers: None,
-                url_params: None,
-            },
-            retry_policy: c.retry_policy.clone(),
-            builder: Box::new(SlackPayloadBuilder),
-        }
-    }
-}
 
 impl ActionTypeConfig {
     /// Transforms the specific action configuration into a generic set of
@@ -374,12 +230,13 @@ impl ActionDispatcher {
 mod tests {
     use alloy::primitives::{TxHash, address};
     use serde_json::json;
+    use url::Url;
 
     use super::*;
     use crate::{
         config::HttpRetryConfig,
         models::{
-            action::{DiscordConfig, SlackConfig, TelegramConfig, WebhookConfig},
+            action::{DiscordConfig, GenericWebhookConfig, SlackConfig, TelegramConfig},
             monitor_match::LogDetails,
             notification::NotificationMessage,
         },
@@ -516,7 +373,7 @@ mod tests {
         let mut headers = HashMap::new();
         headers.insert("X-Test-Header".to_string(), "Value".to_string());
 
-        let webhook_config = ActionTypeConfig::Webhook(WebhookConfig {
+        let webhook_config = ActionTypeConfig::Webhook(GenericWebhookConfig {
             url: url.clone(),
             message: NotificationMessage { title: title.to_string(), body: message.to_string() },
             method: Some("PUT".to_string()),

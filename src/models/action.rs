@@ -14,7 +14,7 @@ use crate::{
 
 /// Configuration for a generic webhook.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-pub struct WebhookConfig {
+pub struct GenericWebhookConfig {
     /// The URL of the webhook endpoint.
     pub url: Url,
     /// The HTTP method to use for the webhook (e.g., "POST", "GET").
@@ -83,7 +83,7 @@ pub struct StdoutConfig {
 #[serde(rename_all = "snake_case")]
 pub enum ActionTypeConfig {
     /// A generic webhook.
-    Webhook(WebhookConfig),
+    Webhook(GenericWebhookConfig),
     /// A Slack notification.
     Slack(SlackConfig),
     /// A Discord notification.
@@ -245,7 +245,7 @@ mod tests {
 
     #[test]
     fn test_validate_webhook_ok() {
-        let config = ActionTypeConfig::Webhook(WebhookConfig {
+        let config = ActionTypeConfig::Webhook(GenericWebhookConfig {
             url: Url::parse("http://localhost/webhook").unwrap(),
             message: notification_message(),
             method: None,
@@ -258,7 +258,7 @@ mod tests {
 
     #[test]
     fn test_validate_webhook_empty_title() {
-        let config = ActionTypeConfig::Webhook(WebhookConfig {
+        let config = ActionTypeConfig::Webhook(GenericWebhookConfig {
             url: Url::parse("http://localhost/webhook").unwrap(),
             message: NotificationMessage { title: "".to_string(), body: "Test Body".to_string() },
             method: None,
