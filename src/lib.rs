@@ -3,6 +3,7 @@
 //! analyze blockchain activity.
 
 pub mod abi;
+pub mod actions;
 pub mod cmd;
 pub mod config;
 pub mod engine;
@@ -11,7 +12,6 @@ pub mod initialization;
 pub mod loader;
 pub mod models;
 pub mod monitor;
-pub mod notification;
 pub mod persistence;
 pub mod providers;
 pub mod supervisor;

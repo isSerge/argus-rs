@@ -10,6 +10,7 @@ use thiserror::Error;
 
 use crate::{
     abi::{AbiError, AbiRepository, AbiService, repository::AbiRepositoryError},
+    actions::ActionDispatcher,
     config::AppConfig,
     engine::{
         alert_manager::{AlertManager, AlertManagerError},
@@ -26,7 +27,6 @@ use crate::{
         monitor_match::MonitorMatch,
     },
     monitor::{MonitorManager, MonitorValidationError, MonitorValidator},
-    notification::NotificationService,
     persistence::{error::PersistenceError, sqlite::SqliteStateRepository, traits::AppRepository},
     providers::{
         rpc::{EvmRpcSource, ProviderError, create_provider},
@@ -197,7 +197,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let client_pool = Arc::new(HttpClientPool::new(config.http_base_config.clone()));
     let actions: Arc<HashMap<String, ActionConfig>> =
         Arc::new(actions.into_iter().map(|t| (t.name.clone(), t)).collect());
-    let notification_service = Arc::new(NotificationService::new(actions.clone(), client_pool));
+    let notification_service = Arc::new(ActionDispatcher::new(actions.clone(), client_pool));
     let filtering_engine = RhaiFilteringEngine::new(
         abi_service.clone(),
         rhai_compiler,
@@ -381,11 +381,11 @@ mod tests {
     use super::*;
     use crate::{
         abi::{AbiRepository, AbiService},
+        actions::ActionDispatcher,
         config::RhaiConfig,
         engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
         http_client::HttpClientPool,
         models::monitor_match::{MatchData, TransactionMatchData},
-        notification::NotificationService,
         persistence::sqlite::SqliteStateRepository,
         providers::traits::MockDataSource,
         test_helpers::{ActionBuilder, BlockBuilder, MonitorBuilder, TransactionBuilder},
@@ -400,7 +400,7 @@ mod tests {
             .expect("Failed to connect to in-memory db");
         state_repo.run_migrations().await.expect("Failed to run migrations");
         let client_pool = Arc::new(HttpClientPool::default());
-        let notification_service = Arc::new(NotificationService::new(actions.clone(), client_pool));
+        let notification_service = Arc::new(ActionDispatcher::new(actions.clone(), client_pool));
         Arc::new(AlertManager::new(notification_service, Arc::new(state_repo), actions))
     }
 

@@ -2,7 +2,7 @@
 
 use thiserror::Error;
 
-use crate::{http_client::HttpClientPoolError, notification::template::TemplateServiceError};
+use crate::{actions::template::TemplateServiceError, http_client::HttpClientPoolError};
 
 /// Defines the possible errors that can occur within the notification service.
 #[derive(Debug, Error)]

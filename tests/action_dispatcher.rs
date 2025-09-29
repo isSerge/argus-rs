@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use argus::{
+    actions::{ActionDispatcher, NotificationPayload},
     config::HttpRetryConfig,
     http_client::HttpClientPool,
     models::{
@@ -10,7 +11,6 @@ use argus::{
         action::{ActionConfig, ActionTypeConfig, DiscordConfig},
         monitor_match::MonitorMatch,
     },
-    notification::{NotificationPayload, NotificationService},
     test_helpers::ActionBuilder,
 };
 use mockito;
@@ -49,7 +49,7 @@ async fn test_webhook_action_success() {
     let http_client_pool = Arc::new(HttpClientPool::default());
     let actions =
         Arc::new(vec![mock_discord_action].into_iter().map(|n| (n.name.clone(), n)).collect());
-    let notification_service = NotificationService::new(actions, http_client_pool);
+    let notification_service = ActionDispatcher::new(actions, http_client_pool);
 
     let monitor_match = MonitorMatch::new_tx_match(
         1,
@@ -73,7 +73,7 @@ async fn test_stdout_action_success() {
 
     let http_client_pool = Arc::new(HttpClientPool::default());
     let actions = Arc::new(vec![stdout_action].into_iter().map(|n| (n.name.clone(), n)).collect());
-    let notification_service = NotificationService::new(actions, http_client_pool);
+    let notification_service = ActionDispatcher::new(actions, http_client_pool);
 
     let monitor_match = MonitorMatch::new_tx_match(
         1,
@@ -113,7 +113,7 @@ async fn test_failure_with_retryable_error() {
     let http_client_pool = Arc::new(HttpClientPool::default());
     let actions =
         Arc::new(vec![mock_discord_action].into_iter().map(|n| (n.name.clone(), n)).collect());
-    let notification_service = NotificationService::new(actions, http_client_pool);
+    let notification_service = ActionDispatcher::new(actions, http_client_pool);
 
     let monitor_match = MonitorMatch::new_tx_match(
         2,
@@ -156,7 +156,7 @@ async fn test_failure_with_non_retryable_error() {
     let http_client_pool = Arc::new(HttpClientPool::default());
     let actions =
         Arc::new(vec![mock_discord_action].into_iter().map(|n| (n.name.clone(), n)).collect());
-    let notification_service = NotificationService::new(actions, http_client_pool);
+    let notification_service = ActionDispatcher::new(actions, http_client_pool);
 
     let monitor_match = MonitorMatch::new_tx_match(
         3,
@@ -188,7 +188,7 @@ async fn test_failure_with_invalid_url() {
     let http_client_pool = Arc::new(HttpClientPool::default());
     let actions =
         Arc::new(vec![mock_discord_action].into_iter().map(|t| (t.name.clone(), t)).collect());
-    let notification_service = NotificationService::new(actions, http_client_pool);
+    let notification_service = ActionDispatcher::new(actions, http_client_pool);
 
     let monitor_match = MonitorMatch::new_tx_match(
         4,

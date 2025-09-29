@@ -3,6 +3,7 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use argus::{
+    actions::ActionDispatcher,
     engine::alert_manager::AlertManager,
     http_client::HttpClientPool,
     models::{
@@ -11,7 +12,6 @@ use argus::{
         alert_manager_state::{AggregationState, ThrottleState},
         monitor_match::MonitorMatch,
     },
-    notification::NotificationService,
     persistence::{sqlite::SqliteStateRepository, traits::KeyValueStore},
     test_helpers::ActionBuilder,
 };
@@ -43,10 +43,8 @@ fn create_alert_manager(
     state_repo: Arc<SqliteStateRepository>,
 ) -> AlertManager<SqliteStateRepository> {
     let actions_arc = Arc::new(actions);
-    let notification_service = Arc::new(NotificationService::new(
-        actions_arc.clone(),
-        Arc::new(HttpClientPool::default()),
-    ));
+    let notification_service =
+        Arc::new(ActionDispatcher::new(actions_arc.clone(), Arc::new(HttpClientPool::default())));
     AlertManager::new(notification_service, state_repo, actions_arc)
 }
 

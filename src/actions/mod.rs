@@ -1,4 +1,4 @@
-//! # Notification Service
+//! # Action Dispatcher
 //!
 //! This module is responsible for sending notifications through various
 //! channels based on action configurations. It acts as the central hub for
@@ -6,7 +6,7 @@
 //!
 //! ## Core Components
 //!
-//! - **`NotificationService`**: The main struct that holds the loaded action
+//! - **`ActionDispatcher`**: The main struct that holds the loaded action
 //!   configurations and a shared `HttpClientPool`. It is responsible for
 //!   executing notifications.
 //! - **`Action` Trait**: A generic interface for all notification channels,
@@ -14,7 +14,7 @@
 //!
 //! ## Workflow
 //!
-//! 1. The `NotificationService` is initialized with a collection of validated
+//! 1. The `ActionDispatcher` is initialized with a collection of validated
 //!    `ActionConfig`s, which are loaded at application startup.
 //! 2. For each `ActionConfig`, a corresponding `Action` implementation (e.g.,
 //!    `WebhookActionWrapper`, `StdoutAction`) is created and stored.
@@ -71,7 +71,7 @@ pub enum NotificationPayload {
 /// A private container struct holding the generic components required to send
 /// any webhook-based notification.
 ///
-/// This struct provides a common interface for the `NotificationService` to
+/// This struct provides a common interface for the `ActionDispatcher` to
 /// work with, regardless of the underlying provider (e.g., Slack, Discord).
 struct WebhookComponents {
     /// The generic webhook configuration, including the URL, method, and
@@ -177,9 +177,9 @@ impl ActionTypeConfig {
     }
 }
 
-/// A service responsible for dispatching notifications based on pre-loaded
-/// action configurations.
-pub struct NotificationService {
+/// A service responsible for dispatching actions based on pre-loaded
+/// action configurations (webhook notifiers, publishers, etc.)
+pub struct ActionDispatcher {
     /// A thread-safe pool for creating and reusing HTTP clients with different
     /// retry policies.
     client_pool: Arc<HttpClientPool>,
@@ -189,8 +189,8 @@ pub struct NotificationService {
     template_service: TemplateService,
 }
 
-impl NotificationService {
-    /// Creates a new `NotificationService` instance.
+impl ActionDispatcher {
+    /// Creates a new `ActionDispatcher` instance.
     ///
     /// # Arguments
     ///
@@ -201,7 +201,7 @@ impl NotificationService {
         actions: Arc<HashMap<String, ActionConfig>>,
         client_pool: Arc<HttpClientPool>,
     ) -> Self {
-        NotificationService { client_pool, actions, template_service: TemplateService::new() }
+        ActionDispatcher { client_pool, actions, template_service: TemplateService::new() }
     }
 
     /// Executes a notification for a given action.
@@ -375,7 +375,7 @@ mod tests {
     #[tokio::test]
     async fn test_missing_action_error() {
         let http_client_pool = Arc::new(HttpClientPool::default());
-        let service = NotificationService::new(Arc::new(HashMap::new()), http_client_pool);
+        let service = ActionDispatcher::new(Arc::new(HashMap::new()), http_client_pool);
         let monitor_match = create_mock_monitor_match("nonexistent");
         let notification_payload = NotificationPayload::Single(monitor_match.clone());
         let result = service.execute(notification_payload).await;
@@ -547,7 +547,7 @@ mod tests {
             }
         });
 
-        let service = NotificationService::new(
+        let service = ActionDispatcher::new(
             Arc::new(
                 vec![(action_config.name.clone(), action_config.clone())].into_iter().collect(),
             ),
@@ -579,7 +579,7 @@ mod tests {
             }
         });
 
-        let service = NotificationService::new(
+        let service = ActionDispatcher::new(
             Arc::new(
                 vec![(action_config.name.clone(), action_config.clone())].into_iter().collect(),
             ),

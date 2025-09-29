@@ -197,9 +197,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::notification::payload_builder::{
-        GenericWebhookPayloadBuilder, WebhookPayloadBuilder,
-    };
+    use crate::actions::payload_builder::{GenericWebhookPayloadBuilder, WebhookPayloadBuilder};
 
     fn create_test_http_client() -> Arc<ClientWithMiddleware> {
         Arc::new(reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build())

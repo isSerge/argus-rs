@@ -7,21 +7,22 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 
 use crate::{
+    actions::{ActionDispatcher, NotificationPayload, error::NotificationError},
     models::{
         action::{ActionConfig, ActionPolicy},
         alert_manager_state::{AggregationState, ThrottleState},
         monitor_match::MonitorMatch,
     },
-    notification::{NotificationPayload, NotificationService, error::NotificationError},
     persistence::{error::PersistenceError, traits::KeyValueStore},
 };
 
 /// The AlertManager is responsible for processing monitor matches, applying
 /// notification policies (throttling, aggregation, etc.) and submitting
-/// notifications to Notification service
+/// notifications to ActionDispatcher
 pub struct AlertManager<T: KeyValueStore> {
-    /// The notification service used to send alerts
-    notification_service: Arc<NotificationService>,
+    /// The action dispatcher used to dispatch actions (webhook notifications,
+    /// publishers, etc.)
+    action_dispatcher: Arc<ActionDispatcher>,
 
     /// The state repository for storing alert states
     state_repository: Arc<T>,
@@ -51,12 +52,12 @@ pub enum AlertManagerError {
 impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
     /// Creates a new AlertManager instance
     pub fn new(
-        notification_service: Arc<NotificationService>,
+        action_dispatcher: Arc<ActionDispatcher>,
         state_repository: Arc<T>,
         actions: Arc<HashMap<String, ActionConfig>>,
     ) -> Self {
         Self {
-            notification_service,
+            action_dispatcher,
             state_repository,
             actions,
             action_locks: DashMap::new(),
@@ -96,7 +97,7 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
                 // No policy, send immediately
                 tracing::debug!("No policy for action {}, sending immediately.", action_name);
                 if let Err(e) = self
-                    .notification_service
+                    .action_dispatcher
                     .execute(NotificationPayload::Single(monitor_match.clone()))
                     .await
                 {
@@ -171,7 +172,7 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
                 policy.max_count
             );
             if let Err(e) = self
-                .notification_service
+                .action_dispatcher
                 .execute(NotificationPayload::Single(monitor_match.clone()))
                 .await
             {
@@ -299,7 +300,7 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
                     template: policy.template.clone(),
                 };
 
-                if let Err(e) = self.notification_service.execute(payload).await {
+                if let Err(e) = self.action_dispatcher.execute(payload).await {
                     tracing::error!(
                         "Failed to send aggregated notification for key '{}': {}",
                         state_key,
@@ -405,11 +406,11 @@ mod tests {
     ) -> AlertManager<MockKeyValueStore> {
         let state_repo = Arc::new(state_repo);
         let actions_arc = Arc::new(actions);
-        let notification_service = Arc::new(NotificationService::new(
+        let action_dispatcher = Arc::new(ActionDispatcher::new(
             actions_arc.clone(),
             Arc::new(HttpClientPool::default()),
         ));
-        AlertManager::new(notification_service, state_repo, actions_arc)
+        AlertManager::new(action_dispatcher, state_repo, actions_arc)
     }
 
     #[tokio::test]
