@@ -7,13 +7,13 @@ use argus::{
     http_client::HttpClientPool,
     models::{
         NotificationMessage,
+        action::{ActionConfig, ActionPolicy, AggregationPolicy, ThrottlePolicy},
         alert_manager_state::{AggregationState, ThrottleState},
         monitor_match::MonitorMatch,
-        notifier::{AggregationPolicy, NotifierConfig, NotifierPolicy, ThrottlePolicy},
     },
     notification::NotificationService,
     persistence::{sqlite::SqliteStateRepository, traits::KeyValueStore},
-    test_helpers::NotifierBuilder,
+    test_helpers::ActionBuilder,
 };
 use mockito;
 use serde_json::json;
@@ -27,11 +27,11 @@ async fn setup_db() -> SqliteStateRepository {
     repo
 }
 
-fn create_monitor_match(monitor_name: &str, notifier_name: &str) -> MonitorMatch {
+fn create_monitor_match(monitor_name: &str, action_name: &str) -> MonitorMatch {
     MonitorMatch::new_tx_match(
         1,
         monitor_name.to_string(),
-        notifier_name.to_string(),
+        action_name.to_string(),
         123,
         Default::default(),
         json!({ "key": "value" }),
@@ -39,21 +39,21 @@ fn create_monitor_match(monitor_name: &str, notifier_name: &str) -> MonitorMatch
 }
 
 fn create_alert_manager(
-    notifiers: HashMap<String, NotifierConfig>,
+    actions: HashMap<String, ActionConfig>,
     state_repo: Arc<SqliteStateRepository>,
 ) -> AlertManager<SqliteStateRepository> {
-    let notifiers_arc = Arc::new(notifiers);
+    let actions_arc = Arc::new(actions);
     let notification_service = Arc::new(NotificationService::new(
-        notifiers_arc.clone(),
+        actions_arc.clone(),
         Arc::new(HttpClientPool::default()),
     ));
-    AlertManager::new(notification_service, state_repo, notifiers_arc)
+    AlertManager::new(notification_service, state_repo, actions_arc)
 }
 
 #[tokio::test]
 async fn test_aggregation_policy_dispatches_summary_after_window() {
     let mut server = mockito::Server::new_async().await;
-    let notifier_name = "test_aggregator".to_string();
+    let action_name = "test_aggregator".to_string();
     let monitor_name = "Test Monitor".to_string();
     let aggregation_window_secs = 1;
 
@@ -65,16 +65,16 @@ async fn test_aggregation_policy_dispatches_summary_after_window() {
         },
     };
 
-    let notifier_config = NotifierBuilder::new(&notifier_name)
+    let action_config = ActionBuilder::new(&action_name)
         .discord_config(&server.url())
-        .policy(NotifierPolicy::Aggregation(aggregation_policy.clone()))
+        .policy(ActionPolicy::Aggregation(aggregation_policy.clone()))
         .build();
 
-    let mut notifiers = HashMap::new();
-    notifiers.insert(notifier_name.clone(), notifier_config);
+    let mut actions = HashMap::new();
+    actions.insert(action_name.clone(), action_config);
 
     let state_repo = Arc::new(setup_db().await);
-    let alert_manager = create_alert_manager(notifiers, state_repo.clone());
+    let alert_manager = create_alert_manager(actions, state_repo.clone());
 
     // Mock the aggregated notification
     let mock = server
@@ -90,8 +90,8 @@ async fn test_aggregation_policy_dispatches_summary_after_window() {
         .await;
 
     // Send two matches within the aggregation window
-    let match1 = create_monitor_match(&monitor_name, &notifier_name);
-    let match2 = create_monitor_match(&monitor_name, &notifier_name);
+    let match1 = create_monitor_match(&monitor_name, &action_name);
+    let match2 = create_monitor_match(&monitor_name, &action_name);
 
     alert_manager.process_match(&match1).await.unwrap();
     alert_manager.process_match(&match2).await.unwrap();
@@ -109,7 +109,7 @@ async fn test_aggregation_policy_dispatches_summary_after_window() {
     mock.assert();
 
     // Verify that the aggregation state is cleared from the repository
-    let state_key = format!("aggregation_state:{}", notifier_name);
+    let state_key = format!("aggregation_state:{}", action_name);
     let cleared_state = state_repo.get_json_state::<AggregationState>(&state_key).await.unwrap();
     assert!(cleared_state.is_some());
     assert!(cleared_state.unwrap().matches.is_empty());
@@ -118,7 +118,7 @@ async fn test_aggregation_policy_dispatches_summary_after_window() {
 #[tokio::test]
 async fn test_throttle_policy_limits_notifications() {
     let mut server = mockito::Server::new_async().await;
-    let notifier_name = "test_throttler".to_string();
+    let action_name = "test_throttler".to_string();
     let monitor_name = "Test Monitor".to_string();
     let max_count = 2;
     let time_window_secs = 1;
@@ -126,16 +126,16 @@ async fn test_throttle_policy_limits_notifications() {
     let throttle_policy =
         ThrottlePolicy { max_count, time_window_secs: Duration::from_secs(time_window_secs) };
 
-    let notifier_config = NotifierBuilder::new(&notifier_name)
+    let action_config = ActionBuilder::new(&action_name)
         .discord_config(&server.url())
-        .policy(NotifierPolicy::Throttle(throttle_policy.clone()))
+        .policy(ActionPolicy::Throttle(throttle_policy.clone()))
         .build();
 
-    let mut notifiers = HashMap::new();
-    notifiers.insert(notifier_name.clone(), notifier_config);
+    let mut actions = HashMap::new();
+    actions.insert(action_name.clone(), action_config);
 
     let state_repo = Arc::new(setup_db().await);
-    let alert_manager = create_alert_manager(notifiers, state_repo.clone());
+    let alert_manager = create_alert_manager(actions, state_repo.clone());
 
     // Mock the throttled notification
     let mock = server
@@ -149,7 +149,7 @@ async fn test_throttle_policy_limits_notifications() {
 
     // Send more matches than allowed by the throttle policy within the window
     for _ in 0..(max_count + 2) {
-        let monitor_match = create_monitor_match(&monitor_name, &notifier_name);
+        let monitor_match = create_monitor_match(&monitor_name, &action_name);
         alert_manager.process_match(&monitor_match).await.unwrap();
     }
 
@@ -160,7 +160,7 @@ async fn test_throttle_policy_limits_notifications() {
     mock.assert();
 
     // Verify that the throttle state is correctly updated in the repository
-    let state_key = format!("throttle_state:{}", notifier_name);
+    let state_key = format!("throttle_state:{}", action_name);
     let throttle_state =
         state_repo.get_json_state::<ThrottleState>(&state_key).await.unwrap().unwrap();
     assert_eq!(throttle_state.count, max_count);
@@ -182,7 +182,7 @@ async fn test_throttle_policy_limits_notifications() {
         .await;
 
     // Send another match after the window expires
-    let monitor_match = create_monitor_match(&monitor_name, &notifier_name);
+    let monitor_match = create_monitor_match(&monitor_name, &action_name);
     alert_manager.process_match(&monitor_match).await.unwrap();
 
     // Assert that another notification is sent after the window reset
@@ -197,18 +197,17 @@ async fn test_throttle_policy_limits_notifications() {
 #[tokio::test]
 async fn test_no_policy_sends_notification_per_match() {
     let mut server = mockito::Server::new_async().await;
-    let notifier_name = "test_no_policy".to_string();
+    let action_name = "test_no_policy".to_string();
     let monitor_name = "Test Monitor".to_string();
 
     // No policy configured by default
-    let notifier_config =
-        NotifierBuilder::new(&notifier_name).discord_config(&server.url()).build();
+    let action_config = ActionBuilder::new(&action_name).discord_config(&server.url()).build();
 
-    let mut notifiers = HashMap::new();
-    notifiers.insert(notifier_name.clone(), notifier_config);
+    let mut actions = HashMap::new();
+    actions.insert(action_name.clone(), action_config);
 
     let state_repo = Arc::new(setup_db().await);
-    let alert_manager = create_alert_manager(notifiers, state_repo.clone());
+    let alert_manager = create_alert_manager(actions, state_repo.clone());
 
     // Mock the notification endpoint
     let mock = server
@@ -221,8 +220,8 @@ async fn test_no_policy_sends_notification_per_match() {
         .await;
 
     // Send two matches
-    let match1 = create_monitor_match(&monitor_name, &notifier_name);
-    let match2 = create_monitor_match(&monitor_name, &notifier_name);
+    let match1 = create_monitor_match(&monitor_name, &action_name);
+    let match2 = create_monitor_match(&monitor_name, &action_name);
 
     alert_manager.process_match(&match1).await.unwrap();
     alert_manager.process_match(&match2).await.unwrap();
@@ -237,7 +236,7 @@ async fn test_no_policy_sends_notification_per_match() {
 #[tokio::test]
 async fn test_throttle_policy_shared_across_monitors() {
     let mut server = mockito::Server::new_async().await;
-    let notifier_name = "shared_throttler".to_string();
+    let action_name = "shared_throttler".to_string();
     let monitor_name1 = "Monitor A".to_string();
     let monitor_name2 = "Monitor B".to_string();
     let max_count = 3;
@@ -246,16 +245,16 @@ async fn test_throttle_policy_shared_across_monitors() {
     let throttle_policy =
         ThrottlePolicy { max_count, time_window_secs: Duration::from_secs(time_window_secs) };
 
-    let notifier_config = NotifierBuilder::new(&notifier_name)
+    let action_config = ActionBuilder::new(&action_name)
         .discord_config(&server.url())
-        .policy(NotifierPolicy::Throttle(throttle_policy.clone()))
+        .policy(ActionPolicy::Throttle(throttle_policy.clone()))
         .build();
 
-    let mut notifiers = HashMap::new();
-    notifiers.insert(notifier_name.clone(), notifier_config);
+    let mut actions = HashMap::new();
+    actions.insert(action_name.clone(), action_config);
 
     let state_repo = Arc::new(setup_db().await);
-    let alert_manager = create_alert_manager(notifiers, state_repo.clone());
+    let alert_manager = create_alert_manager(actions, state_repo.clone());
 
     let mock = server
         .mock("POST", "/")
@@ -266,10 +265,10 @@ async fn test_throttle_policy_shared_across_monitors() {
         .await;
 
     // Send matches from two different monitors, exceeding the throttle limit
-    let match1 = create_monitor_match(&monitor_name1, &notifier_name);
-    let match2 = create_monitor_match(&monitor_name2, &notifier_name);
-    let match3 = create_monitor_match(&monitor_name1, &notifier_name);
-    let match4 = create_monitor_match(&monitor_name2, &notifier_name);
+    let match1 = create_monitor_match(&monitor_name1, &action_name);
+    let match2 = create_monitor_match(&monitor_name2, &action_name);
+    let match3 = create_monitor_match(&monitor_name1, &action_name);
+    let match4 = create_monitor_match(&monitor_name2, &action_name);
 
     alert_manager.process_match(&match1).await.unwrap();
     alert_manager.process_match(&match2).await.unwrap();
@@ -282,7 +281,7 @@ async fn test_throttle_policy_shared_across_monitors() {
     mock.assert();
 
     // Verify the throttle state
-    let state_key = format!("throttle_state:{}", notifier_name);
+    let state_key = format!("throttle_state:{}", action_name);
     let throttle_state =
         state_repo.get_json_state::<ThrottleState>(&state_key).await.unwrap().unwrap();
     assert_eq!(throttle_state.count, max_count);
@@ -291,7 +290,7 @@ async fn test_throttle_policy_shared_across_monitors() {
 #[tokio::test]
 async fn test_aggregation_state_persistence_on_restart() {
     let mut server = mockito::Server::new_async().await;
-    let notifier_name = "persistent_aggregator".to_string();
+    let action_name = "persistent_aggregator".to_string();
     let monitor_name = "Persistent Monitor".to_string();
     let aggregation_window_secs = 1;
 
@@ -303,32 +302,32 @@ async fn test_aggregation_state_persistence_on_restart() {
         },
     };
 
-    let notifier_config = NotifierBuilder::new(&notifier_name)
+    let action_config = ActionBuilder::new(&action_name)
         .discord_config(&server.url())
-        .policy(NotifierPolicy::Aggregation(aggregation_policy.clone()))
+        .policy(ActionPolicy::Aggregation(aggregation_policy.clone()))
         .build();
 
-    let mut notifiers = HashMap::new();
-    notifiers.insert(notifier_name.clone(), notifier_config);
-    let notifiers_arc = Arc::new(notifiers);
+    let mut actions = HashMap::new();
+    actions.insert(action_name.clone(), action_config);
+    let actions_arc = Arc::new(actions);
 
     let state_repo = Arc::new(setup_db().await);
 
     // --- First run: process matches and store state ---
-    let alert_manager1 = create_alert_manager(notifiers_arc.as_ref().clone(), state_repo.clone());
-    let match1 = create_monitor_match(&monitor_name, &notifier_name);
-    let match2 = create_monitor_match(&monitor_name, &notifier_name);
+    let alert_manager1 = create_alert_manager(actions_arc.as_ref().clone(), state_repo.clone());
+    let match1 = create_monitor_match(&monitor_name, &action_name);
+    let match2 = create_monitor_match(&monitor_name, &action_name);
     alert_manager1.process_match(&match1).await.unwrap();
     alert_manager1.process_match(&match2).await.unwrap();
 
     // Verify state is persisted
-    let state_key = format!("aggregation_state:{}", notifier_name);
+    let state_key = format!("aggregation_state:{}", action_name);
     let saved_state =
         state_repo.get_json_state::<AggregationState>(&state_key).await.unwrap().unwrap();
     assert_eq!(saved_state.matches.len(), 2);
 
     // --- Simulate restart: create a new AlertManager with the same state ---
-    let alert_manager2 = create_alert_manager(notifiers_arc.as_ref().clone(), state_repo.clone());
+    let alert_manager2 = create_alert_manager(actions_arc.as_ref().clone(), state_repo.clone());
 
     let mock = server
         .mock("POST", "/")
@@ -357,17 +356,17 @@ async fn test_aggregation_state_persistence_on_restart() {
 }
 
 #[tokio::test]
-async fn test_process_match_with_invalid_notifier() {
+async fn test_process_match_with_invalid_action() {
     let state_repo = Arc::new(setup_db().await);
-    // No notifiers configured
+    // No actions configured
     let alert_manager = create_alert_manager(HashMap::new(), state_repo.clone());
 
-    let monitor_match = create_monitor_match("any_monitor", "non_existent_notifier");
+    let monitor_match = create_monitor_match("any_monitor", "non_existent_action");
 
     let result = alert_manager.process_match(&monitor_match).await;
 
     assert!(result.is_err());
     if let Err(e) = result {
-        assert!(e.to_string().contains("Notifier 'non_existent_notifier' not found"));
+        assert!(e.to_string().contains("Action 'non_existent_action' not found"));
     }
 }

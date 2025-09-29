@@ -35,7 +35,7 @@ pub enum JitterSetting {
     Full,
 }
 
-/// Configuration for HTTP (RPC and Webhook notifiers) and SMTP (Email notifier)
+/// Configuration for HTTP (RPC and Webhook actions)
 /// retry policies
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct HttpRetryConfig {

@@ -35,7 +35,7 @@ pub struct WebhookConfig {
 
 /// Implementation of webhook notifications via webhooks
 #[derive(Debug)]
-pub struct WebhookNotifier {
+pub struct WebhookAction {
     /// Webhook URL for message delivery
     pub url: Url,
     /// URL parameters to use for the webhook request
@@ -50,16 +50,15 @@ pub struct WebhookNotifier {
     pub headers: Option<HashMap<String, String>>,
 }
 
-impl WebhookNotifier {
-    /// Creates a new Webhook notifier instance
+impl WebhookAction {
+    /// Creates a new Webhook action instance
     ///
     /// # Arguments
     /// * `config` - Webhook configuration
     /// * `http_client` - HTTP client with middleware for retries
     ///
     /// # Returns
-    /// * `Result<Self, NotificationError>` - Notifier instance if config is
-    ///   valid
+    /// * `Result<Self, NotificationError>` - Action instance if config is valid
     pub fn new(
         config: WebhookConfig,
         http_client: Arc<ClientWithMiddleware>,
@@ -206,11 +205,11 @@ mod tests {
         Arc::new(reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build())
     }
 
-    fn create_test_notifier(
+    fn create_test_action(
         url: &str,
         secret: Option<&str>,
         headers: Option<HashMap<String, String>>,
-    ) -> WebhookNotifier {
+    ) -> WebhookAction {
         let http_client = create_test_http_client();
         let config = WebhookConfig {
             url: Url::parse(url).unwrap(),
@@ -221,7 +220,7 @@ mod tests {
             secret: secret.map(|s| s.to_string()),
             headers,
         };
-        WebhookNotifier::new(config, http_client).unwrap()
+        WebhookAction::new(config, http_client).unwrap()
     }
 
     fn create_test_payload() -> serde_json::Value {
@@ -234,15 +233,14 @@ mod tests {
 
     #[test]
     fn test_sign_request() {
-        let notifier =
-            create_test_notifier("https://webhook.example.com", Some("test-secret"), None);
+        let action = create_test_action("https://webhook.example.com", Some("test-secret"), None);
         let payload = json!({
             "title": "Test Title",
             "body": "Test message"
         });
         let secret = "test-secret";
 
-        let result = notifier.sign_payload(secret, &payload).unwrap();
+        let result = action.sign_payload(secret, &payload).unwrap();
         let (signature, timestamp) = result;
 
         assert!(!signature.is_empty());
@@ -251,14 +249,14 @@ mod tests {
 
     #[test]
     fn test_sign_request_fails_empty_secret() {
-        let notifier = create_test_notifier("https://webhook.example.com", None, None);
+        let action = create_test_action("https://webhook.example.com", None, None);
         let payload = json!({
             "title": "Test Title",
             "body": "Test message"
         });
         let empty_secret = "";
 
-        let result = notifier.sign_payload(empty_secret, &payload);
+        let result = action.sign_payload(empty_secret, &payload);
         assert!(result.is_err());
 
         let error = result.unwrap_err();
@@ -271,9 +269,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_notify_failure() {
-        let notifier = create_test_notifier("https://webhook.example.com", None, None);
+        let action = create_test_action("https://webhook.example.com", None, None);
         let payload = create_test_payload();
-        let result = notifier.notify_json(&payload).await;
+        let result = action.notify_json(&payload).await;
         assert!(result.is_err());
     }
 
@@ -289,14 +287,14 @@ mod tests {
             .create_async()
             .await;
 
-        let notifier = create_test_notifier(
+        let action = create_test_action(
             server.url().as_str(),
             Some("top-secret"),
             Some(HashMap::from([("Content-Type".to_string(), "application/json".to_string())])),
         );
 
         let payload = create_test_payload();
-        let result = notifier.notify_json(&payload).await;
+        let result = action.notify_json(&payload).await;
 
         assert!(result.is_ok());
 
@@ -313,9 +311,9 @@ mod tests {
         let invalid_headers =
             HashMap::from([("Invalid Header!@#".to_string(), "value".to_string())]);
 
-        let notifier = create_test_notifier(server.url().as_str(), None, Some(invalid_headers));
+        let action = create_test_action(server.url().as_str(), None, Some(invalid_headers));
         let payload = create_test_payload();
-        let result = notifier.notify_json(&payload).await;
+        let result = action.notify_json(&payload).await;
         let err = result.unwrap_err();
         assert!(err.to_string().contains("Invalid header name"));
     }
@@ -326,10 +324,10 @@ mod tests {
         let invalid_headers =
             HashMap::from([("X-Custom-Header".to_string(), "Invalid\nValue".to_string())]);
 
-        let notifier = create_test_notifier(server.url().as_str(), None, Some(invalid_headers));
+        let action = create_test_action(server.url().as_str(), None, Some(invalid_headers));
 
         let payload = create_test_payload();
-        let result = notifier.notify_json(&payload).await;
+        let result = action.notify_json(&payload).await;
         let err = result.unwrap_err();
         assert!(err.to_string().contains("Invalid header value"));
     }
@@ -350,10 +348,10 @@ mod tests {
             .create_async()
             .await;
 
-        let notifier = create_test_notifier(server.url().as_str(), None, Some(valid_headers));
+        let action = create_test_action(server.url().as_str(), None, Some(valid_headers));
 
         let payload = create_test_payload();
-        let result = notifier.notify_json(&payload).await;
+        let result = action.notify_json(&payload).await;
         assert!(result.is_ok());
         mock.assert();
     }
@@ -370,22 +368,21 @@ mod tests {
             .create_async()
             .await;
 
-        let notifier = create_test_notifier(server.url().as_str(), Some("test-secret"), None);
+        let action = create_test_action(server.url().as_str(), Some("test-secret"), None);
 
         let payload = create_test_payload();
-        let result = notifier.notify_json(&payload).await;
+        let result = action.notify_json(&payload).await;
         assert!(result.is_ok());
         mock.assert();
     }
 
     #[test]
     fn test_sign_request_validation() {
-        let notifier =
-            create_test_notifier("https://webhook.example.com", Some("test-secret"), None);
+        let action = create_test_action("https://webhook.example.com", Some("test-secret"), None);
 
         let payload = create_test_payload();
 
-        let result = notifier.sign_payload("test-secret", &payload).unwrap();
+        let result = action.sign_payload("test-secret", &payload).unwrap();
         let (signature, timestamp) = result;
 
         // Validate signature format (should be a hex string)

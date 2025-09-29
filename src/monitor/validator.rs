@@ -8,7 +8,7 @@ use thiserror::Error;
 use crate::{
     abi::AbiService,
     engine::rhai::{RhaiScriptValidationError, RhaiScriptValidationResult, RhaiScriptValidator},
-    models::{monitor::MonitorConfig, notifier::NotifierConfig},
+    models::{action::ActionConfig, monitor::MonitorConfig},
 };
 
 /// A validator for monitor configurations.
@@ -16,8 +16,8 @@ pub struct MonitorValidator<'a> {
     /// The application network ID.
     network_id: &'a str,
 
-    /// The list of available notifiers.
-    notifiers: &'a [NotifierConfig],
+    /// The list of available actions.
+    actions: &'a [ActionConfig],
 
     /// The script validator for validating Rhai scripts.
     script_validator: RhaiScriptValidator,
@@ -75,13 +75,13 @@ pub enum MonitorValidationError {
         actual_network: String,
     },
 
-    /// The monitor references a notifier that does not exist.
-    #[error("Monitor '{monitor_name}' references an unknown notifier: '{notifier_name}'")]
-    UnknownNotifier {
+    /// The monitor references a action that does not exist.
+    #[error("Monitor '{monitor_name}' references an unknown action: '{action_name}'")]
+    UnknownAction {
         /// The name of the monitor.
         monitor_name: String,
-        /// The name of the unknown notifier.
-        notifier_name: String,
+        /// The name of the unknown action.
+        action_name: String,
     },
 
     /// An error occurred during script validation.
@@ -110,9 +110,9 @@ impl<'a> MonitorValidator<'a> {
         script_validator: RhaiScriptValidator,
         abi_service: Arc<AbiService>,
         network_id: &'a str,
-        notifiers: &'a [NotifierConfig],
+        actions: &'a [ActionConfig],
     ) -> Self {
-        MonitorValidator { network_id, notifiers, script_validator, abi_service }
+        MonitorValidator { network_id, actions, script_validator, abi_service }
     }
 
     /// Validates the given monitor configuration.
@@ -128,7 +128,7 @@ impl<'a> MonitorValidator<'a> {
             });
         }
 
-        self.validate_notifiers(monitor)?;
+        self.validate_actions(monitor)?;
 
         let (parsed_address, is_global_log_monitor) = self.parse_and_validate_address(monitor)?;
 
@@ -156,21 +156,21 @@ impl<'a> MonitorValidator<'a> {
         Ok(())
     }
 
-    /// Validates that all notifiers referenced by the monitor exist.
-    fn validate_notifiers(&self, monitor: &MonitorConfig) -> Result<(), MonitorValidationError> {
-        if monitor.notifiers.is_empty() {
+    /// Validates that all actions referenced by the monitor exist.
+    fn validate_actions(&self, monitor: &MonitorConfig) -> Result<(), MonitorValidationError> {
+        if monitor.actions.is_empty() {
             tracing::warn!(
                 monitor_name = monitor.name,
-                "Monitor has no notifiers configured and will not send any notifications."
+                "Monitor has no actions configured and will not send any notifications."
             );
         }
 
-        // Check if all notifiers exist.
-        for notifier_name in &monitor.notifiers {
-            if !self.notifiers.iter().any(|n| n.name == *notifier_name) {
-                return Err(MonitorValidationError::UnknownNotifier {
+        // Check if all actions exist.
+        for action_name in &monitor.actions {
+            if !self.actions.iter().any(|n| n.name == *action_name) {
+                return Err(MonitorValidationError::UnknownAction {
                     monitor_name: monitor.name.clone(),
-                    notifier_name: notifier_name.clone(),
+                    action_name: action_name.clone(),
                 });
             }
         }
@@ -348,9 +348,9 @@ mod tests {
         abi::{AbiService, repository::AbiRepository},
         config::RhaiConfig,
         engine::rhai::{RhaiCompiler, RhaiScriptValidationError, RhaiScriptValidator},
-        models::{monitor::MonitorConfig, notifier::NotifierConfig},
+        models::{action::ActionConfig, monitor::MonitorConfig},
         monitor::{MonitorValidationError, MonitorValidator},
-        test_helpers::{NotifierBuilder, erc20_abi_json},
+        test_helpers::{ActionBuilder, erc20_abi_json},
     };
 
     fn create_test_monitor(
@@ -358,7 +358,7 @@ mod tests {
         address: Option<&str>,
         abi: Option<&str>,
         script: &str,
-        notifiers: Vec<String>,
+        actions: Vec<String>,
     ) -> MonitorConfig {
         MonitorConfig::from_config(
             format!("Test Monitor {id}"),
@@ -366,16 +366,16 @@ mod tests {
             address.map(String::from),
             abi.map(String::from),
             script.to_string(),
-            notifiers,
+            actions,
         )
     }
 
-    fn create_test_notifier(name: &str) -> NotifierConfig {
-        NotifierBuilder::new(name).discord_config("https://discord.com/api/webhooks/test").build()
+    fn create_test_action(name: &str) -> ActionConfig {
+        ActionBuilder::new(name).discord_config("https://discord.com/api/webhooks/test").build()
     }
 
     fn create_monitor_validator<'a>(
-        notifiers: &'a [NotifierConfig],
+        actions: &'a [ActionConfig],
         abi_to_preload: Option<(Address, &'static str, &'static str)>,
     ) -> MonitorValidator<'a> {
         let config = RhaiConfig::default();
@@ -398,17 +398,15 @@ mod tests {
             abi_service.link_abi(address, abi_name).unwrap();
         }
 
-        MonitorValidator::new(script_validator, abi_service, "testnet", notifiers)
+        MonitorValidator::new(script_validator, abi_service, "testnet", actions)
     }
 
     #[tokio::test]
     async fn test_monitor_validation_success_log_monitor() {
-        let notifiers = vec![create_test_notifier("notifier1")];
+        let actions = vec![create_test_action("action1")];
         let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
-        let validator = create_monitor_validator(
-            &notifiers,
-            Some((contract_address, "erc20", erc20_abi_json())),
-        );
+        let validator =
+            create_monitor_validator(&actions, Some((contract_address, "erc20", erc20_abi_json())));
 
         // Valid: log monitor accesses log and has address + ABI
         let monitor = create_test_monitor(
@@ -416,7 +414,7 @@ mod tests {
             Some("0x0000000000000000000000000000000000000123"),
             Some("erc20"),
             "log.name == \"Transfer\"",
-            vec!["notifier1".to_string()],
+            vec!["action1".to_string()],
         );
         let result = validator.validate(&monitor);
         assert!(result.is_ok());
@@ -533,22 +531,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_monitor_validation_failure_unknown_notifier() {
-        let notifiers = vec![create_test_notifier("existing_notifier")];
-        let validator = create_monitor_validator(&notifiers, None);
-        let invalid_monitor = create_test_monitor(
-            1,
-            None,
-            None,
-            "tx.value > 0",
-            vec!["unknown_notifier".to_string()],
-        );
+    async fn test_monitor_validation_failure_unknown_action() {
+        let actions = vec![create_test_action("existing_action")];
+        let validator = create_monitor_validator(&actions, None);
+        let invalid_monitor =
+            create_test_monitor(1, None, None, "tx.value > 0", vec!["unknown_action".to_string()]);
         let result = validator.validate(&invalid_monitor);
 
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            MonitorValidationError::UnknownNotifier { monitor_name: _, notifier_name: _ }
+            MonitorValidationError::UnknownAction { monitor_name: _, action_name: _ }
         ));
     }
 
@@ -830,7 +823,7 @@ mod tests {
             address: contract_address.to_string().into(),
             abi: None,                                          // No ABI provided
             filter_script: "decoded_call.name == \"A\"".into(), // Accesses decoded_call
-            notifiers: vec![],
+            actions: vec![],
         };
         let result = validator.validate(&invalid_monitor);
 
@@ -857,7 +850,7 @@ mod tests {
             address: None, // No address provided
             abi: Some("erc20".into()),
             filter_script: "decoded_call.name == \"A\"".into(), // Accesses decoded_call
-            notifiers: vec![],
+            actions: vec![],
         };
         let result = validator.validate(&invalid_monitor);
 
@@ -884,7 +877,7 @@ mod tests {
             address: Some("all".into()), // Global monitor
             abi: Some("erc20".into()),
             filter_script: "decoded_call.name == \"A\"".into(),
-            notifiers: vec![],
+            actions: vec![],
         };
         let result = validator.validate(&invalid_monitor);
 
@@ -913,7 +906,7 @@ mod tests {
             address: Some(contract_address.to_string()),
             abi: Some("erc20".into()),
             filter_script: "log.name == \"A\"".into(),
-            notifiers: vec![],
+            actions: vec![],
         };
 
         let result = validator.validate(&invalid_monitor);

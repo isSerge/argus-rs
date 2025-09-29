@@ -53,7 +53,7 @@ Argus is a next-generation, open-source, self-hosted monitoring tool for EVM cha
 
 ## Configuration
 
-The application's behavior is primarily configured through three YAML files located in the `configs` directory: `app.yaml`, `monitors.yaml`, and `notifiers.yaml`. You can specify an alternative directory using the `--config-dir` CLI argument.
+The application's behavior is primarily configured through three YAML files located in the `configs` directory: `app.yaml`, `monitors.yaml`, and `actions.yaml`. You can specify an alternative directory using the `--config-dir` CLI argument.
 
 ### `app.yaml`
 
@@ -94,9 +94,9 @@ monitors:
     # This type of monitor inspects transaction data directly.
     filter_script: |
       tx.value > ether(10)
-    # Notifiers are used to send notifications when the monitor triggers.
-    notifiers:
-      # This monitor will use the "my-generic-webhook" notifier defined in `notifiers.yaml`.
+    # actions are used to send notifications when the monitor triggers.
+    actions:
+      # This monitor will use the "my-generic-webhook" action defined in `actions.yaml`.
       - "my-generic-webhook"
 
   # Monitor for large USDC transfers (ABI is required)
@@ -107,21 +107,21 @@ monitors:
     abi: "usdc"
     filter_script: |
       log.name == "Transfer" && log.params.value > usdc(1_000_000)
-    # Notifiers are used to send notifications when the monitor triggers.
-    notifiers:
-      # This monitor will use the "slack-notifications" notifier defined in `notifiers.yaml`.
+    # actions can be used to send notifications when the monitor triggers.
+    actions:
+      # This monitor will use the "slack-notifications" action defined in `actions.yaml`.
       - "slack-notifications"
 ```
 
-### `notifiers.yaml`
+### `actions.yaml`
 
-This file defines *how* you want to be notified when a monitor finds a match. You can configure various notification channels like webhooks, Slack, or Discord. For a complete list of parameters and their descriptions, see the [notifiers.yaml documentation](./docs/src/user_guide/config_notifiers.md).
+This file defines *how* you want to be notified when a monitor finds a match. You can configure various notification channels like webhooks, Slack, or Discord. For a complete list of parameters and their descriptions, see the [actions.yaml documentation](./docs/src/user_guide/config_actions.md).
 
-See [`configs/notifiers.example.yaml`](./configs/notifiers.example.yaml) for more detailed examples.
+See [`configs/actions.example.yaml`](./configs/actions.example.yaml) for more detailed examples.
 
-**Example `notifiers.yaml`**
+**Example `actions.yaml`**
 ```yaml
-notifiers:
+actions:
   - name: "my-generic-webhook"
     webhook:
       url: "https://my-service.com/webhook-endpoint"
@@ -208,7 +208,7 @@ The easiest way to run Argus is with Docker Compose. This method handles the dat
     ```
 
 2.  **Configure Secrets:**
-    Copy the example environment file and fill in your notifier secrets (e.g., Telegram token, Slack webhook URL).
+    Copy the example environment file and fill in your action secrets (e.g., Telegram token, Slack webhook URL).
     ```bash
     cp .env.example .env
     # Now, edit .env with your secrets
@@ -237,7 +237,7 @@ The `src` directory is organized into several modules, each with a distinct resp
 -   `engine`: The core processing and filtering logic, including the Rhai script executor.
 -   `http_client`: Provides a retryable HTTP client and a pool for managing clients.
 -   `http_server`: (Future) Will contain the REST API server for dynamic monitor management.
--   `initialization`: Loads initial data (monitors, notifiers, ABIs) at startup.
+-   `initialization`: Loads initial data (monitors, actions, ABIs) at startup.
 -   `models`: Defines the core data structures (e.g., `Monitor`, `BlockData`, `Transaction`).
 -   `notification`: Manages sending notifications to services like webhooks.
 -   `persistence`: Manages the application's state via the `StateRepository` trait.

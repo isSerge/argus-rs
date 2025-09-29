@@ -27,7 +27,7 @@ pub enum HttpClientPoolError {
 /// This struct provides a thread-safe way to create and access HTTP clients
 /// with specific retry policies. A single instance of this pool can be shared
 /// across the application. Services that need to make HTTP calls (e.g., a
-/// webhook notifier, an Etherscan client) can request a client from the pool,
+/// webhook action, an Etherscan client) can request a client from the pool,
 /// each with a specific `HttpRetryConfig`.
 ///
 /// Clients are keyed by their `HttpRetryConfig` to ensure that different

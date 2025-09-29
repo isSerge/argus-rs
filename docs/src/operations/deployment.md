@@ -22,7 +22,7 @@ The `docker compose.yml` file is the easiest way to run the application.
 
 #### Setup
 
-1.  **Create a `.env` file**: Copy the `.env.example` to `.env` and fill in your notifier secrets (API tokens, webhook URLs, etc.).
+1.  **Create a `.env` file**: Copy the `.env.example` to `.env` and fill in your action secrets (API tokens, webhook URLs, etc.).
     ```bash
     cp .env.example .env
     ```
@@ -30,7 +30,7 @@ The `docker compose.yml` file is the easiest way to run the application.
     ```bash
     mkdir -p data
     ```
-3.  **Configure `monitors.yaml`, `notifiers.yaml`, and `app.yaml`**: Edit the files in the `configs/` or other specified directory to define your monitors and notifiers.
+3.  **Configure `monitors.yaml`, `actions.yaml`, and `app.yaml`**: Edit the files in the `configs/` or other specified directory to define your monitors and actions.
 
 #### Commands
 

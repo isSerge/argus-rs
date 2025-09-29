@@ -5,5 +5,5 @@ monitors:
     network: "ethereum"
     filter_script: |
       tx.value > ether("10")
-    notifiers:
+    actions:
       - "telegram big transfer"

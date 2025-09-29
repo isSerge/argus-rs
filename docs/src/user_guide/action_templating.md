@@ -1,12 +1,12 @@
-# Notifier Templating
+# Action Templating
 
 Argus allows you to customize the content of your notifications using templating. This enables dynamic messages that include details from the matched blockchain events.
 
 ## How Templating Works
 
-When a monitor's `filter_script` matches an event, the relevant data (e.g., transaction details, log data) is passed to the configured notifiers. Notifiers that support templating can then use this data to render a custom message.
+When a monitor's `filter_script` matches an event, the relevant data (e.g., transaction details, log data) is passed to the configured actions. actions that support templating can then use this data to render a custom message.
 
-Templates are typically defined within your [`notifiers.yaml`](./notifiers_yaml.md) file as part of the notifier's `message` configuration. The exact syntax and available variables will depend on the specific notifier type and the templating engine it uses (e.g., Handlebars-like syntax for basic fields, or more advanced templating for `body` fields).
+Templates are typically defined within your [`actions.yaml`](./actions_yaml.md) file as part of the action's `message` configuration. The exact syntax and available variables will depend on the specific action type and the templating engine it uses (e.g., Handlebars-like syntax for basic fields, or more advanced templating for `body` fields).
 
 ## Available Data for Templating
 
@@ -14,7 +14,7 @@ All notification templates have access to the following top-level fields from th
 
 *   **`monitor_id`**: The unique ID of the monitor that triggered the match (integer).
 *   **`monitor_name`**: The human-readable name of the monitor (string).
-*   **`notifier_name`**: The name of the notifier handling this match (string).
+*   **`action_name`**: The name of the action handling this match (string).
 *   **`block_number`**: The block number where the match occurred (integer).
 *   **`transaction_hash`**: The hash of the transaction associated with the match (string).
 
@@ -102,10 +102,10 @@ Argus provides several custom Jinja2 filters to help you work with blockchain da
 
 **Important**: Always apply the appropriate conversion filter (e.g., `ether`, `usdc`, `wbtc`, `decimals`) to `BigInt` strings *before* performing mathematical operations like `sum` or `avg` to ensure accurate results. For example, `{{ matches | map(attribute='log.params.value') | sum | wbtc }}` correctly sums the values and then formats them as WBTC.
 
-## Example: Generic Webhook Notifier
+## Example: Generic Webhook Action
 
 ```yaml
-notifiers:
+actions:
   - name: "my-generic-webhook"
     webhook:
       url: "https://my-service.com/webhook-endpoint"
@@ -129,7 +129,7 @@ In this example, `{{ monitor_name }}`, `{{ block_number }}`, `{{ transaction_has
 When using an `aggregation` policy, the template has access to a `matches` array, which contains all the `MonitorMatch` objects collected during the aggregation window.
 
 ```yaml
-notifiers:
+actions:
   - name: "slack-with-aggregation"
     slack:
       slack_url: "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX"
@@ -150,6 +150,6 @@ notifiers:
 
 Here, `{{ matches | length }}` is used to get the count of aggregated matches, and a `{% for match in matches %}` loop iterates through each individual match to display its transaction hash and block number.
 
-Refer to the documentation for specific notifier types to understand their full templating capabilities and the exact syntax to use.
+Refer to the documentation for specific action types to understand their full templating capabilities and the exact syntax to use.
 
-For more practical examples of notifier templating, including aggregation policies, refer to the [Example Gallery](../examples/gallery.md).
+For more practical examples of action templating, including aggregation policies, refer to the [Example Gallery](../examples/gallery.md).

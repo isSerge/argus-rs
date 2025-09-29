@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::models::monitor_match::MonitorMatch;
 
-/// Represents the current throttling state for a notifier.
+/// Represents the current throttling state for a action.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ThrottleState {
     /// The number of notifications sent within the current throttling window.
@@ -15,7 +15,7 @@ pub struct ThrottleState {
     pub window_start_time: DateTime<Utc>,
 }
 
-/// Represents the current aggregation state for a notifier.
+/// Represents the current aggregation state for a action.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct AggregationState {
     /// The list of monitor matches collected within the current aggregation

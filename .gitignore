@@ -2,5 +2,5 @@
 .env
 data/
 configs/monitors.yaml
-configs/notifiers.yaml
+configs/actions.yaml
 /docs/book/

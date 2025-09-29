@@ -25,13 +25,13 @@ The `src` directory is organized into several modules, each representing a key c
 
 -   **`notification`**: This component is divided into two main parts:
     -   **`AlertManager`**: Receives `MonitorMatch`es from the `FilteringEngine`. It is responsible for managing notification policies (throttling, aggregation) before handing off notifications for dispatch.
-    -   **`NotificationService`**: Receives notification requests from the `AlertManager`. It manages a collection of specific notifier clients (e.g., Webhook, Stdout) and is responsible for the final dispatch of the alert to the external service.
+    -   **`NotificationService`**: Receives notification requests from the `AlertManager`. It manages a collection of specific action clients (e.g., Webhook, Stdout) and is responsible for the final dispatch of the alert to the external service.
 
 -   **`persistence`**: This module provides an abstraction layer over the database (currently SQLite). It handles all state management, such as storing the last processed block number.
 
 -   **`config` & `loader`**: These modules manage the loading, parsing, and validation of the application's configuration from the YAML files.
 
--   **`models`**: Defines the core data structures used throughout the application (e.g., `BlockData`, `Transaction`, `Log`, `Monitor`, `Notifier`).
+-   **`models`**: Defines the core data structures used throughout the application (e.g., `BlockData`, `Transaction`, `Log`, `Monitor`, `Action`).
 
 -   **`http_client`**: Provides a robust and reusable HTTP client with built-in retry logic, used by the notification component to send alerts.
 

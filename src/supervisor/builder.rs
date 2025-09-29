@@ -11,7 +11,7 @@ use crate::{
     config::AppConfig,
     engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
     http_client::HttpClientPool,
-    models::notifier::NotifierConfig,
+    models::action::ActionConfig,
     monitor::MonitorManager,
     notification::NotificationService,
     persistence::{sqlite::SqliteStateRepository, traits::AppRepository},
@@ -90,10 +90,10 @@ impl SupervisorBuilder {
         let evm_data_source = EvmRpcSource::new(provider, monitor_manager.clone());
         tracing::info!(retry_policy = ?config.rpc_retry_config, "EVM data source initialized with fallback and retry policy.");
 
-        // Load notifiers from the database for the NotificationService.
-        tracing::debug!(network_id = %config.network_id, "Loading notifiers from database for notification service...");
-        let notifiers = state.get_notifiers(&config.network_id).await?;
-        tracing::info!(count = notifiers.len(), network_id = %config.network_id, "Loaded notifiers from database for notification service.");
+        // Load actions from the database for the NotificationService.
+        tracing::debug!(network_id = %config.network_id, "Loading actions from database for notification service...");
+        let actions = state.get_actions(&config.network_id).await?;
+        tracing::info!(count = actions.len(), network_id = %config.network_id, "Loaded actions from database for notification service.");
 
         // Construct the internal services.
         let filtering_engine = RhaiFilteringEngine::new(
@@ -105,12 +105,12 @@ impl SupervisorBuilder {
         let http_client_pool = Arc::new(HttpClientPool::new(config.http_base_config.clone()));
 
         // Set up the NotificationService and AlertManager
-        let notifiers_map: Arc<HashMap<String, NotifierConfig>> =
-            Arc::new(notifiers.into_iter().map(|t| (t.name.clone(), t)).collect());
+        let actions_map: Arc<HashMap<String, ActionConfig>> =
+            Arc::new(actions.into_iter().map(|t| (t.name.clone(), t)).collect());
         let notification_service =
-            Arc::new(NotificationService::new(notifiers_map.clone(), http_client_pool));
+            Arc::new(NotificationService::new(actions_map.clone(), http_client_pool));
         let alert_manager =
-            Arc::new(AlertManager::new(notification_service, state.clone(), notifiers_map));
+            Arc::new(AlertManager::new(notification_service, state.clone(), actions_map));
 
         // Finally, construct the Supervisor with all its components.
         Ok(Supervisor::new(
@@ -163,7 +163,7 @@ mod tests {
             address: Some("0x0000000000000000000000000000000000000001".to_string()),
             abi: Some(abi_name.to_string()),
             filter_script: "true".to_string(),
-            notifiers: vec![],
+            actions: vec![],
         };
 
         let state_repo = Arc::new(setup_test_db().await);

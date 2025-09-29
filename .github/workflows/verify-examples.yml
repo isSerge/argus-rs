@@ -35,9 +35,6 @@ jobs:
 
     - name: Run examples
       env:
-        # Set dummy environment variables for Telegram notifier to satisfy config loading
-        TELEGRAM_TOKEN: "dummy"
-        TELEGRAM_CHAT_ID: "dummy"
         JS_EXECUTOR_BIN_PATH: "target/release/js_executor"
       run: |
         chmod +x ./run_examples.sh

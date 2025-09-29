@@ -5,5 +5,5 @@ monitors:
     abi: "weth"
     filter_script: |
       log.name == "Deposit" && tx.value > ether(5)
-    notifiers:
-      - "stdout-notifier"
+    actions:
+      - "stdout-action"

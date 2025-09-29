@@ -20,11 +20,11 @@ The quickest and most reliable way to get Argus running is with Docker and Docke
     ```
 
 2.  **Configure Secrets:**
-    Argus uses a `.env` file to manage secrets for notifiers. Copy the example file to create your own.
+    Argus uses a `.env` file to manage secrets for actions. Copy the example file to create your own.
     ```bash
     cp .env.example .env
     ```
-    Now, open the `.env` file and fill in the required tokens and webhook URLs for the notifiers you plan to use.
+    Now, open the `.env` file and fill in the required tokens and webhook URLs for the actions you plan to use.
 
 3.  **Create Data Directory:**
     The Docker Compose setup is configured to persist the application's database in a local `data` directory.

@@ -1,9 +1,9 @@
 //! Integration tests for the persistence layer
 
 use argus::{
-    models::{monitor::MonitorConfig, notifier::NotifierConfig},
+    models::{action::ActionConfig, monitor::MonitorConfig},
     persistence::{sqlite::SqliteStateRepository, traits::AppRepository},
-    test_helpers::NotifierBuilder,
+    test_helpers::ActionBuilder,
 };
 
 async fn setup_db() -> SqliteStateRepository {
@@ -25,8 +25,8 @@ fn create_test_monitor(name: &str, network: &str) -> MonitorConfig {
     )
 }
 
-fn create_test_notifier(name: &str) -> NotifierConfig {
-    NotifierBuilder::new(name).discord_config("https://discord.com/api/webhooks/test").build()
+fn create_test_action(name: &str) -> ActionConfig {
+    ActionBuilder::new(name).discord_config("https://discord.com/api/webhooks/test").build()
 }
 
 #[tokio::test]
@@ -58,29 +58,28 @@ async fn test_monitor_lifecycle() {
 }
 
 #[tokio::test]
-async fn test_notifier_lifecycle() {
+async fn test_action_lifecycle() {
     let repo = setup_db().await;
     let network_id = "ethereum";
 
-    // 1. Initially, no notifiers should exist
-    let initial_notifiers = repo.get_notifiers(network_id).await.unwrap();
-    assert!(initial_notifiers.is_empty());
+    // 1. Initially, no actions should exist
+    let initial_actions = repo.get_actions(network_id).await.unwrap();
+    assert!(initial_actions.is_empty());
 
-    // 2. Add notifiers
-    let notifiers_to_add =
-        vec![create_test_notifier("Notifier 1"), create_test_notifier("Notifier 2")];
-    repo.add_notifiers(network_id, notifiers_to_add.clone()).await.unwrap();
+    // 2. Add actions
+    let actions_to_add = vec![create_test_action("Action 1"), create_test_action("Action 2")];
+    repo.add_actions(network_id, actions_to_add.clone()).await.unwrap();
 
-    // 3. Get notifiers and verify they were added
-    let stored_notifiers = repo.get_notifiers(network_id).await.unwrap();
-    assert_eq!(stored_notifiers.len(), 2);
-    assert_eq!(stored_notifiers[0].name, "Notifier 1");
-    assert_eq!(stored_notifiers[1].name, "Notifier 2");
+    // 3. Get actions and verify they were added
+    let stored_actions = repo.get_actions(network_id).await.unwrap();
+    assert_eq!(stored_actions.len(), 2);
+    assert_eq!(stored_actions[0].name, "Action 1");
+    assert_eq!(stored_actions[1].name, "Action 2");
 
-    // 4. Clear notifiers
-    repo.clear_notifiers(network_id).await.unwrap();
-    let cleared_notifiers = repo.get_notifiers(network_id).await.unwrap();
-    assert!(cleared_notifiers.is_empty());
+    // 4. Clear actions
+    repo.clear_actions(network_id).await.unwrap();
+    let cleared_actions = repo.get_actions(network_id).await.unwrap();
+    assert!(cleared_actions.is_empty());
 }
 
 #[tokio::test]
@@ -109,38 +108,38 @@ async fn test_network_isolation() {
     let eth_network = "ethereum";
     let poly_network = "polygon";
 
-    // Add monitors and notifiers to both networks
+    // Add monitors and actions to both networks
     repo.add_monitors(eth_network, vec![create_test_monitor("ETH Monitor", eth_network)])
         .await
         .unwrap();
     repo.add_monitors(poly_network, vec![create_test_monitor("Polygon Monitor", poly_network)])
         .await
         .unwrap();
-    repo.add_notifiers(eth_network, vec![create_test_notifier("ETH Notifier")]).await.unwrap();
-    repo.add_notifiers(poly_network, vec![create_test_notifier("Polygon Notifier")]).await.unwrap();
+    repo.add_actions(eth_network, vec![create_test_action("ETH Action")]).await.unwrap();
+    repo.add_actions(poly_network, vec![create_test_action("Polygon Action")]).await.unwrap();
 
     // Verify data for Ethereum
     let eth_monitors = repo.get_monitors(eth_network).await.unwrap();
-    let eth_notifiers = repo.get_notifiers(eth_network).await.unwrap();
+    let eth_actions = repo.get_actions(eth_network).await.unwrap();
     assert_eq!(eth_monitors.len(), 1);
     assert_eq!(eth_monitors[0].name, "ETH Monitor");
-    assert_eq!(eth_notifiers.len(), 1);
-    assert_eq!(eth_notifiers[0].name, "ETH Notifier");
+    assert_eq!(eth_actions.len(), 1);
+    assert_eq!(eth_actions[0].name, "ETH Action");
 
     // Verify data for Polygon
     let poly_monitors = repo.get_monitors(poly_network).await.unwrap();
-    let poly_notifiers = repo.get_notifiers(poly_network).await.unwrap();
+    let poly_actions = repo.get_actions(poly_network).await.unwrap();
     assert_eq!(poly_monitors.len(), 1);
     assert_eq!(poly_monitors[0].name, "Polygon Monitor");
-    assert_eq!(poly_notifiers.len(), 1);
-    assert_eq!(poly_notifiers[0].name, "Polygon Notifier");
+    assert_eq!(poly_actions.len(), 1);
+    assert_eq!(poly_actions[0].name, "Polygon Action");
 
     // Clear Ethereum and verify it doesn't affect Polygon
     repo.clear_monitors(eth_network).await.unwrap();
-    repo.clear_notifiers(eth_network).await.unwrap();
+    repo.clear_actions(eth_network).await.unwrap();
 
     assert!(repo.get_monitors(eth_network).await.unwrap().is_empty());
-    assert!(repo.get_notifiers(eth_network).await.unwrap().is_empty());
+    assert!(repo.get_actions(eth_network).await.unwrap().is_empty());
     assert_eq!(repo.get_monitors(poly_network).await.unwrap().len(), 1);
-    assert_eq!(repo.get_notifiers(poly_network).await.unwrap().len(), 1);
+    assert_eq!(repo.get_actions(poly_network).await.unwrap().len(), 1);
 }

@@ -7,8 +7,8 @@ use serde::{Serialize, de::DeserializeOwned};
 
 use super::error::PersistenceError;
 use crate::models::{
+    action::ActionConfig,
     monitor::{Monitor, MonitorConfig},
-    notifier::NotifierConfig,
 };
 
 /// Represents the application's persistence layer interface.
@@ -55,22 +55,19 @@ pub trait AppRepository: Send + Sync {
     /// Clears all monitors for a specific network.
     async fn clear_monitors(&self, network_id: &str) -> Result<(), PersistenceError>;
 
-    // Notifier management operations:
-    /// Retrieves all notifiers for a specific network.
-    async fn get_notifiers(
-        &self,
-        network_id: &str,
-    ) -> Result<Vec<NotifierConfig>, PersistenceError>;
+    // Action management operations:
+    /// Retrieves all actions for a specific network.
+    async fn get_actions(&self, network_id: &str) -> Result<Vec<ActionConfig>, PersistenceError>;
 
-    /// Adds multiple notifiers for a specific network.
-    async fn add_notifiers(
+    /// Adds multiple actions for a specific network.
+    async fn add_actions(
         &self,
         network_id: &str,
-        notifiers: Vec<NotifierConfig>,
+        actions: Vec<ActionConfig>,
     ) -> Result<(), PersistenceError>;
 
-    /// Clears all notifiers for a specific network.
-    async fn clear_notifiers(&self, network_id: &str) -> Result<(), PersistenceError>;
+    /// Clears all actions for a specific network.
+    async fn clear_actions(&self, network_id: &str) -> Result<(), PersistenceError>;
 }
 
 /// Represents a generic key-value store for JSON-serializable objects.

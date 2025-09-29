@@ -1,21 +1,21 @@
-# 6. Notifier with Aggregation Policy
+# 6. Action with Aggregation Policy
 
-This example demonstrates how to use `aggregation` policy for notifiers as well as `sum` and `avg` filters in templates to aggregate values from multiple monitor matches. It uses the `stdout` notifier for simple console output.
+This example demonstrates how to use `aggregation` policy for actions as well as `sum` and `avg` filters in templates to aggregate values from multiple monitor matches. It uses the `stdout` action for simple console output.
 
 ### Configuration Files
 
 - [`app.yaml`](../../docs/src/user_guide/config_app.md): Basic application configuration.
 - [`monitors.yaml`](../../docs/src/user_guide/config_monitors.md): Defines the "Aggregated WBTC Transfers" monitor.
-- [`notifiers.yaml`](../../docs/src/user_guide/config_notifiers.md): Defines a stdout notifier that aggregates WBTC transfer values.
+- [`actions.yaml`](../../docs/src/user_guide/config_actions.md): Defines a stdout action that aggregates WBTC transfer values.
 
-### Notifier Options
+### Action Options
 
-This example uses the stdout notifier which prints notifications directly to the console. This is ideal for:
+This example uses the stdout action which prints notifications directly to the console. This is ideal for:
 - Local development and testing
 - Debugging monitor configurations and aggregation behavior
 - Dry-run scenarios
 
-For production use, you can configure other notifiers like Slack, Discord, Telegram, or webhooks. See the [Notifier Configuration documentation](../../docs/src/user_guide/notifiers_yaml.md) for all available options.
+For production use, you can configure other actions like Slack, Discord, Telegram, or webhooks. See the [Action Configuration documentation](../../docs/src/user_guide/actions_yaml.md) for all available options.
 
 ### Monitor Configuration
 
@@ -29,16 +29,16 @@ monitors:
     abi: 'wbtc'
     filter_script: |
       log.name == "Transfer" && log.params.value > wbtc(0.001)
-    notifiers:
+    actions:
       - 'Stdout Aggregated WBTC Transfers'
 ```
 
-### Notifier Configuration
+### Action Configuration
 
-The `notifiers.yaml` file defines a stdout notifier that uses the `sum` and `avg` filters to aggregate the values of the detected WBTC transfers, and an `aggregation` policy to group notifications within a time window. For a complete reference on notifier configuration, including policies and templating, see the [Notifier Configuration documentation](../../docs/src/user_guide/config_notifiers.md) and [Notifier Templating documentation](../../docs/src/user_guide/notifier_templating.md).
+The `actions.yaml` file defines a stdout action that uses the `sum` and `avg` filters to aggregate the values of the detected WBTC transfers, and an `aggregation` policy to group notifications within a time window. For a complete reference on action configuration, including policies and templating, see the [Action Configuration documentation](../../docs/src/user_guide/config_actions.md) and [Action Templating documentation](../../docs/src/user_guide/action_templating.md).
 
 ```yaml
-notifiers:
+actions:
   - name: "Stdout Aggregated WBTC Transfers"
     stdout:
       message:
@@ -64,7 +64,7 @@ notifiers:
             Average value: {{ matches | map(attribute='log.params.value') | avg | wbtc }} WBTC
 ```
 
--   **`policy.aggregation`**: For more details on aggregation policies, see the [Notifier Configuration documentation](../../docs/src/user_guide/config_notifiers.md#aggregation-policy).
+-   **`policy.aggregation`**: For more details on aggregation policies, see the [Action Configuration documentation](../../docs/src/user_guide/config_actions.md#aggregation-policy).
     -   `time_window_secs`: The duration of the time window in seconds during which notifications will be aggregated.
 
 ### How to Run ([Dry-Run Mode](../../docs/src/operations/cli.md#dry-run-mode))
@@ -72,13 +72,13 @@ notifiers:
 To test this monitor against historical blocks, use the `dry-run` command with the `--config-dir` argument pointing to this example's configuration:
 
 ```bash
-cargo run --release -- dry-run --from 23289380 --to 23289383 --config-dir examples/6_notifier_with_aggregation_policy/
+cargo run --release -- dry-run --from 23289380 --to 23289383 --config-dir examples/6_action_with_aggregation_policy/
 ```
 
 Run with `debug` logs:
 
 ```bash
-RUST_LOG=debug cargo run --release -- dry-run --from 23289380 --to 23289383 --config-dir examples/6_notifier_with_aggregation_policy/
+RUST_LOG=debug cargo run --release -- dry-run --from 23289380 --to 23289383 --config-dir examples/6_action_with_aggregation_policy/
 ```
 
 Run with Docker image from GHCR:
@@ -86,7 +86,7 @@ Run with Docker image from GHCR:
 ```bash
 docker run --rm \
   --env-file .env \
-  -v "$(pwd)/examples/6_notifier_with_aggregation_policy:/app/configs:ro" \
+  -v "$(pwd)/examples/6_action_with_aggregation_policy:/app/configs:ro" \
   -v "$(pwd)/abis:/app/abis:ro" \
   ghcr.io/isserge/argus-rs:latest \
   dry-run --from 23289380 --to 23289383 --config-dir /app/configs
@@ -96,7 +96,7 @@ Replace `23289380` and `23289383` with any Ethereum block numbers to test agains
 
 #### Expected Output
 
-As blocks within the specified range are processed, you should see notifications printed directly to the console with aggregated values. The stdout notifier will display the aggregated notification when the time window expires.
+As blocks within the specified range are processed, you should see notifications printed directly to the console with aggregated values. The stdout action will display the aggregated notification when the time window expires.
 
 Once processing is complete, you should see a summary report like this:
 
@@ -122,25 +122,25 @@ Note that with the aggregation policy, even though 4 matches were found, only 1 
 
 ### How to Run (Default Mode)
 
-Once you have verified your monitor works against historical data in `dry-run` mode, you can start it in default (live monitoring) mode. In this mode, the monitor will continuously poll for new blocks and dispatch actual notifications via the configured notifier when a match is found.
+Once you have verified your monitor works against historical data in `dry-run` mode, you can start it in default (live monitoring) mode. In this mode, the monitor will continuously poll for new blocks and dispatch actual notifications via the configured action when a match is found.
 
 ```bash
-cargo run --release -- run --config-dir examples/6_notifier_with_aggregation_policy/
+cargo run --release -- run --config-dir examples/6_action_with_aggregation_policy/
 ```
 
 Using Docker image from GHCR:
 
 ```bash
 # First, create a data directory for this example
-mkdir -p examples/6_notifier_with_aggregation_policy/data
+mkdir -p examples/6_action_with_aggregation_policy/data
 
 # Run the container in detached mode
 docker run --rm -d \
   --name argus_example_6 \
   --env-file .env \
-  -v "$(pwd)/examples/6_notifier_with_aggregation_policy:/app/configs:ro" \
+  -v "$(pwd)/examples/6_action_with_aggregation_policy:/app/configs:ro" \
   -v "$(pwd)/abis:/app/abis:ro" \
-  -v "$(pwd)/examples/6_notifier_with_aggregation_policy/data:/app/data" \
+  -v "$(pwd)/examples/6_action_with_aggregation_policy/data:/app/data" \
   ghcr.io/isserge/argus-rs:latest \
   run --config-dir /app/configs
 ```

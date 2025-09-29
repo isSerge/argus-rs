@@ -1,10 +1,10 @@
-# This example uses the stdout notifier for console output, perfect for testing and development.
-# For production use, you can configure other notifiers like Slack, Discord, Telegram, or webhooks.
-# See the documentation for all available notifier types:
-# https://github.com/isSerge/argus-rs/blob/main/docs/src/user_guide/notifiers_yaml.md
+# This example uses the stdout action for console output, perfect for testing and development.
+# For production use, you can configure other actions like Slack, Discord, Telegram, or webhooks.
+# See the documentation for all available action types:
+# https://github.com/isSerge/argus-rs/blob/main/docs/src/user_guide/actions_yaml.md
 
-notifiers:
-  - name: "stdout-notifier"
+actions:
+  - name: "stdout-action"
     stdout:
       # Message is optional for stdout. If omitted, the full event JSON payload is printed.
       message:

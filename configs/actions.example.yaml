@@ -1,6 +1,6 @@
-# This is an example configuration file for defining notifiers.
-# Notifiers define what happens when a monitor's filter script returns true.
-# You can copy this file to `notifiers.yaml` and update `config.yaml` to point to it.
+# This is an example configuration file for defining actions.
+# actions define what happens when a monitor's filter script returns true.
+# You can copy this file to `actions.yaml` and update `config.yaml` to point to it.
 
 # ------------------------------------------------------------------------------------
 # TEMPLATING CONTEXT
@@ -10,7 +10,7 @@
 #
 # - `monitor_id`: The unique ID of the monitor that triggered the match (integer).
 # - `monitor_name`: The human-readable name of the monitor (string).
-# - `notifier_name`: The name of the notifier handling this match (string).
+# - `action_name`: The name of the action handling this match (string).
 # - `block_number`: The block number where the match occurred (integer).
 # - `transaction_hash`: The hash of the transaction associated with the match (string).
 #
@@ -44,7 +44,7 @@
 #     - `log.params.value`: (Example) The 'value' from a Transfer event (string).
 #     - ... any other decoded event parameters.
 # ------------------------------------------------------------------------------------
-notifiers:
+actions:
   # ------------------------------------------------------------------------------------
   # EXAMPLE 1: Generic Webhook
   #
@@ -71,7 +71,7 @@ notifiers:
       message:
         title: "New Transaction Alert: {{ monitor_name }}"
         # The body can use any data from the monitor match:
-        # monitor_id, block_number, transaction_hash, address, notifier_name,
+        # monitor_id, block_number, transaction_hash, address, action_name,
         # log_index, log_name, log_params (for log matches),
         body: |
           A new match was detected for monitor {{ monitor_name }}.
@@ -169,7 +169,7 @@ notifiers:
         backoff_factor: 2.0
 
   # ------------------------------------------------------------------------------------
-  # EXAMPLE 6: Notifier with a Throttling Policy
+  # EXAMPLE 6: Action with a Throttling Policy
   #
   # This example demonstrates how to limit the rate of notifications using a
   # throttling policy. This is useful for high-frequency events where you
@@ -181,7 +181,7 @@ notifiers:
       message:
         title: "High-Frequency Event"
         body: "Monitor {{ monitor_name }} triggered for tx: `{{ transaction_hash }}`"
-    # (Optional) Policy to apply to the notifier.
+    # (Optional) Policy to apply to the  action.
     policy:
       # The `throttle` policy limits the number of notifications sent within a
       # specified time window.
@@ -193,7 +193,7 @@ notifiers:
         time_window_secs: 60
 
   # ------------------------------------------------------------------------------------
-  # EXAMPLE 7: Notifier with an Aggregation Policy
+  # EXAMPLE 7: Action with an Aggregation Policy
   #
   # This example shows how to group multiple matches into a single summary
   # notification using an aggregation policy. This is ideal for summarizing

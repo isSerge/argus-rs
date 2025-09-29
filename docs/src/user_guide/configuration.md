@@ -8,11 +8,11 @@ The configuration is split into three key files:
 
 2.  **`monitors.yaml`**: This is where you define *what* you want to monitor on the blockchain. Each monitor specifies a network, an optional contract address, and a Rhai filter script that determines if a transaction or log is a match.
 
-3.  **`notifiers.yaml`**: This file defines *how* you want to be notified when a monitor finds a match. You can configure various notification channels (e.g., webhooks) and set policies like throttling.
+3.  **`actions.yaml`**: This file defines *how* you want to further submit data when a monitor finds a match. You can configure various notification channels (e.g., webhooks) and set policies like throttling or send data to a queue (Kafka, NATS, etc.).
 
 Select a topic below for a detailed breakdown of each file and its parameters.
 
 -   [**`app.yaml` Configuration (`app_yaml.md`)**](./app_yaml.md)
 -   [**Monitors Configuration (`monitors_yaml.md`)**](./monitors_yaml.md)
--   [**Notifiers Configuration (`notifiers_yaml.md`)**](./notifiers_yaml.md)
+-   [**Actions Configuration (`actions_yaml.md`)**](./actions_yaml.md)
 -   [**ABI Management (`config_abis.md`)**](./config_abis.md)

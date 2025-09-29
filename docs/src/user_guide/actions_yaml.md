@@ -1,23 +1,23 @@
-# `notifiers.yaml` Configuration
+# `actions.yaml` Configuration
 
-The `notifiers.yaml` file defines *how* and *where* you receive alerts when a monitor's conditions are met. You can configure multiple notifiers for different services and purposes.
+The `actions.yaml` file defines *how* and *where* you receive alerts when a monitor's conditions are met. You can configure multiple actions for different services and purposes.
 
-Each notifier has a unique `name`, a `type` (e.g., `webhook`, `slack`), and a set of configuration options specific to that type.
+Each action has a unique `name`, a `type` (e.g., `webhook`, `slack`), and a set of configuration options specific to that type.
 
 > ### **IMPORTANT: Managing Secrets**
 >
-> Notifier configurations, especially for services like Slack, Discord, or Telegram, often require secret URLs or API tokens.
+> Action configurations, especially for services like Slack, Discord, or Telegram, often require secret URLs or API tokens.
 >
 > **Never commit secrets to version control.**
 >
-> This project is set up to help you. The `configs/notifiers.yaml` file is already listed in the project's `.gitignore` file. This is a deliberate security measure to prevent you from accidentally committing sensitive information. When you copy `notifiers.example.yaml` to `notifiers.yaml`, your file with secrets will be ignored by Git automatically.
+> This project is set up to help you. The `configs/actions.yaml` file is already listed in the project's `.gitignore` file. This is a deliberate security measure to prevent you from accidentally committing sensitive information. When you copy `actions.example.yaml` to `actions.yaml`, your file with secrets will be ignored by Git automatically.
 
-## Common Notifier Structure
+## Common Action Structure
 
 ```yaml
-notifiers:
-  - name: "unique-notifier-name"
-    # Notifier type and its specific configuration
+actions:
+  - name: "unique-action-name"
+    # Action type and its specific configuration
     webhook:
       url: "..."
       # ...
@@ -28,11 +28,11 @@ notifiers:
 
 ---
 
-## Notifier Types
+## Action Types
 
 ### Webhook
 
-The `webhook` notifier sends a generic HTTP POST request to a specified URL. This is the most flexible notifier and can be used to integrate with a wide variety of services.
+The `webhook` action sends a generic HTTP POST request to a specified URL. This is the most flexible action and can be used to integrate with a wide variety of services.
 
 ```yaml
 - name: "my-generic-webhook"
@@ -172,4 +172,4 @@ In this example:
 
 ## Templating
 
-Notifier messages support [Jinja2](https://jinja.palletsprojects.com/) templating, allowing for dynamic content based on the detected blockchain events. For a comprehensive guide on available data, conversion filters, and examples, refer to the [Notifier Templating documentation](./notifier_templating.md).
+Action messages support [Jinja2](https://jinja.palletsprojects.com/) templating, allowing for dynamic content based on the detected blockchain events. For a comprehensive guide on available data, conversion filters, and examples, refer to the [Action Templating documentation](./action_templating.md).

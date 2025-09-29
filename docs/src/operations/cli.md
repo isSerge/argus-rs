@@ -47,8 +47,8 @@ The `dry-run` command is an essential tool for testing and validating your monit
 2.  **In-Memory Database**: It uses a temporary, in-memory SQLite database for state management, ensuring that no persistent changes are made to your actual database.
 3.  **Block Processing**: It fetches and processes blocks in batches (defaulting to 50 blocks per batch) within the specified `--from` and `--to` range.
 4.  **Script Evaluation**: For each transaction and log in the processed blocks, it evaluates your monitor's `filter_script`.
-5.  **Real Notifications (Test Mode)**: Any matches found will trigger *real* notifications to your configured notifiers. During development, it's highly recommended to configure your notifiers to point to test endpoints (e.g., [Webhook.site](https://webhook.site/)) to avoid sending unwanted alerts.
-6.  **Summary Report**: After processing the entire block range, the command prints a human-readable summary report of all detected matches to standard output. This provides a clear overview of the results, including total blocks processed, total matches, and breakdowns by monitor and notifier.
+5.  **Real Notifications (Test Mode)**: Any matches found will trigger *real* notifications to your configured actions. During development, it's highly recommended to configure your actions to point to test endpoints (e.g., [Webhook.site](https://webhook.site/)) to avoid sending unwanted alerts.
+6.  **Summary Report**: After processing the entire block range, the command prints a human-readable summary report of all detected matches to standard output. This provides a clear overview of the results, including total blocks processed, total matches, and breakdowns by monitor and action.
 
 **Usage:**
 

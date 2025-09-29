@@ -21,9 +21,9 @@ use crate::{
     loader::{LoaderError, load_config},
     models::{
         BlockData,
+        action::{ActionConfig, ActionError},
         monitor::MonitorConfig,
         monitor_match::MonitorMatch,
-        notifier::{NotifierConfig, NotifierError},
     },
     monitor::{MonitorManager, MonitorValidationError, MonitorValidator},
     notification::NotificationService,
@@ -45,9 +45,9 @@ pub enum DryRunError {
     #[error("Monitor loading error: {0}")]
     MonitorLoading(#[from] LoaderError),
 
-    /// An error occurred while loading notifier definitions.
-    #[error("Notifier loading error: {0}")]
-    NotifierLoading(#[from] NotifierError),
+    /// An error occurred while loading action definitions.
+    #[error("Action loading error: {0}")]
+    ActionLoading(#[from] ActionError),
 
     /// A monitor failed validation against the defined rules.
     #[error("Monitor validation error: {0}")]
@@ -109,7 +109,7 @@ pub enum DryRunError {
 /// matches to standard output.
 #[derive(Parser, Debug)]
 pub struct DryRunArgs {
-    /// Path to configuration directory containing app, monitor and notifier
+    /// Path to configuration directory containing app, monitor and action
     /// configs
     #[arg(short, long)]
     config_dir: Option<String>,
@@ -127,7 +127,7 @@ pub struct DryRunArgs {
 /// 1. Loads the main application configuration.
 /// 2. Initializes all necessary services (data source, block processor,
 ///    filtering engine, etc.).
-/// 3. Loads and validates the monitor and notifier configurations.
+/// 3. Loads and validates the monitor and action configurations.
 /// 4. Calls `run_dry_run_loop` to execute the core processing logic.
 /// 5. Serializes the results to a pretty JSON string and prints to stdout.
 pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
@@ -142,9 +142,9 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let rhai_compiler = Arc::new(RhaiCompiler::new(config.rhai.clone()));
     let script_validator = RhaiScriptValidator::new(rhai_compiler.clone());
 
-    // Load and validate monitor and notifier configurations from files.
+    // Load and validate monitor and action configurations from files.
     let monitors = load_config::<MonitorConfig>(config.monitor_config_path)?;
-    let notifiers = load_config::<NotifierConfig>(config.notifier_config_path)?;
+    let actions = load_config::<ActionConfig>(config.action_config_path)?;
 
     // Init a temporary, in-memory state repository for the dry run.
     let state_repo = Arc::new(SqliteStateRepository::new("sqlite::memory:").await?);
@@ -167,12 +167,8 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
         }
     }
 
-    let monitor_validator = MonitorValidator::new(
-        script_validator,
-        abi_service.clone(),
-        &config.network_id,
-        &notifiers,
-    );
+    let monitor_validator =
+        MonitorValidator::new(script_validator, abi_service.clone(), &config.network_id, &actions);
     for monitor in monitors.iter() {
         tracing::debug!(monitor = %monitor.name, "Validating monitor...");
         monitor_validator.validate(monitor)?;
@@ -199,9 +195,9 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
 
     // Init services for notifications and filtering logic.
     let client_pool = Arc::new(HttpClientPool::new(config.http_base_config.clone()));
-    let notifiers: Arc<HashMap<String, NotifierConfig>> =
-        Arc::new(notifiers.into_iter().map(|t| (t.name.clone(), t)).collect());
-    let notification_service = Arc::new(NotificationService::new(notifiers.clone(), client_pool));
+    let actions: Arc<HashMap<String, ActionConfig>> =
+        Arc::new(actions.into_iter().map(|t| (t.name.clone(), t)).collect());
+    let notification_service = Arc::new(NotificationService::new(actions.clone(), client_pool));
     let filtering_engine = RhaiFilteringEngine::new(
         abi_service.clone(),
         rhai_compiler,
@@ -210,7 +206,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     );
 
     // Init the AlertManager with the in-memory state repository.
-    let alert_manager = Arc::new(AlertManager::new(notification_service, state_repo, notifiers));
+    let alert_manager = Arc::new(AlertManager::new(notification_service, state_repo, actions));
 
     // Execute the core processing loop.
     let matches = run_dry_run_loop(
@@ -392,21 +388,20 @@ mod tests {
         notification::NotificationService,
         persistence::sqlite::SqliteStateRepository,
         providers::traits::MockDataSource,
-        test_helpers::{BlockBuilder, MonitorBuilder, NotifierBuilder, TransactionBuilder},
+        test_helpers::{ActionBuilder, BlockBuilder, MonitorBuilder, TransactionBuilder},
     };
 
     // A helper function to create an AlertManager with a mock state repository.
     async fn create_test_alert_manager(
-        notifiers: Arc<HashMap<String, NotifierConfig>>,
+        actions: Arc<HashMap<String, ActionConfig>>,
     ) -> Arc<AlertManager<SqliteStateRepository>> {
         let state_repo = SqliteStateRepository::new("sqlite::memory:")
             .await
             .expect("Failed to connect to in-memory db");
         state_repo.run_migrations().await.expect("Failed to run migrations");
         let client_pool = Arc::new(HttpClientPool::default());
-        let notification_service =
-            Arc::new(NotificationService::new(notifiers.clone(), client_pool));
-        Arc::new(AlertManager::new(notification_service, Arc::new(state_repo), notifiers))
+        let notification_service = Arc::new(NotificationService::new(actions.clone(), client_pool));
+        Arc::new(AlertManager::new(notification_service, Arc::new(state_repo), actions))
     }
 
     #[tokio::test]
@@ -429,7 +424,7 @@ mod tests {
         // Create a monitor that will match the transaction
         let monitor = MonitorBuilder::new()
             .filter_script(monitor_script)
-            .notifiers(vec!["test-notifier".to_string()])
+            .actions(vec!["test-action".to_string()])
             .build();
 
         // Initialize other services
@@ -450,15 +445,15 @@ mod tests {
             rhai_config,
             monitor_manager.clone(),
         );
-        let notifiers = HashMap::from([(
-            "test-notifier".to_string(),
-            NotifierBuilder::new("test-notifier")
+        let actions = HashMap::from([(
+            "test-action".to_string(),
+            ActionBuilder::new("test-action")
                 .slack_config(
                     "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX",
                 )
                 .build(),
         )]);
-        let alert_manager = create_test_alert_manager(Arc::new(notifiers)).await;
+        let alert_manager = create_test_alert_manager(Arc::new(actions)).await;
 
         // Act
         let result = run_dry_run_loop(
@@ -680,7 +675,7 @@ mod tests {
         // Create a monitor that will match the transaction
         let monitor = MonitorBuilder::new()
             .filter_script(monitor_script)
-            .notifiers(vec!["test-notifier".to_string()])
+            .actions(vec!["test-action".to_string()])
             .build();
 
         // Initialize other services
@@ -701,15 +696,15 @@ mod tests {
             rhai_config,
             monitor_manager.clone(),
         );
-        let notifiers = HashMap::from([(
-            "test-notifier".to_string(),
-            NotifierBuilder::new("test-notifier")
+        let actions = HashMap::from([(
+            "test-action".to_string(),
+            ActionBuilder::new("test-action")
                 .slack_config(
                     "https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX",
                 )
                 .build(),
         )]);
-        let alert_manager = create_test_alert_manager(Arc::new(notifiers)).await;
+        let alert_manager = create_test_alert_manager(Arc::new(actions)).await;
 
         // Act
         let result = run_dry_run_loop(

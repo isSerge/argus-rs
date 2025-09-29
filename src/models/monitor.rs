@@ -30,9 +30,9 @@ pub struct MonitorConfig {
     /// Filter script for the monitor
     pub filter_script: String,
 
-    /// Notifiers for the monitor (optional)
+    /// actions for the monitor (optional)
     #[serde(default)]
-    pub notifiers: Vec<String>,
+    pub actions: Vec<String>,
 }
 
 impl Loadable for MonitorConfig {
@@ -68,8 +68,8 @@ pub struct Monitor {
     /// The filter script used to determine relevant blockchain events
     pub filter_script: String,
 
-    /// The notifiers to execute when the filter script matches
-    pub notifiers: Vec<String>,
+    /// The actions to execute when the filter script matches
+    pub actions: Vec<String>,
 
     /// Timestamp when the monitor was created
     pub created_at: DateTime<Utc>,
@@ -86,9 +86,9 @@ impl MonitorConfig {
         address: Option<String>,
         abi: Option<String>,
         filter_script: String,
-        notifiers: Vec<String>,
+        actions: Vec<String>,
     ) -> Self {
-        Self { name, network, address, abi, filter_script, notifiers }
+        Self { name, network, address, abi, filter_script, actions }
     }
 }
 
@@ -104,14 +104,14 @@ mod tests {
             Some("0x123".to_string()),
             Some("test".to_string()),
             "log.name == \"Test\"".to_string(),
-            vec!["test-notifier".to_string()],
+            vec!["test-action".to_string()],
         );
 
         assert_eq!(monitor.name, "Test Monitor");
         assert_eq!(monitor.network, "ethereum");
         assert_eq!(monitor.address, Some("0x123".to_string()));
         assert_eq!(monitor.filter_script, "log.name == \"Test\"");
-        assert_eq!(monitor.notifiers, vec!["test-notifier".to_string()]);
+        assert_eq!(monitor.actions, vec!["test-action".to_string()]);
     }
 
     #[test]
@@ -129,6 +129,6 @@ mod tests {
         assert_eq!(monitor.network, "ethereum");
         assert_eq!(monitor.address, None);
         assert_eq!(monitor.filter_script, "bigint(tx.value) > bigint(1000)");
-        assert!(monitor.notifiers.is_empty());
+        assert!(monitor.actions.is_empty());
     }
 }

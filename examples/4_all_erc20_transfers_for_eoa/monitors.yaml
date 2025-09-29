@@ -7,5 +7,5 @@ monitors:
       log.name == "Transfer" 
       && log.params.to == "0xE4b8583cCB95b25737C016ac88E539D0605949e8" 
       || log.params.from == "0xE4b8583cCB95b25737C016ac88E539D0605949e8"
-    notifiers:
-      - 'stdout-notifier'
+    actions:
+      - 'stdout-action'

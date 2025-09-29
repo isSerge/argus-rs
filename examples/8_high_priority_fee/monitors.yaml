@@ -6,5 +6,5 @@ monitors:
       let priority_fee_threshold = gwei(150);
 
       tx.max_priority_fee_per_gas > priority_fee_threshold
-    notifiers:
+    actions:
       - "Stdout High Priority Fee"

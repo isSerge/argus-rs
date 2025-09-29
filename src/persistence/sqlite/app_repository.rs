@@ -5,8 +5,8 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 
 use crate::{
     models::{
+        action::ActionConfig,
         monitor::{Monitor, MonitorConfig},
-        notifier::NotifierConfig,
     },
     persistence::{error::PersistenceError, sqlite::SqliteStateRepository, traits::AppRepository},
 };
@@ -163,7 +163,7 @@ impl AppRepository for SqliteStateRepository {
             address: Option<String>,
             abi: Option<String>,
             filter_script: String,
-            notifiers: String,
+            actions: String,
             created_at: NaiveDateTime,
             updated_at: NaiveDateTime,
         }
@@ -180,7 +180,7 @@ impl AppRepository for SqliteStateRepository {
                     address, 
                     abi, 
                     filter_script, 
-                    notifiers,
+                    actions,
                     created_at as "created_at!", 
                     updated_at as "updated_at!"
                 FROM monitors 
@@ -196,7 +196,7 @@ impl AppRepository for SqliteStateRepository {
         let monitors = monitor_rows
             .into_iter()
             .map(|row| {
-                let notifiers: Vec<String> = serde_json::from_str(&row.notifiers)
+                let actions: Vec<String> = serde_json::from_str(&row.actions)
                     .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
 
                 let created_at = DateTime::<Utc>::from_naive_utc_and_offset(row.created_at, Utc);
@@ -209,7 +209,7 @@ impl AppRepository for SqliteStateRepository {
                     address: row.address,
                     abi: row.abi,
                     filter_script: row.filter_script,
-                    notifiers,
+                    actions,
                     created_at,
                     updated_at,
                 })
@@ -258,18 +258,18 @@ impl AppRepository for SqliteStateRepository {
             .map_err(|e| PersistenceError::OperationFailed(e.to_string()))?;
 
         for monitor in monitors {
-            let notifiers_str = serde_json::to_string(&monitor.notifiers)
+            let actions_str = serde_json::to_string(&monitor.actions)
                 .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
 
             sqlx::query!(
-                "INSERT INTO monitors (name, network, address, abi, filter_script, notifiers) \
+                "INSERT INTO monitors (name, network, address, abi, filter_script, actions) \
                  VALUES (?, ?, ?, ?, ?, ?)",
                 monitor.name,
                 monitor.network,
                 monitor.address,
                 monitor.abi,
                 monitor.filter_script,
-                notifiers_str,
+                actions_str,
             )
             .execute(&mut *tx)
             .await
@@ -300,61 +300,58 @@ impl AppRepository for SqliteStateRepository {
         Ok(())
     }
 
-    // Notifier management operations
+    // Action management operations
 
-    /// Retrieves all notifiers for a specific network.
+    /// Retrieves all actions for a specific network.
     #[tracing::instrument(skip(self), level = "debug")]
-    async fn get_notifiers(
-        &self,
-        network_id: &str,
-    ) -> Result<Vec<NotifierConfig>, PersistenceError> {
-        tracing::debug!(network_id, "Querying for notifiers.");
+    async fn get_actions(&self, network_id: &str) -> Result<Vec<ActionConfig>, PersistenceError> {
+        tracing::debug!(network_id, "Querying for actions.");
 
         // Helper struct for mapping from the database row
         #[derive(sqlx::FromRow)]
-        struct NotifierRow {
+        struct ActionRow {
             config: String,
         }
 
-        let notifier_rows = self
+        let action_rows = self
             .execute_query_with_error_handling(
-                "query notifiers",
+                "query actions",
                 sqlx::query_as!(
-                    NotifierRow,
-                    "SELECT config FROM notifiers WHERE network_id = ?",
+                    ActionRow,
+                    "SELECT config FROM actions WHERE network_id = ?",
                     network_id
                 )
                 .fetch_all(&self.pool),
             )
             .await?;
 
-        let notifiers = notifier_rows
+        let actions = action_rows
             .into_iter()
             .map(|row| {
                 serde_json::from_str(&row.config)
                     .map_err(|e| PersistenceError::SerializationError(e.to_string()))
             })
-            .collect::<Result<Vec<NotifierConfig>, PersistenceError>>()?;
+            .collect::<Result<Vec<ActionConfig>, PersistenceError>>()?;
 
         tracing::debug!(
             network_id,
-            notifier_count = notifiers.len(),
-            "Notifiers retrieved successfully."
+            action_count = actions.len(),
+            "actions retrieved successfully."
         );
-        Ok(notifiers)
+        Ok(actions)
     }
 
-    /// Adds multiple notifiers for a specific network.
-    #[tracing::instrument(skip(self, notifiers), level = "debug")]
-    async fn add_notifiers(
+    /// Adds multiple actions for a specific network.
+    #[tracing::instrument(skip(self, actions), level = "debug")]
+    async fn add_actions(
         &self,
         network_id: &str,
-        notifiers: Vec<NotifierConfig>,
+        actions: Vec<ActionConfig>,
     ) -> Result<(), PersistenceError> {
-        tracing::debug!(network_id, notifier_count = notifiers.len(), "Adding notifiers.");
+        tracing::debug!(network_id, action_count = actions.len(), "Adding actions.");
 
-        // Note: We are not validating network_id here because notifiers are
-        // network-agnostic. A single notifier (e.g., a webhook) can be used by
+        // Note: We are not validating network_id here because actions are
+        // network-agnostic. A single action (e.g., a webhook) can be used by
         // monitors on any network. The `network_id` in the database table is
         // for organizational purposes.
 
@@ -364,13 +361,13 @@ impl AppRepository for SqliteStateRepository {
             .await
             .map_err(|e| PersistenceError::OperationFailed(e.to_string()))?;
 
-        for notifier in notifiers {
-            let config = serde_json::to_string(&notifier)
+        for action in actions {
+            let config = serde_json::to_string(&action)
                 .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
 
             sqlx::query!(
-                "INSERT INTO notifiers (name, network_id, config) VALUES (?, ?, ?)",
-                notifier.name,
+                "INSERT INTO actions (name, network_id, config) VALUES (?, ?, ?)",
+                action.name,
                 network_id,
                 config
             )
@@ -381,25 +378,25 @@ impl AppRepository for SqliteStateRepository {
 
         tx.commit().await.map_err(|e| PersistenceError::OperationFailed(e.to_string()))?;
 
-        tracing::info!(network_id, "Notifiers added successfully.");
+        tracing::info!(network_id, "actions added successfully.");
         Ok(())
     }
 
-    /// Clears all notifiers for a specific network.
+    /// Clears all actions for a specific network.
     #[tracing::instrument(skip(self), level = "debug")]
-    async fn clear_notifiers(&self, network_id: &str) -> Result<(), PersistenceError> {
-        tracing::debug!(network_id, "Clearing notifiers.");
+    async fn clear_actions(&self, network_id: &str) -> Result<(), PersistenceError> {
+        tracing::debug!(network_id, "Clearing actions.");
 
         let result = self
             .execute_query_with_error_handling(
-                "clear notifiers",
-                sqlx::query!("DELETE FROM notifiers WHERE network_id = ?", network_id)
+                "clear actions",
+                sqlx::query!("DELETE FROM actions WHERE network_id = ?", network_id)
                     .execute(&self.pool),
             )
             .await?;
 
         let deleted_count = result.rows_affected();
-        tracing::info!(network_id, deleted_count, "Notifiers cleared successfully.");
+        tracing::info!(network_id, deleted_count, "actions cleared successfully.");
         Ok(())
     }
 }

@@ -10,7 +10,7 @@ The source for all examples can be found in the [`/examples` directory of the re
 
 Monitors for native ETH transfers greater than a specific value. A great starting point for understanding transaction-based filtering.
 
-**Features Demonstrated:** `tx.value`, `ether()` helper, basic notifier.
+**Features Demonstrated:** `tx.value`, `ether()` helper, basic action.
 
 ---
 
@@ -38,17 +38,17 @@ Demonstrates a powerful global log monitor (`address: 'all'`) to catch all `Tran
 
 ---
 
-### [5. Notifier with Throttling Policy](https://github.com/isSerge/argus-rs/tree/main/examples/5_notifier_with_throttle_policy/README.md)
+### [5. Action with Throttling Policy](https://github.com/isSerge/argus-rs/tree/main/examples/5_action_with_throttle_policy/README.md)
 
-Shows how to configure a notifier with a `throttle` policy to limit the rate of notifications and prevent alert fatigue.
+Shows how to configure a action with a `throttle` policy to limit the rate of notifications and prevent alert fatigue.
 
-**Features Demonstrated:** Notifier policies.
+**Features Demonstrated:** Action policies.
 
 ---
 
-### [6. Notifier with Aggregation Policy](https://github.com/isSerge/argus-rs/tree/main/examples/6_notifier_with_aggregation_policy/README.md)
+### [6. Action with Aggregation Policy](https://github.com/isSerge/argus-rs/tree/main/examples/6_action_with_aggregation_policy/README.md)
 
-Demonstrates how to use `aggregation` policy for notifiers as well as `sum` and `avg` filters in templates to aggregate values from multiple monitor matches.
+Demonstrates how to use `aggregation` policy for actions as well as `sum` and `avg` filters in templates to aggregate values from multiple monitor matches.
 
 **Features Demonstrated:** Aggregation policy, `map`, `sum`, `avg` filters.
 

@@ -3,5 +3,5 @@ monitors:
     network: "ethereum"
     filter_script: |
       tx.value > ether(1)
-    notifiers:
-      - "Throttled Stdout Notifier"
+    actions:
+      - "Throttled Stdout Action"

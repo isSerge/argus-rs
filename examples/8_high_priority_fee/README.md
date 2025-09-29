@@ -1,21 +1,21 @@
 # 8. High Priority Fee
 
-This example demonstrates how to monitor for transactions with unusually high priority fees, which can be an indicator of MEV (Maximal Extractable Value) activity, front-running, or other urgent on-chain actions. It uses the `stdout` notifier for simple console output.
+This example demonstrates how to monitor for transactions with unusually high priority fees, which can be an indicator of MEV (Maximal Extractable Value) activity, front-running, or other urgent on-chain actions. It uses the `stdout` action for simple console output.
 
 ### Configuration Files
 
 - [`app.yaml`](../../docs/src/user_guide/config_app.md): Basic application configuration, pointing to public RPC endpoints.
 - [`monitors.yaml`](../../docs/src/user_guide/config_monitors.md): Defines the "High Priority Fee Alert" monitor.
-- [`notifiers.yaml`](../../docs/src/user_guide/config_notifiers.md): Defines the stdout notifier for console output.
+- [`actions.yaml`](../../docs/src/user_guide/config_actions.md): Defines the stdout action for console output.
 
-### Notifier Options
+### Action Options
 
-This example uses the stdout notifier which prints notifications directly to the console. This is ideal for:
+This example uses the stdout action which prints notifications directly to the console. This is ideal for:
 - Local development and testing
 - Debugging monitor configurations and MEV detection
 - Dry-run scenarios
 
-For production use, you can configure other notifiers like Slack, Discord, Telegram, or webhooks. See the [Notifier Configuration documentation](../../docs/src/user_guide/notifiers_yaml.md) for all available options.
+For production use, you can configure other actions like Slack, Discord, Telegram, or webhooks. See the [Action Configuration documentation](../../docs/src/user_guide/actions_yaml.md) for all available options.
 
 ### Monitor Configuration
 
@@ -30,8 +30,8 @@ monitors:
       let priority_fee_threshold = gwei(150);
 
       tx.max_priority_fee_per_gas > priority_fee_threshold
-    notifiers:
-      - "Telegram MEV"
+    actions:
+      - "Stdout High Priority Fee"
 ```
 
 - **`filter_script`**: This [Rhai script](../../docs/src/user_guide/rhai_scripts.md) accesses the EIP-1559 fee data from the `tx` object.
@@ -95,7 +95,7 @@ Notifications Dispatched
 
 ### How to Run (Default Mode)
 
-Once you have verified your monitor works against historical data in `dry-run` mode, you can start it in default (live monitoring) mode. In this mode, the monitor will continuously poll for new blocks and dispatch actual notifications via the configured notifier when a match is found.
+Once you have verified your monitor works against historical data in `dry-run` mode, you can start it in default (live monitoring) mode. In this mode, the monitor will continuously poll for new blocks and dispatch actual notifications via the configured action when a match is found.
 
 ```bash
 cargo run --release -- run --config-dir examples/8_high_priority_fee/
