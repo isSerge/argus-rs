@@ -34,17 +34,22 @@ impl EventPublisher for KafkaEventPublisher {
     }
 }
 
-/// Creates a new `KafkaEventPublisher` from the given `KafkaConfig`.
-pub async fn create_kafka_publisher(
-    config: &KafkaConfig,
-) -> Result<KafkaEventPublisher, PublisherError> {
-    let mut client_config = ClientConfig::new();
+impl KafkaEventPublisher {
+    /// Creates a new `KafkaEventPublisher` from the given `FutureProducer`.
+    pub fn new(producer: FutureProducer) -> Self {
+        Self { producer }
+    }
 
-    client_config.set("bootstrap.servers", &config.brokers);
-    // TODO: set additional config options from KafkaConfig
+    /// Creates a new `KafkaEventPublisher` from the given `KafkaConfig`.
+    pub fn from_config(config: &KafkaConfig) -> Result<Self, PublisherError> {
+        let mut client_config = ClientConfig::new();
 
-    let producer =
-        client_config.create::<FutureProducer>().map_err(|e| PublisherError::KafkaError(e))?;
+        client_config.set("bootstrap.servers", &config.brokers);
+        // TODO: set additional config options from KafkaConfig
 
-    Ok(KafkaEventPublisher { producer })
+        let producer =
+            client_config.create::<FutureProducer>().map_err(|e| PublisherError::KafkaError(e))?;
+
+        Ok(Self::new(producer))
+    }
 }

@@ -27,7 +27,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::{
     actions::{
-        publisher::{PublisherAction, create_kafka_publisher},
+        publisher::{PublisherAction, KafkaEventPublisher},
         stdout::StdoutAction,
         traits::Action,
         webhook::WebhookAction,
@@ -98,7 +98,7 @@ impl ActionDispatcher {
             let action: Box<dyn Action> = match &config.config {
                 // Kafka publisher action
                 ActionTypeConfig::Kafka(c) => {
-                    let publisher = match create_kafka_publisher(&c).await {
+                    let publisher = match KafkaEventPublisher::from_config(&c) {
                         Err(e) => {
                             tracing::error!(
                                 "Failed to create Kafka publisher for action '{}': {}",
