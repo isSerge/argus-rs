@@ -45,9 +45,36 @@ impl KafkaEventPublisher {
     pub fn from_config(config: &KafkaConfig) -> Result<Self, PublisherError> {
         let mut client_config = ClientConfig::new();
 
+        // Set list of brokers
         client_config.set("bootstrap.servers", &config.brokers);
-        // TODO: set additional config options from KafkaConfig
 
+        // Set security protocol settings
+        client_config.set("security.protocol", &config.security.protocol);
+
+        if config.security.protocol.starts_with("SASL") {
+            if let Some(mechanism) = &config.security.sasl_mechanism {
+                client_config.set("sasl.mechanism", mechanism);
+            }
+            if let Some(username) = &config.security.sasl_username {
+                client_config.set("sasl.username", username);
+            }
+            if let Some(password) = &config.security.sasl_password {
+                client_config.set("sasl.password", password);
+            }
+        }
+
+        if config.security.protocol.ends_with("SSL") {
+            if let Some(ca_location) = &config.security.ssl_ca_location {
+                client_config.set("ssl.ca.location", ca_location);
+            }
+        }
+
+        // Set producer-specific settings
+        client_config.set("acks", &config.producer.acks);
+        client_config.set("message.timeout.ms", &config.producer.message_timeout_ms.to_string());
+        client_config.set("compression.codec", &config.producer.compression_codec);
+
+        // Create the FutureProducer
         let producer =
             client_config.create::<FutureProducer>().map_err(|e| PublisherError::KafkaError(e))?;
 
@@ -67,8 +94,11 @@ mod tests {
 
     #[test]
     fn test_kafka_event_publisher_creation() {
-        let config =
-            KafkaConfig { brokers: "localhost:9092".to_string(), topic: "test-topic".to_string() };
+        let config = KafkaConfig {
+            brokers: "localhost:9092".to_string(),
+            topic: "test-topic".to_string(),
+            ..Default::default()
+        };
 
         let publisher = KafkaEventPublisher::from_config(&config);
         assert!(publisher.is_ok());
@@ -90,8 +120,11 @@ mod tests {
 
         consumer.subscribe(&[topic]).expect("Failed to subscribe to topic");
 
-        let config =
-            KafkaConfig { brokers: mock_cluster.bootstrap_servers(), topic: topic.to_string() };
+        let config = KafkaConfig {
+            brokers: mock_cluster.bootstrap_servers(),
+            topic: topic.to_string(),
+            ..Default::default()
+        };
 
         let publisher =
             KafkaEventPublisher::from_config(&config).expect("Failed to create publisher");
@@ -124,8 +157,11 @@ mod tests {
 
         consumer.subscribe(&[topic]).expect("Failed to subscribe to topic");
 
-        let config =
-            KafkaConfig { brokers: mock_cluster.bootstrap_servers(), topic: topic.to_string() };
+        let config = KafkaConfig {
+            brokers: mock_cluster.bootstrap_servers(),
+            topic: topic.to_string(),
+            ..Default::default()
+        };
 
         let publisher =
             KafkaEventPublisher::from_config(&config).expect("Failed to create publisher");
