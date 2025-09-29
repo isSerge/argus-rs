@@ -16,7 +16,7 @@ use reqwest_middleware::ClientWithMiddleware;
 use sha2::Sha256;
 use url::Url;
 
-use super::error::ActionDispatcherError;
+use crate::actions::error::ActionDispatcherError;
 
 /// HMAC SHA256 type alias
 type HmacSha256 = Hmac<Sha256>;
