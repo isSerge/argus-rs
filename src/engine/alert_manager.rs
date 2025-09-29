@@ -7,7 +7,7 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 
 use crate::{
-    actions::{ActionDispatcher, ActionPayload, error::NotificationError},
+    actions::{ActionDispatcher, ActionPayload, error::ActionDispatcherError},
     models::{
         action::{ActionConfig, ActionPolicy},
         alert_manager_state::{AggregationState, ThrottleState},
@@ -42,7 +42,7 @@ pub struct AlertManager<T: KeyValueStore> {
 pub enum AlertManagerError {
     /// Error occurred in the notification service
     #[error("Notification error: {0}")]
-    NotificationError(#[from] NotificationError),
+    ActionDispatcherError(#[from] ActionDispatcherError),
 
     /// Error occurred in the state repository
     #[error("State repository error: {0}")]
@@ -78,9 +78,12 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
                     action = %monitor_match.action_name,
                     "Action configuration not found for monitor match."
                 );
-                return Err(AlertManagerError::NotificationError(NotificationError::ConfigError(
-                    format!("Action '{}' not found", monitor_match.action_name),
-                )));
+                return Err(AlertManagerError::ActionDispatcherError(
+                    ActionDispatcherError::ConfigError(format!(
+                        "Action '{}' not found",
+                        monitor_match.action_name
+                    )),
+                ));
             }
         };
 
@@ -425,7 +428,7 @@ mod tests {
         // Assert
         assert!(matches!(
             result,
-            Err(AlertManagerError::NotificationError(NotificationError::ConfigError(_)))
+            Err(AlertManagerError::ActionDispatcherError(ActionDispatcherError::ConfigError(_)))
         ));
     }
 

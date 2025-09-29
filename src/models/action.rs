@@ -213,7 +213,7 @@ pub struct ThrottlePolicy {
 
 /// Errors that can occur during Action processing.
 #[derive(Debug, Error)]
-pub enum ActionError {
+pub enum ActionConfigError {
     /// An error occurred during the loading process.
     #[error("Failed to load Action configuration.")]
     Loader(#[from] LoaderError),
@@ -224,12 +224,12 @@ pub enum ActionError {
 }
 
 impl Loadable for ActionConfig {
-    type Error = ActionError;
+    type Error = ActionConfigError;
 
     const KEY: &'static str = "actions";
 
     fn validate(&mut self) -> Result<(), Self::Error> {
-        self.config.validate().map_err(ActionError::Validation)
+        self.config.validate().map_err(ActionConfigError::Validation)
     }
 }
 

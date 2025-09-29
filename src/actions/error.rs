@@ -6,7 +6,7 @@ use crate::{actions::template::TemplateServiceError, http_client::HttpClientPool
 
 /// Defines the possible errors that can occur within the notification service.
 #[derive(Debug, Error)]
-pub enum NotificationError {
+pub enum ActionDispatcherError {
     /// An error related to invalid or missing configuration.
     #[error("Configuration error: {0}")]
     ConfigError(String),

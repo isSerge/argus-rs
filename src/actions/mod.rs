@@ -44,7 +44,7 @@ pub mod template;
 mod traits;
 mod webhook;
 
-use error::NotificationError;
+use error::ActionDispatcherError;
 use payload_builder::{
     DiscordPayloadBuilder, GenericWebhookPayloadBuilder, SlackPayloadBuilder,
     TelegramPayloadBuilder, WebhookPayloadBuilder,
@@ -164,14 +164,14 @@ impl From<&SlackConfig> for WebhookComponents {
 impl ActionTypeConfig {
     /// Transforms the specific action configuration into a generic set of
     /// webhook components.
-    fn as_webhook_components(&self) -> Result<WebhookComponents, NotificationError> {
+    fn as_webhook_components(&self) -> Result<WebhookComponents, ActionDispatcherError> {
         Ok(match self {
             ActionTypeConfig::Webhook(c) => c.into(),
             ActionTypeConfig::Discord(c) => c.into(),
             ActionTypeConfig::Telegram(c) => c.into(),
             ActionTypeConfig::Slack(c) => c.into(),
             ActionTypeConfig::Stdout(_) =>
-                return Err(NotificationError::ConfigError(
+                return Err(ActionDispatcherError::ConfigError(
                     "Stdout action does not support webhook components".to_string(),
                 )),
         })
@@ -217,14 +217,14 @@ impl ActionDispatcher {
     ///
     /// # Returns
     ///
-    /// * `Result<(), NotificationError>` - Returns `Ok(())` on success, or a
-    ///   `NotificationError` if the action is not found, the HTTP client fails,
-    ///   or the notification fails to send.
-    pub async fn execute(&self, payload: ActionPayload) -> Result<(), NotificationError> {
+    /// * `Result<(), ActionDispatcherError>` - Returns `Ok(())` on success, or
+    ///   a `ActionDispatcherError` if the action is not found, the HTTP client
+    ///   fails, or the notification fails to send.
+    pub async fn execute(&self, payload: ActionPayload) -> Result<(), ActionDispatcherError> {
         let (action_name, context, custom_template) = match payload {
             ActionPayload::Single(monitor_match) => {
                 let context = serde_json::to_value(&monitor_match).map_err(|e| {
-                    NotificationError::InternalError(format!(
+                    ActionDispatcherError::InternalError(format!(
                         "Failed to serialize monitor match: {e}"
                     ))
                 })?;
@@ -244,7 +244,7 @@ impl ActionDispatcher {
 
         let action_config = self.actions.get(&action_name).ok_or_else(|| {
             tracing::warn!(action = %action_name, "Action configuration not found.");
-            NotificationError::ConfigError(format!("Action '{action_name}' not found"))
+            ActionDispatcherError::ConfigError(format!("Action '{action_name}' not found"))
         })?;
         tracing::debug!(action = %action_name, "Found action configuration.");
 
@@ -270,7 +270,7 @@ impl ActionDispatcher {
         action_config: &ActionConfig,
         context: &serde_json::Value,
         custom_template: Option<NotificationMessage>,
-    ) -> Result<(), NotificationError> {
+    ) -> Result<(), ActionDispatcherError> {
         let action_name = &action_config.name;
         // Use the AsWebhookComponents trait to get config, retry policy and payload
         // builder
@@ -311,7 +311,7 @@ impl ActionDispatcher {
         &self,
         stdout_config: &StdoutConfig,
         context: &serde_json::Value,
-    ) -> Result<(), NotificationError> {
+    ) -> Result<(), ActionDispatcherError> {
         if let Some(message) = &stdout_config.message {
             let rendered_title = self.template_service.render(&message.title, context.clone())?;
             let rendered_body = self.template_service.render(&message.body, context.clone())?;
@@ -383,7 +383,7 @@ mod tests {
 
         assert!(result.is_err());
         match result {
-            Err(NotificationError::ConfigError(msg)) => {
+            Err(ActionDispatcherError::ConfigError(msg)) => {
                 assert!(msg.contains("Action 'nonexistent' not found"));
             }
             _ => panic!("Expected ConfigError"),
@@ -516,7 +516,7 @@ mod tests {
 
         assert!(result.is_err());
         match result {
-            Err(NotificationError::ConfigError(msg)) => {
+            Err(ActionDispatcherError::ConfigError(msg)) => {
                 assert!(msg.contains("Stdout action does not support webhook components"));
             }
             _ => panic!("Expected ConfigError"),

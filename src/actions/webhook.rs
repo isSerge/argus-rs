@@ -16,7 +16,7 @@ use reqwest_middleware::ClientWithMiddleware;
 use sha2::Sha256;
 use url::Url;
 
-use super::error::NotificationError;
+use super::error::ActionDispatcherError;
 
 /// HMAC SHA256 type alias
 type HmacSha256 = Hmac<Sha256>;
@@ -58,11 +58,12 @@ impl WebhookAction {
     /// * `http_client` - HTTP client with middleware for retries
     ///
     /// # Returns
-    /// * `Result<Self, NotificationError>` - Action instance if config is valid
+    /// * `Result<Self, ActionDispatcherError>` - Action instance if config is
+    ///   valid
     pub fn new(
         config: WebhookConfig,
         http_client: Arc<ClientWithMiddleware>,
-    ) -> Result<Self, NotificationError> {
+    ) -> Result<Self, ActionDispatcherError> {
         let mut headers = config.headers.unwrap_or_default();
         if !headers.contains_key("Content-Type") {
             headers.insert("Content-Type".to_string(), "application/json".to_string());
@@ -82,11 +83,11 @@ impl WebhookAction {
         &self,
         secret: &str,
         payload: &serde_json::Value,
-    ) -> Result<(String, String), NotificationError> {
+    ) -> Result<(String, String), ActionDispatcherError> {
         // Explicitly reject empty secret, because `HmacSha256::new_from_slice`
         // currently allows empty secrets
         if secret.is_empty() {
-            return Err(NotificationError::NotifyFailed(
+            return Err(ActionDispatcherError::NotifyFailed(
                 "Invalid secret: cannot be empty.".to_string(),
             ));
         }
@@ -95,11 +96,11 @@ impl WebhookAction {
 
         // Create HMAC instance
         let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .map_err(|e| NotificationError::ConfigError(format!("Invalid secret: {e}")))?;
+            .map_err(|e| ActionDispatcherError::ConfigError(format!("Invalid secret: {e}")))?;
 
         // Create the message to sign
         let serialized_payload = serde_json::to_string(payload).map_err(|e| {
-            NotificationError::InternalError(format!("Failed to serialize payload: {e}"))
+            ActionDispatcherError::InternalError(format!("Failed to serialize payload: {e}"))
         })?;
         let message = format!("{serialized_payload}{timestamp}");
         mac.update(message.as_bytes());
@@ -116,8 +117,11 @@ impl WebhookAction {
     /// * `payload` - The JSON payload to send
     ///
     /// # Returns
-    /// * `Result<(), NotificationError>` - Success or error
-    pub async fn notify_json(&self, payload: &serde_json::Value) -> Result<(), NotificationError> {
+    /// * `Result<(), ActionDispatcherError>` - Success or error
+    pub async fn notify_json(
+        &self,
+        payload: &serde_json::Value,
+    ) -> Result<(), ActionDispatcherError> {
         let mut url = self.url.clone();
 
         // Add URL parameters if any
@@ -147,13 +151,13 @@ impl WebhookAction {
             headers.insert(
                 HeaderName::from_static("x-signature"),
                 HeaderValue::from_str(&signature).map_err(|e| {
-                    NotificationError::NotifyFailed(format!("Invalid signature value: {e}"))
+                    ActionDispatcherError::NotifyFailed(format!("Invalid signature value: {e}"))
                 })?,
             );
             headers.insert(
                 HeaderName::from_static("x-timestamp"),
                 HeaderValue::from_str(&timestamp).map_err(|e| {
-                    NotificationError::NotifyFailed(format!("Invalid timestamp value: {e}"))
+                    ActionDispatcherError::NotifyFailed(format!("Invalid timestamp value: {e}"))
                 })?,
             );
         }
@@ -162,10 +166,10 @@ impl WebhookAction {
         if let Some(headers_map) = &self.headers {
             for (key, value) in headers_map {
                 let header_name = HeaderName::from_bytes(key.as_bytes()).map_err(|e| {
-                    NotificationError::NotifyFailed(format!("Invalid header name: {key}: {e}"))
+                    ActionDispatcherError::NotifyFailed(format!("Invalid header name: {key}: {e}"))
                 })?;
                 let header_value = HeaderValue::from_str(value).map_err(|e| {
-                    NotificationError::NotifyFailed(format!(
+                    ActionDispatcherError::NotifyFailed(format!(
                         "Invalid header value for {key}: {value}: {e}"
                     ))
                 })?;
@@ -180,7 +184,7 @@ impl WebhookAction {
         let status = response.status();
 
         if !status.is_success() {
-            return Err(NotificationError::NotifyFailed(format!(
+            return Err(ActionDispatcherError::NotifyFailed(format!(
                 "Webhook request failed with status: {status}"
             )));
         }
@@ -258,7 +262,7 @@ mod tests {
         assert!(result.is_err());
 
         let error = result.unwrap_err();
-        assert!(matches!(error, NotificationError::NotifyFailed(_)));
+        assert!(matches!(error, ActionDispatcherError::NotifyFailed(_)));
     }
 
     ////////////////////////////////////////////////////////////

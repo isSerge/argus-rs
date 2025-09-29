@@ -22,7 +22,7 @@ use crate::{
     loader::{LoaderError, load_config},
     models::{
         BlockData,
-        action::{ActionConfig, ActionError},
+        action::{ActionConfig, ActionConfigError},
         monitor::MonitorConfig,
         monitor_match::MonitorMatch,
     },
@@ -47,7 +47,7 @@ pub enum DryRunError {
 
     /// An error occurred while loading action definitions.
     #[error("Action loading error: {0}")]
-    ActionLoading(#[from] ActionError),
+    ActionLoading(#[from] ActionConfigError),
 
     /// A monitor failed validation against the defined rules.
     #[error("Monitor validation error: {0}")]
