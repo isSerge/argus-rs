@@ -1,6 +1,7 @@
 mod action;
 mod error;
 mod kafka;
+mod rabbitmq;
 mod traits;
 
 pub use action::PublisherAction;

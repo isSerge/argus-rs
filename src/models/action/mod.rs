@@ -1,14 +1,14 @@
 //! This module defines the data structures for action configurations.
 
 mod kafka;
-mod rabbitmq;
 mod policies;
+mod rabbitmq;
 mod stdout;
 mod webhook;
 
 pub use kafka::{KafkaConfig, KafkaProducerConfig, KafkaSecurityConfig};
-pub use rabbitmq::RabbitMqConfig;
 pub use policies::{ActionPolicy, AggregationPolicy, ThrottlePolicy};
+pub use rabbitmq::RabbitMqConfig;
 use serde::{Deserialize, Serialize};
 pub use stdout::StdoutConfig;
 use thiserror::Error;
