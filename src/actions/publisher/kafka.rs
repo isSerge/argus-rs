@@ -63,20 +63,20 @@ impl KafkaEventPublisher {
             }
         }
 
-        if config.security.protocol.ends_with("SSL") {
-            if let Some(ca_location) = &config.security.ssl_ca_location {
-                client_config.set("ssl.ca.location", ca_location);
-            }
+        if config.security.protocol.ends_with("SSL")
+            && let Some(ca_location) = &config.security.ssl_ca_location
+        {
+            client_config.set("ssl.ca.location", ca_location);
         }
 
         // Set producer-specific settings
         client_config.set("acks", &config.producer.acks);
-        client_config.set("message.timeout.ms", &config.producer.message_timeout_ms.to_string());
+        client_config.set("message.timeout.ms", config.producer.message_timeout_ms.to_string());
         client_config.set("compression.codec", &config.producer.compression_codec);
 
         // Create the FutureProducer
         let producer =
-            client_config.create::<FutureProducer>().map_err(|e| PublisherError::KafkaError(e))?;
+            client_config.create::<FutureProducer>().map_err(PublisherError::KafkaError)?;
 
         Ok(Self::new(producer))
     }

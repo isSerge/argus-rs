@@ -17,7 +17,7 @@ impl PublisherAction {
 impl Action for PublisherAction {
     async fn execute(&self, payload: ActionPayload) -> Result<(), ActionDispatcherError> {
         let key = match payload {
-            ActionPayload::Single(ref p) => p.transaction_hash.clone(),
+            ActionPayload::Single(ref p) => p.transaction_hash,
             ActionPayload::Aggregated { .. } => Err(ActionDispatcherError::InternalError(
                 "Aggregated payloads are not supported for PublisherAction".to_string(),
             ))?,
@@ -29,7 +29,7 @@ impl Action for PublisherAction {
         self.publisher
             .publish(&self.topic, &key.to_string(), &payload_bytes)
             .await
-            .map_err(|e| ActionDispatcherError::Publisher(e))?;
+            .map_err(ActionDispatcherError::Publisher)?;
 
         Ok(())
     }
