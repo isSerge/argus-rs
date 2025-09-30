@@ -1,0 +1,31 @@
+# examples/10_action_with_kafka_publisher/docker-compose.yml
+# This configuration uses Redpanda with an explicit and robust listener setup,
+# ideal for local development on Docker Desktop and for CI.
+
+services:
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:latest
+    ports:
+      # Expose the Kafka API port to the host machine
+      - "9092:9092"
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    command:
+      - redpanda
+      - start
+      # The following flags are best practices for dev/CI environments
+      - --smp 1             # Use a single core to be lightweight
+      - --memory 1G         # Allocate 1GB of RAM
+      - --overprovisioned   # A magic flag that relaxes checks for non-production environments
+      - --node-id 0
+      # --- THE KEY FIX: Explicit Listener Configuration ---
+      # This is the address Redpanda will listen on *inside* the container.
+      # 0.0.0.0 means it will listen on all available network interfaces.
+      - --kafka-addr internal://0.0.0.0:29092,external://0.0.0.0:9092
+      # This is the address Redpanda will *tell clients to connect to*.
+      # Your Rust app and kcat running on the host will use this address.
+      - --advertise-kafka-addr internal://redpanda:29092,external://localhost:9092
+
+volumes:
+  redpanda_data:
+    driver: local
