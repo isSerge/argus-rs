@@ -757,4 +757,25 @@ mod tests {
         // Different action names should return different lock instances.
         assert!(!Arc::ptr_eq(&lock1_instance1, &lock2_instance1));
     }
+
+    #[tokio::test]
+    async fn test_shutdown_actions() {
+        let publisher_action =
+            ActionBuilder::new("Test Action").kafka_config("kafka:9092", "test_topic").build();
+        let mut state_repo = MockKeyValueStore::new();
+
+        state_repo
+            .expect_get_all_json_states_by_prefix::<AggregationState>()
+            .with(eq("aggregation_state:".to_string()))
+            .times(1)
+            .returning(|_| Ok(vec![])); // No pending states
+
+        let mut actions = HashMap::new();
+
+        actions.insert(publisher_action.name.clone(), publisher_action);
+
+        let alert_manager = create_alert_manager(actions, state_repo).await;
+
+        alert_manager.shutdown().await;
+    }
 }

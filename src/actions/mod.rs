@@ -407,4 +407,20 @@ mod tests {
 
         assert!(result.is_ok());
     }
+
+    #[tokio::test]
+    async fn test_shutdown_actions_no_panic() {
+        let action_config = ActionBuilder::new("stdout_test").stdout_config(None).build();
+
+        let service = ActionDispatcher::new(
+            Arc::new(
+                vec![(action_config.name.clone(), action_config.clone())].into_iter().collect(),
+            ),
+            Arc::new(HttpClientPool::default()),
+        )
+        .await
+        .unwrap();
+
+        service.shutdown().await;
+    }
 }
