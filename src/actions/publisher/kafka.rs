@@ -25,7 +25,7 @@ impl EventPublisher for KafkaEventPublisher {
             .send(record, Duration::from_secs(0))
             .await
             .map(|_| ())
-            .map_err(|(kafka_error, _)| PublisherError::KafkaError(kafka_error))?;
+            .map_err(|(kafka_error, _)| PublisherError::Kafka(kafka_error))?;
 
         Ok(())
     }
@@ -75,8 +75,7 @@ impl KafkaEventPublisher {
         client_config.set("compression.codec", &config.producer.compression_codec);
 
         // Create the FutureProducer
-        let producer =
-            client_config.create::<FutureProducer>().map_err(PublisherError::KafkaError)?;
+        let producer = client_config.create::<FutureProducer>()?;
 
         Ok(Self::new(producer))
     }
