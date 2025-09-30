@@ -91,12 +91,49 @@ mod tests {
     };
 
     use super::*;
+    use crate::models::action::{KafkaProducerConfig, KafkaSecurityConfig};
 
     #[test]
-    fn test_kafka_event_publisher_creation() {
+    fn test_kafka_event_publisher_from_config_default() {
         let config = KafkaConfig {
             brokers: "localhost:9092".to_string(),
             topic: "test-topic".to_string(),
+            ..Default::default()
+        };
+
+        let publisher = KafkaEventPublisher::from_config(&config);
+        assert!(publisher.is_ok());
+    }
+
+    #[test]
+    fn test_kafka_event_publisher_from_config_with_security_settings() {
+        let config = KafkaConfig {
+            brokers: "localhost:9092".to_string(),
+            topic: "test-topic".to_string(),
+            security: KafkaSecurityConfig {
+                protocol: "SASL_PLAINTEXT".to_string(),
+                sasl_mechanism: Some("PLAIN".to_string()),
+                sasl_username: Some("user".to_string()),
+                sasl_password: Some("password".to_string()),
+                ssl_ca_location: Some("/path/to/ca.pem".to_string()),
+            },
+            ..Default::default()
+        };
+
+        let publisher = KafkaEventPublisher::from_config(&config);
+        assert!(publisher.is_ok(), "Expected Ok, got error: {:?}", publisher.err());
+    }
+
+    #[test]
+    fn test_kafka_event_publisher_from_config_with_producer_settings() {
+        let config = KafkaConfig {
+            brokers: "localhost:9092".to_string(),
+            topic: "test-topic".to_string(),
+            producer: KafkaProducerConfig {
+                message_timeout_ms: 10000,
+                acks: "all".to_string(),
+                compression_codec: "gzip".to_string(),
+            },
             ..Default::default()
         };
 

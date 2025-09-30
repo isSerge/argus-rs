@@ -19,6 +19,7 @@ pub struct KafkaConfig {
     pub producer: KafkaProducerConfig,
 }
 
+/// Security configuration for connecting to Kafka.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct KafkaSecurityConfig {
@@ -59,6 +60,7 @@ impl Default for KafkaSecurityConfig {
     }
 }
 
+/// Producer-specific configuration properties for Kafka.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct KafkaProducerConfig {

@@ -5,7 +5,7 @@ mod policies;
 mod stdout;
 mod webhook;
 
-pub use kafka::KafkaConfig;
+pub use kafka::{KafkaConfig, KafkaProducerConfig, KafkaSecurityConfig};
 pub use policies::{ActionPolicy, AggregationPolicy, ThrottlePolicy};
 use serde::{Deserialize, Serialize};
 pub use stdout::StdoutConfig;
