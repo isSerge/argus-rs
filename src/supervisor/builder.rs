@@ -8,12 +8,12 @@ use alloy::providers::Provider;
 use super::{Supervisor, SupervisorError};
 use crate::{
     abi::AbiService,
+    actions::ActionDispatcher,
     config::AppConfig,
     engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
     http_client::HttpClientPool,
     models::action::ActionConfig,
     monitor::MonitorManager,
-    notification::NotificationService,
     persistence::{sqlite::SqliteStateRepository, traits::AppRepository},
     providers::rpc::EvmRpcSource,
 };
@@ -90,7 +90,7 @@ impl SupervisorBuilder {
         let evm_data_source = EvmRpcSource::new(provider, monitor_manager.clone());
         tracing::info!(retry_policy = ?config.rpc_retry_config, "EVM data source initialized with fallback and retry policy.");
 
-        // Load actions from the database for the NotificationService.
+        // Load actions from the database for the ActionDispatcher.
         tracing::debug!(network_id = %config.network_id, "Loading actions from database for notification service...");
         let actions = state.get_actions(&config.network_id).await?;
         tracing::info!(count = actions.len(), network_id = %config.network_id, "Loaded actions from database for notification service.");
@@ -104,13 +104,13 @@ impl SupervisorBuilder {
         );
         let http_client_pool = Arc::new(HttpClientPool::new(config.http_base_config.clone()));
 
-        // Set up the NotificationService and AlertManager
+        // Set up the ActionDispatcher and AlertManager
         let actions_map: Arc<HashMap<String, ActionConfig>> =
             Arc::new(actions.into_iter().map(|t| (t.name.clone(), t)).collect());
-        let notification_service =
-            Arc::new(NotificationService::new(actions_map.clone(), http_client_pool));
+        let action_dispatcher =
+            Arc::new(ActionDispatcher::new(actions_map.clone(), http_client_pool).await?);
         let alert_manager =
-            Arc::new(AlertManager::new(notification_service, state.clone(), actions_map));
+            Arc::new(AlertManager::new(action_dispatcher, state.clone(), actions_map));
 
         // Finally, construct the Supervisor with all its components.
         Ok(Supervisor::new(

@@ -1,8 +1,9 @@
-//! Integration tests for the notification service
+//! Integration tests for the ActionDispatcher service
 
 use std::sync::Arc;
 
 use argus::{
+    actions::{ActionDispatcher, ActionPayload},
     config::HttpRetryConfig,
     http_client::HttpClientPool,
     models::{
@@ -10,10 +11,9 @@ use argus::{
         action::{ActionConfig, ActionTypeConfig, DiscordConfig},
         monitor_match::MonitorMatch,
     },
-    notification::{NotificationPayload, NotificationService},
     test_helpers::ActionBuilder,
 };
-use mockito;
+use rdkafka::consumer::Consumer;
 use serde_json::json;
 use url::Url;
 
@@ -49,7 +49,7 @@ async fn test_webhook_action_success() {
     let http_client_pool = Arc::new(HttpClientPool::default());
     let actions =
         Arc::new(vec![mock_discord_action].into_iter().map(|n| (n.name.clone(), n)).collect());
-    let notification_service = NotificationService::new(actions, http_client_pool);
+    let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
 
     let monitor_match = MonitorMatch::new_tx_match(
         1,
@@ -60,8 +60,8 @@ async fn test_webhook_action_success() {
         json!({"value": "100"}),
     );
 
-    let payload = NotificationPayload::Single(monitor_match.clone());
-    let result = notification_service.execute(payload).await;
+    let payload = ActionPayload::Single(monitor_match.clone());
+    let result = action_dispatcher.execute(payload).await;
 
     assert!(result.is_ok());
     mock.assert();
@@ -73,7 +73,7 @@ async fn test_stdout_action_success() {
 
     let http_client_pool = Arc::new(HttpClientPool::default());
     let actions = Arc::new(vec![stdout_action].into_iter().map(|n| (n.name.clone(), n)).collect());
-    let notification_service = NotificationService::new(actions, http_client_pool);
+    let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
 
     let monitor_match = MonitorMatch::new_tx_match(
         1,
@@ -84,8 +84,8 @@ async fn test_stdout_action_success() {
         json!({"value": "100"}),
     );
 
-    let payload = NotificationPayload::Single(monitor_match.clone());
-    let result = notification_service.execute(payload).await;
+    let payload = ActionPayload::Single(monitor_match.clone());
+    let result = action_dispatcher.execute(payload).await;
 
     assert!(result.is_ok(), "Stdout action should succeed, got error: {:?}", result.err());
 }
@@ -113,7 +113,7 @@ async fn test_failure_with_retryable_error() {
     let http_client_pool = Arc::new(HttpClientPool::default());
     let actions =
         Arc::new(vec![mock_discord_action].into_iter().map(|n| (n.name.clone(), n)).collect());
-    let notification_service = NotificationService::new(actions, http_client_pool);
+    let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
 
     let monitor_match = MonitorMatch::new_tx_match(
         2,
@@ -124,8 +124,8 @@ async fn test_failure_with_retryable_error() {
         json!({}),
     );
 
-    let payload = NotificationPayload::Single(monitor_match.clone());
-    let result = notification_service.execute(payload).await;
+    let payload = ActionPayload::Single(monitor_match.clone());
+    let result = action_dispatcher.execute(payload).await;
 
     // The final result should be an error because the mock never returns a success
     // status.
@@ -156,7 +156,7 @@ async fn test_failure_with_non_retryable_error() {
     let http_client_pool = Arc::new(HttpClientPool::default());
     let actions =
         Arc::new(vec![mock_discord_action].into_iter().map(|n| (n.name.clone(), n)).collect());
-    let notification_service = NotificationService::new(actions, http_client_pool);
+    let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
 
     let monitor_match = MonitorMatch::new_tx_match(
         3,
@@ -167,8 +167,8 @@ async fn test_failure_with_non_retryable_error() {
         json!({}),
     );
 
-    let payload = NotificationPayload::Single(monitor_match.clone());
-    let result = notification_service.execute(payload).await;
+    let payload = ActionPayload::Single(monitor_match.clone());
+    let result = action_dispatcher.execute(payload).await;
 
     assert!(result.is_err());
     mock.assert();
@@ -188,7 +188,7 @@ async fn test_failure_with_invalid_url() {
     let http_client_pool = Arc::new(HttpClientPool::default());
     let actions =
         Arc::new(vec![mock_discord_action].into_iter().map(|t| (t.name.clone(), t)).collect());
-    let notification_service = NotificationService::new(actions, http_client_pool);
+    let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
 
     let monitor_match = MonitorMatch::new_tx_match(
         4,
@@ -199,8 +199,86 @@ async fn test_failure_with_invalid_url() {
         json!({}),
     );
 
-    let payload = NotificationPayload::Single(monitor_match.clone());
-    let result = notification_service.execute(payload).await;
+    let payload = ActionPayload::Single(monitor_match.clone());
+    let result = action_dispatcher.execute(payload).await;
+
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_kafka_action_success() {
+    // 1. Set up mock Kafka cluster
+    let mock_cluster =
+        rdkafka::mocking::MockCluster::new(1).expect("Failed to create mock cluster");
+    let topic = "test-topic";
+    mock_cluster.create_topic(topic, 1, 1).expect("Failed to create topic");
+
+    // 2. Create a consumer to verify the message
+    let consumer: rdkafka::consumer::StreamConsumer = rdkafka::ClientConfig::new()
+        .set("bootstrap.servers", &mock_cluster.bootstrap_servers())
+        .set("group.id", "test-group")
+        .set("auto.offset.reset", "earliest")
+        .create()
+        .expect("Failed to create consumer");
+    consumer.subscribe(&[topic]).expect("Failed to subscribe to topic");
+
+    // 3. Create Kafka action config
+    let kafka_action = ActionBuilder::new("test_kafka")
+        .kafka_config(&mock_cluster.bootstrap_servers(), topic)
+        .build();
+
+    // 4. Create ActionDispatcher
+    let http_client_pool = Arc::new(HttpClientPool::default());
+    let actions = Arc::new(vec![kafka_action].into_iter().map(|n| (n.name.clone(), n)).collect());
+    let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
+
+    // 5. Create a monitor match and execute the action
+    let monitor_match = MonitorMatch::new_tx_match(
+        1,
+        "Test Monitor".to_string(),
+        "test_kafka".to_string(),
+        123,
+        Default::default(),
+        json!({"value": "100"}),
+    );
+    let payload = ActionPayload::Single(monitor_match.clone());
+    let result = action_dispatcher.execute(payload.clone()).await;
+    assert!(result.is_ok(), "Kafka action should succeed, got error: {:?}", result.err());
+
+    // 6. Verify the message was published
+    let message = tokio::time::timeout(std::time::Duration::from_secs(5), consumer.recv())
+        .await
+        .expect("Timeout waiting for message")
+        .expect("Failed to receive message");
+
+    let expected_payload = serde_json::to_vec(&payload.context().unwrap()).unwrap();
+    use rdkafka::Message;
+    assert_eq!(message.payload(), Some(expected_payload.as_slice()));
+    assert_eq!(message.key(), Some(monitor_match.transaction_hash.to_string().as_bytes()));
+    assert_eq!(message.topic(), topic);
+}
+
+#[tokio::test]
+async fn test_kafka_action_failure() {
+    let kafka_action = ActionBuilder::new("test_kafka_failure")
+        .kafka_config("127.0.0.1:1", "test-topic") // Invalid broker
+        .build();
+
+    let http_client_pool = Arc::new(HttpClientPool::default());
+    let actions = Arc::new(vec![kafka_action].into_iter().map(|n| (n.name.clone(), n)).collect());
+    let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
+
+    let monitor_match = MonitorMatch::new_tx_match(
+        1,
+        "Test Monitor".to_string(),
+        "test_kafka_failure".to_string(),
+        123,
+        Default::default(),
+        json!({"value": "100"}),
+    );
+
+    let payload = ActionPayload::Single(monitor_match.clone());
+    let result = action_dispatcher.execute(payload).await;
 
     assert!(result.is_err());
 }

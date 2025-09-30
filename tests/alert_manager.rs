@@ -3,6 +3,7 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use argus::{
+    actions::ActionDispatcher,
     engine::alert_manager::AlertManager,
     http_client::HttpClientPool,
     models::{
@@ -11,7 +12,6 @@ use argus::{
         alert_manager_state::{AggregationState, ThrottleState},
         monitor_match::MonitorMatch,
     },
-    notification::NotificationService,
     persistence::{sqlite::SqliteStateRepository, traits::KeyValueStore},
     test_helpers::ActionBuilder,
 };
@@ -38,16 +38,17 @@ fn create_monitor_match(monitor_name: &str, action_name: &str) -> MonitorMatch {
     )
 }
 
-fn create_alert_manager(
+async fn create_alert_manager(
     actions: HashMap<String, ActionConfig>,
     state_repo: Arc<SqliteStateRepository>,
 ) -> AlertManager<SqliteStateRepository> {
     let actions_arc = Arc::new(actions);
-    let notification_service = Arc::new(NotificationService::new(
-        actions_arc.clone(),
-        Arc::new(HttpClientPool::default()),
-    ));
-    AlertManager::new(notification_service, state_repo, actions_arc)
+    let action_dispatcher = Arc::new(
+        ActionDispatcher::new(actions_arc.clone(), Arc::new(HttpClientPool::default()))
+            .await
+            .unwrap(),
+    );
+    AlertManager::new(action_dispatcher, state_repo, actions_arc)
 }
 
 #[tokio::test]
@@ -74,7 +75,7 @@ async fn test_aggregation_policy_dispatches_summary_after_window() {
     actions.insert(action_name.clone(), action_config);
 
     let state_repo = Arc::new(setup_db().await);
-    let alert_manager = create_alert_manager(actions, state_repo.clone());
+    let alert_manager = create_alert_manager(actions, state_repo.clone()).await;
 
     // Mock the aggregated notification
     let mock = server
@@ -135,7 +136,7 @@ async fn test_throttle_policy_limits_notifications() {
     actions.insert(action_name.clone(), action_config);
 
     let state_repo = Arc::new(setup_db().await);
-    let alert_manager = create_alert_manager(actions, state_repo.clone());
+    let alert_manager = create_alert_manager(actions, state_repo.clone()).await;
 
     // Mock the throttled notification
     let mock = server
@@ -207,7 +208,7 @@ async fn test_no_policy_sends_notification_per_match() {
     actions.insert(action_name.clone(), action_config);
 
     let state_repo = Arc::new(setup_db().await);
-    let alert_manager = create_alert_manager(actions, state_repo.clone());
+    let alert_manager = create_alert_manager(actions, state_repo.clone()).await;
 
     // Mock the notification endpoint
     let mock = server
@@ -254,7 +255,7 @@ async fn test_throttle_policy_shared_across_monitors() {
     actions.insert(action_name.clone(), action_config);
 
     let state_repo = Arc::new(setup_db().await);
-    let alert_manager = create_alert_manager(actions, state_repo.clone());
+    let alert_manager = create_alert_manager(actions, state_repo.clone()).await;
 
     let mock = server
         .mock("POST", "/")
@@ -314,7 +315,8 @@ async fn test_aggregation_state_persistence_on_restart() {
     let state_repo = Arc::new(setup_db().await);
 
     // --- First run: process matches and store state ---
-    let alert_manager1 = create_alert_manager(actions_arc.as_ref().clone(), state_repo.clone());
+    let alert_manager1 =
+        create_alert_manager(actions_arc.as_ref().clone(), state_repo.clone()).await;
     let match1 = create_monitor_match(&monitor_name, &action_name);
     let match2 = create_monitor_match(&monitor_name, &action_name);
     alert_manager1.process_match(&match1).await.unwrap();
@@ -327,7 +329,8 @@ async fn test_aggregation_state_persistence_on_restart() {
     assert_eq!(saved_state.matches.len(), 2);
 
     // --- Simulate restart: create a new AlertManager with the same state ---
-    let alert_manager2 = create_alert_manager(actions_arc.as_ref().clone(), state_repo.clone());
+    let alert_manager2 =
+        create_alert_manager(actions_arc.as_ref().clone(), state_repo.clone()).await;
 
     let mock = server
         .mock("POST", "/")
@@ -359,7 +362,7 @@ async fn test_aggregation_state_persistence_on_restart() {
 async fn test_process_match_with_invalid_action() {
     let state_repo = Arc::new(setup_db().await);
     // No actions configured
-    let alert_manager = create_alert_manager(HashMap::new(), state_repo.clone());
+    let alert_manager = create_alert_manager(HashMap::new(), state_repo.clone()).await;
 
     let monitor_match = create_monitor_match("any_monitor", "non_existent_action");
 
