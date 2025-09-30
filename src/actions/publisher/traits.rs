@@ -10,6 +10,9 @@ pub trait EventPublisher: Send + Sync {
     async fn publish(&self, topic: &str, key: &str, payload: &[u8]) -> Result<(), PublisherError>;
 
     /// Flush any buffered events, waiting up to the specified timeout for
-    /// completion.
-    async fn flush(&self, timeout: Duration) -> Result<(), PublisherError>;
+    /// completion if necessary.
+    /// The default implementation does nothing and returns `Ok(())`.
+    async fn flush(&self, _timeout: Duration) -> Result<(), PublisherError> {
+        Ok(())
+    }
 }
