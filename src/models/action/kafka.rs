@@ -33,12 +33,12 @@ pub struct KafkaSecurityConfig {
     pub sasl_mechanism: Option<String>,
 
     /// The username for SASL authentication. Can use environment variable
-    // expansion.
+    /// expansion.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sasl_username: Option<String>,
 
     /// The password for SASL authentication. Can use environment variable
-    // expansion.
+    /// expansion.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sasl_password: Option<String>,
 
@@ -62,7 +62,7 @@ impl Default for KafkaSecurityConfig {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct KafkaProducerConfig {
-    // The maximum time in milliseconds to wait for a message to be sent.
+    /// The maximum time in milliseconds to wait for a message to be sent.
     /// librdkafka property: `message.timeout.ms`
     #[serde(default = "default_message_timeout_ms")]
     pub message_timeout_ms: u64,
@@ -77,9 +77,9 @@ pub struct KafkaProducerConfig {
     /// received before considering a request complete.
     /// `0`: Producer does not wait for any acknowledgment.
     /// `1`: The leader will write the record to its local log but will respond
-    // without awaiting full acknowledgment from all followers.
+    /// without awaiting full acknowledgment from all followers.
     /// `all` or `-1`: The leader will wait for the full set of in-sync replicas
-    // to acknowledge the record.
+    /// to acknowledge the record.
     /// librdkafka property: `acks`
     #[serde(default = "default_acks")]
     pub acks: String,
