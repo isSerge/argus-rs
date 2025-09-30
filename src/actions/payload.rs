@@ -47,4 +47,13 @@ impl ActionPayload {
             ActionPayload::Aggregated { action_name, .. } => action_name.clone(),
         }
     }
+
+    /// Returns the monitor name associated with this payload, if available.
+    pub fn monitor_name(&self) -> String {
+        match self {
+            ActionPayload::Single(monitor_match) => monitor_match.monitor_name.clone(),
+            ActionPayload::Aggregated { matches, .. } =>
+                matches.first().map(|m| m.monitor_name.clone()).unwrap_or_default(),
+        }
+    }
 }

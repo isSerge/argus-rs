@@ -32,6 +32,8 @@ pub enum ActionTypeConfig {
     Stdout(StdoutConfig),
     /// A Kafka event publisher.
     Kafka(KafkaConfig),
+    /// A RabbitMQ event publisher.
+    RabbitMq(RabbitMqConfig),
 }
 
 /// Error types for Action configuration validation.
@@ -100,6 +102,7 @@ impl ActionTypeConfig {
             // Standard output Action requires no validation.
             ActionTypeConfig::Stdout(_) => Ok(()),
 
+            // Kafka publisher validation.
             ActionTypeConfig::Kafka(config) => {
                 if config.topic.is_empty() {
                     return Err(ActionTypeConfigError::EmptyPublisherTopic);
@@ -107,6 +110,19 @@ impl ActionTypeConfig {
 
                 if config.brokers.is_empty() {
                     return Err(ActionTypeConfigError::EmptyPublisherBrokers);
+                }
+
+                Ok(())
+            }
+
+            // RabbitMQ publisher validation.
+            ActionTypeConfig::RabbitMq(config) => {
+                if config.uri.is_empty() {
+                    return Err(ActionTypeConfigError::EmptyPublisherBrokers);
+                }
+
+                if config.exchange.is_empty() {
+                    return Err(ActionTypeConfigError::EmptyPublisherTopic);
                 }
 
                 Ok(())

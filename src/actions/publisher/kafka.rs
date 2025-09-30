@@ -6,7 +6,12 @@ use rdkafka::{
 };
 
 use crate::{
-    actions::publisher::{EventPublisher, PublisherError},
+    actions::{
+        ActionPayload,
+        error::ActionDispatcherError,
+        publisher::{EventPublisher, PublisherError},
+        traits::Action,
+    },
     models::action::KafkaConfig,
 };
 
@@ -14,6 +19,7 @@ use crate::{
 #[derive(Clone)]
 pub struct KafkaEventPublisher {
     producer: FutureProducer,
+    topic: String,
 }
 
 #[async_trait::async_trait]
@@ -29,18 +35,34 @@ impl EventPublisher for KafkaEventPublisher {
 
         Ok(())
     }
+}
 
-    async fn flush(&self, timeout: Duration) -> Result<(), PublisherError> {
-        self.producer.flush(timeout).map_err(|e| e.into())
+#[async_trait::async_trait]
+impl Action for KafkaEventPublisher {
+    async fn execute(&self, payload: ActionPayload) -> Result<(), ActionDispatcherError> {
+        let context = payload.context()?;
+        let serialized_payload =
+            serde_json::to_vec(&context).map_err(ActionDispatcherError::DeserializationError)?;
+
+        let key = match &payload {
+            ActionPayload::Single(monitor_match) => monitor_match.transaction_hash.to_string(),
+            // TODO: consider error for aggregated actions
+            ActionPayload::Aggregated { .. } => "aggregated".to_string(),
+        };
+
+        self.publish(&self.topic, &key, &serialized_payload).await?;
+
+        Ok(())
+    }
+
+    async fn shutdown(&self) -> Result<(), ActionDispatcherError> {
+        self.producer.flush(Duration::from_secs(5)).map_err(|e| {
+            ActionDispatcherError::InternalError(format!("Failed to flush Kafka producer: {e}"))
+        })
     }
 }
 
 impl KafkaEventPublisher {
-    /// Creates a new `KafkaEventPublisher` from the given `FutureProducer`.
-    pub fn new(producer: FutureProducer) -> Self {
-        Self { producer }
-    }
-
     /// Creates a new `KafkaEventPublisher` from the given `KafkaConfig`.
     pub fn from_config(config: &KafkaConfig) -> Result<Self, PublisherError> {
         let mut client_config = ClientConfig::new();
@@ -77,7 +99,7 @@ impl KafkaEventPublisher {
         // Create the FutureProducer
         let producer = client_config.create::<FutureProducer>()?;
 
-        Ok(Self::new(producer))
+        Ok(Self { producer, topic: config.topic.clone() })
     }
 }
 
@@ -172,53 +194,6 @@ mod tests {
         assert!(result.is_ok());
 
         let message = consumer.recv().await.expect("Failed to receive message");
-        assert_eq!(message.key(), Some(key.as_bytes()));
-        assert_eq!(message.payload(), Some(payload.as_ref()));
-        assert_eq!(message.topic(), topic.to_string());
-    }
-
-    #[tokio::test]
-    async fn test_kafka_event_publisher_flush() {
-        let mock_cluster = MockCluster::new(1).expect("Failed to create mock cluster");
-        let topic = "test-topic";
-
-        mock_cluster.create_topic(topic, 1, 1).expect("Failed to create topic");
-
-        let consumer = ClientConfig::new()
-            .set("bootstrap.servers", &mock_cluster.bootstrap_servers())
-            .set("group.id", "test-group")
-            .set("auto.offset.reset", "earliest")
-            .create::<StreamConsumer>()
-            .expect("Failed to create consumer");
-
-        consumer.subscribe(&[topic]).expect("Failed to subscribe to topic");
-
-        let config = KafkaConfig {
-            brokers: mock_cluster.bootstrap_servers(),
-            topic: topic.to_string(),
-            ..Default::default()
-        };
-
-        let publisher =
-            KafkaEventPublisher::from_config(&config).expect("Failed to create publisher");
-
-        let key = "flush-key";
-        let payload = b"test-payload";
-
-        let publisher_clone = publisher.clone();
-
-        tokio::spawn(async move {
-            let result = publisher_clone.publish(&config.topic, key, payload).await;
-            assert!(result.is_ok());
-        });
-
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        let result = publisher.flush(Duration::from_secs(5)).await;
-        assert!(result.is_ok());
-
-        let message = consumer.recv().await.expect("Failed to receive message");
-
         assert_eq!(message.key(), Some(key.as_bytes()));
         assert_eq!(message.payload(), Some(payload.as_ref()));
         assert_eq!(message.topic(), topic.to_string());

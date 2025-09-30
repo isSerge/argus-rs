@@ -4,7 +4,12 @@ use lapin::{
 };
 
 use crate::{
-    actions::publisher::{EventPublisher, PublisherError},
+    actions::{
+        ActionPayload,
+        error::ActionDispatcherError,
+        publisher::{EventPublisher, PublisherError},
+        traits::Action,
+    },
     models::action::RabbitMqConfig,
 };
 
@@ -66,5 +71,27 @@ impl EventPublisher for RabbitMqEventPublisher {
             .await
             .map(|_| ()) // Wait for the confirmation
             .map_err(PublisherError::from) // Convert lapin::Error to PublisherError
+    }
+}
+
+#[async_trait::async_trait]
+impl Action for RabbitMqEventPublisher {
+    async fn execute(&self, payload: ActionPayload) -> Result<(), ActionDispatcherError> {
+        let context = payload.context()?;
+        let serialized_payload =
+            serde_json::to_vec(&context).map_err(ActionDispatcherError::DeserializationError)?;
+
+        let monitor_name = payload.monitor_name();
+        let routing_key = self.default_routing_key.as_deref().unwrap_or(&monitor_name);
+
+        self.publish(&self.exchange, &routing_key, &serialized_payload).await?;
+
+        Ok(())
+    }
+
+    async fn shutdown(&self) -> Result<(), ActionDispatcherError> {
+        self.channel.close(200, "Goodbye").await.map_err(|e| {
+            ActionDispatcherError::InternalError(format!("Failed to close RabbitMQ channel: {e}"))
+        })
     }
 }
