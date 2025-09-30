@@ -1,89 +1,25 @@
 //! This module defines the data structures for action configurations.
 
-use std::{collections::HashMap, time::Duration};
+mod kafka;
+mod policies;
+mod stdout;
+mod webhook;
 
+pub use kafka::{KafkaConfig, KafkaProducerConfig, KafkaSecurityConfig};
+pub use policies::{ActionPolicy, AggregationPolicy, ThrottlePolicy};
 use serde::{Deserialize, Serialize};
+pub use stdout::StdoutConfig;
 use thiserror::Error;
-use url::Url;
+pub use webhook::{DiscordConfig, GenericWebhookConfig, SlackConfig, TelegramConfig};
 
-use crate::{
-    config::{HttpRetryConfig, deserialize_duration_from_seconds, serialize_duration_to_seconds},
-    loader::{Loadable, LoaderError},
-    models::notification::NotificationMessage,
-};
-
-/// Configuration for a generic webhook.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-pub struct WebhookConfig {
-    /// The URL of the webhook endpoint.
-    pub url: Url,
-    /// The HTTP method to use for the webhook (e.g., "POST", "GET").
-    pub method: Option<String>,
-    /// An optional secret for signing webhook requests.
-    pub secret: Option<String>,
-    /// Optional custom headers to include in the webhook request.
-    pub headers: Option<HashMap<String, String>>,
-    /// The message content for the notification.
-    pub message: NotificationMessage,
-    /// The retry policy configuration for HTTP requests.
-    #[serde(default)]
-    pub retry_policy: HttpRetryConfig,
-}
-
-/// Configuration for a Slack notification.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-pub struct SlackConfig {
-    /// The Slack webhook URL.
-    pub slack_url: Url,
-    /// The message content for the notification.
-    pub message: NotificationMessage,
-    /// The retry policy configuration for HTTP requests.
-    #[serde(default)]
-    pub retry_policy: HttpRetryConfig,
-}
-
-/// Configuration for a Discord notification.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-pub struct DiscordConfig {
-    /// The Discord webhook URL.
-    pub discord_url: Url,
-    /// The message content for the notification.
-    pub message: NotificationMessage,
-    /// The retry policy configuration for HTTP requests.
-    #[serde(default)]
-    pub retry_policy: HttpRetryConfig,
-}
-
-/// Configuration for a Telegram notification.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Default)]
-pub struct TelegramConfig {
-    /// The Telegram bot token.
-    pub token: String,
-    /// The chat ID to send the message to.
-    pub chat_id: String,
-    /// The message content for the notification.
-    pub message: NotificationMessage,
-    /// Whether to disable web page preview for the message.
-    pub disable_web_preview: Option<bool>,
-    /// The retry policy configuration for HTTP requests.
-    #[serde(default)]
-    pub retry_policy: HttpRetryConfig,
-}
-
-/// Configuration for a Stdout notification.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Default)]
-pub struct StdoutConfig {
-    /// The optional message content for the notification.
-    /// If not provided, the full event payload will be serialized to JSON.
-    pub message: Option<NotificationMessage>,
-}
+use crate::loader::{Loadable, LoaderError};
 
 /// The type of action configuration.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ActionTypeConfig {
     /// A generic webhook.
-    Webhook(WebhookConfig),
+    Webhook(GenericWebhookConfig),
     /// A Slack notification.
     Slack(SlackConfig),
     /// A Discord notification.
@@ -92,6 +28,8 @@ pub enum ActionTypeConfig {
     Telegram(TelegramConfig),
     /// A stdout notification.
     Stdout(StdoutConfig),
+    /// A Kafka event publisher.
+    Kafka(KafkaConfig),
 }
 
 /// Error types for Action configuration validation.
@@ -116,6 +54,14 @@ pub enum ActionTypeConfigError {
     /// Error for invalid Slack webhook URL.
     #[error("Invalid Slack URL: must be a valid Slack webhook URL.")]
     InvalidSlackUrl,
+
+    /// Error for empty Kafka publisher topic.
+    #[error("Event publisher topic cannot be empty.")]
+    EmptyPublisherTopic,
+
+    /// Error for empty Kafka publisher brokers.
+    #[error("Event publisher brokers cannot be empty.")]
+    EmptyPublisherBrokers,
 }
 
 impl ActionTypeConfig {
@@ -151,6 +97,18 @@ impl ActionTypeConfig {
             }
             // Standard output Action requires no validation.
             ActionTypeConfig::Stdout(_) => Ok(()),
+
+            ActionTypeConfig::Kafka(config) => {
+                if config.topic.is_empty() {
+                    return Err(ActionTypeConfigError::EmptyPublisherTopic);
+                }
+
+                if config.brokers.is_empty() {
+                    return Err(ActionTypeConfigError::EmptyPublisherBrokers);
+                }
+
+                Ok(())
+            }
         }
     }
 }
@@ -171,49 +129,9 @@ pub struct ActionConfig {
     pub policy: Option<ActionPolicy>,
 }
 
-/// Notification policies for handling notifications
-#[derive(Debug, Clone, Deserialize, Serialize, Eq, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum ActionPolicy {
-    /// Policy for aggregating multiple notifications into a single one.
-    Aggregation(AggregationPolicy),
-
-    /// Policy for throttling notifications to avoid spamming.
-    Throttle(ThrottlePolicy),
-}
-
-/// Policy for aggregating multiple notifications into a single one.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-pub struct AggregationPolicy {
-    /// The time window in seconds for the aggregation policy.
-    #[serde(
-        deserialize_with = "deserialize_duration_from_seconds",
-        serialize_with = "serialize_duration_to_seconds"
-    )]
-    pub window_secs: Duration,
-
-    /// The template to use for the aggregated notification message.
-    pub template: NotificationMessage,
-}
-
-/// Policy for throttling notifications to avoid spamming.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-pub struct ThrottlePolicy {
-    /// The maximum number of notifications to send within the specified time
-    /// window.
-    pub max_count: u32,
-
-    /// The time window in seconds for the throttling policy.
-    #[serde(
-        deserialize_with = "deserialize_duration_from_seconds",
-        serialize_with = "serialize_duration_to_seconds"
-    )]
-    pub time_window_secs: Duration,
-}
-
 /// Errors that can occur during Action processing.
 #[derive(Debug, Error)]
-pub enum ActionError {
+pub enum ActionConfigError {
     /// An error occurred during the loading process.
     #[error("Failed to load Action configuration.")]
     Loader(#[from] LoaderError),
@@ -224,19 +142,21 @@ pub enum ActionError {
 }
 
 impl Loadable for ActionConfig {
-    type Error = ActionError;
+    type Error = ActionConfigError;
 
     const KEY: &'static str = "actions";
 
     fn validate(&mut self) -> Result<(), Self::Error> {
-        self.config.validate().map_err(ActionError::Validation)
+        self.config.validate().map_err(ActionConfigError::Validation)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use url::Url;
+
     use super::*;
-    use crate::models::notification::NotificationMessage;
+    use crate::{config::HttpRetryConfig, models::notification::NotificationMessage};
 
     // Helper to create a default notification message
     fn notification_message() -> NotificationMessage {
@@ -245,7 +165,7 @@ mod tests {
 
     #[test]
     fn test_validate_webhook_ok() {
-        let config = ActionTypeConfig::Webhook(WebhookConfig {
+        let config = ActionTypeConfig::Webhook(GenericWebhookConfig {
             url: Url::parse("http://localhost/webhook").unwrap(),
             message: notification_message(),
             method: None,
@@ -258,7 +178,7 @@ mod tests {
 
     #[test]
     fn test_validate_webhook_empty_title() {
-        let config = ActionTypeConfig::Webhook(WebhookConfig {
+        let config = ActionTypeConfig::Webhook(GenericWebhookConfig {
             url: Url::parse("http://localhost/webhook").unwrap(),
             message: NotificationMessage { title: "".to_string(), body: "Test Body".to_string() },
             method: None,
@@ -359,5 +279,39 @@ mod tests {
     fn test_validate_stdout_ok() {
         let config = ActionTypeConfig::Stdout(StdoutConfig { message: None });
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_kafka_ok() {
+        let config = ActionTypeConfig::Kafka(KafkaConfig {
+            brokers: "localhost:9092, localhost:9093".to_string(),
+            topic: "test_topic".to_string(),
+            ..Default::default()
+        });
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_kafka_empty_topic() {
+        let config = ActionTypeConfig::Kafka(KafkaConfig {
+            brokers: "localhost:9092, localhost:9093".to_string(),
+            topic: "".to_string(),
+            ..Default::default()
+        });
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ActionTypeConfigError::EmptyPublisherTopic));
+    }
+
+    #[test]
+    fn test_validate_kafka_empty_brokers() {
+        let config = ActionTypeConfig::Kafka(KafkaConfig {
+            brokers: "".to_string(),
+            topic: "test_topic".to_string(),
+            ..Default::default()
+        });
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ActionTypeConfigError::EmptyPublisherBrokers));
     }
 }

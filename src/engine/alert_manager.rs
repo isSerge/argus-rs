@@ -7,21 +7,22 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 
 use crate::{
+    actions::{ActionDispatcher, ActionPayload, error::ActionDispatcherError},
     models::{
         action::{ActionConfig, ActionPolicy},
         alert_manager_state::{AggregationState, ThrottleState},
         monitor_match::MonitorMatch,
     },
-    notification::{NotificationPayload, NotificationService, error::NotificationError},
     persistence::{error::PersistenceError, traits::KeyValueStore},
 };
 
 /// The AlertManager is responsible for processing monitor matches, applying
 /// notification policies (throttling, aggregation, etc.) and submitting
-/// notifications to Notification service
+/// notifications to ActionDispatcher
 pub struct AlertManager<T: KeyValueStore> {
-    /// The notification service used to send alerts
-    notification_service: Arc<NotificationService>,
+    /// The action dispatcher used to dispatch actions (webhook notifications,
+    /// publishers, etc.)
+    action_dispatcher: Arc<ActionDispatcher>,
 
     /// The state repository for storing alert states
     state_repository: Arc<T>,
@@ -41,7 +42,7 @@ pub struct AlertManager<T: KeyValueStore> {
 pub enum AlertManagerError {
     /// Error occurred in the notification service
     #[error("Notification error: {0}")]
-    NotificationError(#[from] NotificationError),
+    ActionDispatcherError(#[from] ActionDispatcherError),
 
     /// Error occurred in the state repository
     #[error("State repository error: {0}")]
@@ -51,12 +52,12 @@ pub enum AlertManagerError {
 impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
     /// Creates a new AlertManager instance
     pub fn new(
-        notification_service: Arc<NotificationService>,
+        action_dispatcher: Arc<ActionDispatcher>,
         state_repository: Arc<T>,
         actions: Arc<HashMap<String, ActionConfig>>,
     ) -> Self {
         Self {
-            notification_service,
+            action_dispatcher,
             state_repository,
             actions,
             action_locks: DashMap::new(),
@@ -77,9 +78,12 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
                     action = %monitor_match.action_name,
                     "Action configuration not found for monitor match."
                 );
-                return Err(AlertManagerError::NotificationError(NotificationError::ConfigError(
-                    format!("Action '{}' not found", monitor_match.action_name),
-                )));
+                return Err(AlertManagerError::ActionDispatcherError(
+                    ActionDispatcherError::ConfigError(format!(
+                        "Action '{}' not found",
+                        monitor_match.action_name
+                    )),
+                ));
             }
         };
 
@@ -96,8 +100,8 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
                 // No policy, send immediately
                 tracing::debug!("No policy for action {}, sending immediately.", action_name);
                 if let Err(e) = self
-                    .notification_service
-                    .execute(NotificationPayload::Single(monitor_match.clone()))
+                    .action_dispatcher
+                    .execute(ActionPayload::Single(monitor_match.clone()))
                     .await
                 {
                     tracing::error!(
@@ -170,10 +174,8 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
                 throttle_state.count + 1,
                 policy.max_count
             );
-            if let Err(e) = self
-                .notification_service
-                .execute(NotificationPayload::Single(monitor_match.clone()))
-                .await
+            if let Err(e) =
+                self.action_dispatcher.execute(ActionPayload::Single(monitor_match.clone())).await
             {
                 tracing::error!(
                     "Failed to execute notification for throttled action '{}': {}",
@@ -293,13 +295,13 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
                 );
 
                 // And we use the policy's template to build the payload.
-                let payload = NotificationPayload::Aggregated {
+                let payload = ActionPayload::Aggregated {
                     action_name: action_config.name.clone(),
                     matches: state.matches,
                     template: policy.template.clone(),
                 };
 
-                if let Err(e) = self.notification_service.execute(payload).await {
+                if let Err(e) = self.action_dispatcher.execute(payload).await {
                     tracing::error!(
                         "Failed to send aggregated notification for key '{}': {}",
                         state_key,
@@ -355,6 +357,16 @@ impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
     pub async fn flush(&self) -> Result<(), AlertManagerError> {
         self.check_and_dispatch_expired_windows(true).await
     }
+
+    /// Shuts down the alert manager, flushing any pending notifications and
+    /// shutting down the action dispatcher.
+    pub async fn shutdown(&self) {
+        tracing::info!("Shutting down alert manager...");
+        if let Err(e) = self.flush().await {
+            tracing::error!("Failed to flush pending notifications: {}", e);
+        }
+        self.action_dispatcher.shutdown().await;
+    }
 }
 
 #[cfg(test)]
@@ -399,17 +411,18 @@ mod tests {
         }
     }
 
-    fn create_alert_manager(
+    async fn create_alert_manager(
         actions: HashMap<String, ActionConfig>,
         state_repo: MockKeyValueStore,
     ) -> AlertManager<MockKeyValueStore> {
         let state_repo = Arc::new(state_repo);
         let actions_arc = Arc::new(actions);
-        let notification_service = Arc::new(NotificationService::new(
-            actions_arc.clone(),
-            Arc::new(HttpClientPool::default()),
-        ));
-        AlertManager::new(notification_service, state_repo, actions_arc)
+        let action_dispatcher = Arc::new(
+            ActionDispatcher::new(actions_arc.clone(), Arc::new(HttpClientPool::default()))
+                .await
+                .unwrap(),
+        );
+        AlertManager::new(action_dispatcher, state_repo, actions_arc)
     }
 
     #[tokio::test]
@@ -417,7 +430,7 @@ mod tests {
         // Arrange
         let actions = HashMap::new(); // Empty actions map
         let state_repo = MockKeyValueStore::new();
-        let alert_manager = create_alert_manager(actions, state_repo);
+        let alert_manager = create_alert_manager(actions, state_repo).await;
         let monitor_match = create_monitor_match("NonExistentAction".to_string());
 
         // Act
@@ -426,7 +439,7 @@ mod tests {
         // Assert
         assert!(matches!(
             result,
-            Err(AlertManagerError::NotificationError(NotificationError::ConfigError(_)))
+            Err(AlertManagerError::ActionDispatcherError(ActionDispatcherError::ConfigError(_)))
         ));
     }
 
@@ -438,7 +451,7 @@ mod tests {
         let mut actions = HashMap::new();
         actions.insert(action_name.to_string(), action_config);
         let state_repo = MockKeyValueStore::new();
-        let alert_manager = create_alert_manager(actions, state_repo);
+        let alert_manager = create_alert_manager(actions, state_repo).await;
         let monitor_match = create_monitor_match(action_name);
 
         // Act
@@ -482,7 +495,7 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(())); // Simulate successful state save
 
-        let alert_manager = create_alert_manager(actions, state_repo);
+        let alert_manager = create_alert_manager(actions, state_repo).await;
         let monitor_match = create_monitor_match(action_name);
 
         let result = alert_manager.process_match(&monitor_match).await;
@@ -525,7 +538,7 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(())); // Simulate successful state save
 
-        let alert_manager = create_alert_manager(actions, state_repo);
+        let alert_manager = create_alert_manager(actions, state_repo).await;
         let monitor_match = create_monitor_match(action_name);
 
         let result = alert_manager.process_match(&monitor_match).await;
@@ -565,7 +578,7 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(())); // Simulate successful state save
 
-        let alert_manager = create_alert_manager(actions, state_repo);
+        let alert_manager = create_alert_manager(actions, state_repo).await;
         let monitor_match = create_monitor_match(action_name);
 
         let result = alert_manager.process_match(&monitor_match).await;
@@ -611,7 +624,7 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(()));
 
-        let alert_manager = create_alert_manager(actions, state_repo);
+        let alert_manager = create_alert_manager(actions, state_repo).await;
 
         let result = alert_manager.process_match(&monitor_match).await;
         assert!(result.is_ok());
@@ -663,7 +676,7 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(()));
 
-        let alert_manager = create_alert_manager(actions, state_repo);
+        let alert_manager = create_alert_manager(actions, state_repo).await;
 
         let result = alert_manager.process_match(&monitor_match).await;
         assert!(result.is_ok());
@@ -715,7 +728,7 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(()));
 
-        let alert_manager = create_alert_manager(actions, state_repo);
+        let alert_manager = create_alert_manager(actions, state_repo).await;
 
         // Act
         let result = alert_manager.check_and_dispatch_expired_windows(false).await;
@@ -728,7 +741,7 @@ mod tests {
     async fn test_get_action_lock_is_shared_and_distinct() {
         // Arrange
         let state_repo = MockKeyValueStore::new();
-        let alert_manager = create_alert_manager(HashMap::new(), state_repo);
+        let alert_manager = create_alert_manager(HashMap::new(), state_repo).await;
         let action1_name = "action1";
         let action2_name = "action2";
 
@@ -743,5 +756,26 @@ mod tests {
 
         // Different action names should return different lock instances.
         assert!(!Arc::ptr_eq(&lock1_instance1, &lock2_instance1));
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_actions() {
+        let publisher_action =
+            ActionBuilder::new("Test Action").kafka_config("kafka:9092", "test_topic").build();
+        let mut state_repo = MockKeyValueStore::new();
+
+        state_repo
+            .expect_get_all_json_states_by_prefix::<AggregationState>()
+            .with(eq("aggregation_state:".to_string()))
+            .times(1)
+            .returning(|_| Ok(vec![])); // No pending states
+
+        let mut actions = HashMap::new();
+
+        actions.insert(publisher_action.name.clone(), publisher_action);
+
+        let alert_manager = create_alert_manager(actions, state_repo).await;
+
+        alert_manager.shutdown().await;
     }
 }

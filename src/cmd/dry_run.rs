@@ -10,6 +10,7 @@ use thiserror::Error;
 
 use crate::{
     abi::{AbiError, AbiRepository, AbiService, repository::AbiRepositoryError},
+    actions::{ActionDispatcher, error::ActionDispatcherError},
     config::AppConfig,
     engine::{
         alert_manager::{AlertManager, AlertManagerError},
@@ -21,12 +22,11 @@ use crate::{
     loader::{LoaderError, load_config},
     models::{
         BlockData,
-        action::{ActionConfig, ActionError},
+        action::{ActionConfig, ActionConfigError},
         monitor::MonitorConfig,
         monitor_match::MonitorMatch,
     },
     monitor::{MonitorManager, MonitorValidationError, MonitorValidator},
-    notification::NotificationService,
     persistence::{error::PersistenceError, sqlite::SqliteStateRepository, traits::AppRepository},
     providers::{
         rpc::{EvmRpcSource, ProviderError, create_provider},
@@ -47,7 +47,7 @@ pub enum DryRunError {
 
     /// An error occurred while loading action definitions.
     #[error("Action loading error: {0}")]
-    ActionLoading(#[from] ActionError),
+    ActionLoading(#[from] ActionConfigError),
 
     /// A monitor failed validation against the defined rules.
     #[error("Monitor validation error: {0}")]
@@ -98,6 +98,10 @@ pub enum DryRunError {
         /// The ending block number.
         to: u64,
     },
+
+    /// An error occurred in the action dispatcher.
+    #[error("Action dispatcher error: {0}")]
+    ActionDispatcher(#[from] ActionDispatcherError),
 }
 
 /// A command to perform a dry run of monitors over a specified block range.
@@ -197,7 +201,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let client_pool = Arc::new(HttpClientPool::new(config.http_base_config.clone()));
     let actions: Arc<HashMap<String, ActionConfig>> =
         Arc::new(actions.into_iter().map(|t| (t.name.clone(), t)).collect());
-    let notification_service = Arc::new(NotificationService::new(actions.clone(), client_pool));
+    let action_dispatcher = Arc::new(ActionDispatcher::new(actions.clone(), client_pool).await?);
     let filtering_engine = RhaiFilteringEngine::new(
         abi_service.clone(),
         rhai_compiler,
@@ -206,7 +210,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     );
 
     // Init the AlertManager with the in-memory state repository.
-    let alert_manager = Arc::new(AlertManager::new(notification_service, state_repo, actions));
+    let alert_manager = Arc::new(AlertManager::new(action_dispatcher, state_repo, actions));
 
     // Execute the core processing loop.
     let matches = run_dry_run_loop(
@@ -381,11 +385,11 @@ mod tests {
     use super::*;
     use crate::{
         abi::{AbiRepository, AbiService},
+        actions::ActionDispatcher,
         config::RhaiConfig,
         engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
         http_client::HttpClientPool,
         models::monitor_match::{MatchData, TransactionMatchData},
-        notification::NotificationService,
         persistence::sqlite::SqliteStateRepository,
         providers::traits::MockDataSource,
         test_helpers::{ActionBuilder, BlockBuilder, MonitorBuilder, TransactionBuilder},
@@ -400,8 +404,9 @@ mod tests {
             .expect("Failed to connect to in-memory db");
         state_repo.run_migrations().await.expect("Failed to run migrations");
         let client_pool = Arc::new(HttpClientPool::default());
-        let notification_service = Arc::new(NotificationService::new(actions.clone(), client_pool));
-        Arc::new(AlertManager::new(notification_service, Arc::new(state_repo), actions))
+        let action_dispatcher =
+            Arc::new(ActionDispatcher::new(actions.clone(), client_pool).await.unwrap());
+        Arc::new(AlertManager::new(action_dispatcher, Arc::new(state_repo), actions))
     }
 
     #[tokio::test]

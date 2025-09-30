@@ -33,10 +33,25 @@ for example_dir in $(find "$EXAMPLES_DIR" -mindepth 1 -maxdepth 1 -type d -name 
     echo "Executing command: $command"
     echo "---"
     
+    # Check for a docker-compose.yml file in the example directory
+    docker_compose_file="$example_dir/docker-compose.yml"
+    if [ -f "$docker_compose_file" ]; then
+        echo "--- Found docker-compose.yml, setting up services for $example_dir ---"
+        docker compose -f "$docker_compose_file" up -d
+        # Give services some time to start up
+        sleep 15
+    fi
+    
     # Execute the command safely by parsing it into an array and running it directly.
     read -r -a cmd_array <<< "$command"
     output=$("${cmd_array[@]}")
     exit_code=$?
+
+    # Teardown Docker Compose services if they were started, regardless of the outcome
+    if [ -f "$docker_compose_file" ]; then
+        echo "--- Tearing down services for $example_dir ---"
+        docker compose -f "$docker_compose_file" down
+    fi
 
     if [ $exit_code -ne 0 ]; then
         echo "ERROR: Command failed with exit code $exit_code"

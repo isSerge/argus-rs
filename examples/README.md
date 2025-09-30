@@ -17,6 +17,9 @@ Argus EVM Monitor.
 - [5. Monitor with Throttling Policy](./5_action_with_throttle_policy/README.md): This example demonstrates how to configure a action with a `throttle` policy to limit the rate of notifications.
 - [6. Action with Aggregation Policy](./6_action_with_aggregation_policy/README.md): This example demonstrates how to use the `sum` and `avg` filters in action templates to aggregate values from multiple monitor matches.
 - [7. Address Watchlist Monitor](./7_address_watchlist_monitor/README.md): This example demonstrates how to use an array as a watchlist to monitor for any activity involving a specific set of addresses.
+- [8. High Priority Fee](./8_high_priority_fee/README.md): This example demonstrates how to monitor for transactions with unusually high priority fees.
+- [9. Admin Function Call Monitor](./9_admin_function_call/README.md): This example demonstrates how to monitor for calls to a specific function on a contract.
+- [10. Action with Kafka Publisher](./10_action_with_kafka_publisher/README.md): This example demonstrates how to configure and use a `kafka` action to send notifications to a Kafka topic.
 
 ---
 

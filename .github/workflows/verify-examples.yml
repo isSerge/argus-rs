@@ -34,8 +34,6 @@ jobs:
       run: cargo build --workspace --release
 
     - name: Run examples
-      env:
-        JS_EXECUTOR_BIN_PATH: "target/release/js_executor"
       run: |
         chmod +x ./run_examples.sh
         ./run_examples.sh
