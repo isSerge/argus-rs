@@ -3,9 +3,3 @@ actions:
     kafka:
       brokers: "127.0.0.1:9092"
       topic: "argus-alerts"
-      producer:
-        acks: "1"
-        message_timeout_ms: 5000
-        compression_codec: "none"
-      security:
-        protocol: "PLAINTEXT"
