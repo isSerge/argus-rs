@@ -23,7 +23,7 @@ pub struct KafkaConfig {
 #[serde(deny_unknown_fields)]
 pub struct KafkaSecurityConfig {
     /// The security protocol to use. Common values are PLAINTEXT, SSL,
-    // SASL_PLAINTEXT, SASL_SSL.
+    /// SASL_PLAINTEXT, SASL_SSL.
     pub protocol: String,
 
     /// The SASL mechanism to use for authentication.
