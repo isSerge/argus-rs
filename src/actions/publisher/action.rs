@@ -44,7 +44,13 @@ impl Action for PublisherAction {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+        time::Duration,
+    };
 
     use alloy::primitives::TxHash;
     use serde_json::json;
@@ -100,5 +106,71 @@ mod tests {
 
         let result = action.execute(payload).await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_publisher_action_execute_aggregated() {
+        let monitor_match = create_monitor_match("Test Monitor", "test_action");
+        let payload = ActionPayload::Aggregated {
+            action_name: "test_action".to_string(),
+            matches: vec![monitor_match],
+            template: Default::default(),
+        };
+
+        struct MockPublisher;
+
+        #[async_trait::async_trait]
+        impl EventPublisher for MockPublisher {
+            async fn publish(
+                &self,
+                _topic: &str,
+                _key: &str,
+                _payload: &[u8],
+            ) -> Result<(), PublisherError> {
+                Ok(())
+            }
+
+            async fn flush(&self, _timeout: Duration) -> Result<(), PublisherError> {
+                Ok(())
+            }
+        }
+
+        let action = PublisherAction::new("test_topic".to_string(), Box::new(MockPublisher));
+
+        let result = action.execute(payload).await;
+        assert!(result.is_err());
+        assert!(matches!(result.err().unwrap(), ActionDispatcherError::InternalError(_)));
+    }
+
+    #[tokio::test]
+    async fn test_publisher_action_shutdown() {
+        struct MockPublisher {
+            flushed: Arc<AtomicBool>,
+        }
+
+        #[async_trait::async_trait]
+        impl EventPublisher for MockPublisher {
+            async fn publish(
+                &self,
+                _topic: &str,
+                _key: &str,
+                _payload: &[u8],
+            ) -> Result<(), PublisherError> {
+                Ok(())
+            }
+
+            async fn flush(&self, _timeout: Duration) -> Result<(), PublisherError> {
+                self.flushed.store(true, Ordering::SeqCst);
+                Ok(())
+            }
+        }
+
+        let flushed_flag = Arc::new(AtomicBool::new(false));
+        let publisher = MockPublisher { flushed: Arc::clone(&flushed_flag) };
+        let action = PublisherAction::new("test_topic".to_string(), Box::new(publisher));
+
+        let result = action.shutdown().await;
+        assert!(result.is_ok());
+        assert!(flushed_flag.load(Ordering::SeqCst));
     }
 }
