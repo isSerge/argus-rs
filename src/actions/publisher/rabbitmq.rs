@@ -84,7 +84,8 @@ impl Action for RabbitMqEventPublisher {
         let monitor_name = payload.monitor_name();
         let routing_key = self.default_routing_key.as_deref().unwrap_or(&monitor_name);
 
-        self.publish(&self.exchange, routing_key, &serialized_payload).await?;
+        // `key` param is not used in RabbitMQ
+        self.publish(routing_key, "", &serialized_payload).await?;
 
         Ok(())
     }
