@@ -95,3 +95,21 @@ impl Action for RabbitMqEventPublisher {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_rabbitmq_event_publisher_from_config() {
+        let config = RabbitMqConfig {
+            uri: "amqp://localhost:5672".to_string(),
+            exchange: "test-exchange".to_string(),
+            exchange_type: "direct".to_string(),
+            routing_key: Some("test-routing-key".to_string()),
+        };
+
+        let publisher = RabbitMqEventPublisher::from_config(&config).await;
+        assert!(publisher.is_ok());
+    }
+}
