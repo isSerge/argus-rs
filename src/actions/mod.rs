@@ -363,51 +363,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_execute_stdout_with_message() {
-        let action_config = ActionBuilder::new("stdout_test")
-            .stdout_config(Some(NotificationMessage {
-                title: "Test Title".to_string(),
-                body: "This is a test body.".to_string(),
-            }))
-            .build();
-
-        let action_payload = ActionPayload::Single(create_mock_monitor_match(&action_config.name));
-
-        let service = ActionDispatcher::new(
-            Arc::new(
-                vec![(action_config.name.clone(), action_config.clone())].into_iter().collect(),
-            ),
-            Arc::new(HttpClientPool::default()),
-        )
-        .await
-        .unwrap();
-
-        let result = service.execute(action_payload).await;
-
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_execute_stdout_without_message() {
-        let action_config = ActionBuilder::new("stdout_test").stdout_config(None).build();
-
-        let action_payload = ActionPayload::Single(create_mock_monitor_match(&action_config.name));
-
-        let service = ActionDispatcher::new(
-            Arc::new(
-                vec![(action_config.name.clone(), action_config.clone())].into_iter().collect(),
-            ),
-            Arc::new(HttpClientPool::default()),
-        )
-        .await
-        .unwrap();
-
-        let result = service.execute(action_payload).await;
-
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
     async fn test_shutdown_actions_no_panic() {
         let action_config = ActionBuilder::new("stdout_test").stdout_config(None).build();
 

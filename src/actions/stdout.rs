@@ -41,3 +41,79 @@ impl Action for StdoutAction {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use alloy::primitives::{TxHash, address};
+    use serde_json::json;
+
+    use super::*;
+    use crate::{
+        models::{
+            NotificationMessage,
+            action::ActionTypeConfig,
+            monitor_match::{LogDetails, MonitorMatch},
+        },
+        test_helpers::ActionBuilder,
+    };
+
+    // TODO: use builder
+    fn create_mock_monitor_match(action_name: &str) -> MonitorMatch {
+        let log_details = LogDetails {
+            address: address!("0x1234567890abcdef1234567890abcdef12345678"),
+            log_index: 15,
+            name: "TestLog".to_string(),
+            params: json!({"param1": "value1", "param2": 42}),
+        };
+        MonitorMatch::new_log_match(
+            1,
+            "test monitor".to_string(),
+            action_name.to_string(),
+            123,
+            TxHash::default(),
+            log_details,
+            json!({}),
+        )
+    }
+
+    #[tokio::test]
+    async fn test_execute_stdout_with_message() {
+        let action_config = ActionBuilder::new("stdout_test")
+            .stdout_config(Some(NotificationMessage {
+                title: "Test Title".to_string(),
+                body: "This is a test body.".to_string(),
+            }))
+            .build();
+
+        let action_payload = ActionPayload::Single(create_mock_monitor_match(&action_config.name));
+
+        let stdout_config = match action_config.config {
+            ActionTypeConfig::Stdout(config) => config,
+            _ => panic!("Expected StdoutConfig"),
+        };
+
+        let stdout_action = StdoutAction::new(stdout_config, Arc::new(TemplateService::new()));
+
+        let result = stdout_action.execute(action_payload).await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_execute_stdout_without_message() {
+        let action_config = ActionBuilder::new("stdout_test").stdout_config(None).build();
+
+        let action_payload = ActionPayload::Single(create_mock_monitor_match(&action_config.name));
+
+        let stdout_config = match action_config.config {
+            ActionTypeConfig::Stdout(config) => config,
+            _ => panic!("Expected StdoutConfig"),
+        };
+
+        let stdout_action = StdoutAction::new(stdout_config, Arc::new(TemplateService::new()));
+
+        let result = stdout_action.execute(action_payload).await;
+
+        assert!(result.is_ok());
+    }
+}
