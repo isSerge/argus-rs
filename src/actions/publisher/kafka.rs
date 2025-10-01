@@ -112,7 +112,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::models::action::{KafkaProducerConfig, KafkaSecurityConfig};
+    use crate::models::{action::{KafkaProducerConfig, KafkaSecurityConfig}, monitor_match::MonitorMatch};
 
     #[test]
     fn test_kafka_event_publisher_from_config_default() {
@@ -197,5 +197,53 @@ mod tests {
         assert_eq!(message.key(), Some(key.as_bytes()));
         assert_eq!(message.payload(), Some(payload.as_ref()));
         assert_eq!(message.topic(), topic.to_string());
+    }
+
+    #[tokio::test]
+    async fn test_kafka_event_publisher_execute() {
+        let mock_cluster = MockCluster::new(1).expect("Failed to create mock cluster");
+        let topic = "test-topic";
+
+        mock_cluster.create_topic(topic, 1, 1).expect("Failed to create topic");
+
+        let consumer = ClientConfig::new()
+            .set("bootstrap.servers", &mock_cluster.bootstrap_servers())
+            .set("group.id", "test-group")
+            .set("auto.offset.reset", "earliest")
+            .create::<StreamConsumer>()
+            .expect("Failed to create consumer");
+
+        consumer.subscribe(&[topic]).expect("Failed to subscribe to topic");
+
+        let config = KafkaConfig {
+            brokers: mock_cluster.bootstrap_servers(),
+            topic: topic.to_string(),
+            ..Default::default()
+        };
+
+        let action = KafkaEventPublisher::from_config(&config).expect("Failed to create action");
+
+        let monitor_match = MonitorMatch::new_tx_match(
+            1,
+            "Test Monitor".to_string(),
+            "test_kafka".to_string(),
+            123,
+            Default::default(),
+            serde_json::json!({"value": "100"}),
+        );
+        let payload = ActionPayload::Single(monitor_match.clone());
+
+        let result = action.execute(payload.clone()).await;
+        assert!(result.is_ok(), "Execute should succeed, got error: {:?}", result.err());
+
+        let message = tokio::time::timeout(std::time::Duration::from_secs(5), consumer.recv())
+            .await
+            .expect("Timeout waiting for message")
+            .expect("Failed to receive message");
+
+        let expected_payload = serde_json::to_vec(&payload.context().unwrap()).unwrap();
+        use rdkafka::Message;
+        assert_eq!(message.payload(), Some(expected_payload.as_slice()));
+        assert_eq!(message.key(), Some(monitor_match.transaction_hash.to_string().as_bytes()));
     }
 }
