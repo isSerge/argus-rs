@@ -116,6 +116,63 @@ If a `message` template is provided, it will be rendered and printed. If `messag
       body: "tx hash: {{ transaction_hash }}"
 ```
 
+### Kafka
+
+The `kafka` action sends the full `MonitorMatch` JSON payload to a specified Apache Kafka topic. This is useful for integrating with data pipelines, event streaming platforms, and other backend systems.
+
+```yaml
+- name: "kafka-action"
+  kafka:
+    # A comma-separated list of Kafka broker addresses.
+    brokers: "127.0.0.1:9092"
+    # The Kafka topic to publish messages to.
+    topic: "argus-alerts"
+    # (Optional) Security configuration for connecting to Kafka.
+    security:
+      protocol: "SASL_SSL"
+      sasl_mechanism: "PLAIN"
+      sasl_username: "${KAFKA_USERNAME}"
+      sasl_password: "${KAFKA_PASSWORD}"
+      ssl_ca_location: "/path/to/ca.crt"
+    # (Optional) Producer-specific configuration properties.
+    producer:
+      message_timeout_ms: 5000
+      compression_codec: "snappy"
+      acks: "all"
+```
+
+**Configuration Details:**
+
+*   `brokers` (string, required): A comma-separated list of Kafka broker addresses (e.g., `"broker1:9092,broker2:9092"`).
+*   `topic` (string, required): The Kafka topic to publish messages to.
+*   `security` (object, optional): Configuration for connecting to a secure Kafka cluster.
+    *   `protocol` (string): The security protocol to use. Common values are `PLAINTEXT`, `SSL`, `SASL_PLAINTEXT`, `SASL_SSL`. Defaults to `PLAINTEXT`.
+    *   `sasl_mechanism` (string, optional): The SASL mechanism for authentication (e.g., `PLAIN`, `SCRAM-SHA-256`).
+    *   `sasl_username` (string, optional): The username for SASL authentication. Supports environment variable expansion (e.g., `${KAFKA_USERNAME}`).
+    *   `sasl_password` (string, optional): The password for SASL authentication. Supports environment variable expansion.
+    *   `ssl_ca_location` (string, optional): Path to the CA certificate file for verifying the broker's certificate.
+*   `producer` (object, optional): Advanced configuration for the Kafka producer.
+    *   `message_timeout_ms` (integer): The maximum time in milliseconds to wait for a message to be sent. Defaults to `5000`.
+    *   `compression_codec` (string): The compression codec to use. Common values are `none`, `gzip`, `snappy`, `lz4`, `zstd`. Defaults to `none`.
+    *   `acks` (string): The number of acknowledgments required before a request is considered complete. Can be `0`, `1`, or `all`. Defaults to `all` for maximum durability.
+
+### RabbitMQ
+
+The `rabbitmq` action sends the full `MonitorMatch` JSON payload to a RabbitMQ exchange. This is ideal for integrating with message queues and event-driven architectures.
+
+```yaml
+- name: "rabbitmq-action"
+  rabbitmq:
+    # The RabbitMQ connection URI.
+    uri: "amqp://guest:guest@127.0.0.1:5672/%2f"
+    # The name of the exchange to publish messages to.
+    exchange: "argus-alerts-exchange"
+    # The type of the exchange (e.g., "topic", "direct", "fanout").
+    exchange_type: "topic"
+    # The routing key to use for the message.
+    routing_key: "large.eth.transfers"
+```
+
 ---
 
 ## Notification Policies
