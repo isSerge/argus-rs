@@ -1,0 +1,7 @@
+monitors:
+  - name: "Large ETH Transfers to RabbitMQ"
+    network: "ethereum"
+    filter_script: |
+      tx.value > ether(10)
+    actions:
+      - "rabbitmq-action"

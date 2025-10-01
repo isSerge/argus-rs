@@ -1,0 +1,7 @@
+actions:
+  - name: "rabbitmq-action"
+    rabbit_mq:
+      uri: "amqp://guest:guest@127.0.0.1:5672/%2f"
+      exchange: "argus-alerts-exchange"
+      exchange_type: "topic"
+      routing_key: "large.eth.transfers"
