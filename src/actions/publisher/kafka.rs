@@ -112,7 +112,10 @@ mod tests {
     };
 
     use super::*;
-    use crate::models::{action::{KafkaProducerConfig, KafkaSecurityConfig}, monitor_match::MonitorMatch};
+    use crate::models::{
+        action::{KafkaProducerConfig, KafkaSecurityConfig},
+        monitor_match::MonitorMatch,
+    };
 
     #[test]
     fn test_kafka_event_publisher_from_config_default() {

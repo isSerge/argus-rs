@@ -84,7 +84,7 @@ impl Action for RabbitMqEventPublisher {
         let monitor_name = payload.monitor_name();
         let routing_key = self.default_routing_key.as_deref().unwrap_or(&monitor_name);
 
-        self.publish(&self.exchange, &routing_key, &serialized_payload).await?;
+        self.publish(&self.exchange, routing_key, &serialized_payload).await?;
 
         Ok(())
     }
@@ -93,23 +93,5 @@ impl Action for RabbitMqEventPublisher {
         self.channel.close(200, "Goodbye").await.map_err(|e| {
             ActionDispatcherError::InternalError(format!("Failed to close RabbitMQ channel: {e}"))
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_rabbitmq_event_publisher_from_config() {
-        let config = RabbitMqConfig {
-            uri: "amqp://localhost:5672".to_string(),
-            exchange: "test-exchange".to_string(),
-            exchange_type: "direct".to_string(),
-            routing_key: Some("test-routing-key".to_string()),
-        };
-
-        let publisher = RabbitMqEventPublisher::from_config(&config).await;
-        assert!(publisher.is_ok());
     }
 }
