@@ -57,3 +57,108 @@ impl ActionPayload {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use alloy::primitives::TxHash;
+
+    use super::*;
+
+    #[test]
+    fn test_single_payload_context() {
+        let monitor_match = MonitorMatch::new_tx_match(
+            1,
+            "test-monitor".to_string(),
+            "test-action".to_string(),
+            123,
+            TxHash::default(),
+            serde_json::json!({ "foo": "bar" }),
+        );
+        let payload = ActionPayload::Single(monitor_match.clone());
+        let context = payload.context().unwrap();
+        let expected_context = serde_json::to_value(&monitor_match).unwrap();
+        assert_eq!(context, expected_context);
+    }
+
+    #[test]
+    fn test_aggregated_payload_context() {
+        let monitor_match1 = MonitorMatch::new_tx_match(
+            1,
+            "test-monitor".to_string(),
+            "test-action".to_string(),
+            123,
+            TxHash::default(),
+            serde_json::json!({ "foo": "bar" }),
+        );
+        let monitor_match2 = MonitorMatch::new_tx_match(
+            2,
+            "test-monitor".to_string(),
+            "test-action".to_string(),
+            124,
+            TxHash::default(),
+            serde_json::json!({ "baz": "qux" }),
+        );
+        let payload = ActionPayload::Aggregated {
+            action_name: "test-action".to_string(),
+            matches: vec![monitor_match1.clone(), monitor_match2.clone()],
+            template: NotificationMessage {
+                title: "Test Title".to_string(),
+                body: "Test Body".to_string(),
+            },
+        };
+        let context = payload.context().unwrap();
+        let expected_context = serde_json::json!({
+            "matches": [monitor_match1, monitor_match2],
+            "monitor_name": "test-monitor",
+        });
+        assert_eq!(context, expected_context);
+    }
+
+    #[test]
+    fn test_action_name() {
+        let monitor_match = MonitorMatch::new_tx_match(
+            1,
+            "test-monitor".to_string(),
+            "test-action".to_string(),
+            123,
+            TxHash::default(),
+            serde_json::json!({ "foo": "bar" }),
+        );
+        let single_payload = ActionPayload::Single(monitor_match.clone());
+        assert_eq!(single_payload.action_name(), "test-action");
+
+        let aggregated_payload = ActionPayload::Aggregated {
+            action_name: "aggregated-action".to_string(),
+            matches: vec![monitor_match],
+            template: NotificationMessage {
+                title: "Test Title".to_string(),
+                body: "Test Body".to_string(),
+            },
+        };
+        assert_eq!(aggregated_payload.action_name(), "aggregated-action");
+    }
+
+    #[test]
+    fn test_monitor_name() {
+        let monitor_match = MonitorMatch::new_tx_match(
+            1,
+            "test-monitor".to_string(),
+            "test-action".to_string(),
+            123,
+            TxHash::default(),
+            serde_json::json!({ "foo": "bar" }),
+        );
+        let single_payload = ActionPayload::Single(monitor_match.clone());
+        assert_eq!(single_payload.monitor_name(), "test-monitor");
+
+        let aggregated_payload = ActionPayload::Aggregated {
+            action_name: "aggregated-action".to_string(),
+            matches: vec![monitor_match],
+            template: NotificationMessage {
+                title: "Test Title".to_string(),
+                body: "Test Body".to_string(),
+            },
+        };
+        assert_eq!(aggregated_payload.monitor_name(), "test-monitor");
+    }
+}
