@@ -5,7 +5,7 @@ use crate::{
     models::{
         action::{
             ActionConfig, ActionPolicy, ActionTypeConfig, DiscordConfig, GenericWebhookConfig,
-            KafkaConfig, RabbitMqConfig, SlackConfig, StdoutConfig,
+            KafkaConfig, NatsConfig, RabbitMqConfig, SlackConfig, StdoutConfig,
         },
         notification::NotificationMessage,
     },
@@ -91,6 +91,16 @@ impl ActionBuilder {
             exchange: exchange.to_string(),
             routing_key: Some(routing_key.to_string()),
             exchange_type: "topic".to_string(),
+        });
+        self
+    }
+
+    /// Sets the Action to use NATS configuration.
+    pub fn nats_config(mut self, urls: &str, subject: &str) -> Self {
+        self.config = ActionTypeConfig::Nats(NatsConfig {
+            urls: urls.to_string(),
+            subject: subject.to_string(),
+            credentials: None,
         });
         self
     }

@@ -36,7 +36,7 @@ pub enum ActionTypeConfig {
     Kafka(KafkaConfig),
     /// A RabbitMQ event publisher.
     RabbitMq(RabbitMqConfig),
-    // A NATS event publisher.
+    /// A NATS event publisher.
     Nats(NatsConfig),
 }
 
