@@ -80,17 +80,23 @@ impl EventPublisher for RabbitMqEventPublisher {
 #[async_trait::async_trait]
 impl Action for RabbitMqEventPublisher {
     async fn execute(&self, payload: ActionPayload) -> Result<(), ActionDispatcherError> {
-        let context = payload.context()?;
-        let serialized_payload =
-            serde_json::to_vec(&context).map_err(ActionDispatcherError::DeserializationError)?;
+        match &payload {
+            ActionPayload::Single(monitor_match) => {
+                let context = payload.context()?;
+                let serialized_payload = serde_json::to_vec(&context)
+                    .map_err(ActionDispatcherError::DeserializationError)?;
 
-        let monitor_name = payload.monitor_name();
-        let routing_key = self.default_routing_key.as_deref().unwrap_or(&monitor_name);
+                let key = monitor_match.transaction_hash.to_string();
 
-        // `key` param is not used in RabbitMQ
-        self.publish(routing_key, "", &serialized_payload).await?;
+                self.publish(&self.exchange, &key, &serialized_payload).await?;
 
-        Ok(())
+                Ok(())
+            }
+            ActionPayload::Aggregated { .. } => {
+                tracing::warn!("RabbitMQ publisher does not support aggregated payloads.");
+                Ok(())
+            }
+        }
     }
 
     async fn shutdown(&self) -> Result<(), ActionDispatcherError> {

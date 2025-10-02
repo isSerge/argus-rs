@@ -42,19 +42,23 @@ impl EventPublisher for KafkaEventPublisher {
 #[async_trait::async_trait]
 impl Action for KafkaEventPublisher {
     async fn execute(&self, payload: ActionPayload) -> Result<(), ActionDispatcherError> {
-        let context = payload.context()?;
-        let serialized_payload =
-            serde_json::to_vec(&context).map_err(ActionDispatcherError::DeserializationError)?;
+        match &payload {
+            ActionPayload::Single(monitor_match) => {
+                let context = payload.context()?;
+                let serialized_payload = serde_json::to_vec(&context)
+                    .map_err(ActionDispatcherError::DeserializationError)?;
 
-        let key = match &payload {
-            ActionPayload::Single(monitor_match) => monitor_match.transaction_hash.to_string(),
-            // TODO: consider error for aggregated actions
-            ActionPayload::Aggregated { .. } => "aggregated".to_string(),
-        };
+                let key = monitor_match.transaction_hash.to_string();
 
-        self.publish(&self.topic, &key, &serialized_payload).await?;
+                self.publish(&self.topic, &key, &serialized_payload).await?;
 
-        Ok(())
+                Ok(())
+            }
+            ActionPayload::Aggregated { .. } => {
+                tracing::warn!("Kafka publisher does not support aggregated payloads.");
+                Ok(())
+            }
+        }
     }
 
     async fn shutdown(&self) -> Result<(), ActionDispatcherError> {
