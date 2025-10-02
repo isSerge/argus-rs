@@ -14,7 +14,6 @@ use argus::{
     },
     test_helpers::ActionBuilder,
 };
-use async_nats;
 use lapin::{
     Connection, ConnectionProperties, ExchangeKind,
     options::{BasicConsumeOptions, ExchangeDeclareOptions, QueueBindOptions, QueueDeclareOptions},

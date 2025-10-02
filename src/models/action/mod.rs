@@ -86,6 +86,10 @@ pub enum ActionTypeConfigError {
     /// Error for empty NATS subject.
     #[error("NATS subject cannot be empty.")]
     EmptyNatsSubject,
+
+    /// Error for providing both token and file for NATS credentials.
+    #[error("NATS credentials cannot have both token and file set.")]
+    BothNatsCredentials,
 }
 
 impl ActionTypeConfig {
@@ -158,6 +162,12 @@ impl ActionTypeConfig {
                     return Err(ActionTypeConfigError::EmptyNatsSubject);
                 }
 
+                if let Some(creds) = &config.credentials {
+                    if creds.token.is_some() && creds.file.is_some() {
+                        return Err(ActionTypeConfigError::BothNatsCredentials);
+                    }
+                }
+
                 Ok(())
             }
         }
@@ -207,10 +217,7 @@ mod tests {
     use url::Url;
 
     use super::*;
-    use crate::{
-        config::HttpRetryConfig,
-        models::{action::nats::NatsCredentials, notification::NotificationMessage},
-    };
+    use crate::{config::HttpRetryConfig, models::notification::NotificationMessage};
 
     // Helper to create a default notification message
     fn notification_message() -> NotificationMessage {
@@ -458,5 +465,20 @@ mod tests {
             credentials: Some(NatsCredentials { token: None, file: Some("test_file".to_string()) }),
         });
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_nats_with_both_credentials() {
+        let config = ActionTypeConfig::Nats(NatsConfig {
+            urls: "nats://localhost:4222, nats://localhost:4223".to_string(),
+            subject: "test_subject".to_string(),
+            credentials: Some(NatsCredentials {
+                token: Some("test_token".to_string()),
+                file: Some("test_file".to_string()),
+            }),
+        });
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ActionTypeConfigError::BothNatsCredentials));
     }
 }

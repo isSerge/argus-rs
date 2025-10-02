@@ -23,18 +23,18 @@ pub struct NatsEventPublisher {
 impl NatsEventPublisher {
     /// Creates a new `NatsEventPublisher` from the given configuration.
     pub async fn from_config(config: &NatsConfig) -> Result<Self, PublisherError> {
-        let options = match &config.credentials {
-            Some(creds) => match &creds.token {
-                Some(token) => async_nats::ConnectOptions::with_token(token.clone()),
-                None => match &creds.file {
-                    Some(file) => async_nats::ConnectOptions::with_credentials_file(file)
-                        .await
-                        .map_err(|e| PublisherError::Nats(e.to_string()))?,
-                    None => async_nats::ConnectOptions::new(),
-                },
-            },
-            None => async_nats::ConnectOptions::new(),
+        let options = match config.credentials.as_ref() {
+            Some(creds) if creds.token.is_some() => {
+                async_nats::ConnectOptions::with_token(creds.token.as_ref().unwrap().clone())
+            }
+            Some(creds) if creds.file.is_some() => {
+                async_nats::ConnectOptions::with_credentials_file(creds.file.as_ref().unwrap())
+                    .await
+                    .map_err(|e| PublisherError::Nats(e.to_string()))?
+            }
+            _ => async_nats::ConnectOptions::new(),
         };
+
         let client =
             options.connect(&config.urls).await.map_err(|e| PublisherError::Nats(e.to_string()))?;
         let subject = config.subject.clone();
