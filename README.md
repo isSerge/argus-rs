@@ -19,7 +19,7 @@ Argus is a next-generation, open-source, self-hosted monitoring tool for EVM cha
 -   **EVM Value Wrappers**: Convenient functions like `ether`, `gwei`, and `usdc` for handling common token denominations, plus a generic `decimals` function for custom tokens. This makes filter scripts more readable and less error-prone.
 -   **Multi-Channel Notifications**: Supports webhook, Slack, Discord, and Telegram notifications, allowing for easy integration with your favorite services.
 -   **Advanced Notification Policies**: Support alert aggregation and throttling to reduce noise.
--   **Message Queue Integration**: Stream filtered events into Kafka and RabbitMQ for scalable data pipelines and event-driven architectures.
+-   **Message Queue Integration**: Stream filtered events into Kafka, RabbitMQ and NATS for scalable data pipelines and event-driven architectures.
 -   **Stateful Processing**: Tracks its progress in a local SQLite database, allowing it to stop and resume from where it left off without missing any blocks.
 -   **CLI Dry-Run Mode**: A `dry-run` command allows you to test your monitor against a range of historical blocks to ensure it works as expected before deploying it live.
 -   **Docker Support**: Comes with a multi-stage `Dockerfile` and `docker compose.yml` for easy, portable deployments.
