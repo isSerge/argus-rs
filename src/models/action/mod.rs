@@ -1,12 +1,14 @@
 //! This module defines the data structures for action configurations.
 
 mod kafka;
+mod nats;
 mod policies;
 mod rabbitmq;
 mod stdout;
 mod webhook;
 
 pub use kafka::{KafkaConfig, KafkaProducerConfig, KafkaSecurityConfig};
+pub use nats::{NatsConfig, NatsCredentials};
 pub use policies::{ActionPolicy, AggregationPolicy, ThrottlePolicy};
 pub use rabbitmq::RabbitMqConfig;
 use serde::{Deserialize, Serialize};
@@ -34,6 +36,8 @@ pub enum ActionTypeConfig {
     Kafka(KafkaConfig),
     /// A RabbitMQ event publisher.
     RabbitMq(RabbitMqConfig),
+    /// A NATS event publisher.
+    Nats(NatsConfig),
 }
 
 /// Error types for Action configuration validation.
@@ -74,6 +78,18 @@ pub enum ActionTypeConfigError {
     /// Error for empty RabbitMQ exchange.
     #[error("RabbitMQ exchange cannot be empty.")]
     EmptyRabbitMqExchange,
+
+    /// Error for empty NATS server URLs.
+    #[error("NATS server URLs cannot be empty.")]
+    EmptyNatsUrls,
+
+    /// Error for empty NATS subject.
+    #[error("NATS subject cannot be empty.")]
+    EmptyNatsSubject,
+
+    /// Error for providing both token and file for NATS credentials.
+    #[error("NATS credentials cannot have both token and file set.")]
+    BothNatsCredentials,
 }
 
 impl ActionTypeConfig {
@@ -131,6 +147,26 @@ impl ActionTypeConfig {
 
                 if config.exchange.is_empty() {
                     return Err(ActionTypeConfigError::EmptyRabbitMqExchange);
+                }
+
+                Ok(())
+            }
+
+            // NATS publisher validation.
+            ActionTypeConfig::Nats(config) => {
+                if config.urls.is_empty() {
+                    return Err(ActionTypeConfigError::EmptyNatsUrls);
+                }
+
+                if config.subject.is_empty() {
+                    return Err(ActionTypeConfigError::EmptyNatsSubject);
+                }
+
+                if let Some(creds) = &config.credentials
+                    && creds.token.is_some()
+                    && creds.file.is_some()
+                {
+                    return Err(ActionTypeConfigError::BothNatsCredentials);
                 }
 
                 Ok(())
@@ -373,5 +409,77 @@ mod tests {
         let result = config.validate();
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), ActionTypeConfigError::EmptyRabbitMqExchange));
+    }
+
+    #[test]
+    fn test_validate_nats_ok() {
+        let config = ActionTypeConfig::Nats(NatsConfig {
+            urls: "nats://localhost:4222, nats://localhost:4223".to_string(),
+            subject: "test_subject".to_string(),
+            ..Default::default()
+        });
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_nats_empty_urls() {
+        let config = ActionTypeConfig::Nats(NatsConfig {
+            urls: "".to_string(),
+            subject: "test_subject".to_string(),
+            ..Default::default()
+        });
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ActionTypeConfigError::EmptyNatsUrls));
+    }
+
+    #[test]
+    fn test_validate_nats_empty_subject() {
+        let config = ActionTypeConfig::Nats(NatsConfig {
+            urls: "nats://localhost:4222, nats://localhost:4223".to_string(),
+            subject: "".to_string(),
+            ..Default::default()
+        });
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ActionTypeConfigError::EmptyNatsSubject));
+    }
+
+    #[test]
+    fn test_validate_nats_with_credentials_token() {
+        let config = ActionTypeConfig::Nats(NatsConfig {
+            urls: "nats://localhost:4222, nats://localhost:4223".to_string(),
+            subject: "test_subject".to_string(),
+            credentials: Some(NatsCredentials {
+                token: Some("test_token".to_string()),
+                file: None,
+            }),
+        });
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_nats_with_credentials_file() {
+        let config = ActionTypeConfig::Nats(NatsConfig {
+            urls: "nats://localhost:4222, nats://localhost:4223".to_string(),
+            subject: "test_subject".to_string(),
+            credentials: Some(NatsCredentials { token: None, file: Some("test_file".to_string()) }),
+        });
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_nats_with_both_credentials() {
+        let config = ActionTypeConfig::Nats(NatsConfig {
+            urls: "nats://localhost:4222, nats://localhost:4223".to_string(),
+            subject: "test_subject".to_string(),
+            credentials: Some(NatsCredentials {
+                token: Some("test_token".to_string()),
+                file: Some("test_file".to_string()),
+            }),
+        });
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ActionTypeConfigError::BothNatsCredentials));
     }
 }

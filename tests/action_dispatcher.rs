@@ -28,6 +28,7 @@ use crate::docker_compose_guard::DockerComposeGuard;
 
 const RABBITMQ_DOCKER_COMPOSE: &str =
     "examples/11_action_with_rabbitmq_publisher/docker-compose.yml";
+const NATS_DOCKER_COMPOSE: &str = "examples/12_action_with_nats_publisher/docker-compose.yml";
 
 #[tokio::test]
 async fn test_webhook_action_success() {
@@ -398,6 +399,76 @@ async fn test_rabbitmq_action_failure() {
         1,
         "Test Monitor".to_string(),
         "test_rabbitmq_failure".to_string(),
+        123,
+        Default::default(),
+        json!({"value": "100"}),
+    );
+
+    let payload = ActionPayload::Single(monitor_match.clone());
+    let result = action_dispatcher.execute(payload).await;
+
+    assert!(result.is_err());
+    assert!(matches!(result.err().unwrap(), ActionDispatcherError::ConfigError(_)));
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_nats_action_success() {
+    let _docker_guard = DockerComposeGuard::new(NATS_DOCKER_COMPOSE);
+    // 1. Set up NATS connection URI
+    let nats_uri = "nats://localhost:4222";
+    let subject = &format!("test-subject-{}", std::process::id()); // Unique subject name using process ID
+
+    // 2. Create a subscriber to verify the message
+    let client = async_nats::connect(nats_uri).await.expect("Failed to connect to NATS");
+    let mut subscriber = client.subscribe(subject.to_string()).await.expect("Failed to subscribe");
+
+    // 3. Create NATS action config
+    let nats_action = ActionBuilder::new("test_nats").nats_config(nats_uri, subject).build();
+
+    // 4. Create ActionDispatcher
+    let http_client_pool = Arc::new(HttpClientPool::default());
+    let actions = Arc::new(vec![nats_action].into_iter().map(|n| (n.name.clone(), n)).collect());
+    let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
+
+    // 5. Create a monitor match and execute the action
+    let monitor_match = MonitorMatch::new_tx_match(
+        1,
+        "Test Monitor".to_string(),
+        "test_nats".to_string(),
+        123,
+        Default::default(),
+        json!({"value": "100"}),
+    );
+    let payload = ActionPayload::Single(monitor_match.clone());
+    let result = action_dispatcher.execute(payload.clone()).await;
+    assert!(result.is_ok(), "NATS action should succeed, got error: {:?}", result.err());
+
+    // 6. Verify the message was published
+    let message = tokio::time::timeout(std::time::Duration::from_secs(5), subscriber.next())
+        .await
+        .expect("Timeout waiting for message")
+        .expect("Failed to receive message");
+
+    let expected_payload = serde_json::to_vec(&payload.context().unwrap()).unwrap();
+    assert_eq!(message.payload.to_vec(), expected_payload);
+    assert_eq!(message.subject.as_str(), subject);
+}
+
+#[tokio::test]
+async fn test_nats_action_failure() {
+    let nats_action = ActionBuilder::new("test_nats_failure")
+        .nats_config("nats://127.0.0.1:1", "test-subject") // Invalid port
+        .build();
+
+    let http_client_pool = Arc::new(HttpClientPool::default());
+    let actions = Arc::new(vec![nats_action].into_iter().map(|n| (n.name.clone(), n)).collect());
+    let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
+
+    let monitor_match = MonitorMatch::new_tx_match(
+        1,
+        "Test Monitor".to_string(),
+        "test_nats_failure".to_string(),
         123,
         Default::default(),
         json!({"value": "100"}),

@@ -9,7 +9,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::{
     actions::{
-        publisher::{KafkaEventPublisher, RabbitMqEventPublisher},
+        publisher::{KafkaEventPublisher, NatsEventPublisher, RabbitMqEventPublisher},
         stdout::StdoutAction,
         traits::Action,
         webhook::WebhookAction,
@@ -104,6 +104,23 @@ impl ActionDispatcher {
                                 action_name = name,
                                 error = ?e,
                                 "Failed to create RabbitMQ publisher"
+                            );
+                            continue;
+                        }
+                    };
+
+                    Box::new(publisher)
+                }
+
+                // NATS publisher action
+                ActionTypeConfig::Nats(c) => {
+                    let publisher = match NatsEventPublisher::from_config(c).await {
+                        Ok(p) => p,
+                        Err(e) => {
+                            tracing::error!(
+                                action_name = name,
+                                error = ?e,
+                                "Failed to create NATS publisher"
                             );
                             continue;
                         }

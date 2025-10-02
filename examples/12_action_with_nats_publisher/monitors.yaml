@@ -1,0 +1,7 @@
+monitors:
+  - name: "Large ETH Transfers to NATS"
+    network: "ethereum"
+    filter_script: |
+      tx.value > ether(10)
+    actions:
+      - "nats-action"
