@@ -32,8 +32,7 @@ jobs:
             ${{ runner.os }}-mdbook-
 
       - name: Install mdbook
-        if: steps.cache-mdbook.outputs.cache-hit != 'true'
-        run: cargo install mdbook
+        run: cargo install mdbook --force
 
       - name: Build mdBook
         run: mdbook build ./docs
