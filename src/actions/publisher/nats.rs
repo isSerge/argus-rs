@@ -24,13 +24,11 @@ impl NatsEventPublisher {
     /// Creates a new `NatsEventPublisher` from the given configuration.
     pub async fn from_config(config: &NatsConfig) -> Result<Self, PublisherError> {
         let options = match config.credentials.as_ref() {
-            Some(creds) if creds.token.is_some() => {
-                async_nats::ConnectOptions::with_token(creds.token.as_ref().unwrap().clone())
-            }
-            Some(creds) if creds.file.is_some() => {
+            Some(creds) if creds.token.is_some() =>
+                async_nats::ConnectOptions::with_token(creds.token.as_ref().unwrap().clone()),
+            Some(creds) if creds.file.is_some() =>
                 async_nats::ConnectOptions::with_credentials_file(creds.file.as_ref().unwrap())
-                    .await?
-            }
+                    .await?,
             _ => async_nats::ConnectOptions::new(),
         };
 

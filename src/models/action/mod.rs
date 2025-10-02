@@ -162,11 +162,10 @@ impl ActionTypeConfig {
                     return Err(ActionTypeConfigError::EmptyNatsSubject);
                 }
 
-                if let Some(creds) = &config.credentials {
-                    if creds.token.is_some() && creds.file.is_some() {
+                if let Some(creds) = &config.credentials
+                    && creds.token.is_some() && creds.file.is_some() {
                         return Err(ActionTypeConfigError::BothNatsCredentials);
                     }
-                }
 
                 Ok(())
             }
