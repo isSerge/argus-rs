@@ -14,7 +14,7 @@ use alloy::primitives::TxHash;
 use argus::{
     actions::{
         ActionPayload,
-        publisher::{EventPublisher, kafka::KafkaEventPublisher, rabbitmq::RabbitMqEventPublisher},
+        publisher::{EventPublisher, KafkaEventPublisher, RabbitMqEventPublisher},
     },
     models::{
         action::{KafkaConfig, RabbitMqConfig},
