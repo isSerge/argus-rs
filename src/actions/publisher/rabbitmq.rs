@@ -1,3 +1,5 @@
+//! Event publisher for RabbitMQ.
+
 use lapin::{
     Connection, ConnectionProperties, ExchangeKind, options::ExchangeDeclareOptions,
     types::FieldTable,
@@ -26,6 +28,7 @@ pub struct RabbitMqEventPublisher {
 }
 
 impl RabbitMqEventPublisher {
+    /// Creates a new `RabbitMqEventPublisher` from the given configuration.
     pub async fn from_config(config: &RabbitMqConfig) -> Result<Self, PublisherError> {
         let connection = Connection::connect(&config.uri, ConnectionProperties::default()).await?;
         let channel = connection.create_channel().await?;

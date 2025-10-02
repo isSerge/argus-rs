@@ -1,3 +1,5 @@
+//! Kafka event publisher implementation.
+
 use std::time::Duration;
 
 use rdkafka::{

@@ -23,7 +23,7 @@ use crate::{
 
 pub mod error;
 mod payload;
-mod publisher;
+pub mod publisher;
 mod stdout;
 pub mod template;
 mod traits;
