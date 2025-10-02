@@ -86,4 +86,12 @@ Shows how to set up a `rabbitmq` action to publish notifications to a RabbitMQ e
 
 **Features Demonstrated:** `rabbitmq` action.
 
+---
+
+### [12. Action with NATS Publisher](https://github.com/isSerge/argus-rs/tree/main/examples/12_action_with_nats_publisher/README.md)
+
+Demonstrates how to configure a `nats` action to send notifications to a NATS subject for real-time, cloud-native messaging.
+
+**Features Demonstrated:** `nats` action.
+
 

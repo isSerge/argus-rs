@@ -118,7 +118,7 @@ If a `message` template is provided, it will be rendered and printed. If `messag
 
 ### Kafka
 
-The `kafka` action sends the full `MonitorMatch` JSON payload to a specified Apache Kafka topic. This is useful for integrating with data pipelines, event streaming platforms, and other backend systems.
+The `kafka` action sends the full `MonitorMatch` JSON payload to a specified Apache Kafka topic.
 
 ```yaml
 - name: "kafka-action"
@@ -158,7 +158,7 @@ The `kafka` action sends the full `MonitorMatch` JSON payload to a specified Apa
 
 ### RabbitMQ
 
-The `rabbitmq` action sends the full `MonitorMatch` JSON payload to a RabbitMQ exchange. This is ideal for integrating with message queues and event-driven architectures.
+The `rabbitmq` action sends the full `MonitorMatch` JSON payload to a RabbitMQ exchange.
 
 ```yaml
 - name: "rabbitmq-action"
@@ -171,6 +171,25 @@ The `rabbitmq` action sends the full `MonitorMatch` JSON payload to a RabbitMQ e
     exchange_type: "topic"
     # The routing key to use for the message.
     routing_key: "large.eth.transfers"
+```
+
+### NATS
+
+The `nats` action sends the full `MonitorMatch` JSON payload to a NATS subject.
+
+```yaml
+- name: "nats-action"
+  nats:
+    # The NATS connection URL(s), comma-separated.
+    urls: "nats://127.0.0.1:4222"
+    # The subject to publish messages to.
+    subject: "argus.alerts"
+    # (Optional) Credentials for connecting to NATS.
+    credentials:
+      # (Optional) A token for authentication.
+      token: "${NATS_TOKEN}"
+      # (Optional) Path to a credentials file (.creds).
+      file: "/path/to/user.creds"
 ```
 
 ---
