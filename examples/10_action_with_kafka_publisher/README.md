@@ -91,13 +91,3 @@ Once you are finished, you can stop and remove the Kafka container:
 ```bash
 docker compose -f examples/10_action_with_kafka_publisher/docker-compose.yml down
 ```
-
-### How to Run (Default Mode)
-
-To run the monitor in live mode, continuously polling for new blocks:
-
-```bash
-cargo run --release -- run --config-dir examples/10_action_with_kafka_publisher/
-```
-
-Notifications for new blocks that match the monitor's criteria will be sent to the Kafka topic in real-time.
