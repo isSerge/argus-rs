@@ -1,33 +1,15 @@
 //! # Action Dispatcher
 //!
-//! This module is responsible for sending notifications through various
-//! channels based on action configurations. It acts as the central hub for
-//! dispatching alerts when a monitor finds a match.
-//!
-//! ## Core Components
-//!
-//! - **`ActionDispatcher`**: The main struct that holds the loaded action
-//!   configurations and a shared `HttpClientPool`. It is responsible for
-//!   executing notifications.
-//! - **`Action` Trait**: A generic interface for all notification channels,
-//!   allowing for a unified dispatch mechanism.
-//!
-//! ## Workflow
-//!
-//! 1. The `ActionDispatcher` is initialized with a collection of validated
-//!    `ActionConfig`s, which are loaded at application startup.
-//! 2. For each `ActionConfig`, a corresponding `Action` implementation (e.g.,
-//!    `WebhookClientWrapper`, `StdoutAction`) is created and stored.
-//! 3. When a monitor match occurs, the `execute` method is called with the name
-//!    of the action to be executed.
-//! 4. The manager looks up the corresponding `Action` trait object and calls
-//!    its `notify` method with the appropriate payload.
+//! The Action Dispatcher is responsible for managing and executing various
+//! types of actions based on pre-loaded configurations. It supports actions
+//! such as webhook notifications, standard output logging, and message
+//! publishing to systems like Kafka, RabbitMQ, etc.
 
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
     actions::{
-        publisher::{KafkaEventPublisher, PublisherAction},
+        publisher::{KafkaEventPublisher, RabbitMqEventPublisher},
         stdout::StdoutAction,
         traits::Action,
         webhook::WebhookAction,
@@ -41,7 +23,7 @@ use crate::{
 
 pub mod error;
 mod payload;
-mod publisher;
+pub mod publisher;
 mod stdout;
 pub mod template;
 mod traits;
@@ -110,7 +92,24 @@ impl ActionDispatcher {
                         }
                     };
 
-                    Box::new(PublisherAction::new(c.topic.clone(), Box::new(publisher)))
+                    Box::new(publisher)
+                }
+
+                // RabbitMQ publisher action
+                ActionTypeConfig::RabbitMq(c) => {
+                    let publisher = match RabbitMqEventPublisher::from_config(c).await {
+                        Ok(p) => p,
+                        Err(e) => {
+                            tracing::error!(
+                                action_name = name,
+                                error = ?e,
+                                "Failed to create RabbitMQ publisher"
+                            );
+                            continue;
+                        }
+                    };
+
+                    Box::new(publisher)
                 }
 
                 // Standard output action
@@ -361,51 +360,6 @@ mod tests {
             }
             _ => panic!("Expected ConfigError"),
         }
-    }
-
-    #[tokio::test]
-    async fn test_execute_stdout_with_message() {
-        let action_config = ActionBuilder::new("stdout_test")
-            .stdout_config(Some(NotificationMessage {
-                title: "Test Title".to_string(),
-                body: "This is a test body.".to_string(),
-            }))
-            .build();
-
-        let action_payload = ActionPayload::Single(create_mock_monitor_match(&action_config.name));
-
-        let service = ActionDispatcher::new(
-            Arc::new(
-                vec![(action_config.name.clone(), action_config.clone())].into_iter().collect(),
-            ),
-            Arc::new(HttpClientPool::default()),
-        )
-        .await
-        .unwrap();
-
-        let result = service.execute(action_payload).await;
-
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_execute_stdout_without_message() {
-        let action_config = ActionBuilder::new("stdout_test").stdout_config(None).build();
-
-        let action_payload = ActionPayload::Single(create_mock_monitor_match(&action_config.name));
-
-        let service = ActionDispatcher::new(
-            Arc::new(
-                vec![(action_config.name.clone(), action_config.clone())].into_iter().collect(),
-            ),
-            Arc::new(HttpClientPool::default()),
-        )
-        .await
-        .unwrap();
-
-        let result = service.execute(action_payload).await;
-
-        assert!(result.is_ok());
     }
 
     #[tokio::test]

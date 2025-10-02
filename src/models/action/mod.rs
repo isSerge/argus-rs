@@ -2,11 +2,13 @@
 
 mod kafka;
 mod policies;
+mod rabbitmq;
 mod stdout;
 mod webhook;
 
 pub use kafka::{KafkaConfig, KafkaProducerConfig, KafkaSecurityConfig};
 pub use policies::{ActionPolicy, AggregationPolicy, ThrottlePolicy};
+pub use rabbitmq::RabbitMqConfig;
 use serde::{Deserialize, Serialize};
 pub use stdout::StdoutConfig;
 use thiserror::Error;
@@ -30,6 +32,8 @@ pub enum ActionTypeConfig {
     Stdout(StdoutConfig),
     /// A Kafka event publisher.
     Kafka(KafkaConfig),
+    /// A RabbitMQ event publisher.
+    RabbitMq(RabbitMqConfig),
 }
 
 /// Error types for Action configuration validation.
@@ -57,11 +61,19 @@ pub enum ActionTypeConfigError {
 
     /// Error for empty Kafka publisher topic.
     #[error("Event publisher topic cannot be empty.")]
-    EmptyPublisherTopic,
+    EmptyKafkaTopic,
 
     /// Error for empty Kafka publisher brokers.
     #[error("Event publisher brokers cannot be empty.")]
-    EmptyPublisherBrokers,
+    EmptyKafkaBrokers,
+
+    /// Error for empty RabbitMQ URI.
+    #[error("RabbitMQ URI cannot be empty.")]
+    EmptyRabbitMqUri,
+
+    /// Error for empty RabbitMQ exchange.
+    #[error("RabbitMQ exchange cannot be empty.")]
+    EmptyRabbitMqExchange,
 }
 
 impl ActionTypeConfig {
@@ -98,13 +110,27 @@ impl ActionTypeConfig {
             // Standard output Action requires no validation.
             ActionTypeConfig::Stdout(_) => Ok(()),
 
+            // Kafka publisher validation.
             ActionTypeConfig::Kafka(config) => {
                 if config.topic.is_empty() {
-                    return Err(ActionTypeConfigError::EmptyPublisherTopic);
+                    return Err(ActionTypeConfigError::EmptyKafkaTopic);
                 }
 
                 if config.brokers.is_empty() {
-                    return Err(ActionTypeConfigError::EmptyPublisherBrokers);
+                    return Err(ActionTypeConfigError::EmptyKafkaBrokers);
+                }
+
+                Ok(())
+            }
+
+            // RabbitMQ publisher validation.
+            ActionTypeConfig::RabbitMq(config) => {
+                if config.uri.is_empty() {
+                    return Err(ActionTypeConfigError::EmptyRabbitMqUri);
+                }
+
+                if config.exchange.is_empty() {
+                    return Err(ActionTypeConfigError::EmptyRabbitMqExchange);
                 }
 
                 Ok(())
@@ -300,7 +326,7 @@ mod tests {
         });
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ActionTypeConfigError::EmptyPublisherTopic));
+        assert!(matches!(result.unwrap_err(), ActionTypeConfigError::EmptyKafkaTopic));
     }
 
     #[test]
@@ -312,6 +338,40 @@ mod tests {
         });
         let result = config.validate();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ActionTypeConfigError::EmptyPublisherBrokers));
+        assert!(matches!(result.unwrap_err(), ActionTypeConfigError::EmptyKafkaBrokers));
+    }
+
+    #[test]
+    fn test_validate_rabbitmq_ok() {
+        let config = ActionTypeConfig::RabbitMq(RabbitMqConfig {
+            uri: "amqp://guest:guest@localhost:5672/%2f".to_string(),
+            exchange: "test_exchange".to_string(),
+            ..Default::default()
+        });
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_rabbitmq_empty_uri() {
+        let config = ActionTypeConfig::RabbitMq(RabbitMqConfig {
+            uri: "".to_string(),
+            exchange: "test_exchange".to_string(),
+            ..Default::default()
+        });
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ActionTypeConfigError::EmptyRabbitMqUri));
+    }
+
+    #[test]
+    fn test_validate_rabbitmq_empty_exchange() {
+        let config = ActionTypeConfig::RabbitMq(RabbitMqConfig {
+            uri: "amqp://guest:guest@localhost:5672/%2f".to_string(),
+            exchange: "".to_string(),
+            ..Default::default()
+        });
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ActionTypeConfigError::EmptyRabbitMqExchange));
     }
 }

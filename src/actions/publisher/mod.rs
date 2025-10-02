@@ -1,9 +1,11 @@
-mod action;
+//! Event publishers for different messaging systems (e.g., Kafka, RabbitMQ).
+
 mod error;
-mod kafka;
+pub mod kafka;
+pub mod rabbitmq;
 mod traits;
 
-pub use action::PublisherAction;
 pub use error::PublisherError;
 pub use kafka::KafkaEventPublisher;
+pub use rabbitmq::RabbitMqEventPublisher;
 pub use traits::EventPublisher;

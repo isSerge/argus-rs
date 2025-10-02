@@ -70,3 +70,20 @@ Demonstrates how to monitor for calls to a specific function on a contract using
 
 **Features Demonstrated:** `decode_calldata`.
 
+---
+
+### [10. Action with Kafka Publisher](https://github.com/isSerge/argus-rs/tree/main/examples/10_action_with_kafka_publisher/README.md)
+
+Demonstrates how to configure a `kafka` action to send notifications to a Kafka topic, ideal for integrating with data streaming platforms.
+
+**Features Demonstrated:** `kafka` action.
+
+---
+
+### [11. Action with RabbitMQ Publisher](https://github.com/isSerge/argus-rs/tree/main/examples/11_action_with_rabbitmq_publisher/README.md)
+
+Shows how to set up a `rabbitmq` action to publish notifications to a RabbitMQ exchange for integration with message queue-based systems.
+
+**Features Demonstrated:** `rabbitmq` action.
+
+

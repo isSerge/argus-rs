@@ -5,7 +5,7 @@ use crate::{
     models::{
         action::{
             ActionConfig, ActionPolicy, ActionTypeConfig, DiscordConfig, GenericWebhookConfig,
-            KafkaConfig, SlackConfig, StdoutConfig,
+            KafkaConfig, RabbitMqConfig, SlackConfig, StdoutConfig,
         },
         notification::NotificationMessage,
     },
@@ -80,6 +80,17 @@ impl ActionBuilder {
             brokers: brokers.to_string(),
             topic: topic.to_string(),
             ..Default::default()
+        });
+        self
+    }
+
+    /// Sets the Action to use RabbitMQ configuration.
+    pub fn rabbitmq_config(mut self, uri: &str, exchange: &str, routing_key: &str) -> Self {
+        self.config = ActionTypeConfig::RabbitMq(RabbitMqConfig {
+            uri: uri.to_string(),
+            exchange: exchange.to_string(),
+            routing_key: Some(routing_key.to_string()),
+            exchange_type: "topic".to_string(),
         });
         self
     }

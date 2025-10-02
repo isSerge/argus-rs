@@ -19,7 +19,7 @@ Argus is a next-generation, open-source, self-hosted monitoring tool for EVM cha
 -   **EVM Value Wrappers**: Convenient functions like `ether`, `gwei`, and `usdc` for handling common token denominations, plus a generic `decimals` function for custom tokens. This makes filter scripts more readable and less error-prone.
 -   **Multi-Channel Notifications**: Supports webhook, Slack, Discord, and Telegram notifications, allowing for easy integration with your favorite services.
 -   **Advanced Notification Policies**: Support alert aggregation and throttling to reduce noise.
--   **Kafka Integration**: Stream filtered events into Kafka topics for scalable data pipelines.
+-   **Message Queue Integration**: Stream filtered events into Kafka and RabbitMQ for scalable data pipelines and event-driven architectures.
 -   **Stateful Processing**: Tracks its progress in a local SQLite database, allowing it to stop and resume from where it left off without missing any blocks.
 -   **CLI Dry-Run Mode**: A `dry-run` command allows you to test your monitor against a range of historical blocks to ensure it works as expected before deploying it live.
 -   **Docker Support**: Comes with a multi-stage `Dockerfile` and `docker compose.yml` for easy, portable deployments.
@@ -231,16 +231,26 @@ You can view logs with `docker compose logs -f` and stop the application with `d
 
 ## Project Structure
 
-The `src` directory is organized into several modules, each with a distinct responsibility.
+The repository is organized to separate application logic, configuration, and documentation.
+
+-   `configs`: Holds the default YAML configuration files (`app.yaml`, `monitors.yaml`, `actions.yaml`).
+-   `examples`: Contains a collection of self-contained, runnable examples, each demonstrating a specific feature or use case.
+-   `docs`: The source for the project's official documentation, built with `mdbook`.
+-   `abis`: The default directory for storing contract ABI JSON files, which are used to decode event logs.
+-   `migrations`: Contains the SQL migration files for setting up and updating the application's database schema.
+
+The `src` directory contains all the Rust source code, organized into the following modules:
 
 -   `abi`: Handles ABI parsing, decoding, and management.
+-   `actions`: Manages sending notifications to services like webhooks, Slack, and message queues like Kafka.
+-   `cmd`: Contains the definitions for the command-line interface (CLI) commands like `run` and `dry-run`.
 -   `config`: Manages application configuration loading and validation.
 -   `engine`: The core processing and filtering logic, including the Rhai script executor.
 -   `http_client`: Provides a retryable HTTP client and a pool for managing clients.
--   `http_server`: (Future) Will contain the REST API server for dynamic monitor management.
 -   `initialization`: Loads initial data (monitors, actions, ABIs) at startup.
+-   `loader`: Handles the loading and parsing of configuration files.
 -   `models`: Defines the core data structures (e.g., `Monitor`, `BlockData`, `Transaction`).
--   `notification`: Manages sending notifications to services like webhooks.
+-   `monitor`: Manages the lifecycle and validation of monitor configurations.
 -   `persistence`: Manages the application's state via the `StateRepository` trait.
 -   `providers`: Fetches data from external sources like EVM nodes.
 -   `supervisor`: The top-level orchestrator that initializes and coordinates all services.

@@ -22,7 +22,17 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Cache mdbook
+        id: cache-mdbook
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/bin/mdbook
+          key: ${{ runner.os }}-mdbook-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mdbook-
+
       - name: Install mdbook
+        if: steps.cache-mdbook.outputs.cache-hit != 'true'
         run: cargo install mdbook
 
       - name: Build mdBook

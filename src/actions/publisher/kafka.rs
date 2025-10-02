@@ -1,3 +1,5 @@
+//! Kafka event publisher implementation.
+
 use std::time::Duration;
 
 use rdkafka::{
@@ -6,7 +8,12 @@ use rdkafka::{
 };
 
 use crate::{
-    actions::publisher::{EventPublisher, PublisherError},
+    actions::{
+        ActionPayload,
+        error::ActionDispatcherError,
+        publisher::{EventPublisher, PublisherError},
+        traits::Action,
+    },
     models::action::KafkaConfig,
 };
 
@@ -14,6 +21,7 @@ use crate::{
 #[derive(Clone)]
 pub struct KafkaEventPublisher {
     producer: FutureProducer,
+    topic: String,
 }
 
 #[async_trait::async_trait]
@@ -25,22 +33,42 @@ impl EventPublisher for KafkaEventPublisher {
             .send(record, Duration::from_secs(0))
             .await
             .map(|_| ())
-            .map_err(|(kafka_error, _)| PublisherError::KafkaError(kafka_error))?;
+            .map_err(|(kafka_error, _)| PublisherError::Kafka(kafka_error))?;
 
         Ok(())
     }
+}
 
-    async fn flush(&self, timeout: Duration) -> Result<(), PublisherError> {
-        self.producer.flush(timeout).map_err(|e| e.into())
+#[async_trait::async_trait]
+impl Action for KafkaEventPublisher {
+    async fn execute(&self, payload: ActionPayload) -> Result<(), ActionDispatcherError> {
+        match &payload {
+            ActionPayload::Single(monitor_match) => {
+                let context = payload.context()?;
+                let serialized_payload = serde_json::to_vec(&context)
+                    .map_err(ActionDispatcherError::DeserializationError)?;
+
+                let key = monitor_match.transaction_hash.to_string();
+
+                self.publish(&self.topic, &key, &serialized_payload).await?;
+
+                Ok(())
+            }
+            ActionPayload::Aggregated { .. } => {
+                tracing::warn!("Kafka publisher does not support aggregated payloads.");
+                Ok(())
+            }
+        }
+    }
+
+    async fn shutdown(&self) -> Result<(), ActionDispatcherError> {
+        self.producer.flush(Duration::from_secs(5)).map_err(|e| {
+            ActionDispatcherError::InternalError(format!("Failed to flush Kafka producer: {e}"))
+        })
     }
 }
 
 impl KafkaEventPublisher {
-    /// Creates a new `KafkaEventPublisher` from the given `FutureProducer`.
-    pub fn new(producer: FutureProducer) -> Self {
-        Self { producer }
-    }
-
     /// Creates a new `KafkaEventPublisher` from the given `KafkaConfig`.
     pub fn from_config(config: &KafkaConfig) -> Result<Self, PublisherError> {
         let mut client_config = ClientConfig::new();
@@ -75,10 +103,9 @@ impl KafkaEventPublisher {
         client_config.set("compression.codec", &config.producer.compression_codec);
 
         // Create the FutureProducer
-        let producer =
-            client_config.create::<FutureProducer>().map_err(PublisherError::KafkaError)?;
+        let producer = client_config.create::<FutureProducer>()?;
 
-        Ok(Self::new(producer))
+        Ok(Self { producer, topic: config.topic.clone() })
     }
 }
 
@@ -91,7 +118,10 @@ mod tests {
     };
 
     use super::*;
-    use crate::models::action::{KafkaProducerConfig, KafkaSecurityConfig};
+    use crate::models::{
+        action::{KafkaProducerConfig, KafkaSecurityConfig},
+        monitor_match::MonitorMatch,
+    };
 
     #[test]
     fn test_kafka_event_publisher_from_config_default() {
@@ -179,7 +209,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_kafka_event_publisher_flush() {
+    async fn test_kafka_event_publisher_execute() {
         let mock_cluster = MockCluster::new(1).expect("Failed to create mock cluster");
         let topic = "test-topic";
 
@@ -200,28 +230,29 @@ mod tests {
             ..Default::default()
         };
 
-        let publisher =
-            KafkaEventPublisher::from_config(&config).expect("Failed to create publisher");
+        let action = KafkaEventPublisher::from_config(&config).expect("Failed to create action");
 
-        let key = "flush-key";
-        let payload = b"test-payload";
+        let monitor_match = MonitorMatch::new_tx_match(
+            1,
+            "Test Monitor".to_string(),
+            "test_kafka".to_string(),
+            123,
+            Default::default(),
+            serde_json::json!({"value": "100"}),
+        );
+        let payload = ActionPayload::Single(monitor_match.clone());
 
-        let publisher_clone = publisher.clone();
+        let result = action.execute(payload.clone()).await;
+        assert!(result.is_ok(), "Execute should succeed, got error: {:?}", result.err());
 
-        tokio::spawn(async move {
-            let result = publisher_clone.publish(&config.topic, key, payload).await;
-            assert!(result.is_ok());
-        });
+        let message = tokio::time::timeout(std::time::Duration::from_secs(5), consumer.recv())
+            .await
+            .expect("Timeout waiting for message")
+            .expect("Failed to receive message");
 
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        let result = publisher.flush(Duration::from_secs(5)).await;
-        assert!(result.is_ok());
-
-        let message = consumer.recv().await.expect("Failed to receive message");
-
-        assert_eq!(message.key(), Some(key.as_bytes()));
-        assert_eq!(message.payload(), Some(payload.as_ref()));
-        assert_eq!(message.topic(), topic.to_string());
+        let expected_payload = serde_json::to_vec(&payload.context().unwrap()).unwrap();
+        use rdkafka::Message;
+        assert_eq!(message.payload(), Some(expected_payload.as_slice()));
+        assert_eq!(message.key(), Some(monitor_match.transaction_hash.to_string().as_bytes()));
     }
 }
