@@ -29,14 +29,12 @@ impl NatsEventPublisher {
             }
             Some(creds) if creds.file.is_some() => {
                 async_nats::ConnectOptions::with_credentials_file(creds.file.as_ref().unwrap())
-                    .await
-                    .map_err(|e| PublisherError::Nats(e.to_string()))?
+                    .await?
             }
             _ => async_nats::ConnectOptions::new(),
         };
 
-        let client =
-            options.connect(&config.urls).await.map_err(|e| PublisherError::Nats(e.to_string()))?;
+        let client = options.connect(&config.urls).await?;
         let subject = config.subject.clone();
 
         Ok(NatsEventPublisher { client, subject })
@@ -59,8 +57,7 @@ impl EventPublisher for NatsEventPublisher {
 
         self.client
             .publish_with_headers(subject.to_string(), headers, Bytes::copy_from_slice(payload))
-            .await
-            .map_err(|e| PublisherError::Nats(format!("Failed to publish to NATS: {e}")))?;
+            .await?;
 
         Ok(())
     }
