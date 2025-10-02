@@ -1,9 +1,10 @@
 //! Integration tests for the ActionDispatcher service
 
+mod docker_compose_guard;
 use std::sync::Arc;
 
 use argus::{
-    actions::{ActionDispatcher, ActionPayload},
+    actions::{ActionDispatcher, ActionPayload, error::ActionDispatcherError},
     config::HttpRetryConfig,
     http_client::HttpClientPool,
     models::{
@@ -13,9 +14,20 @@ use argus::{
     },
     test_helpers::ActionBuilder,
 };
+use lapin::{
+    Connection, ConnectionProperties, ExchangeKind,
+    options::{BasicConsumeOptions, ExchangeDeclareOptions, QueueBindOptions, QueueDeclareOptions},
+    types::FieldTable,
+};
 use rdkafka::consumer::Consumer;
 use serde_json::json;
+use tokio_stream::StreamExt;
 use url::Url;
+
+use crate::docker_compose_guard::DockerComposeGuard;
+
+const RABBITMQ_DOCKER_COMPOSE: &str =
+    "examples/11_action_with_rabbitmq_publisher/docker-compose.yml";
 
 #[tokio::test]
 async fn test_webhook_action_success() {
@@ -281,4 +293,119 @@ async fn test_kafka_action_failure() {
     let result = action_dispatcher.execute(payload).await;
 
     assert!(result.is_err());
+}
+
+// Tests for RabbitMQ action using a real RabbitMQ instance in Docker
+#[tokio::test]
+#[ignore]
+async fn test_rabbitmq_action_success() {
+    let _docker_guard = DockerComposeGuard::new(RABBITMQ_DOCKER_COMPOSE);
+    // 1. Set up RabbitMQ connection URI
+    let rabbitmq_uri = "amqp://guest:guest@localhost:5672/%2f";
+    let exchange = &format!("test-exchange-{}", std::process::id()); // Unique exchange name using process ID
+    let routing_key = "test-key";
+
+    // 2. Create a consumer to verify the message
+    let conn = Connection::connect(rabbitmq_uri, ConnectionProperties::default())
+        .await
+        .expect("Failed to connect to RabbitMQ");
+    let channel = conn.create_channel().await.expect("Failed to create channel");
+
+    // Ensure the exchange exists before binding a queue to it
+    channel
+        .exchange_declare(
+            exchange,
+            ExchangeKind::Topic,
+            ExchangeDeclareOptions { durable: true, ..Default::default() },
+            FieldTable::default(),
+        )
+        .await
+        .expect("Failed to declare exchange");
+
+    let queue = channel
+        .queue_declare("", QueueDeclareOptions::default(), FieldTable::default())
+        .await
+        .expect("Failed to declare queue");
+    channel
+        .queue_bind(
+            queue.name().as_str(),
+            exchange,
+            routing_key,
+            QueueBindOptions::default(),
+            FieldTable::default(),
+        )
+        .await
+        .expect("Failed to bind queue");
+    let mut consumer = channel
+        .basic_consume(
+            queue.name().as_str(),
+            "test-consumer",
+            BasicConsumeOptions::default(),
+            FieldTable::default(),
+        )
+        .await
+        .expect("Failed to create consumer");
+
+    // 3. Create RabbitMQ action config
+    let rabbitmq_action = ActionBuilder::new("test_rabbitmq")
+        .rabbitmq_config(rabbitmq_uri, exchange, routing_key)
+        .build();
+
+    // 4. Create ActionDispatcher
+    let http_client_pool = Arc::new(HttpClientPool::default());
+    let actions =
+        Arc::new(vec![rabbitmq_action].into_iter().map(|n| (n.name.clone(), n)).collect());
+    let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
+
+    // 5. Create a monitor match and execute the action
+    let monitor_match = MonitorMatch::new_tx_match(
+        1,
+        "Test Monitor".to_string(),
+        "test_rabbitmq".to_string(),
+        123,
+        Default::default(),
+        json!({"value": "100"}),
+    );
+    let payload = ActionPayload::Single(monitor_match.clone());
+    let result = action_dispatcher.execute(payload.clone()).await;
+    assert!(result.is_ok(), "RabbitMQ action should succeed, got error: {:?}", result.err());
+
+    // 6. Verify the message was published
+    let delivery = tokio::time::timeout(std::time::Duration::from_secs(5), consumer.next())
+        .await
+        .expect("Timeout waiting for message")
+        .expect("Failed to receive message")
+        .expect("Error in received message");
+
+    let expected_payload = serde_json::to_vec(&payload.context().unwrap()).unwrap();
+    assert_eq!(delivery.data, expected_payload);
+    assert_eq!(delivery.exchange.as_str(), exchange);
+    assert_eq!(delivery.routing_key.as_str(), routing_key);
+}
+
+#[tokio::test]
+async fn test_rabbitmq_action_failure() {
+    let rabbitmq_action = ActionBuilder::new("test_rabbitmq_failure")
+        .rabbitmq_config("amqp://guest:guest@127.0.0.1:1/%2f", "test-exchange", "test-key") // Invalid port
+        .build();
+
+    let http_client_pool = Arc::new(HttpClientPool::default());
+    let actions =
+        Arc::new(vec![rabbitmq_action].into_iter().map(|n| (n.name.clone(), n)).collect());
+    let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
+
+    let monitor_match = MonitorMatch::new_tx_match(
+        1,
+        "Test Monitor".to_string(),
+        "test_rabbitmq_failure".to_string(),
+        123,
+        Default::default(),
+        json!({"value": "100"}),
+    );
+
+    let payload = ActionPayload::Single(monitor_match.clone());
+    let result = action_dispatcher.execute(payload).await;
+
+    assert!(result.is_err());
+    assert!(matches!(result.err().unwrap(), ActionDispatcherError::ConfigError(_)));
 }
