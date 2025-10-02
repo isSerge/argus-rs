@@ -8,4 +8,8 @@ pub enum PublisherError {
     /// RabbitMQ error
     #[error("RabbitMQ error: {0}")]
     Lapin(#[from] lapin::Error),
+
+    /// NATS error
+    #[error("NATS error: {0}")]
+    Nats(String),
 }
