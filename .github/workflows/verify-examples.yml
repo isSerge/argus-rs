@@ -19,16 +19,27 @@ jobs:
       with:
         components: clippy, rustfmt
 
-    - name: Cache Cargo artifacts
-      uses: actions/cache@v4
+    - name: Cache Docker layers
+      uses: actions/cache@v3
+      with:
+        path: /var/lib/docker
+        key: ${{ runner.os }}-docker-${{ hashFiles('**/docker-compose.yml') }}
+        restore-keys: |
+          ${{ runner.os }}-docker-
+
+    - name: Cache Cargo registry
+      uses: actions/cache@v3
       with:
         path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          ~/.cargo/registry
+          ~/.cargo/git
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Cache Cargo build
+      uses: actions/cache@v3
+      with:
+        path: target
+        key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Build binaries
       run: cargo build --workspace --release
