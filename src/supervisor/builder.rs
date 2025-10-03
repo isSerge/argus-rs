@@ -20,7 +20,7 @@ pub struct SupervisorBuilder<T: AppRepository> {
     context: Option<AppContext<T>>,
 }
 
-impl<T: AppRepository> Default for SupervisorBuilder<T> {
+impl<T: AppRepository + KeyValueStore + 'static> Default for SupervisorBuilder<T> {
     fn default() -> Self {
         Self { context: None }
     }
