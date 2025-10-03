@@ -415,7 +415,7 @@ mod tests {
         actions: HashMap<String, ActionConfig>,
         state_repo: MockKeyValueStore,
     ) -> AlertManager<MockKeyValueStore> {
-        let state_repo: Arc<MockKeyValueStore> = Arc::new(state_repo);
+        let state_repo = Arc::new(state_repo);
         let actions_arc = Arc::new(actions);
         let action_dispatcher = Arc::new(
             ActionDispatcher::new(actions_arc.clone(), Arc::new(HttpClientPool::default()))
