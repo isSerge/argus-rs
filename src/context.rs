@@ -10,14 +10,17 @@ use alloy::providers::Provider;
 use thiserror::Error;
 
 use crate::{
-    abi::{repository::{AbiRepository, AbiRepositoryError}, AbiService},
+    abi::{
+        AbiService,
+        repository::{AbiRepository, AbiRepositoryError},
+    },
     config::{AppConfig, InitialStartBlock},
     engine::rhai::{RhaiCompiler, RhaiScriptValidator},
     loader::load_config,
     models::{action::ActionConfig, monitor::MonitorConfig},
     monitor::MonitorValidator,
     persistence::{error::PersistenceError, sqlite::SqliteStateRepository, traits::AppRepository},
-    providers::rpc::{create_provider, ProviderError},
+    providers::rpc::{ProviderError, create_provider},
 };
 
 /// Errors that can occur during application context initialization.
