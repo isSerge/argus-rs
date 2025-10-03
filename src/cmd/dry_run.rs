@@ -8,7 +8,7 @@ use dashmap::DashMap;
 use thiserror::Error;
 
 use crate::{
-    actions::{error::ActionDispatcherError, ActionDispatcher},
+    actions::{ActionDispatcher, error::ActionDispatcherError},
     context::{AppContext, AppContextBuilder, AppContextError},
     engine::{
         alert_manager::{AlertManager, AlertManagerError},
@@ -16,9 +16,12 @@ use crate::{
         filtering::{FilteringEngine, RhaiError, RhaiFilteringEngine},
     },
     http_client::HttpClientPool,
-    models::{action::ActionConfig, monitor_match::MonitorMatch, BlockData},
+    models::{BlockData, action::ActionConfig, monitor_match::MonitorMatch},
     monitor::MonitorManager,
-    persistence::{error::PersistenceError, traits::{AppRepository, KeyValueStore}},
+    persistence::{
+        error::PersistenceError,
+        traits::{AppRepository, KeyValueStore},
+    },
     providers::{
         rpc::{EvmRpcSource, ProviderError},
         traits::{DataSource, DataSourceError},
@@ -162,6 +165,35 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     Ok(())
 }
 
+/// Calculates the total number of blocks in a range (inclusive).
+fn calculate_total_blocks(from_block: u64, to_block: u64) -> u64 {
+    to_block - from_block + 1
+}
+
+/// Groups matches by monitor name and returns a count for each monitor.
+fn group_matches_by_monitor(matches: &[MonitorMatch]) -> HashMap<String, usize> {
+    let mut matches_by_monitor: HashMap<String, usize> = HashMap::new();
+    for m in matches {
+        *matches_by_monitor.entry(m.monitor_name.clone()).or_insert(0) += 1;
+    }
+    matches_by_monitor
+}
+
+/// Validates that a block range is valid (from <= to).
+fn validate_block_range(from_block: u64, to_block: u64) -> Result<(), DryRunError> {
+    if from_block > to_block {
+        Err(DryRunError::InvalidBlockRange { from: from_block, to: to_block })
+    } else {
+        Ok(())
+    }
+}
+
+/// Calculates the end block for a batch, ensuring it doesn't exceed the target
+/// block.
+fn calculate_batch_end_block(current_block: u64, batch_size: u64, target_block: u64) -> u64 {
+    (current_block + batch_size - 1).min(target_block)
+}
+
 /// Prints a summary report of the dry run results.
 fn print_summary_report(
     from_block: u64,
@@ -169,14 +201,9 @@ fn print_summary_report(
     matches: &[MonitorMatch],
     dispatched_notifications: &DashMap<String, usize>,
 ) {
-    let total_blocks = to_block - from_block + 1;
+    let total_blocks = calculate_total_blocks(from_block, to_block);
     let total_matches = matches.len();
-
-    let mut matches_by_monitor: HashMap<String, usize> = HashMap::new();
-
-    for m in matches {
-        *matches_by_monitor.entry(m.monitor_name.clone()).or_insert(0) += 1;
-    }
+    let matches_by_monitor = group_matches_by_monitor(matches);
 
     println!("\nDry Run Report");
     println!("==============");
@@ -244,13 +271,11 @@ async fn run_dry_run_loop<T: KeyValueStore + 'static>(
     );
 
     // Check if block sequence is valid
-    if from_block > to_block {
-        return Err(DryRunError::InvalidBlockRange { from: from_block, to: to_block });
-    }
+    validate_block_range(from_block, to_block)?;
 
     // The outer loop now iterates over batches of blocks.
     while current_block <= to_block {
-        let batch_end_block = (current_block + BATCH_SIZE - 1).min(to_block);
+        let batch_end_block = calculate_batch_end_block(current_block, BATCH_SIZE, to_block);
         tracing::info!(from = current_block, to = batch_end_block, "Fetching block batch...");
 
         let mut block_data_batch =
@@ -282,11 +307,7 @@ async fn run_dry_run_loop<T: KeyValueStore + 'static>(
             for decoded_block in decoded_blocks_batch {
                 for item in decoded_block.items {
                     let item_matches = filtering_engine.evaluate_item(&item).await?;
-                    let mut limited_matches = item_matches.clone();
-                    if limited_matches.len() > 10 {
-                        limited_matches.truncate(10);
-                    }
-                    for m in limited_matches {
+                    for m in item_matches {
                         alert_manager.process_match(&m).await?;
                         matches.push(m.clone());
                     }
@@ -311,6 +332,7 @@ mod tests {
 
     use alloy::primitives::U256;
     use mockall::predicate::eq;
+    use serde_json::json;
     use tempfile::tempdir;
 
     use super::*;
@@ -702,5 +724,101 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(matches!(err, DryRunError::InvalidBlockRange { from: 101, to: 100 }));
+    }
+
+    #[test]
+    fn test_calculate_total_blocks() {
+        assert_eq!(calculate_total_blocks(100, 102), 3);
+        assert_eq!(calculate_total_blocks(100, 100), 1);
+        assert_eq!(calculate_total_blocks(1, 1000), 1000);
+        // Test near max without overflow
+        assert_eq!(calculate_total_blocks(u64::MAX - 1, u64::MAX), 2);
+    }
+
+    #[test]
+    fn test_group_matches_by_monitor() {
+        let matches = vec![
+            MonitorMatch::new_tx_match(
+                1,
+                "Monitor A".to_string(),
+                "Action".to_string(),
+                100,
+                Default::default(),
+                json!({}),
+            ),
+            MonitorMatch::new_tx_match(
+                2,
+                "Monitor B".to_string(),
+                "Action".to_string(),
+                101,
+                Default::default(),
+                json!({}),
+            ),
+            MonitorMatch::new_tx_match(
+                3,
+                "Monitor A".to_string(),
+                "Action".to_string(),
+                102,
+                Default::default(),
+                json!({}),
+            ),
+        ];
+
+        let grouped = group_matches_by_monitor(&matches);
+        assert_eq!(grouped.len(), 2);
+        assert_eq!(grouped.get("Monitor A"), Some(&2));
+        assert_eq!(grouped.get("Monitor B"), Some(&1));
+
+        // Test empty matches
+        let empty_grouped = group_matches_by_monitor(&[]);
+        assert!(empty_grouped.is_empty());
+    }
+
+    #[test]
+    fn test_validate_block_range() {
+        // Valid ranges
+        assert!(validate_block_range(100, 200).is_ok());
+        assert!(validate_block_range(100, 100).is_ok());
+        assert!(validate_block_range(0, u64::MAX).is_ok());
+
+        // Invalid ranges
+        let result = validate_block_range(101, 100);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            DryRunError::InvalidBlockRange { from: 101, to: 100 }
+        ));
+
+        let result = validate_block_range(u64::MAX, 0);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_calculate_batch_end_block() {
+        const BATCH_SIZE: u64 = 50;
+
+        // Normal batch
+        assert_eq!(calculate_batch_end_block(100, BATCH_SIZE, 200), 149);
+
+        // Batch would exceed target
+        assert_eq!(calculate_batch_end_block(180, BATCH_SIZE, 200), 200);
+
+        // Single block
+        assert_eq!(calculate_batch_end_block(100, BATCH_SIZE, 100), 100);
+
+        // Edge case: batch size 1
+        assert_eq!(calculate_batch_end_block(100, 1, 200), 100);
+    }
+
+    #[test]
+    fn test_dry_run_error_display() {
+        let error = DryRunError::InvalidBlockRange { from: 101, to: 100 };
+        let error_string = format!("{}", error);
+        assert!(error_string.contains("Invalid block range: 101 - 100"));
+
+        let config_error =
+            DryRunError::Config(config::ConfigError::Message("test error".to_string()));
+        let config_error_string = format!("{}", config_error);
+        assert!(config_error_string.contains("Config error: test error"));
     }
 }
