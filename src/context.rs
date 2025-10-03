@@ -376,3 +376,276 @@ impl AppContextBuilder {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use tempfile::tempdir;
+
+    use super::*;
+    use crate::{
+        config::{AppConfig, RhaiConfig},
+        test_helpers::ActionBuilder,
+    };
+
+    fn create_test_config() -> AppConfig {
+        AppConfig::builder()
+            .rpc_urls(vec![url::Url::parse("http://localhost:8545").unwrap()])
+            .database_url("sqlite::memory:")
+            .build()
+    }
+
+    fn create_test_repo() -> impl std::future::Future<Output = Arc<SqliteStateRepository>> {
+        async {
+            let repo = SqliteStateRepository::new("sqlite::memory:")
+                .await
+                .expect("Failed to connect to in-memory db");
+            repo.run_migrations().await.expect("Failed to run migrations");
+            Arc::new(repo)
+        }
+    }
+
+    #[test]
+    fn test_app_context_builder_new() {
+        let builder = AppContextBuilder::new(Some("test_config".to_string()), None);
+        assert_eq!(builder.config_dir, Some("test_config".to_string()));
+        assert!(builder.from_block_override.is_none());
+        assert!(builder.database_url_override.is_none());
+    }
+
+    #[test]
+    fn test_app_context_builder_with_database_override() {
+        let builder =
+            AppContextBuilder::new(None, None).database_url("sqlite::memory:".to_string());
+
+        assert_eq!(builder.database_url_override, Some("sqlite::memory:".to_string()));
+    }
+
+    #[test]
+    fn test_app_context_error_display() {
+        let config_error =
+            AppContextError::Config(config::ConfigError::Message("test error".to_string()));
+        let error_string = format!("{}", config_error);
+        assert!(error_string.contains("Config error: test error"));
+    }
+
+    #[test]
+    fn test_initialization_error_display() {
+        let error = InitializationError::MonitorLoad("test error".to_string());
+        let error_string = format!("{}", error);
+        assert!(error_string.contains("Failed to load monitors from file: test error"));
+    }
+
+    #[tokio::test]
+    async fn test_load_monitors_from_file_when_monitors_exist() {
+        let temp_dir = tempdir().unwrap();
+        let config = create_test_config();
+        let repo = create_test_repo().await;
+
+        // Add existing monitor
+        let existing_monitor = MonitorConfig {
+            name: "existing".to_string(),
+            network: config.network_id.clone(),
+            address: None,
+            abi: None,
+            filter_script: "true".to_string(),
+            actions: vec![],
+        };
+        repo.add_monitors(&config.network_id, vec![existing_monitor]).await.unwrap();
+
+        // Should skip loading since monitors already exist
+        let result = AppContextBuilder::load_monitors_from_file(
+            &config,
+            repo.as_ref(),
+            Arc::new(AbiService::new(Arc::new(AbiRepository::new(temp_dir.path()).unwrap()))),
+            Arc::new(RhaiCompiler::new(RhaiConfig::default())),
+        )
+        .await;
+
+        assert!(result.is_ok());
+        let monitors = repo.get_monitors(&config.network_id).await.unwrap();
+        assert_eq!(monitors.len(), 1);
+        assert_eq!(monitors[0].name, "existing");
+    }
+
+    #[tokio::test]
+    async fn test_load_actions_from_file_when_actions_exist() {
+        let config = create_test_config();
+        let repo = create_test_repo().await;
+
+        // Add existing action
+        let existing_action = ActionBuilder::new("existing").build();
+        repo.add_actions(&config.network_id, vec![existing_action]).await.unwrap();
+
+        // Should skip loading since actions already exist
+        let result = AppContextBuilder::load_actions_from_file(&config, repo.as_ref()).await;
+
+        assert!(result.is_ok());
+        let actions = repo.get_actions(&config.network_id).await.unwrap();
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].name, "existing");
+    }
+
+    #[tokio::test]
+    async fn test_load_actions_from_file_missing_file() {
+        let config = create_test_config();
+        let repo = create_test_repo().await;
+
+        // Try to load from non-existent file
+        let result = AppContextBuilder::load_actions_from_file(&config, repo.as_ref()).await;
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            InitializationError::ActionLoad(msg) => {
+                assert!(msg.contains("Failed to load actions from file"));
+            }
+            _ => panic!("Expected ActionLoad error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_load_monitors_from_file_missing_file() {
+        let temp_dir = tempdir().unwrap();
+        let config = create_test_config();
+        let repo = create_test_repo().await;
+
+        // Try to load from non-existent file
+        let result = AppContextBuilder::load_monitors_from_file(
+            &config,
+            repo.as_ref(),
+            Arc::new(AbiService::new(Arc::new(AbiRepository::new(temp_dir.path()).unwrap()))),
+            Arc::new(RhaiCompiler::new(RhaiConfig::default())),
+        )
+        .await;
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            InitializationError::MonitorLoad(msg) => {
+                assert!(msg.contains("Failed to load monitors from file"));
+            }
+            _ => panic!("Expected MonitorLoad error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_load_abis_from_monitors_contract_specific() {
+        let config = create_test_config();
+        let repo = create_test_repo().await;
+
+        // Add monitor with contract address and ABI (using existing erc20.json)
+        let monitor = MonitorConfig {
+            name: "test_monitor".to_string(),
+            network: config.network_id.clone(),
+            address: Some("0x1234567890123456789012345678901234567890".to_string()),
+            abi: Some("erc20".to_string()),
+            filter_script: "true".to_string(),
+            actions: vec![],
+        };
+        repo.add_monitors(&config.network_id, vec![monitor]).await.unwrap();
+
+        // Use the real abis directory
+        let abi_service = Arc::new(AbiService::new(Arc::new(
+            AbiRepository::new(std::path::Path::new("abis")).unwrap(),
+        )));
+
+        let result =
+            AppContextBuilder::load_abis_from_monitors(&config, repo.as_ref(), abi_service.clone())
+                .await;
+        assert!(result.is_ok());
+
+        // Verify ABI was linked
+        let address = "0x1234567890123456789012345678901234567890".parse().unwrap();
+        let cached_contract = abi_service.get_abi(address);
+        assert!(cached_contract.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_load_abis_from_monitors_global_monitor() {
+        let config = create_test_config();
+        let repo = create_test_repo().await;
+
+        // Add global monitor with ABI (using existing usdc.json)
+        let monitor = MonitorConfig {
+            name: "global_monitor".to_string(),
+            network: config.network_id.clone(),
+            address: Some("all".to_string()),
+            abi: Some("usdc".to_string()),
+            filter_script: "true".to_string(),
+            actions: vec![],
+        };
+        repo.add_monitors(&config.network_id, vec![monitor]).await.unwrap();
+
+        // Use the real abis directory
+        let abi_service = Arc::new(AbiService::new(Arc::new(
+            AbiRepository::new(std::path::Path::new("abis")).unwrap(),
+        )));
+
+        let result =
+            AppContextBuilder::load_abis_from_monitors(&config, repo.as_ref(), abi_service.clone())
+                .await;
+        assert!(result.is_ok());
+
+        // Verify global ABI was added
+        let abi = abi_service.get_abi_by_name("usdc");
+        assert!(abi.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_load_abis_from_monitors_invalid_address() {
+        let config = create_test_config();
+        let repo = create_test_repo().await;
+
+        // Add monitor with invalid address
+        let monitor = MonitorConfig {
+            name: "invalid_monitor".to_string(),
+            network: config.network_id.clone(),
+            address: Some("invalid_address".to_string()),
+            abi: Some("erc20".to_string()),
+            filter_script: "true".to_string(),
+            actions: vec![],
+        };
+        repo.add_monitors(&config.network_id, vec![monitor]).await.unwrap();
+
+        // Use the real abis directory
+        let abi_service = Arc::new(AbiService::new(Arc::new(
+            AbiRepository::new(std::path::Path::new("abis")).unwrap(),
+        )));
+
+        let result =
+            AppContextBuilder::load_abis_from_monitors(&config, repo.as_ref(), abi_service).await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            InitializationError::AbiLoad(msg) => {
+                assert!(msg.contains("Failed to parse address"));
+                assert!(msg.contains("invalid_monitor"));
+            }
+            _ => panic!("Expected AbiLoad error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_load_abis_from_monitors_no_abi_or_address() {
+        let config = create_test_config();
+        let repo = create_test_repo().await;
+
+        // Add monitor without ABI or address
+        let monitor = MonitorConfig {
+            name: "minimal_monitor".to_string(),
+            network: config.network_id.clone(),
+            address: None,
+            abi: None,
+            filter_script: "true".to_string(),
+            actions: vec![],
+        };
+        repo.add_monitors(&config.network_id, vec![monitor]).await.unwrap();
+
+        // Use the real abis directory
+        let abi_service = Arc::new(AbiService::new(Arc::new(
+            AbiRepository::new(std::path::Path::new("abis")).unwrap(),
+        )));
+
+        // Should succeed but do nothing
+        let result =
+            AppContextBuilder::load_abis_from_monitors(&config, repo.as_ref(), abi_service).await;
+        assert!(result.is_ok());
+    }
+}
