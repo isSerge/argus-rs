@@ -250,7 +250,7 @@ fn print_summary_report(
 ///
 /// A `Result` containing a vector of all `MonitorMatch`es found during the run,
 /// or a `DryRunError`.
-async fn run_dry_run_loop<T: KeyValueStore + 'static>(
+async fn run_dry_run_loop<T: KeyValueStore>(
     from_block: u64,
     to_block: u64,
     data_source: Box<dyn DataSource>,
