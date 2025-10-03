@@ -49,7 +49,7 @@ pub enum AlertManagerError {
     StateRepositoryError(#[from] PersistenceError),
 }
 
-impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
+impl<T: KeyValueStore> AlertManager<T> {
     /// Creates a new AlertManager instance
     pub fn new(
         action_dispatcher: Arc<ActionDispatcher>,

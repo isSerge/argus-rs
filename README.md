@@ -243,11 +243,11 @@ The `src` directory contains all the Rust source code, organized into the follow
 
 -   `abi`: Handles ABI parsing, decoding, and management.
 -   `actions`: Manages sending notifications to services like webhooks, Slack, and message queues like Kafka.
+-   `context`: Encapsulates all necessary components for use throughout the application
 -   `cmd`: Contains the definitions for the command-line interface (CLI) commands like `run` and `dry-run`.
 -   `config`: Manages application configuration loading and validation.
 -   `engine`: The core processing and filtering logic, including the Rhai script executor.
 -   `http_client`: Provides a retryable HTTP client and a pool for managing clients.
--   `initialization`: Loads initial data (monitors, actions, ABIs) at startup.
 -   `loader`: Handles the loading and parsing of configuration files.
 -   `models`: Defines the core data structures (e.g., `Monitor`, `BlockData`, `Transaction`).
 -   `monitor`: Manages the lifecycle and validation of monitor configurations.

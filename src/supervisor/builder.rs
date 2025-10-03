@@ -3,64 +3,38 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use alloy::providers::Provider;
-
 use super::{Supervisor, SupervisorError};
 use crate::{
-    abi::AbiService,
     actions::ActionDispatcher,
-    config::AppConfig,
-    engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
+    context::AppContext,
+    engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine},
     http_client::HttpClientPool,
     models::action::ActionConfig,
     monitor::MonitorManager,
-    persistence::{sqlite::SqliteStateRepository, traits::AppRepository},
+    persistence::traits::{AppRepository, KeyValueStore},
     providers::rpc::EvmRpcSource,
 };
 
 /// A builder for creating a `Supervisor` instance.
-#[derive(Default)]
-pub struct SupervisorBuilder {
-    config: Option<AppConfig>,
-    state: Option<Arc<SqliteStateRepository>>,
-    abi_service: Option<Arc<AbiService>>,
-    script_compiler: Option<Arc<RhaiCompiler>>,
-    provider: Option<Arc<dyn Provider + Send + Sync>>,
+pub struct SupervisorBuilder<T: AppRepository> {
+    context: Option<AppContext<T>>,
 }
 
-impl SupervisorBuilder {
+impl<T: AppRepository + KeyValueStore + 'static> Default for SupervisorBuilder<T> {
+    fn default() -> Self {
+        Self { context: None }
+    }
+}
+
+impl<T: AppRepository + KeyValueStore + 'static> SupervisorBuilder<T> {
     /// Creates a new, empty `SupervisorBuilder`.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Sets the application configuration for the `Supervisor`.
-    pub fn config(mut self, config: AppConfig) -> Self {
-        self.config = Some(config);
-        self
-    }
-
-    /// Sets the state repository (database connection) for the `Supervisor`.
-    pub fn state(mut self, state: Arc<SqliteStateRepository>) -> Self {
-        self.state = Some(state);
-        self
-    }
-
-    /// Sets the ABI service for the `Supervisor`.
-    pub fn abi_service(mut self, abi_service: Arc<AbiService>) -> Self {
-        self.abi_service = Some(abi_service);
-        self
-    }
-
-    /// Sets the Rhai script compiler for the `Supervisor`.
-    pub fn script_compiler(mut self, script_compiler: Arc<RhaiCompiler>) -> Self {
-        self.script_compiler = Some(script_compiler);
-        self
-    }
-
-    /// Sets the data provider for the `Supervisor`.
-    pub fn provider(mut self, provider: Arc<dyn Provider + Send + Sync>) -> Self {
-        self.provider = Some(provider);
+    /// Sets the application context for the `Supervisor`.
+    pub fn context(mut self, context: AppContext<T>) -> Self {
+        self.context = Some(context);
         self
     }
 
@@ -70,12 +44,13 @@ impl SupervisorBuilder {
     /// It ensures all required dependencies have been provided and then
     /// constructs the internal services, such as the `BlockProcessor` and
     /// `FilteringEngine`.
-    pub async fn build(self) -> Result<Supervisor, SupervisorError> {
-        let config = self.config.ok_or(SupervisorError::MissingConfig)?;
-        let state = self.state.ok_or(SupervisorError::MissingStateRepository)?;
-        let abi_service = self.abi_service.ok_or(SupervisorError::MissingAbiService)?;
-        let script_compiler = self.script_compiler.ok_or(SupervisorError::MissingScriptCompiler)?;
-        let provider = self.provider.ok_or(SupervisorError::MissingProvider)?;
+    pub async fn build(self) -> Result<Supervisor<T>, SupervisorError> {
+        let context = self.context.ok_or(SupervisorError::MissingConfig)?;
+        let config = context.config;
+        let state = context.repo;
+        let abi_service = context.abi_service;
+        let script_compiler = context.script_compiler;
+        let provider = context.provider;
 
         // The FilteringEngine is created here, loading its initial set of monitors
         // from the database. This makes the database the single source of truth.
@@ -130,8 +105,11 @@ mod tests {
 
     use super::*;
     use crate::{
-        config::RhaiConfig,
+        config::{AppConfig, RhaiConfig},
+        context::AppContext,
+        engine::rhai::RhaiCompiler,
         models::monitor::MonitorConfig,
+        persistence::sqlite::SqliteStateRepository,
         test_helpers::{create_test_abi_service, mock_provider},
     };
 
@@ -171,12 +149,15 @@ mod tests {
 
         let (abi_service, _) = create_test_abi_service(&dir, &[(abi_name, "[]")]);
 
-        let builder = SupervisorBuilder::new()
-            .config(app_config)
-            .state(state_repo)
-            .abi_service(abi_service)
-            .provider(provider)
-            .script_compiler(Arc::new(RhaiCompiler::new(RhaiConfig::default())));
+        let context = AppContext {
+            config: app_config,
+            repo: state_repo,
+            abi_service,
+            script_compiler: Arc::new(RhaiCompiler::new(RhaiConfig::default())),
+            provider,
+        };
+
+        let builder = SupervisorBuilder::new().context(context);
 
         let result = builder.build().await;
         assert!(result.is_ok(), "Expected build to succeed, but got error: {:?}", result.err());
@@ -184,32 +165,9 @@ mod tests {
 
     #[tokio::test]
     async fn build_fails_if_config_is_missing() {
-        let dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&dir, &[]);
-        let state_repo = Arc::new(setup_test_db().await);
-        let builder = SupervisorBuilder::new().state(state_repo).abi_service(abi_service);
+        let builder = SupervisorBuilder::<SqliteStateRepository>::new();
 
         let result = builder.build().await;
         assert!(matches!(result, Err(SupervisorError::MissingConfig)));
-    }
-
-    #[tokio::test]
-    async fn build_fails_if_state_repository_is_missing() {
-        let dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&dir, &[]);
-        let builder =
-            SupervisorBuilder::new().config(AppConfig::default()).abi_service(abi_service);
-
-        let result = builder.build().await;
-        assert!(matches!(result, Err(SupervisorError::MissingStateRepository)));
-    }
-
-    #[tokio::test]
-    async fn build_fails_if_abi_service_is_missing() {
-        let state_repo = Arc::new(setup_test_db().await);
-        let builder = SupervisorBuilder::new().config(AppConfig::default()).state(state_repo);
-
-        let result = builder.build().await;
-        assert!(matches!(result, Err(SupervisorError::MissingAbiService)));
     }
 }
