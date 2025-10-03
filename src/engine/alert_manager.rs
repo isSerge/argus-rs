@@ -49,7 +49,7 @@ pub enum AlertManagerError {
     StateRepositoryError(#[from] PersistenceError),
 }
 
-impl<T: KeyValueStore + Send + Sync + 'static> AlertManager<T> {
+impl<T: KeyValueStore> AlertManager<T> {
     /// Creates a new AlertManager instance
     pub fn new(
         action_dispatcher: Arc<ActionDispatcher>,
@@ -415,7 +415,7 @@ mod tests {
         actions: HashMap<String, ActionConfig>,
         state_repo: MockKeyValueStore,
     ) -> AlertManager<MockKeyValueStore> {
-        let state_repo = Arc::new(state_repo);
+        let state_repo: Arc<MockKeyValueStore> = Arc::new(state_repo);
         let actions_arc = Arc::new(actions);
         let action_dispatcher = Arc::new(
             ActionDispatcher::new(actions_arc.clone(), Arc::new(HttpClientPool::default()))
