@@ -388,15 +388,19 @@ mod tests {
     };
 
     fn create_test_config() -> AppConfig {
+        let db_name = uuid::Uuid::new_v4().to_string();
+        let database_url = format!("sqlite:file:{}?mode=memory&cache=shared", db_name);
         AppConfig::builder()
             .rpc_urls(vec![url::Url::parse("http://localhost:8545").unwrap()])
-            .database_url("sqlite::memory:")
+            .database_url(&database_url)
             .build()
     }
 
     fn create_test_repo() -> impl std::future::Future<Output = Arc<SqliteStateRepository>> {
         async {
-            let repo = SqliteStateRepository::new("sqlite::memory:")
+            let db_name = uuid::Uuid::new_v4().to_string();
+            let database_url = format!("sqlite:file:{}?mode=memory&cache=shared", db_name);
+            let repo = SqliteStateRepository::new(&database_url)
                 .await
                 .expect("Failed to connect to in-memory db");
             repo.run_migrations().await.expect("Failed to run migrations");

@@ -114,7 +114,7 @@ pub struct DryRunArgs {
 /// 5. Serializes the results to a pretty JSON string and prints to stdout.
 pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let context = AppContextBuilder::new(args.config_dir, None)
-        .database_url("sqlite::memory:".to_string())
+        .database_url("sqlite:file:dry-run?mode=memory&cache=shared".to_string())
         .build()
         .await?;
 
@@ -352,7 +352,9 @@ mod tests {
     async fn create_test_alert_manager(
         actions: Arc<HashMap<String, ActionConfig>>,
     ) -> Arc<AlertManager<SqliteStateRepository>> {
-        let state_repo = SqliteStateRepository::new("sqlite::memory:")
+        let db_name = uuid::Uuid::new_v4().to_string();
+        let database_url = format!("sqlite:file:{}?mode=memory&cache=shared", db_name);
+        let state_repo = SqliteStateRepository::new(&database_url)
             .await
             .expect("Failed to connect to in-memory db");
         state_repo.run_migrations().await.expect("Failed to run migrations");
