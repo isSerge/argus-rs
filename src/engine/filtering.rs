@@ -215,9 +215,13 @@ impl RhaiFilteringEngine {
                 match self.abi_service.decode_log(raw_log) {
                     Ok(decoded) => {
                         tracing::debug!(
-                            "Decoded log for monitor ID {}: {}",
-                            cm.monitor.id,
-                            cm.monitor.name
+                            monitor_id = cm.monitor.id,
+                            monitor_name = %cm.monitor.name,
+                            log_address = %raw_log.address(),
+                            log_topics = ?raw_log.topics(),
+                            decoded_log_name = %decoded.name,
+                            decoded_params = ?decoded.params,
+                            "Successfully decoded log"
                         );
                         let arc_decoded = Arc::new(decoded);
                         context.decoded_logs_cache.insert(raw_log.clone(), arc_decoded.clone());
@@ -256,7 +260,19 @@ impl RhaiFilteringEngine {
         scope.push("decoded_call", CallProxy(decoded_call_result));
 
         let ast = self.compiler.get_ast(&cm.monitor.filter_script)?;
+        tracing::debug!(
+            monitor_id = cm.monitor.id,
+            monitor_name = %cm.monitor.name,
+            script = ?cm.monitor.filter_script,
+            "Executing filter script"
+        );
         let is_match = self.eval_ast_bool_secure(&ast, &mut scope).await?;
+        tracing::debug!(
+            monitor_id = cm.monitor.id,
+            monitor_name = %cm.monitor.name,
+            is_match = is_match,
+            "Filter script execution completed"
+        );
         Ok((is_match, decoded_log_result))
     }
 
@@ -315,10 +331,30 @@ impl RhaiFilteringEngine {
         ast: &AST,
         scope: &mut Scope<'_>,
     ) -> Result<bool, RhaiError> {
+        let start_time = std::time::Instant::now();
         let execution = async { self.engine.eval_ast_with_scope::<bool>(scope, ast) };
         match timeout(self.config.execution_timeout, execution).await {
-            Ok(result) => result.map_err(RhaiError::RuntimeError),
-            Err(_) => Err(RhaiError::ExecutionTimeout { timeout: self.config.execution_timeout }),
+            Ok(result) => {
+                let duration = start_time.elapsed();
+                tracing::debug!(
+                    execution_time_ms = duration.as_millis(),
+                    timeout_ms = self.config.execution_timeout.as_millis(),
+                    "Script execution completed"
+                );
+                result.map_err(|e| {
+                    tracing::warn!(error = %e, "Script runtime error");
+                    RhaiError::RuntimeError(e)
+                })
+            },
+            Err(_) => {
+                let duration = start_time.elapsed();
+                tracing::error!(
+                    execution_time_ms = duration.as_millis(),
+                    timeout_ms = self.config.execution_timeout.as_millis(),
+                    "Script execution timeout"
+                );
+                Err(RhaiError::ExecutionTimeout { timeout: self.config.execution_timeout })
+            },
         }
     }
 }
@@ -344,7 +380,26 @@ impl FilteringEngine for RhaiFilteringEngine {
                         },
                     Ok(_) => {} // No matches, do nothing.
                     Err(e) => {
-                        tracing::error!("Error evaluating item: {}", e);
+                        match &e {
+                            RhaiError::ExecutionTimeout { timeout } => {
+                                tracing::error!(
+                                    timeout_ms = timeout.as_millis(),
+                                    "Script execution timeout while evaluating item"
+                                );
+                            },
+                            RhaiError::RuntimeError(runtime_err) => {
+                                tracing::error!(
+                                    error = %runtime_err,
+                                    "Script runtime error while evaluating item"
+                                );
+                            },
+                            RhaiError::CompilationError(compile_err) => {
+                                tracing::error!(
+                                    error = %compile_err,
+                                    "Script compilation error while evaluating item"
+                                );
+                            },
+                        }
                     }
                 }
             }
@@ -358,12 +413,25 @@ impl FilteringEngine for RhaiFilteringEngine {
     ) -> Result<Vec<MonitorMatch>, RhaiError> {
         let assets = self.monitor_manager.load();
         let mut context = EvaluationContext::new(item);
+        
+        tracing::debug!(
+            tx_hash = %item.transaction.hash(),
+            log_count = item.logs.len(),
+            monitor_count = assets.monitors.len(),
+            "Starting evaluation of correlated block item"
+        );
 
         // --- First Pass: Evaluate log-aware monitors ---
         self.evaluate_log_aware_monitors(&mut context, &assets.monitors).await?;
 
         // --- Second Pass: Evaluate transaction-aware monitors ---
         self.evaluate_tx_aware_monitors(&mut context, &assets.monitors).await?;
+
+        tracing::debug!(
+            tx_hash = %item.transaction.hash(),
+            match_count = context.matches.len(),
+            "Completed evaluation of correlated block item"
+        );
 
         Ok(context.matches)
     }
