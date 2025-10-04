@@ -113,6 +113,7 @@ pub struct DryRunArgs {
 /// 4. Calls `run_dry_run_loop` to execute the core processing logic.
 /// 5. Serializes the results to a pretty JSON string and prints to stdout.
 pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
+    println!("CRITICAL DEBUG: CLI args received - from={} to={}", args.from, args.to);
     tracing::info!(
         from_block = args.from,
         to_block = args.to,
@@ -121,9 +122,10 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
 
     let db_name = uuid::Uuid::new_v4().to_string();
     let database_url = format!("sqlite:file:{}?mode=memory&cache=shared", db_name);
+
+    tracing::info!("Building application context...");
     let context =
         AppContextBuilder::new(args.config_dir, None).database_url(database_url).build().await?;
-
     let AppContext { config, repo, abi_service, script_compiler, provider } = context;
 
     let monitors = repo.get_monitors(&config.network_id).await?;
@@ -178,12 +180,13 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let alert_manager = Arc::new(AlertManager::new(action_dispatcher, repo, actions));
 
     // Execute the core processing loop.
+    println!("CRITICAL DEBUG: About to call run_dry_run_loop - from={} to={}", args.from, args.to);
     tracing::info!(
         args_from = args.from,
         args_to = args.to,
         "About to call run_dry_run_loop with these exact args"
     );
-    
+
     let matches = run_dry_run_loop(
         args.from,
         args.to,
@@ -301,6 +304,11 @@ async fn run_dry_run_loop<T: KeyValueStore>(
     filtering_engine: RhaiFilteringEngine,
     alert_manager: Arc<AlertManager<T>>,
 ) -> Result<Vec<MonitorMatch>, DryRunError> {
+    println!(
+        "CRITICAL DEBUG: run_dry_run_loop called with from_block={} to_block={}",
+        from_block, to_block
+    );
+
     // Define a batch size for processing blocks in chunks.
     const BATCH_SIZE: u64 = 50;
 
