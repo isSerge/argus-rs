@@ -34,6 +34,7 @@ use crate::{
         alert_manager::AlertManager, block_ingestor::BlockIngestor,
         block_processor::BlockProcessor, filtering::FilteringEngine,
     },
+    http_server,
     models::{BlockData, CorrelatedBlockData, monitor::Monitor, monitor_match::MonitorMatch},
     monitor::{MonitorManager, MonitorValidationError},
     persistence::{
@@ -44,7 +45,6 @@ use crate::{
         rpc::ProviderError,
         traits::{DataSource, DataSourceError},
     },
-    http_server,
 };
 
 /// Represents the set of errors that can occur during the supervisor's

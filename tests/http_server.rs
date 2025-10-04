@@ -1,7 +1,6 @@
-use tokio::task;
+use argus::{config::AppConfig, http_server};
 use reqwest::Client;
-use argus::config::AppConfig;
-use argus::http_server;
+use tokio::task;
 
 #[tokio::test]
 async fn health_endpoint_returns_ok() {
@@ -10,10 +9,7 @@ async fn health_endpoint_returns_ok() {
     let addr = listener.local_addr().expect("Failed to get address");
     drop(listener); // Release port for the app to use
 
-    let config = AppConfig {
-        api_server_listen_address: addr.to_string(),
-        ..Default::default()
-    };
+    let config = AppConfig { api_server_listen_address: addr.to_string(), ..Default::default() };
 
     // Spawn the actual app server
     let server_handle = task::spawn(async move {
@@ -27,7 +23,7 @@ async fn health_endpoint_returns_ok() {
     let url = format!("http://{}/health", addr);
     let client = Client::new();
     let resp = client.get(&url).send().await.expect("Request failed");
-    
+
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
     assert_eq!(body["status"], "ok");
