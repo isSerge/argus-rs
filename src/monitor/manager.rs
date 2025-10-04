@@ -76,6 +76,7 @@ impl MonitorManager {
         compiler: Arc<RhaiCompiler>,
         abi_service: Arc<AbiService>,
     ) -> Self {
+        println!("CRITICAL DEBUG: MonitorManager::new called with {} monitors", initial_monitors.len());
         let initial_state = Self::organize_assets(&initial_monitors, &compiler, &abi_service);
         Self { compiler, abi_service, state: ArcSwap::new(Arc::new(initial_state)) }
     }
@@ -99,6 +100,7 @@ impl MonitorManager {
         compiler: &Arc<RhaiCompiler>,
         abi_service: &Arc<AbiService>,
     ) -> MonitorAssetState {
+        println!("CRITICAL DEBUG: organize_assets called with {} monitors", monitors.len());
         tracing::info!("Organizing assets for {} monitors", monitors.len());
 
         // Add detailed logging for each monitor before classification
