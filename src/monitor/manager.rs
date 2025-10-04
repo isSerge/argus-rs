@@ -139,6 +139,13 @@ impl MonitorManager {
     ) -> Result<(ClassifiedMonitor, bool), Box<dyn std::error::Error>> {
         // Analyze the filter script
         let analysis = compiler.analyze_script(&monitor.filter_script)?;
+        
+        tracing::debug!(
+            monitor_name = %monitor.name,
+            accesses_log_variable = analysis.accesses_log_variable,
+            accessed_variables = ?analysis.accessed_variables,
+            "Monitor script analysis"
+        );
 
         // Receipt-specific fields that are only available from transaction receipts
         let receipt_fields: HashSet<String> =
@@ -189,13 +196,29 @@ impl MonitorManager {
         classified_monitors: &[ClassifiedMonitor],
         abi_service: &Arc<AbiService>,
     ) -> InterestRegistry {
-        classified_monitors
+        tracing::debug!("Building interest registry from {} classified monitors", classified_monitors.len());
+        
+        let registry = classified_monitors
             .iter()
             .fold(InterestRegistryBuilder::default(), |mut builder, cm| {
+                tracing::debug!(
+                    monitor_name = %cm.monitor.name,
+                    capabilities = ?cm.caps,
+                    monitor_address = ?cm.monitor.address,
+                    "Adding monitor to interest registry"
+                );
                 builder.add(cm, abi_service);
                 builder
             })
-            .build()
+            .build();
+            
+        tracing::debug!(
+            log_interests_count = registry.log_interests.len(),
+            global_signatures_count = registry.global_event_signatures.len(),
+            "Interest registry built"
+        );
+        
+        registry
     }
 }
 
