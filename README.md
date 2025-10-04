@@ -77,6 +77,11 @@ polling_interval_ms: 10000
 confirmation_blocks: 12
 notification_channel_capacity: 1024
 abi_config_path: abis/
+
+## HTTP API server configuration for health endpoint
+# This section is optional. If omitted, the default listen address is "0.0.0.0:8080".
+api_server:
+  listen_address: "0.0.0.0:8080"
 ```
 
 ### `monitors.yaml`
