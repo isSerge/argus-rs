@@ -345,7 +345,7 @@ impl RhaiFilteringEngine {
                     tracing::warn!(error = %e, "Script runtime error");
                     RhaiError::RuntimeError(e)
                 })
-            },
+            }
             Err(_) => {
                 let duration = start_time.elapsed();
                 tracing::error!(
@@ -354,7 +354,7 @@ impl RhaiFilteringEngine {
                     "Script execution timeout"
                 );
                 Err(RhaiError::ExecutionTimeout { timeout: self.config.execution_timeout })
-            },
+            }
         }
     }
 }
@@ -379,28 +379,26 @@ impl FilteringEngine for RhaiFilteringEngine {
                             }
                         },
                     Ok(_) => {} // No matches, do nothing.
-                    Err(e) => {
-                        match &e {
-                            RhaiError::ExecutionTimeout { timeout } => {
-                                tracing::error!(
-                                    timeout_ms = timeout.as_millis(),
-                                    "Script execution timeout while evaluating item"
-                                );
-                            },
-                            RhaiError::RuntimeError(runtime_err) => {
-                                tracing::error!(
-                                    error = %runtime_err,
-                                    "Script runtime error while evaluating item"
-                                );
-                            },
-                            RhaiError::CompilationError(compile_err) => {
-                                tracing::error!(
-                                    error = %compile_err,
-                                    "Script compilation error while evaluating item"
-                                );
-                            },
+                    Err(e) => match &e {
+                        RhaiError::ExecutionTimeout { timeout } => {
+                            tracing::error!(
+                                timeout_ms = timeout.as_millis(),
+                                "Script execution timeout while evaluating item"
+                            );
                         }
-                    }
+                        RhaiError::RuntimeError(runtime_err) => {
+                            tracing::error!(
+                                error = %runtime_err,
+                                "Script runtime error while evaluating item"
+                            );
+                        }
+                        RhaiError::CompilationError(compile_err) => {
+                            tracing::error!(
+                                error = %compile_err,
+                                "Script compilation error while evaluating item"
+                            );
+                        }
+                    },
                 }
             }
         }
@@ -413,7 +411,7 @@ impl FilteringEngine for RhaiFilteringEngine {
     ) -> Result<Vec<MonitorMatch>, RhaiError> {
         let assets = self.monitor_manager.load();
         let mut context = EvaluationContext::new(item);
-        
+
         tracing::debug!(
             tx_hash = %item.transaction.hash(),
             log_count = item.logs.len(),

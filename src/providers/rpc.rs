@@ -149,26 +149,37 @@ impl EvmRpcSource {
             .global_event_signatures
             .iter()
             .any(|topic| block_bloom.contains_input(BloomInput::Raw(topic.as_slice())));
+        tracing::debug!(might_have_global_logs, "Checked for global log interests.");
 
         // Check 2: Do any address-specific interests appear in the bloom?
         let might_have_address_logs =
             interest_registry.log_interests.iter().any(|(addr, interest_mode)| {
-                // All address-specific checks must first match the address in the bloom.
-                if !block_bloom.contains_input(BloomInput::Raw(addr.as_slice())) {
+                let address_found = block_bloom.contains_input(BloomInput::Raw(addr.as_slice()));
+                if !address_found {
+                    tracing::trace!(address = %addr, "Address not found in bloom filter.");
                     return false;
                 }
 
+                tracing::debug!(address = %addr, "Address found in bloom filter. Checking topics...");
                 match interest_mode {
-                    // Precise Mode: Address is present, now check if any of its specific topics are
-                    // also present.
-                    Some(specific_signatures) => specific_signatures
-                        .iter()
-                        .any(|topic| block_bloom.contains_input(BloomInput::Raw(topic.as_slice()))),
-                    // Broad Mode: Address is present, and since we can't be more specific, we must
-                    // fetch.
-                    None => true,
+                    Some(specific_signatures) => {
+                        let topics_found = specific_signatures.iter().any(|topic| {
+                            let found = block_bloom.contains_input(BloomInput::Raw(topic.as_slice()));
+                            tracing::trace!(topic = %topic, found, "Checked topic for address.");
+                            found
+                        });
+                        if topics_found {
+                            tracing::debug!(address = %addr, "Relevant topic found for address.");
+                        }
+                        topics_found
+                    }
+                    None => {
+                        tracing::debug!(address = %addr, "No specific topics (broad mode), proceeding to fetch.");
+                        true
+                    }
                 }
             });
+        tracing::debug!(might_have_address_logs, "Checked for address-specific log interests.");
 
         let might_contain_relevant_logs = might_have_global_logs || might_have_address_logs;
 

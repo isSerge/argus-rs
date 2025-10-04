@@ -58,7 +58,7 @@ impl BlockData {
     ) -> Self {
         let mut logs: HashMap<TxHash, Vec<Log>> = HashMap::new();
         let mut logs_without_tx_hash = 0;
-        
+
         for log in raw_logs {
             if let Some(tx_hash) = log.transaction_hash {
                 logs.entry(tx_hash).or_default().push(log.into());
@@ -66,7 +66,7 @@ impl BlockData {
                 logs_without_tx_hash += 1;
             }
         }
-        
+
         // Log potential issues with missing transaction hashes
         if logs_without_tx_hash > 0 {
             tracing::warn!(
@@ -76,7 +76,7 @@ impl BlockData {
                 "Some logs are missing transaction_hash and will be dropped"
             );
         }
-        
+
         tracing::debug!(
             block_number = block.header.number,
             total_raw_logs = logs.values().map(|v| v.len()).sum::<usize>() + logs_without_tx_hash,

@@ -115,10 +115,8 @@ pub struct DryRunArgs {
 pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let db_name = uuid::Uuid::new_v4().to_string();
     let database_url = format!("sqlite:file:{}?mode=memory&cache=shared", db_name);
-    let context = AppContextBuilder::new(args.config_dir, None)
-        .database_url(database_url)
-        .build()
-        .await?;
+    let context =
+        AppContextBuilder::new(args.config_dir, None).database_url(database_url).build().await?;
 
     let AppContext { config, repo, abi_service, script_compiler, provider } = context;
 
