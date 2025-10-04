@@ -28,3 +28,7 @@ retry_config:
 # Optional: Configuration for graceful shutdown timeout.
 # If this section is omitted, the default value of 30 seconds will be used.
 shutdown_timeout_secs: 30
+
+# API server configuration
+api_server:
+  listen_address: "0.0.0.0:8080"
