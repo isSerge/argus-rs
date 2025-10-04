@@ -108,11 +108,19 @@ impl MonitorManager {
             classified.into_iter().map(Result::unwrap).collect::<Vec<(ClassifiedMonitor, bool)>>();
 
         if !failed.is_empty() {
-            tracing::warn!(
+            tracing::error!(
                 count = failed.len(),
                 "Failed to classify {} monitors due to script analysis errors.",
                 failed.len()
             );
+            // Log specific failures
+            for (i, failure) in failed.iter().enumerate() {
+                if let Err(e) = failure {
+                    tracing::error!(failure_index = i, error = %e, "Monitor classification failure details");
+                }
+            }
+        } else {
+            tracing::info!("Successfully classified {} monitors", classified_monitors.len());
         }
 
         let requires_receipts = classified_monitors.iter().any(|(_, needs_receipt)| *needs_receipt);
