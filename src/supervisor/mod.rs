@@ -34,6 +34,7 @@ use crate::{
         alert_manager::AlertManager, block_ingestor::BlockIngestor,
         block_processor::BlockProcessor, filtering::FilteringEngine,
     },
+    http_server,
     models::{BlockData, CorrelatedBlockData, monitor::Monitor, monitor_match::MonitorMatch},
     monitor::{MonitorManager, MonitorValidationError},
     persistence::{
@@ -207,6 +208,18 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
 
             // Notify all other tasks to begin shutting down.
             cancellation_token.cancel();
+        });
+
+        // Spawn the HTTP server as a background task
+        let http_config = Arc::clone(&self.config);
+        let http_cancellation_token = self.cancellation_token.clone();
+        self.join_set.spawn(async move {
+            tokio::select! {
+                _ = http_server::run_server_from_config(&http_config) => {},
+                _ = http_cancellation_token.cancelled() => {
+                    tracing::info!("HTTP server received shutdown signal.");
+                }
+            }
         });
 
         // --- Service Initialization ---

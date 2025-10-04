@@ -28,6 +28,10 @@ initial_start_block: -100
 block_chunk_size: 5
 polling_interval_ms: 10000
 confirmation_blocks: 12
+
+# Optional: HTTP API server configuration for health endpoint
+# If omitted, the default listen address is "0.0.0.0:8080"
+api_server_listen_address: "0.0.0.0:8080"
 ```
 
 ## Configuration Parameters
@@ -52,6 +56,7 @@ confirmation_blocks: 12
 | `notification_channel_capacity` | The capacity of the internal channel for sending notifications. | `1024` |
 | `shutdown_timeout` | The maximum time in seconds to wait for a graceful shutdown. | `30` |
 | `aggregation_check_interval` | The interval in seconds to check for aggregated matches for action with policies. | `5` |
+| `api_server.listen_address` | The address and port for the HTTP health endpoint. Optional; if omitted, defaults to `"0.0.0.0:8080"`. | `"0.0.0.0:8080"` |
 
 ---
 

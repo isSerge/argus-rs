@@ -1,8 +1,8 @@
 database_url: "sqlite:data/monitor.db"
 rpc_urls:
-  - "https://eth.llamarpc.com"
   - "https://1rpc.io/eth"
   - "https://rpc.mevblocker.io"
+  - "https://eth.llamarpc.com"
 network_id: "ethereum"
 
 # Controls where Argus starts on a fresh database.
@@ -28,3 +28,6 @@ retry_config:
 # Optional: Configuration for graceful shutdown timeout.
 # If this section is omitted, the default value of 30 seconds will be used.
 shutdown_timeout_secs: 30
+
+# API server configuration
+api_server_listen_address: "0.0.0.0:8080"
