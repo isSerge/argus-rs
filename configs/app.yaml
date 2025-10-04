@@ -30,5 +30,4 @@ retry_config:
 shutdown_timeout_secs: 30
 
 # API server configuration
-api_server:
-  listen_address: "0.0.0.0:8080"
+api_server_listen_address: "0.0.0.0:8080"

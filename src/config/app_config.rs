@@ -110,7 +110,7 @@ pub struct AppConfig {
     #[serde(default = "default_api_server_listen_address")]
     pub api_server_listen_address: String,
 }
-/// Provides the default value for api_server.listen_address.
+/// Provides the default value for api_server_listen_address.
 fn default_api_server_listen_address() -> String {
     "0.0.0.0:8080".to_string()
 }
