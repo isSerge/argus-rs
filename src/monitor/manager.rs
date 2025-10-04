@@ -76,16 +76,19 @@ impl MonitorManager {
         compiler: Arc<RhaiCompiler>,
         abi_service: Arc<AbiService>,
     ) -> Self {
-        println!("CRITICAL DEBUG: MonitorManager::new called with {} monitors", initial_monitors.len());
+        println!(
+            "CRITICAL DEBUG: MonitorManager::new called with {} monitors",
+            initial_monitors.len()
+        );
         println!("CRITICAL DEBUG: About to call organize_assets");
-        
+
         let initial_state = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             Self::organize_assets(&initial_monitors, &compiler, &abi_service)
         })) {
             Ok(state) => {
                 println!("CRITICAL DEBUG: organize_assets completed successfully");
                 state
-            },
+            }
             Err(panic_info) => {
                 println!("CRITICAL DEBUG: organize_assets PANICKED: {:?}", panic_info);
                 eprintln!("CRITICAL DEBUG: organize_assets PANICKED: {:?}", panic_info);
@@ -97,7 +100,7 @@ impl MonitorManager {
                 }
             }
         };
-        
+
         println!("CRITICAL DEBUG: MonitorManager::new completed");
         Self { compiler, abi_service, state: ArcSwap::new(Arc::new(initial_state)) }
     }

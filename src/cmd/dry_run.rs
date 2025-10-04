@@ -124,8 +124,11 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let database_url = format!("sqlite:file:{}?mode=memory&cache=shared", db_name);
 
     tracing::info!("Building application context...");
-    let context =
-        AppContextBuilder::new(args.config_dir, None).database_url(database_url).build().await?;
+    let context = AppContextBuilder::new(args.config_dir, None)
+        .database_url(database_url)
+        .skip_block_state_init() // Skip block state init for dry-run
+        .build()
+        .await?;
     let AppContext { config, repo, abi_service, script_compiler, provider } = context;
 
     let monitors = repo.get_monitors(&config.network_id).await?;
@@ -154,11 +157,13 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
         );
     }
 
+    println!("CRITICAL DEBUG: About to create MonitorManager with {} monitors", monitors.len());
     let monitor_manager = Arc::new(MonitorManager::new(
         monitors.clone(),
         script_compiler.clone(),
         abi_service.clone(),
     ));
+    println!("CRITICAL DEBUG: MonitorManager created successfully");
 
     // Init EVM data source for fetching blockchain data.
     let evm_source = EvmRpcSource::new(provider, monitor_manager.clone());
@@ -195,7 +200,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
         alert_manager.clone(),
     )
     .await?;
-
+    println!("CRITICAL DEBUG: run_dry_run_loop completed");
     tracing::info!(
         from_block = args.from,
         to_block = args.to,
