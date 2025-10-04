@@ -9,6 +9,7 @@ pub mod config;
 pub mod context;
 pub mod engine;
 pub mod http_client;
+pub mod http_server;
 pub mod loader;
 pub mod models;
 pub mod monitor;
