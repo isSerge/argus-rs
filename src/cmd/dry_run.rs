@@ -113,6 +113,7 @@ pub struct DryRunArgs {
 /// 4. Calls `run_dry_run_loop` to execute the core processing logic.
 /// 5. Serializes the results to a pretty JSON string and prints to stdout.
 pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
+    println!("CRITICAL DEBUG: execute() function started");
     println!("CRITICAL DEBUG: CLI args received - from={} to={}", args.from, args.to);
     tracing::info!(
         from_block = args.from,
@@ -324,7 +325,7 @@ async fn run_dry_run_loop<T: KeyValueStore>(
         from = from_block,
         to = to_block,
         batch_size = BATCH_SIZE,
-        "Starting block processing..."
+        "Starting block processing for dry-run..."
     );
 
     // Check if block sequence is valid

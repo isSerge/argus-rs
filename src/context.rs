@@ -172,6 +172,7 @@ impl AppContextBuilder {
             tracing::debug!("Initializing block state...");
             Self::initialize_block_state(&config, repo.as_ref(), provider.as_ref()).await?;
         } else {
+            println!("CRITICAL DEBUG: Skipping block state initialization (dry-run mode)");
             tracing::debug!("Skipping block state initialization (dry-run mode)");
         }
 
