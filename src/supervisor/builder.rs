@@ -58,6 +58,16 @@ impl<T: AppRepository + KeyValueStore + 'static> SupervisorBuilder<T> {
         let monitors = state.get_monitors(&config.network_id).await?;
         tracing::info!(count = monitors.len(), network_id = %config.network_id, "Loaded monitors from database for filtering engine.");
 
+        // Log details about each monitor for debugging
+        for monitor in &monitors {
+            tracing::debug!(
+                monitor_name = %monitor.name,
+                monitor_address = ?monitor.address,
+                monitor_abi = ?monitor.abi,
+                "Monitor details"
+            );
+        }
+
         let monitor_manager =
             Arc::new(MonitorManager::new(monitors, script_compiler.clone(), abi_service.clone()));
 

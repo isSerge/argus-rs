@@ -121,6 +121,31 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let AppContext { config, repo, abi_service, script_compiler, provider } = context;
 
     let monitors = repo.get_monitors(&config.network_id).await?;
+    tracing::info!(
+        network_id = %config.network_id,
+        monitor_count = monitors.len(),
+        "Loaded monitors from database for dry run"
+    );
+    
+    // Ensure we have monitors to work with
+    if monitors.is_empty() {
+        tracing::error!(
+            network_id = %config.network_id,
+            config_dir = ?config.monitor_config_path,
+            "No monitors found! This will result in no log fetching and zero matches."
+        );
+    }
+    
+    // Log details about each monitor for debugging
+    for monitor in &monitors {
+        tracing::debug!(
+            monitor_name = %monitor.name,
+            monitor_address = ?monitor.address,
+            monitor_abi = ?monitor.abi,
+            "Monitor details"
+        );
+    }
+
     let monitor_manager = Arc::new(MonitorManager::new(
         monitors.clone(),
         script_compiler.clone(),

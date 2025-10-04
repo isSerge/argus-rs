@@ -260,6 +260,24 @@ impl AppContextBuilder {
             InitializationError::MonitorLoad(format!("Failed to load monitors from file: {e}"))
         })?;
 
+        tracing::info!(
+            loaded_count = monitors.len(),
+            config_path = %config_path.display(),
+            "Successfully loaded monitors from configuration file"
+        );
+        
+        // Log each monitor for debugging
+        for (i, monitor) in monitors.iter().enumerate() {
+            tracing::debug!(
+                index = i,
+                monitor_name = %monitor.name,
+                monitor_network = %monitor.network,
+                monitor_address = ?monitor.address,
+                monitor_abi = ?monitor.abi,
+                "Loaded monitor from config"
+            );
+        }
+
         let actions = repo.get_actions(network_id).await.map_err(|e| {
             InitializationError::MonitorLoad(format!(
                 "Failed to fetch actions for monitor validation: {e}"
