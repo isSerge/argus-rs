@@ -113,6 +113,12 @@ pub struct DryRunArgs {
 /// 4. Calls `run_dry_run_loop` to execute the core processing logic.
 /// 5. Serializes the results to a pretty JSON string and prints to stdout.
 pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
+    tracing::info!(
+        from_block = args.from,
+        to_block = args.to,
+        "Starting dry-run with CLI arguments"
+    );
+
     let db_name = uuid::Uuid::new_v4().to_string();
     let database_url = format!("sqlite:file:{}?mode=memory&cache=shared", db_name);
     let context =
@@ -126,7 +132,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
         monitor_count = monitors.len(),
         "Loaded monitors from database for dry run"
     );
-    
+
     // Ensure we have monitors to work with
     if monitors.is_empty() {
         tracing::error!(
@@ -135,7 +141,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
             "No monitors found! This will result in no log fetching and zero matches."
         );
     }
-    
+
     // Log details about each monitor for debugging
     for monitor in &monitors {
         tracing::debug!(
@@ -180,6 +186,13 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
         alert_manager.clone(),
     )
     .await?;
+
+    tracing::info!(
+        from_block = args.from,
+        to_block = args.to,
+        matches_found = matches.len(),
+        "Dry-run processing completed"
+    );
 
     // Get actual dispatch statistics from AlertManager
     let dispatched_notifications = alert_manager.get_dispatched_notifications();

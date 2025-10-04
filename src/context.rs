@@ -265,7 +265,7 @@ impl AppContextBuilder {
             config_path = %config_path.display(),
             "Successfully loaded monitors from configuration file"
         );
-        
+
         // Log each monitor for debugging
         for (i, monitor) in monitors.iter().enumerate() {
             tracing::debug!(

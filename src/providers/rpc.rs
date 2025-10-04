@@ -144,6 +144,27 @@ impl EvmRpcSource {
             return Ok((block, Vec::new()));
         }
 
+        // Debug interest registry contents for CI debugging
+        tracing::info!(
+            block_number = number,
+            log_interests_count = interest_registry.log_interests.len(),
+            global_event_signatures_count = interest_registry.global_event_signatures.len(),
+            "Interest registry state"
+        );
+        for (addr, mode) in interest_registry.log_interests.iter() {
+            match mode {
+                Some(signatures) => tracing::info!(
+                    address = %addr,
+                    signature_count = signatures.len(),
+                    "Address-specific interest (precise mode)"
+                ),
+                None => tracing::info!(
+                    address = %addr,
+                    "Address-specific interest (broad mode)"
+                ),
+            }
+        }
+
         // Check 1: Do any globally monitored topics appear in the bloom?
         let might_have_global_logs = interest_registry
             .global_event_signatures
@@ -183,16 +204,24 @@ impl EvmRpcSource {
 
         let might_contain_relevant_logs = might_have_global_logs || might_have_address_logs;
 
+        tracing::info!(
+            block_number = number,
+            might_have_global_logs,
+            might_have_address_logs,
+            might_contain_relevant_logs,
+            "Bloom filter analysis"
+        );
+
         // Conditionally call eth_getLogs based on the bloom filter check.
         let logs = if might_contain_relevant_logs {
             // The bloom filter indicates a potential match. We MUST fetch the logs to
             // verify.
-            tracing::debug!(block_number = number, "Bloom filter hit. Fetching logs.");
+            tracing::info!(block_number = number, "Bloom filter hit. Fetching logs.");
             self.fetch_logs_for_block(number).await?
         } else {
             // The bloom filter guarantees no relevant logs are in this block.
             // We can safely skip the expensive eth_getLogs call.
-            tracing::debug!(block_number = number, "Bloom filter miss. Skipping log fetch.");
+            tracing::info!(block_number = number, "Bloom filter miss. Skipping log fetch.");
             Vec::new()
         };
 
