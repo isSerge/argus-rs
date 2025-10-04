@@ -178,6 +178,12 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let alert_manager = Arc::new(AlertManager::new(action_dispatcher, repo, actions));
 
     // Execute the core processing loop.
+    tracing::info!(
+        args_from = args.from,
+        args_to = args.to,
+        "About to call run_dry_run_loop with these exact args"
+    );
+    
     let matches = run_dry_run_loop(
         args.from,
         args.to,
