@@ -77,7 +77,28 @@ impl MonitorManager {
         abi_service: Arc<AbiService>,
     ) -> Self {
         println!("CRITICAL DEBUG: MonitorManager::new called with {} monitors", initial_monitors.len());
-        let initial_state = Self::organize_assets(&initial_monitors, &compiler, &abi_service);
+        println!("CRITICAL DEBUG: About to call organize_assets");
+        
+        let initial_state = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            Self::organize_assets(&initial_monitors, &compiler, &abi_service)
+        })) {
+            Ok(state) => {
+                println!("CRITICAL DEBUG: organize_assets completed successfully");
+                state
+            },
+            Err(panic_info) => {
+                println!("CRITICAL DEBUG: organize_assets PANICKED: {:?}", panic_info);
+                eprintln!("CRITICAL DEBUG: organize_assets PANICKED: {:?}", panic_info);
+                // Create a fallback empty state to prevent total failure
+                MonitorAssetState {
+                    monitors: vec![],
+                    requires_receipts: false,
+                    interest_registry: crate::monitor::InterestRegistry::default(),
+                }
+            }
+        };
+        
+        println!("CRITICAL DEBUG: MonitorManager::new completed");
         Self { compiler, abi_service, state: ArcSwap::new(Arc::new(initial_state)) }
     }
 
