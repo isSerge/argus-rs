@@ -99,7 +99,18 @@ impl MonitorManager {
         compiler: &Arc<RhaiCompiler>,
         abi_service: &Arc<AbiService>,
     ) -> MonitorAssetState {
-        tracing::debug!("Organizing assets for {} monitors", monitors.len());
+        tracing::info!("Organizing assets for {} monitors", monitors.len());
+
+        // Add detailed logging for each monitor before classification
+        for (i, monitor) in monitors.iter().enumerate() {
+            tracing::info!(
+                monitor_index = i,
+                monitor_name = %monitor.name,
+                monitor_address = ?monitor.address,
+                filter_script = %monitor.filter_script,
+                "About to classify monitor"
+            );
+        }
 
         let (classified, failed): (Vec<_>, Vec<_>) =
             monitors.iter().map(|m| Self::classify_monitor(compiler, m)).partition(Result::is_ok);
