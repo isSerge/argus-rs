@@ -113,19 +113,58 @@ pub struct DryRunArgs {
 /// 4. Calls `run_dry_run_loop` to execute the core processing logic.
 /// 5. Serializes the results to a pretty JSON string and prints to stdout.
 pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
+    println!("CRITICAL DEBUG: execute() function started");
+    println!("CRITICAL DEBUG: CLI args received - from={} to={}", args.from, args.to);
+    tracing::info!(
+        from_block = args.from,
+        to_block = args.to,
+        "Starting dry-run with CLI arguments"
+    );
+
+    let db_name = uuid::Uuid::new_v4().to_string();
+    let database_url = format!("sqlite:file:{}?mode=memory&cache=shared", db_name);
+
+    tracing::info!("Building application context...");
     let context = AppContextBuilder::new(args.config_dir, None)
-        .database_url("sqlite::memory:".to_string())
+        .database_url(database_url)
+        .skip_block_state_init() // Skip block state init for dry-run
         .build()
         .await?;
-
     let AppContext { config, repo, abi_service, script_compiler, provider } = context;
 
     let monitors = repo.get_monitors(&config.network_id).await?;
+    tracing::info!(
+        network_id = %config.network_id,
+        monitor_count = monitors.len(),
+        "Loaded monitors from database for dry run"
+    );
+
+    // Ensure we have monitors to work with
+    if monitors.is_empty() {
+        tracing::error!(
+            network_id = %config.network_id,
+            config_dir = ?config.monitor_config_path,
+            "No monitors found! This will result in no log fetching and zero matches."
+        );
+    }
+
+    // Log details about each monitor for debugging
+    for monitor in &monitors {
+        tracing::debug!(
+            monitor_name = %monitor.name,
+            monitor_address = ?monitor.address,
+            monitor_abi = ?monitor.abi,
+            "Monitor details"
+        );
+    }
+
+    println!("CRITICAL DEBUG: About to create MonitorManager with {} monitors", monitors.len());
     let monitor_manager = Arc::new(MonitorManager::new(
         monitors.clone(),
         script_compiler.clone(),
         abi_service.clone(),
     ));
+    println!("CRITICAL DEBUG: MonitorManager created successfully");
 
     // Init EVM data source for fetching blockchain data.
     let evm_source = EvmRpcSource::new(provider, monitor_manager.clone());
@@ -147,6 +186,13 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let alert_manager = Arc::new(AlertManager::new(action_dispatcher, repo, actions));
 
     // Execute the core processing loop.
+    println!("CRITICAL DEBUG: About to call run_dry_run_loop - from={} to={}", args.from, args.to);
+    tracing::info!(
+        args_from = args.from,
+        args_to = args.to,
+        "About to call run_dry_run_loop with these exact args"
+    );
+
     let matches = run_dry_run_loop(
         args.from,
         args.to,
@@ -155,6 +201,13 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
         alert_manager.clone(),
     )
     .await?;
+    println!("CRITICAL DEBUG: run_dry_run_loop completed");
+    tracing::info!(
+        from_block = args.from,
+        to_block = args.to,
+        matches_found = matches.len(),
+        "Dry-run processing completed"
+    );
 
     // Get actual dispatch statistics from AlertManager
     let dispatched_notifications = alert_manager.get_dispatched_notifications();
@@ -257,6 +310,11 @@ async fn run_dry_run_loop<T: KeyValueStore>(
     filtering_engine: RhaiFilteringEngine,
     alert_manager: Arc<AlertManager<T>>,
 ) -> Result<Vec<MonitorMatch>, DryRunError> {
+    println!(
+        "CRITICAL DEBUG: run_dry_run_loop called with from_block={} to_block={}",
+        from_block, to_block
+    );
+
     // Define a batch size for processing blocks in chunks.
     const BATCH_SIZE: u64 = 50;
 
@@ -267,7 +325,7 @@ async fn run_dry_run_loop<T: KeyValueStore>(
         from = from_block,
         to = to_block,
         batch_size = BATCH_SIZE,
-        "Starting block processing..."
+        "Starting block processing for dry-run..."
     );
 
     // Check if block sequence is valid
@@ -352,7 +410,9 @@ mod tests {
     async fn create_test_alert_manager(
         actions: Arc<HashMap<String, ActionConfig>>,
     ) -> Arc<AlertManager<SqliteStateRepository>> {
-        let state_repo = SqliteStateRepository::new("sqlite::memory:")
+        let db_name = uuid::Uuid::new_v4().to_string();
+        let database_url = format!("sqlite:file:{}?mode=memory&cache=shared", db_name);
+        let state_repo = SqliteStateRepository::new(&database_url)
             .await
             .expect("Failed to connect to in-memory db");
         state_repo.run_migrations().await.expect("Failed to run migrations");

@@ -150,6 +150,14 @@ fn process_block(block_data: BlockData) -> CorrelatedBlockData {
 
     let mut correlated_items = Vec::new();
 
+    // Debug logging to understand log correlation issues
+    tracing::debug!(
+        block_number = block_data.block.header.number,
+        total_logs_in_block = block_data.logs.values().map(|v| v.len()).sum::<usize>(),
+        unique_tx_hashes_with_logs = block_data.logs.len(),
+        "Starting block correlation"
+    );
+
     if let BlockTransactions::Full(transactions) = block_data.block.transactions {
         correlated_items.reserve(transactions.len());
         for tx in transactions {
@@ -158,6 +166,15 @@ fn process_block(block_data: BlockData) -> CorrelatedBlockData {
 
             let logs = block_data.logs.get(&tx_hash).cloned().unwrap_or_default();
             let receipt = block_data.receipts.get(&tx_hash).cloned();
+
+            // Debug log when we find transactions with logs
+            if !logs.is_empty() {
+                tracing::debug!(
+                    tx_hash = %tx_hash,
+                    log_count = logs.len(),
+                    "Found transaction with logs"
+                );
+            }
 
             let correlated_item = CorrelatedBlockItem::new(tx, logs, receipt);
             correlated_items.push(correlated_item);

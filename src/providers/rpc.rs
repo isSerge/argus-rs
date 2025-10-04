@@ -144,44 +144,84 @@ impl EvmRpcSource {
             return Ok((block, Vec::new()));
         }
 
+        // Debug interest registry contents for CI debugging
+        tracing::info!(
+            block_number = number,
+            log_interests_count = interest_registry.log_interests.len(),
+            global_event_signatures_count = interest_registry.global_event_signatures.len(),
+            "Interest registry state"
+        );
+        for (addr, mode) in interest_registry.log_interests.iter() {
+            match mode {
+                Some(signatures) => tracing::info!(
+                    address = %addr,
+                    signature_count = signatures.len(),
+                    "Address-specific interest (precise mode)"
+                ),
+                None => tracing::info!(
+                    address = %addr,
+                    "Address-specific interest (broad mode)"
+                ),
+            }
+        }
+
         // Check 1: Do any globally monitored topics appear in the bloom?
         let might_have_global_logs = interest_registry
             .global_event_signatures
             .iter()
             .any(|topic| block_bloom.contains_input(BloomInput::Raw(topic.as_slice())));
+        tracing::debug!(might_have_global_logs, "Checked for global log interests.");
 
         // Check 2: Do any address-specific interests appear in the bloom?
         let might_have_address_logs =
             interest_registry.log_interests.iter().any(|(addr, interest_mode)| {
-                // All address-specific checks must first match the address in the bloom.
-                if !block_bloom.contains_input(BloomInput::Raw(addr.as_slice())) {
+                let address_found = block_bloom.contains_input(BloomInput::Raw(addr.as_slice()));
+                if !address_found {
+                    tracing::trace!(address = %addr, "Address not found in bloom filter.");
                     return false;
                 }
 
+                tracing::debug!(address = %addr, "Address found in bloom filter. Checking topics...");
                 match interest_mode {
-                    // Precise Mode: Address is present, now check if any of its specific topics are
-                    // also present.
-                    Some(specific_signatures) => specific_signatures
-                        .iter()
-                        .any(|topic| block_bloom.contains_input(BloomInput::Raw(topic.as_slice()))),
-                    // Broad Mode: Address is present, and since we can't be more specific, we must
-                    // fetch.
-                    None => true,
+                    Some(specific_signatures) => {
+                        let topics_found = specific_signatures.iter().any(|topic| {
+                            let found = block_bloom.contains_input(BloomInput::Raw(topic.as_slice()));
+                            tracing::trace!(topic = %topic, found, "Checked topic for address.");
+                            found
+                        });
+                        if topics_found {
+                            tracing::debug!(address = %addr, "Relevant topic found for address.");
+                        }
+                        topics_found
+                    }
+                    None => {
+                        tracing::debug!(address = %addr, "No specific topics (broad mode), proceeding to fetch.");
+                        true
+                    }
                 }
             });
+        tracing::debug!(might_have_address_logs, "Checked for address-specific log interests.");
 
         let might_contain_relevant_logs = might_have_global_logs || might_have_address_logs;
+
+        tracing::info!(
+            block_number = number,
+            might_have_global_logs,
+            might_have_address_logs,
+            might_contain_relevant_logs,
+            "Bloom filter analysis"
+        );
 
         // Conditionally call eth_getLogs based on the bloom filter check.
         let logs = if might_contain_relevant_logs {
             // The bloom filter indicates a potential match. We MUST fetch the logs to
             // verify.
-            tracing::debug!(block_number = number, "Bloom filter hit. Fetching logs.");
+            tracing::info!(block_number = number, "Bloom filter hit. Fetching logs.");
             self.fetch_logs_for_block(number).await?
         } else {
             // The bloom filter guarantees no relevant logs are in this block.
             // We can safely skip the expensive eth_getLogs call.
-            tracing::debug!(block_number = number, "Bloom filter miss. Skipping log fetch.");
+            tracing::info!(block_number = number, "Bloom filter miss. Skipping log fetch.");
             Vec::new()
         };
 

@@ -76,7 +76,32 @@ impl MonitorManager {
         compiler: Arc<RhaiCompiler>,
         abi_service: Arc<AbiService>,
     ) -> Self {
-        let initial_state = Self::organize_assets(&initial_monitors, &compiler, &abi_service);
+        println!(
+            "CRITICAL DEBUG: MonitorManager::new called with {} monitors",
+            initial_monitors.len()
+        );
+        println!("CRITICAL DEBUG: About to call organize_assets");
+
+        let initial_state = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            Self::organize_assets(&initial_monitors, &compiler, &abi_service)
+        })) {
+            Ok(state) => {
+                println!("CRITICAL DEBUG: organize_assets completed successfully");
+                state
+            }
+            Err(panic_info) => {
+                println!("CRITICAL DEBUG: organize_assets PANICKED: {:?}", panic_info);
+                eprintln!("CRITICAL DEBUG: organize_assets PANICKED: {:?}", panic_info);
+                // Create a fallback empty state to prevent total failure
+                MonitorAssetState {
+                    monitors: vec![],
+                    requires_receipts: false,
+                    interest_registry: crate::monitor::InterestRegistry::default(),
+                }
+            }
+        };
+
+        println!("CRITICAL DEBUG: MonitorManager::new completed");
         Self { compiler, abi_service, state: ArcSwap::new(Arc::new(initial_state)) }
     }
 
@@ -99,7 +124,19 @@ impl MonitorManager {
         compiler: &Arc<RhaiCompiler>,
         abi_service: &Arc<AbiService>,
     ) -> MonitorAssetState {
-        tracing::debug!("Organizing assets for {} monitors", monitors.len());
+        println!("CRITICAL DEBUG: organize_assets called with {} monitors", monitors.len());
+        tracing::info!("Organizing assets for {} monitors", monitors.len());
+
+        // Add detailed logging for each monitor before classification
+        for (i, monitor) in monitors.iter().enumerate() {
+            tracing::info!(
+                monitor_index = i,
+                monitor_name = %monitor.name,
+                monitor_address = ?monitor.address,
+                filter_script = %monitor.filter_script,
+                "About to classify monitor"
+            );
+        }
 
         let (classified, failed): (Vec<_>, Vec<_>) =
             monitors.iter().map(|m| Self::classify_monitor(compiler, m)).partition(Result::is_ok);
@@ -108,11 +145,19 @@ impl MonitorManager {
             classified.into_iter().map(Result::unwrap).collect::<Vec<(ClassifiedMonitor, bool)>>();
 
         if !failed.is_empty() {
-            tracing::warn!(
+            tracing::error!(
                 count = failed.len(),
                 "Failed to classify {} monitors due to script analysis errors.",
                 failed.len()
             );
+            // Log specific failures
+            for (i, failure) in failed.iter().enumerate() {
+                if let Err(e) = failure {
+                    tracing::error!(failure_index = i, error = %e, "Monitor classification failure details");
+                }
+            }
+        } else {
+            tracing::info!("Successfully classified {} monitors", classified_monitors.len());
         }
 
         let requires_receipts = classified_monitors.iter().any(|(_, needs_receipt)| *needs_receipt);
@@ -139,6 +184,13 @@ impl MonitorManager {
     ) -> Result<(ClassifiedMonitor, bool), Box<dyn std::error::Error>> {
         // Analyze the filter script
         let analysis = compiler.analyze_script(&monitor.filter_script)?;
+
+        tracing::info!(
+            monitor_name = %monitor.name,
+            accesses_log_variable = analysis.accesses_log_variable,
+            accessed_variables = ?analysis.accessed_variables,
+            "Monitor script analysis"
+        );
 
         // Receipt-specific fields that are only available from transaction receipts
         let receipt_fields: HashSet<String> =
@@ -189,13 +241,32 @@ impl MonitorManager {
         classified_monitors: &[ClassifiedMonitor],
         abi_service: &Arc<AbiService>,
     ) -> InterestRegistry {
-        classified_monitors
+        tracing::info!(
+            "Building interest registry from {} classified monitors",
+            classified_monitors.len()
+        );
+
+        let registry = classified_monitors
             .iter()
             .fold(InterestRegistryBuilder::default(), |mut builder, cm| {
+                tracing::info!(
+                    monitor_name = %cm.monitor.name,
+                    capabilities = ?cm.caps,
+                    monitor_address = ?cm.monitor.address,
+                    "Adding monitor to interest registry"
+                );
                 builder.add(cm, abi_service);
                 builder
             })
-            .build()
+            .build();
+
+        tracing::info!(
+            log_interests_count = registry.log_interests.len(),
+            global_signatures_count = registry.global_event_signatures.len(),
+            "Interest registry built"
+        );
+
+        registry
     }
 }
 

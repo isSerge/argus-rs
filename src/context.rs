@@ -97,18 +97,32 @@ pub struct AppContextBuilder {
 
     /// Optional override for the database URL.
     database_url_override: Option<String>,
+
+    /// Skip block state initialization (for dry-run mode).
+    skip_block_state_init: bool,
 }
 
 impl AppContextBuilder {
     /// Creates a new `AppContextBuilder` with optional configuration directory
     /// and initial start block override.
     pub fn new(config_dir: Option<String>, from_block_override: Option<InitialStartBlock>) -> Self {
-        Self { config_dir, from_block_override, database_url_override: None }
+        Self {
+            config_dir,
+            from_block_override,
+            database_url_override: None,
+            skip_block_state_init: false,
+        }
     }
 
     /// Sets a database URL override.
     pub fn database_url(mut self, url: String) -> Self {
         self.database_url_override = Some(url);
+        self
+    }
+
+    /// Skip block state initialization (for dry-run mode).
+    pub fn skip_block_state_init(mut self) -> Self {
+        self.skip_block_state_init = true;
         self
     }
 
@@ -154,7 +168,14 @@ impl AppContextBuilder {
         let provider =
             Arc::new(create_provider(config.rpc_urls.clone(), config.rpc_retry_config.clone())?);
 
-        Self::initialize_block_state(&config, repo.as_ref(), provider.as_ref()).await?;
+        if !self.skip_block_state_init {
+            tracing::debug!("Initializing block state...");
+            Self::initialize_block_state(&config, repo.as_ref(), provider.as_ref()).await?;
+        } else {
+            println!("CRITICAL DEBUG: Skipping block state initialization (dry-run mode)");
+            tracing::debug!("Skipping block state initialization (dry-run mode)");
+        }
+
         Self::load_actions_from_file(&config, repo.as_ref()).await?;
         Self::load_monitors_from_file(
             &config,
@@ -259,6 +280,24 @@ impl AppContextBuilder {
         let monitors = load_config::<MonitorConfig>(PathBuf::from(config_path)).map_err(|e| {
             InitializationError::MonitorLoad(format!("Failed to load monitors from file: {e}"))
         })?;
+
+        tracing::info!(
+            loaded_count = monitors.len(),
+            config_path = %config_path.display(),
+            "Successfully loaded monitors from configuration file"
+        );
+
+        // Log each monitor for debugging
+        for (i, monitor) in monitors.iter().enumerate() {
+            tracing::debug!(
+                index = i,
+                monitor_name = %monitor.name,
+                monitor_network = %monitor.network,
+                monitor_address = ?monitor.address,
+                monitor_abi = ?monitor.abi,
+                "Loaded monitor from config"
+            );
+        }
 
         let actions = repo.get_actions(network_id).await.map_err(|e| {
             InitializationError::MonitorLoad(format!(
@@ -388,15 +427,19 @@ mod tests {
     };
 
     fn create_test_config() -> AppConfig {
+        let db_name = uuid::Uuid::new_v4().to_string();
+        let database_url = format!("sqlite:file:{}?mode=memory&cache=shared", db_name);
         AppConfig::builder()
             .rpc_urls(vec![url::Url::parse("http://localhost:8545").unwrap()])
-            .database_url("sqlite::memory:")
+            .database_url(&database_url)
             .build()
     }
 
     fn create_test_repo() -> impl std::future::Future<Output = Arc<SqliteStateRepository>> {
         async {
-            let repo = SqliteStateRepository::new("sqlite::memory:")
+            let db_name = uuid::Uuid::new_v4().to_string();
+            let database_url = format!("sqlite:file:{}?mode=memory&cache=shared", db_name);
+            let repo = SqliteStateRepository::new(&database_url)
                 .await
                 .expect("Failed to connect to in-memory db");
             repo.run_migrations().await.expect("Failed to run migrations");

@@ -35,12 +35,6 @@ jobs:
           ~/.cargo/git
         key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
-    - name: Cache Cargo build
-      uses: actions/cache@v3
-      with:
-        path: target
-        key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
-
     - name: Build binaries
       run: cargo build --workspace --release
 
