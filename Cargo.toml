@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-alloy = { version = "1.0.23", features = ["essentials"] }
+alloy = { version = "1.0.37", features = ["essentials"] }
 arc-swap = "1.7.1"
 async-nats = "0.43.1"
 async-trait = "0.1.88"
