@@ -113,8 +113,10 @@ pub struct DryRunArgs {
 /// 4. Calls `run_dry_run_loop` to execute the core processing logic.
 /// 5. Serializes the results to a pretty JSON string and prints to stdout.
 pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
+    let db_name = uuid::Uuid::new_v4().to_string();
+    let database_url = format!("sqlite:file:{}?mode=memory&cache=shared", db_name);
     let context = AppContextBuilder::new(args.config_dir, None)
-        .database_url("sqlite:file:dry-run?mode=memory&cache=shared".to_string())
+        .database_url(database_url)
         .build()
         .await?;
 
