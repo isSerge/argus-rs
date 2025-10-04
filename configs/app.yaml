@@ -1,8 +1,8 @@
 database_url: "sqlite:data/monitor.db"
 rpc_urls:
-  - "https://eth.llamarpc.com"
   - "https://1rpc.io/eth"
   - "https://rpc.mevblocker.io"
+  - "https://eth.llamarpc.com"
 network_id: "ethereum"
 
 # Controls where Argus starts on a fresh database.
