@@ -311,7 +311,7 @@ async fn run_dry_run_loop<T: KeyValueStore>(
     alert_manager: Arc<AlertManager<T>>,
 ) -> Result<Vec<MonitorMatch>, DryRunError> {
     println!(
-        "CRITICAL DEBUG: run_dry_run_loop called with from_block={} to_block={}",
+        "CRITICAL DEBUG: run_dry_run_loop called with from_block={} to_block={} - NEW VERSION",
         from_block, to_block
     );
 
