@@ -27,14 +27,6 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-docker-
 
-    - name: Cache Cargo registry
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-
     - name: Build binaries
       run: cargo build --workspace --release
 
