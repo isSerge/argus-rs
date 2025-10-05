@@ -37,10 +37,7 @@ use crate::{
     http_server,
     models::{BlockData, CorrelatedBlockData, monitor::Monitor, monitor_match::MonitorMatch},
     monitor::{MonitorManager, MonitorValidationError},
-    persistence::{
-        error::PersistenceError,
-        traits::{AppRepository, KeyValueStore},
-    },
+    persistence::{error::PersistenceError, sqlite::SqliteStateRepository, traits::AppRepository},
     providers::{
         rpc::ProviderError,
         traits::{DataSource, DataSourceError},
@@ -115,13 +112,13 @@ pub enum SupervisorError {
 /// The Supervisor owns all the major components (services) and is responsible
 /// for their startup, shutdown, and health monitoring. Once `run` is called, it
 /// becomes
-///  the main process loop for the entire application.
-pub struct Supervisor<T: AppRepository + KeyValueStore + 'static> {
+//  the main process loop for the entire application.
+pub struct Supervisor {
     /// Shared application configuration.
     config: Arc<AppConfig>,
 
     /// The persistent state repository for managing application state.
-    state: Arc<T>,
+    state: Arc<dyn AppRepository>,
 
     /// The data source for fetching new blockchain data (e.g., from an RPC
     /// endpoint).
@@ -133,7 +130,7 @@ pub struct Supervisor<T: AppRepository + KeyValueStore + 'static> {
 
     /// The alert manager that handles sending alerts based on
     /// matched monitors.
-    alert_manager: Arc<AlertManager<T>>,
+    alert_manager: Arc<AlertManager<SqliteStateRepository>>,
 
     /// A token used to signal a graceful shutdown to all supervised tasks.
     cancellation_token: tokio_util::sync::CancellationToken,
@@ -145,17 +142,17 @@ pub struct Supervisor<T: AppRepository + KeyValueStore + 'static> {
     monitor_manager: Arc<MonitorManager>,
 }
 
-impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
+impl Supervisor {
     /// Creates a new Supervisor instance with all its required components.
     ///
     /// This is typically called by the `SupervisorBuilder` after it has
     /// assembled all the necessary dependencies.
     pub fn new(
         config: AppConfig,
-        state: Arc<T>,
+        state: Arc<SqliteStateRepository>,
         data_source: Box<dyn DataSource>,
         filtering: Arc<dyn FilteringEngine>,
-        alert_manager: Arc<AlertManager<T>>,
+        alert_manager: Arc<AlertManager<SqliteStateRepository>>,
         monitor_manager: Arc<MonitorManager>,
     ) -> Self {
         Self {
@@ -366,8 +363,8 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
     /// Returns a new `SupervisorBuilder` instance.
     ///
     /// This is the public entry point for creating a supervisor.
-    pub fn builder() -> SupervisorBuilder<T> {
-        SupervisorBuilder::<T>::new()
+    pub fn builder() -> SupervisorBuilder {
+        SupervisorBuilder::new()
     }
 
     /// Updates the monitors managed by the `MonitorManager`

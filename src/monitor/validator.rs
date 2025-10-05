@@ -132,7 +132,7 @@ impl<'a> MonitorValidator<'a> {
 
         let (parsed_address, is_global_log_monitor) = self.parse_and_validate_address(monitor)?;
 
-        let abi_json = self.get_monitor_abi_json(monitor, parsed_address);
+        let abi_json = self.get_monitor_abi_json(monitor, parsed_address, is_global_log_monitor);
 
         let script_validation_result = self
             .script_validator
@@ -246,23 +246,31 @@ impl<'a> MonitorValidator<'a> {
     }
 
     /// Gets the ABI JSON for the monitor based on its configuration.
-    /// Returns Some if an ABI name is provided, or if a contract address is
-    /// provided and a cached contract exists for that address.
+    /// For contract-specific monitors, it's Some if address and abi path are
+    /// provided and address is valid. For global log monitors, it's Some if
+    /// abi path is provided.
     fn get_monitor_abi_json(
         &self,
         monitor: &MonitorConfig,
         parsed_address: Option<Address>,
+        is_global_log_monitor: bool,
     ) -> Option<Arc<JsonAbi>> {
-        if let Some(abi_name) = &monitor.abi {
-            // If an ABI name is provided, always use get_abi_by_name
-            // This works for both contract-specific and global monitors
-            self.abi_service.get_abi_by_name(abi_name)
-        } else if let Some(address) = parsed_address {
-            // For contract-specific monitors without explicit ABI name,
-            // try to get a cached contract by address
-            self.abi_service.get_abi(address).map(|c| c.abi.clone())
+        if let Some(address) = parsed_address {
+            if monitor.abi.is_some() {
+                self.abi_service.get_abi(address).map(|c| c.abi.clone())
+            } else {
+                None // No ABI name provided for contract-specific, so no ABI expected for script validation
+            }
+        } else if is_global_log_monitor {
+            if let Some(abi_name) = &monitor.abi {
+                // For global log monitors, we don't have a specific address to link the ABI to,
+                // so we just try to get the ABI by name.
+                self.abi_service.get_abi_by_name(abi_name)
+            } else {
+                None // No ABI name provided for global log monitor
+            }
         } else {
-            None // No ABI name provided and no cached contract available
+            None // No address and not a global log monitor, so no ABI expected for script validation
         }
     }
 
@@ -658,28 +666,36 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_monitor_validation_success_with_abi_name_even_if_not_linked() {
+    async fn test_monitor_validation_failure_requires_abi_for_log_access_abi_not_linked() {
         let contract_address = "0x0000000000000000000000000000000000000123".parse().unwrap();
         // Create validator without linking the ABI to the address
         let validator =
             create_monitor_validator(&[], Some((contract_address, "erc20", erc20_abi_json())));
 
-        // Valid: accesses log data, has address and abi name
-        // The ABI can be retrieved by name even if not linked to the address
-        let valid_monitor = create_test_monitor(
+        // Invalid: accesses log data, has address and abi name, but ABI is not linked
+        let invalid_monitor = create_test_monitor(
             1,
             Some("0x0000000000000000000000000000000000000123"),
             Some("erc20"), // ABI name provided
-            "log.name == \"Transfer\"",
+            "log.name == \"A\"",
             vec![],
         );
-        // Manually remove the linked ABI to simulate the scenario
+        // Manually remove the linked ABI to simulate the failure condition
         validator.abi_service.remove_abi(&contract_address);
 
-        let result = validator.validate(&valid_monitor);
+        let result = validator.validate(&invalid_monitor);
 
-        // Should succeed because we can get ABI by name
-        assert!(result.is_ok());
+        assert!(result.is_err());
+        if let Err(MonitorValidationError::MonitorRequiresAbi { monitor_name, reason }) = result {
+            assert!(monitor_name.contains("Test Monitor 1"));
+            assert!(reason.contains(
+                "ABI 'erc20' could not be retrieved for address \
+                 '0x0000000000000000000000000000000000000123'. Ensure the ABI is loaded and \
+                 linked."
+            ));
+        } else {
+            panic!("Expected MonitorValidationError::MonitorRequiresAbi");
+        }
     }
 
     #[tokio::test]
