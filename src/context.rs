@@ -168,11 +168,18 @@ impl AppContextBuilder {
         let provider =
             Arc::new(create_provider(config.rpc_urls.clone(), config.rpc_retry_config.clone())?);
 
+        println!(
+            "CRITICAL DEBUG: About to check skip_block_state_init flag: {}",
+            self.skip_block_state_init
+        );
         if !self.skip_block_state_init {
             tracing::debug!("Initializing block state...");
             Self::initialize_block_state(&config, repo.as_ref(), provider.as_ref()).await?;
         } else {
-            println!("CRITICAL DEBUG: Skipping block state initialization (dry-run mode) - FIXED VERSION");
+            println!(
+                "CRITICAL DEBUG: Skipping block state initialization (dry-run mode) - FIXED \
+                 VERSION"
+            );
             tracing::debug!("Skipping block state initialization (dry-run mode)");
         }
 

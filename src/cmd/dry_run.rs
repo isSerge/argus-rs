@@ -125,14 +125,18 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let database_url = format!("sqlite:file:{}?mode=memory&cache=shared", db_name);
 
     tracing::info!("Building application context...");
+    println!("CRITICAL DEBUG: About to build AppContext with skip_block_state_init");
     let context = AppContextBuilder::new(args.config_dir, None)
         .database_url(database_url)
         .skip_block_state_init() // Skip block state init for dry-run
         .build()
         .await?;
+    println!("CRITICAL DEBUG: AppContext build completed successfully");
     let AppContext { config, repo, abi_service, script_compiler, provider } = context;
 
+    println!("CRITICAL DEBUG: About to load monitors from database");
     let monitors = repo.get_monitors(&config.network_id).await?;
+    println!("CRITICAL DEBUG: Loaded {} monitors from database", monitors.len());
     tracing::info!(
         network_id = %config.network_id,
         monitor_count = monitors.len(),
