@@ -220,3 +220,44 @@ async fn monitors_returns_list_of_monitors_when_exist() {
     // Clean up
     server_handle.abort();
 }
+
+#[tokio::test]
+async fn monitors_endpoint_handles_db_error() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind");
+    let addr = listener.local_addr().expect("Failed to get address");
+    drop(listener); // Release port for the app to use
+
+    let config =
+        Arc::new(AppConfig { api_server_listen_address: addr.to_string(), ..Default::default() });
+
+    // Create a repo but do not run migrations to simulate a DB error
+    let repo = Arc::new(SqliteStateRepository::new("sqlite::memory:")
+        .await
+        .expect("Failed to create in-memory repo"));
+
+    // Spawn the actual app server
+    let server_handle = task::spawn(async move {
+        http_server::run_server_from_config(config, repo).await;
+    });
+
+    // Wait for server to start
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;    
+
+    // Test the /monitors endpoint
+    let url = format!("http://{}/monitors", addr);
+    let client = Client::new();
+    let resp = client.get(&url).send().await.expect("Request failed");
+    assert_eq!(resp.status(), 500);
+    let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
+    assert_eq!(body["error"], "Failed to retrieve monitors");
+
+    // Test the /monitors/{id} endpoint
+    let url = format!("http://{}/monitors/1", addr);
+    let resp = client.get(&url).send().await.expect("Request failed");
+    assert_eq!(resp.status(), 500);
+    let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
+    assert_eq!(body["error"], "Failed to retrieve monitor");
+
+    // Clean up
+    server_handle.abort();
+}
