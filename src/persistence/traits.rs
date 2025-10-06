@@ -45,6 +45,13 @@ pub trait AppRepository: Send + Sync {
     /// Retrieves all monitors for a specific network.
     async fn get_monitors(&self, network_id: &str) -> Result<Vec<Monitor>, PersistenceError>;
 
+    /// Retrieves a specific monitor by its ID for a given network.
+    async fn get_monitor_by_id(
+        &self,
+        network_id: &str,
+        monitor_id: &str,
+    ) -> Result<Option<Monitor>, PersistenceError>;
+
     /// Adds multiple monitors for a specific network.
     async fn add_monitors(
         &self,
