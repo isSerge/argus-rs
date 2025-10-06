@@ -1,6 +1,6 @@
-use std::time::Duration;
+use std::{fmt, time::Duration};
 
-use serde::{Deserialize, Deserializer, Serializer, de};
+use serde::{Deserialize, Deserializer, Serializer, de, de::Visitor};
 use url::Url;
 
 /// Custom deserializer for Duration from milliseconds
@@ -40,13 +40,45 @@ where
     serializer.serialize_u64(duration.as_secs())
 }
 
+struct UrlsVisitor;
+
+impl<'de> Visitor<'de> for UrlsVisitor {
+    type Value = Vec<Url>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("a string or a sequence of strings")
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        value
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .map(|url_str| Url::parse(url_str).map_err(de::Error::custom))
+            .collect()
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: de::SeqAccess<'de>,
+    {
+        let mut urls = Vec::new();
+        while let Some(value) = seq.next_element::<String>()? {
+            urls.push(Url::parse(&value).map_err(de::Error::custom)?);
+        }
+        Ok(urls)
+    }
+}
+
 /// Custom deserializer for a vector of URLs.
 pub fn deserialize_urls<'de, D>(deserializer: D) -> Result<Vec<Url>, D::Error>
 where
     D: Deserializer<'de>,
 {
-    let s = Vec::<String>::deserialize(deserializer)?;
-    s.into_iter().map(|url_str| Url::parse(&url_str).map_err(de::Error::custom)).collect()
+    deserializer.deserialize_any(UrlsVisitor)
 }
 
 #[cfg(test)]
@@ -113,8 +145,21 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialize_urls() {
+    fn test_deserialize_urls_from_seq() {
         let json = r#"{"urls": ["http://example.com/1", "https://example.com/2"]}"#;
+        let expected = TestUrls {
+            urls: vec![
+                Url::parse("http://example.com/1").unwrap(),
+                Url::parse("https://example.com/2").unwrap(),
+            ],
+        };
+        let actual: TestUrls = serde_json::from_str(json).unwrap();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_deserialize_urls_from_string() {
+        let json = r#"{"urls": "http://example.com/1, https://example.com/2"}"#;
         let expected = TestUrls {
             urls: vec![
                 Url::parse("http://example.com/1").unwrap(),
