@@ -231,9 +231,11 @@ async fn monitors_endpoint_handles_db_error() {
         Arc::new(AppConfig { api_server_listen_address: addr.to_string(), ..Default::default() });
 
     // Create a repo but do not run migrations to simulate a DB error
-    let repo = Arc::new(SqliteStateRepository::new("sqlite::memory:")
-        .await
-        .expect("Failed to create in-memory repo"));
+    let repo = Arc::new(
+        SqliteStateRepository::new("sqlite::memory:")
+            .await
+            .expect("Failed to create in-memory repo"),
+    );
 
     // Spawn the actual app server
     let server_handle = task::spawn(async move {
@@ -241,7 +243,7 @@ async fn monitors_endpoint_handles_db_error() {
     });
 
     // Wait for server to start
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;    
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // Test the /monitors endpoint
     let url = format!("http://{}/monitors", addr);
