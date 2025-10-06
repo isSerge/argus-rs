@@ -79,21 +79,35 @@ impl DataSource for EvmRpcSource {
             return Ok(HashMap::new());
         }
 
+        tracing::debug!(num_hashes = tx_hashes.len(), "Fetching transaction receipts");
+
         let futures = tx_hashes.iter().map(|&tx_hash| async move {
             let receipt = self
                 .provider
                 .get_transaction_receipt(tx_hash)
                 .await
-                .map_err(|e| DataSourceError::Provider(Box::new(e)))?;
+                .map_err(|e| {
+                    tracing::warn!(error = %e, %tx_hash, "Failed to fetch transaction receipt");
+                    DataSourceError::Provider(Box::new(e))
+                })?;
             Ok::<_, DataSourceError>((tx_hash, receipt))
         });
 
-        let results = futures::future::try_join_all(futures).await?;
+        let results = futures::future::try_join_all(futures).await.map_err(|e| {
+            tracing::error!(error = %e, "Error fetching receipts batch");
+            e
+        })?;
 
         let receipts = results
             .into_iter()
             .filter_map(|(tx_hash, receipt)| receipt.map(|r| (tx_hash, r)))
             .collect();
+
+        tracing::debug!(
+            num_hashes = tx_hashes.len(),
+            num_receipts = receipts.len(),
+            "Successfully fetched transaction receipts"
+        );
 
         Ok(receipts)
     }
@@ -101,15 +115,39 @@ impl DataSource for EvmRpcSource {
     /// Fetches the current block number from the data source.
     #[tracing::instrument(skip(self), level = "debug")]
     async fn get_current_block_number(&self) -> Result<u64, DataSourceError> {
-        self.provider.get_block_number().await.map_err(|e| DataSourceError::Provider(Box::new(e)))
+        tracing::debug!("Fetching current block number");
+        match self.provider.get_block_number().await {
+            Ok(block_number) => {
+                tracing::debug!(block_number, "Successfully fetched current block number");
+                Ok(block_number)
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "Failed to fetch current block number");
+                Err(DataSourceError::Provider(Box::new(e)))
+            }
+        }
     }
 }
 
 impl EvmRpcSource {
     /// Fetches all logs for a given block number.
     async fn fetch_logs_for_block(&self, number: u64) -> Result<Vec<Log>, DataSourceError> {
+        tracing::debug!(block_number = number, "Fetching logs for block");
         let filter = Filter::new().from_block(number).to_block(number);
-        self.provider.get_logs(&filter).await.map_err(|e| DataSourceError::Provider(Box::new(e)))
+        match self.provider.get_logs(&filter).await {
+            Ok(logs) => {
+                tracing::debug!(
+                    block_number = number,
+                    num_logs = logs.len(),
+                    "Successfully fetched logs for block"
+                );
+                Ok(logs)
+            }
+            Err(e) => {
+                tracing::error!(error = %e, block_number = number, "Failed to fetch logs for block");
+                Err(DataSourceError::Provider(Box::new(e)))
+            }
+        }
     }
 
     /// Fetches the core data for a block (the block itself and all its logs).
@@ -122,13 +160,18 @@ impl EvmRpcSource {
         number: u64,
     ) -> Result<(Block, Vec<Log>), DataSourceError> {
         // Fetch block first
+        tracing::debug!(block_number = number, "Fetching block");
         let block = self
             .provider
             .get_block_by_number(number.into())
             .full()
             .await
-            .map_err(|e| DataSourceError::Provider(Box::new(e)))?
+            .map_err(|e| {
+                tracing::error!(error = %e, block_number = number, "Failed to fetch block");
+                DataSourceError::Provider(Box::new(e))
+            })?
             .ok_or(DataSourceError::BlockNotFound(number))?;
+        tracing::debug!(block_number = number, "Successfully fetched block");
 
         // Check if there is any log interest in this block
         // If not, skip fetching logs to save RPC calls
@@ -205,6 +248,14 @@ pub fn create_provider(
     if urls.is_empty() {
         return Err(ProviderError::CreationError("RPC URL list cannot be empty".into()));
     }
+
+    tracing::info!(
+        num_urls = urls.len(),
+        max_retries = retry_config.max_retry,
+        backoff_ms = retry_config.backoff_ms,
+        "Creating new RPC provider"
+    );
+    tracing::debug!(?urls, "RPC URLs");
 
     // Create a FallbackLayer with the provided URLs
     let fallback_layer = FallbackLayer::default().with_active_transport_count(
