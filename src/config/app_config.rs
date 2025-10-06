@@ -3,7 +3,7 @@ use std::{
     time::Duration,
 };
 
-use config::{Config, ConfigError, File};
+use config::{Config, ConfigError, Environment, File};
 use serde::Deserialize;
 use url::Url;
 
@@ -121,6 +121,7 @@ impl AppConfig {
         let config_dir_str = config_dir.unwrap_or("configs");
         let s = Config::builder()
             .add_source(File::with_name(&format!("{}/app.yaml", config_dir_str)))
+            .add_source(Environment::with_prefix("ARGUS").separator("__"))
             .build()?;
         let mut config: Self = s.try_deserialize()?;
 

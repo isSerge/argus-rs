@@ -82,14 +82,10 @@ impl DataSource for EvmRpcSource {
         tracing::debug!(num_hashes = tx_hashes.len(), "Fetching transaction receipts");
 
         let futures = tx_hashes.iter().map(|&tx_hash| async move {
-            let receipt = self
-                .provider
-                .get_transaction_receipt(tx_hash)
-                .await
-                .map_err(|e| {
-                    tracing::warn!(error = %e, %tx_hash, "Failed to fetch transaction receipt");
-                    DataSourceError::Provider(Box::new(e))
-                })?;
+            let receipt = self.provider.get_transaction_receipt(tx_hash).await.map_err(|e| {
+                tracing::warn!(error = %e, %tx_hash, "Failed to fetch transaction receipt");
+                DataSourceError::Provider(Box::new(e))
+            })?;
             Ok::<_, DataSourceError>((tx_hash, receipt))
         });
 
