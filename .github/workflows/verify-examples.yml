@@ -45,6 +45,9 @@ jobs:
       run: cargo build --workspace --release
 
     - name: Run examples
+      env:
+        # Use specific RPC URLs to avoid rate limiting issues in CI.
+        ARGUS__RPC_URLS: ${{ secrets.ARGUS__RPC_URLS }}
       run: |
         chmod +x ./run_examples.sh
         ./run_examples.sh
