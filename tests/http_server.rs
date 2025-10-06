@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use argus::{
-    config::AppConfig,
+    config::{AppConfig, ServerConfig},
     http_server,
     models::monitor::MonitorConfig,
     persistence::{sqlite::SqliteStateRepository, traits::AppRepository},
@@ -17,14 +17,20 @@ async fn create_test_repo() -> Arc<SqliteStateRepository> {
     Arc::new(repo)
 }
 
+fn create_test_server_config(address: &str) -> Arc<AppConfig> {
+    Arc::new(AppConfig {
+        server: ServerConfig { enabled: true, listen_address: address.into() },
+        ..Default::default()
+    })
+}
+
 #[tokio::test]
 async fn health_endpoint_returns_ok() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind");
     let addr = listener.local_addr().expect("Failed to get address");
     drop(listener); // Release port for the app to use
 
-    let config =
-        Arc::new(AppConfig { api_server_listen_address: addr.to_string(), ..Default::default() });
+    let config = create_test_server_config(&addr.to_string());
     let repo = create_test_repo().await;
 
     // Spawn the actual app server
@@ -54,8 +60,7 @@ async fn monitors_endpoint_returns_empty_list() {
     let addr = listener.local_addr().expect("Failed to get address");
     drop(listener); // Release port for the app to use
 
-    let config =
-        Arc::new(AppConfig { api_server_listen_address: addr.to_string(), ..Default::default() });
+    let config = create_test_server_config(&addr.to_string());
     let repo = create_test_repo().await;
 
     // Spawn the actual app server
@@ -85,8 +90,7 @@ async fn monitor_by_id_endpoint_returns_404_for_nonexistent_id() {
     let addr = listener.local_addr().expect("Failed to get address");
     drop(listener); // Release port for the app to use
 
-    let config =
-        Arc::new(AppConfig { api_server_listen_address: addr.to_string(), ..Default::default() });
+    let config = create_test_server_config(&addr.to_string());
     let repo = create_test_repo().await;
 
     // Spawn the actual app server
@@ -116,8 +120,7 @@ async fn monitor_by_id_endpoint_returns_monitor_when_exists() {
     let addr = listener.local_addr().expect("Failed to get address");
     drop(listener); // Release port for the app to use
 
-    let config =
-        Arc::new(AppConfig { api_server_listen_address: addr.to_string(), ..Default::default() });
+    let config = create_test_server_config(&addr.to_string());
     let repo = create_test_repo().await;
 
     // Add a test monitor to the repo
@@ -165,8 +168,7 @@ async fn monitors_returns_list_of_monitors_when_exist() {
     let addr = listener.local_addr().expect("Failed to get address");
     drop(listener); // Release port for the app to use
 
-    let config =
-        Arc::new(AppConfig { api_server_listen_address: addr.to_string(), ..Default::default() });
+    let config = create_test_server_config(&addr.to_string());
     let repo = create_test_repo().await;
 
     // Add a test monitor to the repo
@@ -227,8 +229,7 @@ async fn monitors_endpoint_handles_db_error() {
     let addr = listener.local_addr().expect("Failed to get address");
     drop(listener); // Release port for the app to use
 
-    let config =
-        Arc::new(AppConfig { api_server_listen_address: addr.to_string(), ..Default::default() });
+    let config = create_test_server_config(&addr.to_string());
 
     // Create a repo but do not run migrations to simulate a DB error
     let repo = Arc::new(
