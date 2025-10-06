@@ -42,7 +42,7 @@ impl Loadable for MonitorConfig {
 }
 
 /// Represents a blockchain monitor retrieved from the database.
-#[derive(Debug, Clone, FromRow, Default)]
+#[derive(Debug, Clone, FromRow, Default, Serialize)]
 pub struct Monitor {
     /// Unique identifier for the monitor (auto-generated when loading from
     /// config)

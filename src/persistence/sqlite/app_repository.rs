@@ -11,6 +11,20 @@ use crate::{
     persistence::{error::PersistenceError, sqlite::SqliteStateRepository, traits::AppRepository},
 };
 
+// Helper struct for mapping from the database row
+#[derive(sqlx::FromRow)]
+struct MonitorRow {
+    monitor_id: i64,
+    name: String,
+    network: String,
+    address: Option<String>,
+    abi: Option<String>,
+    filter_script: String,
+    actions: String,
+    created_at: NaiveDateTime,
+    updated_at: NaiveDateTime,
+}
+
 #[async_trait]
 impl AppRepository for SqliteStateRepository {
     /// Retrieves the last processed block number for a given network.
@@ -154,20 +168,6 @@ impl AppRepository for SqliteStateRepository {
     async fn get_monitors(&self, network_id: &str) -> Result<Vec<Monitor>, PersistenceError> {
         tracing::debug!(network_id, "Querying for monitors.");
 
-        // Helper struct for mapping from the database row
-        #[derive(sqlx::FromRow)]
-        struct MonitorRow {
-            monitor_id: i64,
-            name: String,
-            network: String,
-            address: Option<String>,
-            abi: Option<String>,
-            filter_script: String,
-            actions: String,
-            created_at: NaiveDateTime,
-            updated_at: NaiveDateTime,
-        }
-
         let monitor_rows = self
             .execute_query_with_error_handling("query monitors", async {
                 sqlx::query_as!(
@@ -222,6 +222,74 @@ impl AppRepository for SqliteStateRepository {
             "Monitors retrieved successfully."
         );
         Ok(monitors)
+    }
+
+    /// Retrieves a specific monitor by its ID for a given network.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn get_monitor_by_id(
+        &self,
+        network_id: &str,
+        monitor_id: &str,
+    ) -> Result<Option<Monitor>, PersistenceError> {
+        tracing::debug!(network_id, monitor_id, "Querying for monitor by ID.");
+
+        let monitor_id_num: i64 = monitor_id.parse().map_err(|e| {
+            let msg = format!("Invalid monitor_id '{}': {}", monitor_id, e);
+            tracing::error!(error = %e, monitor_id, "Failed to parse monitor_id.");
+            PersistenceError::InvalidInput(msg)
+        })?;
+
+        let monitor_row = self
+            .execute_query_with_error_handling("query monitor by id", async {
+                sqlx::query_as!(
+                    MonitorRow,
+                    r#"
+                SELECT 
+                    monitor_id as "monitor_id!", 
+                    name, 
+                    network, 
+                    address, 
+                    abi, 
+                    filter_script, 
+                    actions,
+                    created_at as "created_at!", 
+                    updated_at as "updated_at!"
+                FROM monitors 
+                WHERE network = ? AND monitor_id = ?
+                "#,
+                    network_id,
+                    monitor_id_num
+                )
+                .fetch_optional(&self.pool)
+                .await
+            })
+            .await?;
+
+        if let Some(row) = monitor_row {
+            let actions: Vec<String> = serde_json::from_str(&row.actions)
+                .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
+
+            let created_at = DateTime::<Utc>::from_naive_utc_and_offset(row.created_at, Utc);
+            let updated_at = DateTime::<Utc>::from_naive_utc_and_offset(row.updated_at, Utc);
+
+            let monitor = Monitor {
+                id: row.monitor_id,
+                name: row.name,
+                network: row.network,
+                address: row.address,
+                abi: row.abi,
+                filter_script: row.filter_script,
+                actions,
+                created_at,
+                updated_at,
+            };
+
+            tracing::debug!(network_id, monitor_id, "Monitor found.");
+            Ok(Some(monitor))
+        } else {
+            tracing::debug!(network_id, monitor_id, "No monitor found with given ID.");
+            Ok(None)
+        }
     }
 
     /// Adds multiple monitors for a specific network.

@@ -213,9 +213,10 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
         // Spawn the HTTP server as a background task
         let http_config = Arc::clone(&self.config);
         let http_cancellation_token = self.cancellation_token.clone();
+        let http_repo = Arc::clone(&self.state);
         self.join_set.spawn(async move {
             tokio::select! {
-                _ = http_server::run_server_from_config(&http_config) => {},
+                _ = http_server::run_server_from_config(http_config, http_repo) => {},
                 _ = http_cancellation_token.cancelled() => {
                     tracing::info!("HTTP server received shutdown signal.");
                 }
