@@ -98,7 +98,7 @@ impl DataSource for EvmRpcSource {
             e
         })?;
 
-        let receipts = results
+        let receipts: HashMap<_, _> = results
             .into_iter()
             .filter_map(|(tx_hash, receipt)| receipt.map(|r| (tx_hash, r)))
             .collect();
