@@ -8,7 +8,7 @@ use serde::Deserialize;
 use url::Url;
 
 use super::{
-    BaseHttpClientConfig, HttpRetryConfig, RhaiConfig, RpcRetryConfig,
+    BaseHttpClientConfig, HttpRetryConfig, RhaiConfig, RpcRetryConfig, ServerConfig,
     deserialize_duration_from_ms, deserialize_duration_from_seconds, deserialize_urls,
     initial_start_block::InitialStartBlock,
 };
@@ -106,13 +106,9 @@ pub struct AppConfig {
     #[serde(default)]
     pub initial_start_block: InitialStartBlock,
 
-    /// API server listen address (host:port)
-    #[serde(default = "default_api_server_listen_address")]
-    pub api_server_listen_address: String,
-}
-/// Provides the default value for api_server_listen_address.
-fn default_api_server_listen_address() -> String {
-    "0.0.0.0:8080".to_string()
+    /// Server configuration
+    #[serde(default)]
+    pub server: ServerConfig,
 }
 
 impl AppConfig {

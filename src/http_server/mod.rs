@@ -65,7 +65,7 @@ async fn monitor_details(
 /// Runs the HTTP server based on the provided application configuration.
 pub async fn run_server_from_config(config: Arc<AppConfig>, repo: Arc<dyn AppRepository>) {
     let addr: SocketAddr =
-        config.api_server_listen_address.parse().expect("Invalid api_server.listen_address format");
+        config.server.listen_address.parse().expect("Invalid api_server.listen_address format");
 
     let state = ApiState { config, repo };
 

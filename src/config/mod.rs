@@ -7,6 +7,7 @@ mod http_retry;
 mod initial_start_block;
 mod rhai;
 mod rpc_retry;
+mod server;
 
 pub use app_config::AppConfig;
 pub use helpers::{
@@ -18,3 +19,4 @@ pub use http_retry::{HttpRetryConfig, JitterSetting};
 pub use initial_start_block::InitialStartBlock;
 pub use rhai::RhaiConfig;
 pub use rpc_retry::RpcRetryConfig;
+pub use server::ServerConfig;
