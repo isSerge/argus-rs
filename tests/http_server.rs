@@ -419,6 +419,7 @@ async fn actions_endpoint_handles_db_error() {
 
     let config = create_test_server_config(&addr.to_string());
 
+    // Create a repo but do not run migrations to simulate a DB error
     let repo = Arc::new(
         SqliteStateRepository::new("sqlite::memory:")
             .await
