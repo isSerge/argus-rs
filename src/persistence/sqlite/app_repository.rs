@@ -434,7 +434,8 @@ impl AppRepository for SqliteStateRepository {
                 "query action by id",
                 sqlx::query_as!(
                     ActionRow,
-                    "SELECT action_id, name, config FROM actions WHERE network_id = ? AND action_id = ?",
+                    "SELECT action_id, name, config FROM actions WHERE network_id = ? AND \
+                     action_id = ?",
                     network_id,
                     action_id_num
                 )

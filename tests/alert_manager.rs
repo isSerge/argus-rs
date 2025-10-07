@@ -15,7 +15,6 @@ use argus::{
     persistence::{sqlite::SqliteStateRepository, traits::KeyValueStore},
     test_helpers::ActionBuilder,
 };
-use mockito;
 use serde_json::json;
 use tokio::time::sleep;
 

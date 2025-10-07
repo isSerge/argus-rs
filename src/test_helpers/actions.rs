@@ -127,11 +127,6 @@ impl ActionBuilder {
 
     /// Builds the `ActionConfig` with the provided values.
     pub fn build(self) -> ActionConfig {
-        ActionConfig {
-            id: self.id,
-            name: self.name,
-            config: self.config,
-            policy: self.policy,
-        }
+        ActionConfig { id: self.id, name: self.name, config: self.config, policy: self.policy }
     }
 }
