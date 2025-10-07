@@ -1,14 +1,17 @@
 //! HTTP server module
 
+mod error;
+
 use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
-    Json, Router,
+    Router,
     extract::{Path, State},
-    response::IntoResponse,
+    http::StatusCode,
+    response::{IntoResponse, Json},
     routing::get,
 };
-use reqwest::StatusCode;
+use error::ApiError;
 use serde_json::json;
 
 use crate::{config::AppConfig, persistence::traits::AppRepository};
@@ -28,44 +31,29 @@ async fn health() -> impl IntoResponse {
 
 /// Retrieves all monitors from the database and returns them as a JSON
 /// response.
-async fn monitors(State(state): State<ApiState>) -> impl IntoResponse {
-    match state.repo.get_monitors(&state.config.network_id).await {
-        Ok(monitors) => (StatusCode::OK, Json(json!({ "monitors": monitors }))).into_response(),
-        Err(e) => {
-            tracing::error!("Failed to retrieve monitors: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Failed to retrieve monitors" })),
-            )
-                .into_response()
-        }
-    }
+async fn monitors(State(state): State<ApiState>) -> Result<impl IntoResponse, ApiError> {
+    let monitors = state.repo.get_monitors(&state.config.network_id).await?;
+    Ok((StatusCode::OK, Json(json!({ "monitors": monitors }))))
 }
 
 /// Retrieves details of a specific monitor by its ID.
 async fn monitor_details(
     State(state): State<ApiState>,
     Path(monitor_id): Path<String>,
-) -> impl IntoResponse {
-    match state.repo.get_monitor_by_id(&state.config.network_id, &monitor_id).await {
-        Ok(Some(monitor)) => (StatusCode::OK, Json(json!({ "monitor": monitor }))).into_response(),
-        Ok(None) =>
-            (StatusCode::NOT_FOUND, Json(json!({ "error": "Monitor not found" }))).into_response(),
-        Err(e) => {
-            tracing::error!("Failed to retrieve monitor {}: {}", monitor_id, e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Failed to retrieve monitor" })),
-            )
-                .into_response()
-        }
-    }
+) -> Result<impl IntoResponse, ApiError> {
+    let monitor = state
+        .repo
+        .get_monitor_by_id(&state.config.network_id, &monitor_id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound("Monitor not found".to_string()))?;
+
+    Ok((StatusCode::OK, Json(json!({ "monitor": monitor }))))
 }
 
 /// Runs the HTTP server based on the provided application configuration.
 pub async fn run_server_from_config(config: Arc<AppConfig>, repo: Arc<dyn AppRepository>) {
     let addr: SocketAddr =
-        config.api_server_listen_address.parse().expect("Invalid api_server.listen_address format");
+        config.server.listen_address.parse().expect("Invalid server.listen_address format");
 
     let state = ApiState { config, repo };
 

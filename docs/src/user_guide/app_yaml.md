@@ -29,9 +29,10 @@ block_chunk_size: 5
 polling_interval_ms: 10000
 confirmation_blocks: 12
 
-# Optional: HTTP API server configuration for health endpoint
-# If omitted, the default listen address is "0.0.0.0:8080"
-api_server_listen_address: "0.0.0.0:8080"
+# API server configuration
+server:
+  enabled: true
+  listen_address: "0.0.0.0:8080"
 ```
 
 ## Configuration Parameters
@@ -56,13 +57,28 @@ api_server_listen_address: "0.0.0.0:8080"
 | `notification_channel_capacity` | The capacity of the internal channel for sending notifications. | `1024` |
 | `shutdown_timeout` | The maximum time in seconds to wait for a graceful shutdown. | `30` |
 | `aggregation_check_interval` | The interval in seconds to check for aggregated matches for action with policies. | `5` |
-| `api_server.listen_address` | The address and port for the HTTP health endpoint. Optional; if omitted, defaults to `"0.0.0.0:8080"`. | `"0.0.0.0:8080"` |
 
 ---
 
 ### Nested Configuration Sections
 
 The following configurations are nested under their respective top-level keys in `app.yaml`.
+
+### Server Settings (`server`)
+
+These settings control the built-in REST API server.
+
+**Default Configuration:**
+```yaml
+server:
+  enabled: false
+  listen_address: "0.0.0.0:8080"
+```
+
+| Parameter | Description |
+| :--- | :--- |
+| `enabled` | Set to `true` to enable the API server. Defaults to `false` for security. |
+| `listen_address` | The address and port for the HTTP server to listen on. |
 
 ### RPC Client Settings (`rpc_retry_config`)
 

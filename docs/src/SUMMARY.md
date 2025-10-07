@@ -35,4 +35,5 @@
 
 - [Deployment](./operations/deployment.md)
 - [Command-Line (CLI)](./operations/cli.md)
+- [REST API](./operations/rest_api.md)
 - [Architecture](./operations/architecture.md)

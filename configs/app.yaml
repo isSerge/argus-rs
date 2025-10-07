@@ -30,4 +30,8 @@ retry_config:
 shutdown_timeout_secs: 30
 
 # API server configuration
-api_server_listen_address: "0.0.0.0:8080"
+server:
+  # Enable or disable the HTTP server (default: disabled).
+  enabled: true 
+  # Address and port for the HTTP server to listen on.
+  listen_address: "0.0.0.0:8080"
