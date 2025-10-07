@@ -35,6 +35,7 @@ async fn test_webhook_action_success() {
     let mut server = mockito::Server::new_async().await;
 
     let mock_discord_action = ActionConfig {
+        id: None,
         name: "test_discord".to_string(),
         config: ActionTypeConfig::Discord(DiscordConfig {
             discord_url: Url::parse(&server.url()).unwrap(),
