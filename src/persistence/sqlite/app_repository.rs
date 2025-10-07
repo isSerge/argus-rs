@@ -25,6 +25,14 @@ struct MonitorRow {
     updated_at: NaiveDateTime,
 }
 
+// Helper struct for mapping from the database row
+#[derive(sqlx::FromRow)]
+struct ActionRow {
+    action_id: i64,
+    name: String,
+    config: String,
+}
+
 #[async_trait]
 impl AppRepository for SqliteStateRepository {
     /// Retrieves the last processed block number for a given network.
@@ -375,18 +383,12 @@ impl AppRepository for SqliteStateRepository {
     async fn get_actions(&self, network_id: &str) -> Result<Vec<ActionConfig>, PersistenceError> {
         tracing::debug!(network_id, "Querying for actions.");
 
-        // Helper struct for mapping from the database row
-        #[derive(sqlx::FromRow)]
-        struct ActionRow {
-            config: String,
-        }
-
         let action_rows = self
             .execute_query_with_error_handling(
                 "query actions",
                 sqlx::query_as!(
                     ActionRow,
-                    "SELECT config FROM actions WHERE network_id = ?",
+                    "SELECT action_id, name, config FROM actions WHERE network_id = ?",
                     network_id
                 )
                 .fetch_all(&self.pool),
@@ -396,10 +398,13 @@ impl AppRepository for SqliteStateRepository {
         let actions = action_rows
             .into_iter()
             .map(|row| {
-                serde_json::from_str(&row.config)
-                    .map_err(|e| PersistenceError::SerializationError(e.to_string()))
+                let mut action: ActionConfig = serde_json::from_str(&row.config)
+                    .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
+                action.id = Some(row.action_id);
+                action.name = row.name;
+                Ok(action)
             })
-            .collect::<Result<Vec<ActionConfig>, PersistenceError>>()?;
+            .collect::<Result<Vec<_>, PersistenceError>>()?;
 
         tracing::debug!(
             network_id,
@@ -407,6 +412,47 @@ impl AppRepository for SqliteStateRepository {
             "actions retrieved successfully."
         );
         Ok(actions)
+    }
+
+    /// Retrieves a specific action by its ID for a given network.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn get_action_by_id(
+        &self,
+        network_id: &str,
+        action_id: &str,
+    ) -> Result<Option<ActionConfig>, PersistenceError> {
+        tracing::debug!(network_id, action_id, "Querying for action by ID.");
+
+        let action_id_num: i64 = action_id.parse().map_err(|e| {
+            let msg = format!("Invalid action_id '{}': {}", action_id, e);
+            tracing::error!(error = %e, action_id, "Failed to parse action_id.");
+            PersistenceError::InvalidInput(msg)
+        })?;
+
+        let action_row = self
+            .execute_query_with_error_handling(
+                "query action by id",
+                sqlx::query_as!(
+                    ActionRow,
+                    "SELECT action_id, name, config FROM actions WHERE network_id = ? AND action_id = ?",
+                    network_id,
+                    action_id_num
+                )
+                .fetch_optional(&self.pool),
+            )
+            .await?;
+
+        if let Some(row) = action_row {
+            let mut action: ActionConfig = serde_json::from_str(&row.config)
+                .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
+            action.id = Some(row.action_id);
+            action.name = row.name;
+            tracing::debug!(network_id, action_id, "Action found.");
+            Ok(Some(action))
+        } else {
+            tracing::debug!(network_id, action_id, "No action found with given ID.");
+            Ok(None)
+        }
     }
 
     /// Adds multiple actions for a specific network.
@@ -417,11 +463,6 @@ impl AppRepository for SqliteStateRepository {
         actions: Vec<ActionConfig>,
     ) -> Result<(), PersistenceError> {
         tracing::debug!(network_id, action_count = actions.len(), "Adding actions.");
-
-        // Note: We are not validating network_id here because actions are
-        // network-agnostic. A single action (e.g., a webhook) can be used by
-        // monitors on any network. The `network_id` in the database table is
-        // for organizational purposes.
 
         let mut tx = self
             .pool
