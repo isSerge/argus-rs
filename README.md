@@ -21,12 +21,13 @@ Argus is a next-generation, open-source, self-hosted monitoring tool for EVM cha
 -   **Advanced Notification Policies**: Support alert aggregation and throttling to reduce noise.
 -   **Message Queue Integration**: Stream filtered events into Kafka, RabbitMQ and NATS for scalable data pipelines and event-driven architectures.
 -   **Stateful Processing**: Tracks its progress in a local SQLite database, allowing it to stop and resume from where it left off without missing any blocks.
+-   **REST API for Introspection**: A read-only HTTP API to observe the status and configuration of running monitors.
 -   **CLI Dry-Run Mode**: A `dry-run` command allows you to test your monitor against a range of historical blocks to ensure it works as expected before deploying it live.
 -   **Docker Support**: Comes with a multi-stage `Dockerfile` and `docker compose.yml` for easy, portable deployments.
 
 ### Future Features (Planned)
 
--   **Dynamic Configuration via REST API**: Add, update, and remove monitors on the fly via a REST API, without any downtime.
+-   **Dynamic Configuration via REST API**: Enhance the existing API to allow adding, updating, and removing monitors on the fly without any downtime.
 -   **Stateful Filtering**: The ability for a filter to remember past events and make decisions based on a time window (e.g., "alert if an address withdraws more than 5 times in 10 minutes").
 -   **Data Enrichment & Cross-Contract Checks**: Make monitors "smarter" by allowing them to fetch external data (e.g., from a price API) or check the state of another contract as part of their filtering logic.
 -   **Automatic ABI Fetching**: Automatically fetch contract ABIs from public registries like Etherscan, reducing the amount of manual configuration required.
@@ -78,9 +79,12 @@ confirmation_blocks: 12
 notification_channel_capacity: 1024
 abi_config_path: abis/
 
-## HTTP API server configuration for health endpoint
-# This field is optional. If omitted, the default listen address is "0.0.0.0:8080".
-api_server_listen_address: "0.0.0.0:8080"
+# API server configuration
+server:
+  # Enable or disable the HTTP server (default: disabled).
+  enabled: true 
+  # Address and port for the HTTP server to listen on.
+  listen_address: "0.0.0.0:8080"
 ```
 
 ### `monitors.yaml`

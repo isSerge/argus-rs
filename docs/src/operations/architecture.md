@@ -33,6 +33,8 @@ The `src` directory is organized into several modules, each representing a key c
 
 -   **`models`**: Defines the core data structures used throughout the application (e.g., `BlockData`, `Transaction`, `Log`, `Monitor`, `Action`).
 
+-   **`http_server`**: Provides a REST API for system introspection and dynamic configuration. It is managed by the `supervisor` and shares access to the application's state.
+
 -   **`http_client`**: Provides a robust and reusable HTTP client with built-in retry logic, used by the notification component to send alerts.
 
 -   **`main.rs`**: The application's entry point. It handles command-line argument parsing and kicks off the supervisor.
