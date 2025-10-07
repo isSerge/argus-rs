@@ -252,14 +252,14 @@ async fn monitors_endpoint_handles_db_error() {
     let resp = client.get(&url).send().await.expect("Request failed");
     assert_eq!(resp.status(), 500);
     let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
-    assert_eq!(body["error"], "Failed to retrieve monitors");
+    assert_eq!(body["error"], "An internal server error occurred");
 
     // Test the /monitors/{id} endpoint
     let url = format!("http://{}/monitors/1", addr);
     let resp = client.get(&url).send().await.expect("Request failed");
     assert_eq!(resp.status(), 500);
     let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
-    assert_eq!(body["error"], "Failed to retrieve monitor");
+    assert_eq!(body["error"], "An internal server error occurred");
 
     // Clean up
     server_handle.abort();
