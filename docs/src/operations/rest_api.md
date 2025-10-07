@@ -123,3 +123,97 @@ Once enabled, the API endpoints will be available at the specified `listen_addre
     curl http://localhost:8080/monitors/1
     ```
 
+### List All Actions
+
+-   **`GET /actions`**
+
+    Retrieves a list of all actions currently loaded and active in the application.
+
+    **Success Response (`200 OK`)**
+    ```json
+    {
+      "actions": [
+        {
+          "id": 1,
+          "name": "my-webhook",
+          "webhook": {
+            "url": "https://webhook.site/your-unique-url",
+            "method": "POST",
+            "headers": {
+              "Content-Type": "application/json"
+            },
+            "message": {
+              "title": "Large ETH Transfer Detected",
+              "body": "- **Amount**: {{ tx.value | ether }} ETH\n- **From**: `{{ tx.from }}`\n- **To**: `{{ tx.to }}`\n- **Tx Hash**: `{{ transaction_hash }}`"
+            }
+          },
+        },
+        {
+          "id": 2,
+          "name": "slack-notifications",
+          "slack": {
+            "slack_url": "https://hooks.slack.com/services/T0000/B0000/XXXXXXXX",
+            "message": {
+              "title": "Large USDC Transfer Detected",
+              "body": "A transfer of over 1,000,000 USDC was detected.\n<https://etherscan.io/tx/{{ transaction_hash }}|View on Etherscan>"
+            }
+          },
+          "policy": {
+            "throttle": {
+              "max_count": 5,
+              "time_window_secs": 60
+            }
+          }
+        }
+      ]
+    }
+    ```
+
+    **Example Usage:**
+    ```bash
+    curl http://localhost:8080/actions
+    ```
+
+### Get a Specific Action
+
+-   **`GET /actions/{id}`**
+
+    Retrieves the full configuration of a single action by its unique ID.
+
+    **URL Parameters:**
+    - `id` (integer, required): The unique ID of the action.
+
+    **Success Response (`200 OK`)**
+    ```json
+    {
+      "action": {
+        "id": 1,
+        "name": "my-webhook",
+        "webhook": {
+          "url": "https://webhook.site/your-unique-url",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "message": {
+            "title": "Large ETH Transfer Detected",
+            "body": "- **Amount**: {{ tx.value | ether }} ETH\n- **From**: `{{ tx.from }}`\n- **To**: `{{ tx.to }}`\n- **Tx Hash**: `{{ transaction_hash }}`"
+          }
+        },
+      }
+    }
+    ```
+
+    **Error Response (`404 Not Found`)**
+    If no action with the specified ID exists.
+    ```json
+    {
+      "error": "Action not found"
+    }
+    ```
+
+    **Example Usage:**
+    ```bash
+    curl http://localhost:8080/actions/1
+    ```
+

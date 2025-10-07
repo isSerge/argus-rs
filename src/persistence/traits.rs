@@ -66,6 +66,13 @@ pub trait AppRepository: Send + Sync {
     /// Retrieves all actions for a specific network.
     async fn get_actions(&self, network_id: &str) -> Result<Vec<ActionConfig>, PersistenceError>;
 
+    /// Retrieves a specific action by its ID for a given network.
+    async fn get_action_by_id(
+        &self,
+        network_id: &str,
+        action_id: &str,
+    ) -> Result<Option<ActionConfig>, PersistenceError>;
+
     /// Adds multiple actions for a specific network.
     async fn add_actions(
         &self,

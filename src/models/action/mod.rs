@@ -178,6 +178,10 @@ impl ActionTypeConfig {
 /// Represents a single Action configuration from the YAML file.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ActionConfig {
+    /// The unique ID of the Action.
+    /// Optional because it may not be set until persisted to the database.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<i64>,
     /// The unique name of the Action.
     pub name: String,
 

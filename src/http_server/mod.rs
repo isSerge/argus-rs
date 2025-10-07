@@ -50,6 +50,26 @@ async fn monitor_details(
     Ok((StatusCode::OK, Json(json!({ "monitor": monitor }))))
 }
 
+/// Retrieves all actions from the database and returns them as a JSON response.
+async fn actions(State(state): State<ApiState>) -> Result<impl IntoResponse, ApiError> {
+    let actions = state.repo.get_actions(&state.config.network_id).await?;
+    Ok((StatusCode::OK, Json(json!({ "actions": actions }))))
+}
+
+/// Retrieves details of a specific action by its ID.
+async fn action_details(
+    State(state): State<ApiState>,
+    Path(action_id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let action = state
+        .repo
+        .get_action_by_id(&state.config.network_id, &action_id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound("Action not found".to_string()))?;
+
+    Ok((StatusCode::OK, Json(json!({ "action": action }))))
+}
+
 /// Runs the HTTP server based on the provided application configuration.
 pub async fn run_server_from_config(config: Arc<AppConfig>, repo: Arc<dyn AppRepository>) {
     let addr: SocketAddr =
@@ -61,6 +81,8 @@ pub async fn run_server_from_config(config: Arc<AppConfig>, repo: Arc<dyn AppRep
         .route("/health", get(health))
         .route("/monitors", get(monitors))
         .route("/monitors/{id}", get(monitor_details))
+        .route("/actions", get(actions))
+        .route("/actions/{id}", get(action_details))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(addr).await.expect("Failed to bind address");

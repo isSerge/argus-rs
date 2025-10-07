@@ -13,6 +13,7 @@ use crate::{
 
 /// A builder for creating `ActionConfig` instances for testing.
 pub struct ActionBuilder {
+    id: Option<i64>,
     name: String,
     config: ActionTypeConfig,
     policy: Option<ActionPolicy>,
@@ -22,6 +23,7 @@ impl ActionBuilder {
     /// Creates a new `ActionBuilder` with the given name.
     pub fn new(name: &str) -> Self {
         Self {
+            id: None,
             name: name.to_string(),
             config: ActionTypeConfig::Webhook(GenericWebhookConfig {
                 url: Url::parse("http://localhost").unwrap(),
@@ -125,6 +127,6 @@ impl ActionBuilder {
 
     /// Builds the `ActionConfig` with the provided values.
     pub fn build(self) -> ActionConfig {
-        ActionConfig { name: self.name, config: self.config, policy: self.policy }
+        ActionConfig { id: self.id, name: self.name, config: self.config, policy: self.policy }
     }
 }

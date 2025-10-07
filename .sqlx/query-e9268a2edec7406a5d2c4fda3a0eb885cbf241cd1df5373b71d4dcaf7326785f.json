@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT action_id, name, config FROM actions WHERE network_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "action_id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "name",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "config",
+        "ordinal": 2,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "e9268a2edec7406a5d2c4fda3a0eb885cbf241cd1df5373b71d4dcaf7326785f"
+}
