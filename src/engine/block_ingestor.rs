@@ -8,6 +8,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     config::AppConfig,
+    context::AppMetrics,
     engine::filtering::FilteringEngine,
     models::BlockData,
     persistence::traits::AppRepository,
@@ -28,6 +29,8 @@ pub struct BlockIngestor<
     config: Arc<AppConfig>,
     /// The persistent state repository for managing application state.
     state: Arc<S>,
+    /// The shared application metrics.
+    app_metrics: AppMetrics,
     /// The data source for fetching new blockchain data.
     data_source: Arc<D>,
     /// The filtering engine, used to check if receipt data is needed.
@@ -42,15 +45,25 @@ impl<S: AppRepository + ?Sized, D: DataSource + ?Sized, F: FilteringEngine + ?Si
     BlockIngestor<S, D, F>
 {
     /// Creates a new BlockIngestor instance.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: Arc<AppConfig>,
         state: Arc<S>,
+        app_metrics: AppMetrics,
         data_source: Arc<D>,
         filtering: Arc<F>,
         raw_blocks_tx: mpsc::Sender<BlockData>,
         cancellation_token: CancellationToken,
     ) -> Self {
-        Self { config, state, data_source, filtering, raw_blocks_tx, cancellation_token }
+        Self {
+            config,
+            state,
+            app_metrics,
+            data_source,
+            filtering,
+            raw_blocks_tx,
+            cancellation_token,
+        }
     }
 
     /// Starts the long-running service loop.
@@ -122,10 +135,15 @@ impl<S: AppRepository + ?Sized, D: DataSource + ?Sized, F: FilteringEngine + ?Si
 
             let block_data = BlockData::from_raw_data(block, receipts, logs);
 
-            if self.raw_blocks_tx.send(block_data).await.is_err() {
+            if self.raw_blocks_tx.send(block_data.clone()).await.is_err() {
                 tracing::warn!("Raw blocks channel closed, stopping further ingestion.");
                 return Err(DataSourceError::ChannelClosed);
             }
+            // Update metrics after successfully sending the block data.
+            let mut metrics = self.app_metrics.metrics.write().await;
+            metrics.latest_processed_block = block_num;
+            metrics.latest_processed_block_timestamp_secs =
+                block_data.block.header.timestamp.try_into().unwrap_or(0);
         }
 
         Ok(())
@@ -175,6 +193,7 @@ mod tests {
             BlockIngestor::new(
                 self.config,
                 Arc::new(self.mock_state_repo),
+                AppMetrics::default(),
                 Arc::new(self.mock_data_source),
                 Arc::new(self.mock_filtering_engine),
                 tx,

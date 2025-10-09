@@ -30,6 +30,7 @@ use tokio::{signal, sync::mpsc};
 use crate::{
     actions::error::ActionDispatcherError,
     config::AppConfig,
+    context::AppMetrics,
     engine::{
         alert_manager::AlertManager, block_ingestor::BlockIngestor,
         block_processor::BlockProcessor, filtering::FilteringEngine,
@@ -58,6 +59,10 @@ pub enum SupervisorError {
     /// A state repository was not provided to the `SupervisorBuilder`.
     #[error("Missing state repository for Supervisor")]
     MissingStateRepository,
+
+    /// An app metrics was not provided to the `SupervisorBuilder`.
+    #[error("Missing app metrics for Supervisor")]
+    MissingAppMetrics,
 
     /// An ABI service was not provided to the `SupervisorBuilder`.
     #[error("Missing ABI service for Supervisor")]
@@ -123,6 +128,9 @@ pub struct Supervisor<T: AppRepository + KeyValueStore + 'static> {
     /// The persistent state repository for managing application state.
     state: Arc<T>,
 
+    /// The shared application metrics.
+    app_metrics: AppMetrics,
+
     /// The data source for fetching new blockchain data (e.g., from an RPC
     /// endpoint).
     data_source: Arc<dyn DataSource>,
@@ -153,6 +161,7 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
     pub fn new(
         config: AppConfig,
         state: Arc<T>,
+        app_metrics: AppMetrics,
         data_source: Box<dyn DataSource>,
         filtering: Arc<dyn FilteringEngine>,
         alert_manager: Arc<AlertManager<T>>,
@@ -161,6 +170,7 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
         Self {
             config: Arc::new(config),
             state,
+            app_metrics,
             data_source: Arc::from(data_source),
             filtering,
             alert_manager,
@@ -215,9 +225,10 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
             let server_config_clone = Arc::clone(&self.config);
             let http_cancellation_token = self.cancellation_token.clone();
             let server_repo_clone = Arc::clone(&self.state);
+            let app_metrics_clone = self.app_metrics.clone();
             self.join_set.spawn(async move {
                 tokio::select! {
-                    _ = http_server::run_server_from_config(server_config_clone, server_repo_clone) => {},
+                    _ = http_server::run_server_from_config(server_config_clone, server_repo_clone, app_metrics_clone) => {},
                     _ = http_cancellation_token.cancelled() => {
                         tracing::info!("HTTP server received shutdown signal.");
                     }
@@ -245,6 +256,7 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
         let block_ingestor = BlockIngestor::new(
             Arc::clone(&self.config),
             Arc::clone(&self.state),
+            self.app_metrics.clone(),
             Arc::clone(&self.data_source),
             Arc::clone(&self.filtering),
             raw_blocks_tx,
