@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use argus::{
     config::{AppConfig, ServerConfig},
+    context::AppMetrics,
     http_server,
     models::{
         action::{ActionConfig, ActionTypeConfig, StdoutConfig},
@@ -35,10 +36,11 @@ async fn health_endpoint_returns_ok() {
 
     let config = create_test_server_config(&addr.to_string());
     let repo = create_test_repo().await;
+    let metrics = AppMetrics::default();
 
     // Spawn the actual app server
     let server_handle = task::spawn(async move {
-        http_server::run_server_from_config(config, repo).await;
+        http_server::run_server_from_config(config, repo, metrics).await;
     });
 
     // Wait for server to start
@@ -65,10 +67,11 @@ async fn monitors_endpoint_returns_empty_list() {
 
     let config = create_test_server_config(&addr.to_string());
     let repo = create_test_repo().await;
+    let metrics = AppMetrics::default();
 
     // Spawn the actual app server
     let server_handle = task::spawn(async move {
-        http_server::run_server_from_config(config, repo).await;
+        http_server::run_server_from_config(config, repo, metrics).await;
     });
 
     // Wait for server to start
@@ -95,10 +98,11 @@ async fn monitor_by_id_endpoint_returns_404_for_nonexistent_id() {
 
     let config = create_test_server_config(&addr.to_string());
     let repo = create_test_repo().await;
+    let metrics = AppMetrics::default();
 
     // Spawn the actual app server
     let server_handle = task::spawn(async move {
-        http_server::run_server_from_config(config, repo).await;
+        http_server::run_server_from_config(config, repo, metrics).await;
     });
 
     // Wait for server to start
@@ -125,6 +129,7 @@ async fn monitor_by_id_endpoint_returns_monitor_when_exists() {
 
     let config = create_test_server_config(&addr.to_string());
     let repo = create_test_repo().await;
+    let metrics = AppMetrics::default();
 
     // Add a test monitor to the repo
     let add_result = repo
@@ -145,7 +150,7 @@ async fn monitor_by_id_endpoint_returns_monitor_when_exists() {
 
     // Spawn the actual app server
     let server_handle = task::spawn(async move {
-        http_server::run_server_from_config(config, repo).await;
+        http_server::run_server_from_config(config, repo, metrics).await;
     });
 
     // Wait for server to start
@@ -173,6 +178,7 @@ async fn monitors_returns_list_of_monitors_when_exist() {
 
     let config = create_test_server_config(&addr.to_string());
     let repo = create_test_repo().await;
+    let metrics = AppMetrics::default();
 
     // Add a test monitor to the repo
     let add_result = repo
@@ -203,7 +209,7 @@ async fn monitors_returns_list_of_monitors_when_exist() {
 
     // Spawn the actual app server
     let server_handle = task::spawn(async move {
-        http_server::run_server_from_config(config, repo).await;
+        http_server::run_server_from_config(config, repo, metrics).await;
     });
 
     // Wait for server to start
@@ -240,10 +246,11 @@ async fn monitors_endpoint_handles_db_error() {
             .await
             .expect("Failed to create in-memory repo"),
     );
+    let metrics = AppMetrics::default();
 
     // Spawn the actual app server
     let server_handle = task::spawn(async move {
-        http_server::run_server_from_config(config, repo).await;
+        http_server::run_server_from_config(config, repo, metrics).await;
     });
 
     // Wait for server to start
@@ -276,9 +283,10 @@ async fn actions_endpoint_returns_empty_list() {
 
     let config = create_test_server_config(&addr.to_string());
     let repo = create_test_repo().await;
+    let metrics = AppMetrics::default();
 
     let server_handle = task::spawn(async move {
-        http_server::run_server_from_config(config, repo).await;
+        http_server::run_server_from_config(config, repo, metrics).await;
     });
 
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -302,9 +310,10 @@ async fn action_by_id_endpoint_returns_404_for_nonexistent_id() {
 
     let config = create_test_server_config(&addr.to_string());
     let repo = create_test_repo().await;
+    let metrics = AppMetrics::default();
 
     let server_handle = task::spawn(async move {
-        http_server::run_server_from_config(config, repo).await;
+        http_server::run_server_from_config(config, repo, metrics).await;
     });
 
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -328,6 +337,7 @@ async fn action_by_id_endpoint_returns_action_when_exists() {
 
     let config = create_test_server_config(&addr.to_string());
     let repo = create_test_repo().await;
+    let metrics = AppMetrics::default();
 
     let add_result = repo
         .add_actions(
@@ -343,7 +353,7 @@ async fn action_by_id_endpoint_returns_action_when_exists() {
     assert!(add_result.is_ok(), "Failed to add test action");
 
     let server_handle = task::spawn(async move {
-        http_server::run_server_from_config(config, repo).await;
+        http_server::run_server_from_config(config, repo, metrics).await;
     });
 
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -368,6 +378,7 @@ async fn actions_returns_list_of_actions_when_exist() {
 
     let config = create_test_server_config(&addr.to_string());
     let repo = create_test_repo().await;
+    let metrics = AppMetrics::default();
 
     let add_result = repo
         .add_actions(
@@ -391,7 +402,7 @@ async fn actions_returns_list_of_actions_when_exist() {
     assert!(add_result.is_ok(), "Failed to add test actions");
 
     let server_handle = task::spawn(async move {
-        http_server::run_server_from_config(config, repo).await;
+        http_server::run_server_from_config(config, repo, metrics).await;
     });
 
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -425,9 +436,10 @@ async fn actions_endpoint_handles_db_error() {
             .await
             .expect("Failed to create in-memory repo"),
     );
+    let metrics = AppMetrics::default();
 
     let server_handle = task::spawn(async move {
-        http_server::run_server_from_config(config, repo).await;
+        http_server::run_server_from_config(config, repo, metrics).await;
     });
 
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -444,6 +456,37 @@ async fn actions_endpoint_handles_db_error() {
     assert_eq!(resp.status(), 500);
     let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
     assert_eq!(body["error"], "An internal server error occurred");
+
+    server_handle.abort();
+}
+
+#[tokio::test]
+async fn status_endpoint_returns_status_json() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind");
+    let addr = listener.local_addr().expect("Failed to get address");
+    drop(listener);
+
+    let config = create_test_server_config(&addr.to_string());
+    let repo = create_test_repo().await;
+    let metrics = AppMetrics::default();
+
+    let server_handle = task::spawn(async move {
+        http_server::run_server_from_config(config, repo, metrics).await;
+    });
+
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    let url = format!("http://{}/status", addr);
+    let client = Client::new();
+    let resp = client.get(&url).send().await.expect("Request failed");
+
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
+    assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(body["network_id"], ""); // Default network_id is empty string
+    assert!(body["uptime_secs"].as_u64().is_some());
+    assert_eq!(body["latest_processed_block"], 0);
+    assert_eq!(body["latest_processed_block_timestamp_secs"], 0);
 
     server_handle.abort();
 }

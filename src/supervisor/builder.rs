@@ -6,7 +6,7 @@ use std::{collections::HashMap, sync::Arc};
 use super::{Supervisor, SupervisorError};
 use crate::{
     actions::ActionDispatcher,
-    context::AppContext,
+    context::{AppContext, AppMetrics},
     engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine},
     http_client::HttpClientPool,
     models::action::ActionConfig,
@@ -18,11 +18,12 @@ use crate::{
 /// A builder for creating a `Supervisor` instance.
 pub struct SupervisorBuilder<T: AppRepository> {
     context: Option<AppContext<T>>,
+    app_metrics: Option<AppMetrics>,
 }
 
 impl<T: AppRepository + KeyValueStore + 'static> Default for SupervisorBuilder<T> {
     fn default() -> Self {
-        Self { context: None }
+        Self { context: None, app_metrics: None }
     }
 }
 
@@ -38,6 +39,12 @@ impl<T: AppRepository + KeyValueStore + 'static> SupervisorBuilder<T> {
         self
     }
 
+    /// Sets the application metrics for the `Supervisor`.
+    pub fn app_metrics(mut self, app_metrics: AppMetrics) -> Self {
+        self.app_metrics = Some(app_metrics);
+        self
+    }
+
     /// Assembles and validates the components to build a `Supervisor`.
     ///
     /// This method performs the final "wiring" of the application's services.
@@ -46,6 +53,7 @@ impl<T: AppRepository + KeyValueStore + 'static> SupervisorBuilder<T> {
     /// `FilteringEngine`.
     pub async fn build(self) -> Result<Supervisor<T>, SupervisorError> {
         let context = self.context.ok_or(SupervisorError::MissingConfig)?;
+        let app_metrics = self.app_metrics.ok_or(SupervisorError::MissingAppMetrics)?;
         let config = context.config;
         let state = context.repo;
         let abi_service = context.abi_service;
@@ -91,6 +99,7 @@ impl<T: AppRepository + KeyValueStore + 'static> SupervisorBuilder<T> {
         Ok(Supervisor::new(
             config,
             state,
+            app_metrics,
             Box::new(evm_data_source),
             Arc::new(filtering_engine),
             alert_manager,
@@ -157,7 +166,7 @@ mod tests {
             provider,
         };
 
-        let builder = SupervisorBuilder::new().context(context);
+        let builder = SupervisorBuilder::new().app_metrics(AppMetrics::default()).context(context);
 
         let result = builder.build().await;
         assert!(result.is_ok(), "Expected build to succeed, but got error: {:?}", result.err());

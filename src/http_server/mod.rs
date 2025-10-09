@@ -1,6 +1,7 @@
 //! HTTP server module
 
 mod error;
+mod status;
 
 use std::{net::SocketAddr, sync::Arc};
 
@@ -13,8 +14,9 @@ use axum::{
 };
 use error::ApiError;
 use serde_json::json;
+use status::StatusResponse;
 
-use crate::{config::AppConfig, persistence::traits::AppRepository};
+use crate::{config::AppConfig, context::AppMetrics, persistence::traits::AppRepository};
 
 /// Shared application state for the HTTP server.
 #[derive(Clone)]
@@ -23,6 +25,8 @@ pub struct ApiState {
     config: Arc<AppConfig>,
     /// The application repository.
     repo: Arc<dyn AppRepository>,
+    /// The application metrics.
+    app_metrics: AppMetrics,
 }
 
 async fn health() -> impl IntoResponse {
@@ -70,15 +74,33 @@ async fn action_details(
     Ok((StatusCode::OK, Json(json!({ "action": action }))))
 }
 
+/// Retrieves application status and metrics.
+async fn status(State(state): State<ApiState>) -> Result<impl IntoResponse, ApiError> {
+    let metrics = state.app_metrics.metrics.read().await;
+    let response = StatusResponse {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        network_id: state.config.network_id.clone(),
+        uptime_secs: metrics.start_time.elapsed().as_secs(),
+        latest_processed_block: metrics.latest_processed_block,
+        latest_processed_block_timestamp_secs: metrics.latest_processed_block_timestamp_secs,
+    };
+    Ok((StatusCode::OK, Json(response)))
+}
+
 /// Runs the HTTP server based on the provided application configuration.
-pub async fn run_server_from_config(config: Arc<AppConfig>, repo: Arc<dyn AppRepository>) {
+pub async fn run_server_from_config(
+    config: Arc<AppConfig>,
+    repo: Arc<dyn AppRepository>,
+    app_metrics: AppMetrics,
+) {
     let addr: SocketAddr =
         config.server.listen_address.parse().expect("Invalid server.listen_address format");
 
-    let state = ApiState { config, repo };
+    let state = ApiState { config, repo, app_metrics };
 
     let app = Router::new()
         .route("/health", get(health))
+        .route("/status", get(status))
         .route("/monitors", get(monitors))
         .route("/monitors/{id}", get(monitor_details))
         .route("/actions", get(actions))
