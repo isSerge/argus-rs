@@ -4,68 +4,25 @@
 //! The `AppContext` struct encapsulates all these components for use
 //! throughout the application.
 
+mod error;
+mod metrics;
+
 use std::{path::PathBuf, sync::Arc};
 
 use alloy::providers::Provider;
-use thiserror::Error;
+pub use error::{AppContextError, InitializationError};
+pub use metrics::{AppMetrics, Metrics};
 
 use crate::{
-    abi::{
-        AbiService,
-        repository::{AbiRepository, AbiRepositoryError},
-    },
+    abi::{AbiService, repository::AbiRepository},
     config::{AppConfig, InitialStartBlock},
     engine::rhai::{RhaiCompiler, RhaiScriptValidator},
     loader::load_config,
     models::{action::ActionConfig, monitor::MonitorConfig},
     monitor::MonitorValidator,
-    persistence::{error::PersistenceError, sqlite::SqliteStateRepository, traits::AppRepository},
-    providers::rpc::{ProviderError, create_provider},
+    persistence::{sqlite::SqliteStateRepository, traits::AppRepository},
+    providers::rpc::create_provider,
 };
-
-/// Errors that can occur during application context initialization.
-#[derive(Debug, Error)]
-pub enum AppContextError {
-    /// Configuration error.
-    #[error("Config error: {0}")]
-    Config(#[from] config::ConfigError),
-
-    /// Persistence error.
-    #[error("Persistence error: {0}")]
-    Persistence(#[from] PersistenceError),
-
-    /// ABI repository error.
-    #[error("ABI repository error: {0}")]
-    AbiRepository(#[from] AbiRepositoryError),
-
-    /// Provider error.
-    #[error("Provider error: {0}")]
-    Provider(#[from] ProviderError),
-
-    /// Initialization error.
-    #[error("Initialization error: {0}")]
-    Initialization(#[from] InitializationError),
-}
-
-/// Errors that can occur during specific initialization steps.
-#[derive(Debug, Error)]
-pub enum InitializationError {
-    /// Failed to load monitors from file.
-    #[error("Failed to load monitors from file: {0}")]
-    MonitorLoad(String),
-
-    /// Failed to load action from file.
-    #[error("Failed to load action from file: {0}")]
-    ActionLoad(String),
-
-    /// Failed to load ABIs from monitors.
-    #[error("Failed to load ABIs from monitors: {0}")]
-    AbiLoad(String),
-
-    /// Failed to initialize block state.
-    #[error("Failed to initialize block state: {0}")]
-    BlockStateInitialization(String),
-}
 
 /// The application context, holding configuration, database repository,
 /// ABI service, script compiler, and EVM data provider.
