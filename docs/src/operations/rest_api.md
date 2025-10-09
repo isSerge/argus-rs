@@ -37,6 +37,28 @@ Once enabled, the API endpoints will be available at the specified `listen_addre
     curl http://localhost:8080/health
     ```
 
+### Application Status
+
+-   **`GET /status`**
+
+    Retrieves the current status and metrics of the application.
+
+    **Success Response (`200 OK`)**
+    ```json
+    {
+      "version": "0.1.0",
+      "network_id": "ethereum",
+      "uptime_secs": 3600,
+      "latest_processed_block": 18345678,
+      "latest_processed_block_timestamp_secs": 1698382800
+    }
+    ```
+
+    **Example Usage:**
+    ```bash
+    curl http://localhost:8080/status
+    ```
+
 ### List All Monitors
 
 -   **`GET /monitors`**
