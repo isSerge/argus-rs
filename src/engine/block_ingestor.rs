@@ -134,16 +134,16 @@ impl<S: AppRepository + ?Sized, D: DataSource + ?Sized, F: FilteringEngine + ?Si
             };
 
             let block_data = BlockData::from_raw_data(block, receipts, logs);
+            let block_timestamp = block_data.block.header.timestamp.try_into().unwrap_or(0);
 
-            if self.raw_blocks_tx.send(block_data.clone()).await.is_err() {
+            if self.raw_blocks_tx.send(block_data).await.is_err() {
                 tracing::warn!("Raw blocks channel closed, stopping further ingestion.");
                 return Err(DataSourceError::ChannelClosed);
             }
             // Update metrics after successfully sending the block data.
             let mut metrics = self.app_metrics.metrics.write().await;
             metrics.latest_processed_block = block_num;
-            metrics.latest_processed_block_timestamp_secs =
-                block_data.block.header.timestamp.try_into().unwrap_or(0);
+            metrics.latest_processed_block_timestamp_secs = block_timestamp;
         }
 
         Ok(())
