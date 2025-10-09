@@ -1,4 +1,5 @@
-//! Represents the response structure for the `/status` endpoint in the HTTP server.
+//! Represents the response structure for the `/status` endpoint in the HTTP
+//! server.
 use serde::Serialize;
 
 /// Represents the response from the `/status` endpoint.

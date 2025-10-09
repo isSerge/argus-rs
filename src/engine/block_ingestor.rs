@@ -134,7 +134,7 @@ impl<S: AppRepository + ?Sized, D: DataSource + ?Sized, F: FilteringEngine + ?Si
             };
 
             let block_data = BlockData::from_raw_data(block, receipts, logs);
-            let block_timestamp = block_data.block.header.timestamp.try_into().unwrap_or(0);
+            let block_timestamp = block_data.block.header.timestamp;
 
             if self.raw_blocks_tx.send(block_data).await.is_err() {
                 tracing::warn!("Raw blocks channel closed, stopping further ingestion.");
