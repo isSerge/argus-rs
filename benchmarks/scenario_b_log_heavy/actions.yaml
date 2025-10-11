@@ -6,6 +6,6 @@ actions:
         body: |
           An ERC20 Transfer was detected by monitor {{ monitor_name }}.
           - From: `{{ log.params.from }}`
-          - To: `{{ log.pamas.to }}`
+          - To: `{{ log.params.to }}`
           - Value: `{{ log.params.value }}`
           [View on Etherscan](https://etherscan.io/tx/{{ transaction_hash }})
