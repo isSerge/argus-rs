@@ -48,6 +48,12 @@ Unsure where to begin contributing to Argus? You can start by looking through `g
     ```
 5.  Commit your changes with a clear and descriptive commit message.
 
+### Performance Benchmarking
+
+To prevent performance regressions, Argus includes a suite of benchmarks. If your changes could impact performance, please run the benchmarks and include the results in your pull request description.
+
+For detailed instructions on how to run the benchmarks, see the [benchmarks/README.md](./benchmarks/README.md) file.
+
 ### Submitting a Pull Request
 
 1.  Push your branch to your fork on GitHub.
