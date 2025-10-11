@@ -1,0 +1,9 @@
+monitors:
+  - name: "Calldata-Heavy Workload"
+    network: "ethereum"
+    address: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2" # WETH Contract
+    abi: "weth"
+    filter_script: |
+      decoded_call.name == "deposit"
+    actions:
+      - "stdout-action-calldata-heavy"

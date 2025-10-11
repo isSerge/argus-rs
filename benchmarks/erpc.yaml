@@ -1,0 +1,55 @@
+logLevel: warn
+
+server:
+  listenV4: true
+  httpHostV4: "0.0.0.0"
+  httpPortV4: 4000
+  readTimeout: 10s
+  writeTimeout: 20s
+
+database:
+  evmJsonRpcCache:
+    connectors:
+      - id: memory-cache
+        driver: memory
+        memory:
+          maxItems: 100000 # Cache up to 100,000 items in memory
+    policies:
+      - network: "*"
+        method: "*"
+        finality: finalized
+        connector: memory-cache
+        ttl: 0 # Cache forever
+      - network: "*"
+        method: "*"
+        finality: unfinalized
+        connector: memory-cache
+        ttl: 5s # Cache for a short period
+      - network: "*"
+        method: "*"
+        finality: unknown
+        connector: memory-cache
+        ttl: 5s # Cache for a short period
+
+projects:
+  - id: main
+    networks:
+      - architecture: evm
+        evm:
+          chainId: 1 # Ethereum Mainnet
+    upstreams:
+      - id: 1rpc
+        type: evm
+        endpoint: https://1rpc.io/eth
+        evm:
+          chainId: 1
+      - id: mevblocker
+        type: evm
+        endpoint: https://rpc.mevblocker.io
+        evm:
+          chainId: 1
+      - id: llamarpc
+        type: evm
+        endpoint: https://eth.llamarpc.com
+        evm:
+          chainId: 1

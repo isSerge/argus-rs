@@ -1,0 +1,7 @@
+monitors:
+  - name: "Baseline Throughput"
+    network: "ethereum"
+    filter_script: |
+      tx.value > ether(1000)
+    actions:
+      - "stdout-action"
