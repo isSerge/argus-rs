@@ -4,7 +4,7 @@ actions:
       message:
         title: "Large ETH Transfer Detected"
         body: |
-          A transfer of over 10 ETH was detected by monitor {{ monitor_name }}.
+          A transfer of over 1000 ETH was detected by monitor {{ monitor_name }}.
           - From: `{{ tx.from }}`
           - To: `{{ tx.to }}`
           - Value: `{{ tx.value | ether }} ETH`
