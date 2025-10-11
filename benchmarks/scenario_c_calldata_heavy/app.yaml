@@ -1,0 +1,9 @@
+database_url: "sqlite:data/monitor.db"
+rpc_urls:
+  - "http://127.0.0.1:4000/main/evm/1"
+network_id: "ethereum"
+block_chunk_size: 1
+polling_interval_ms: 10000
+confirmation_blocks: 12
+notification_channel_capacity: 1024
+abi_config_path: abis/

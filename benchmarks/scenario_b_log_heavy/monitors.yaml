@@ -1,0 +1,9 @@
+monitors:
+  - name: "Log-Heavy Workload"
+    network: "ethereum"
+    address: "all"
+    abi: "erc20"
+    filter_script: |
+      log.name == "Transfer"
+    actions:
+      - "stdout-action-log-heavy"
