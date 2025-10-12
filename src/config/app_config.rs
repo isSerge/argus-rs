@@ -28,6 +28,11 @@ fn default_aggregation_check_interval_secs() -> Duration {
     Duration::from_secs(5)
 }
 
+/// Provides the default value for concurrency.
+fn default_concurrency() -> u64 {
+    4
+}
+
 /// Application configuration for Argus.
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct AppConfig {
@@ -63,6 +68,10 @@ pub struct AppConfig {
 
     /// The size of the block chunk to process at once.
     pub block_chunk_size: u64,
+
+    /// The number of concurrent block fetches.
+    #[serde(default = "default_concurrency")]
+    pub concurrency: u64,
 
     /// The interval in milliseconds to poll for new blocks.
     #[serde(
