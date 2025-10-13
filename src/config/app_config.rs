@@ -208,6 +208,11 @@ impl AppConfigBuilder {
         self.config.initial_start_block = block;
         self
     }
+
+    pub fn concurrency(mut self, concurrency: u64) -> Self {
+        self.config.concurrency = concurrency;
+        self
+    }
 }
 
 #[cfg(test)]
