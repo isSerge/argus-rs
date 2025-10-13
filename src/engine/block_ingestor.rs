@@ -12,7 +12,10 @@ use crate::{
     engine::filtering::FilteringEngine,
     models::BlockData,
     persistence::traits::AppRepository,
-    providers::{block_fetcher, traits::{DataSource, DataSourceError}},
+    providers::{
+        block_fetcher,
+        traits::{DataSource, DataSourceError},
+    },
 };
 
 /// The BlockIngestor service.
@@ -118,11 +121,12 @@ impl<S: AppRepository + ?Sized, D: DataSource + ?Sized, F: FilteringEngine + ?Si
         // Use the same batch processing approach as dry_run for consistency
         let block_data_batch = block_fetcher::fetch_blocks_concurrent(
             self.data_source.as_ref(),
-            &needs_receipts,
+            needs_receipts,
             from_block,
             to_block,
             self.config.concurrency as usize,
-        ).await?;
+        )
+        .await?;
 
         // Process each block in the successfully fetched batch
         for block_data in block_data_batch {
@@ -209,23 +213,18 @@ mod tests {
     #[tokio::test]
     async fn test_ingest_blocks_succeeds_without_fetching_receipts_when_not_required() {
         let mut harness = TestHarness::new();
-        
+
         // Set up the mocks in order they'll be called
-        harness.mock_filtering_engine
-            .expect_requires_receipt_data()
-            .times(1)
-            .returning(|| false);
-        
-        harness.mock_state_repo
+        harness.mock_filtering_engine.expect_requires_receipt_data().times(1).returning(|| false);
+
+        harness
+            .mock_state_repo
             .expect_get_last_processed_block()
             .times(1)
             .returning(|_| Ok(Some(121)));
-        
-        harness.mock_data_source
-            .expect_get_current_block_number()
-            .times(1)
-            .returning(|| Ok(123));
-        
+
+        harness.mock_data_source.expect_get_current_block_number().times(1).returning(|| Ok(123));
+
         // The concurrent batch will call fetch_block_core_data for block 122
         harness
             .mock_data_source
@@ -233,7 +232,7 @@ mod tests {
             .with(eq(122))
             .times(1)
             .returning(|block_num| Ok((BlockBuilder::new().number(block_num).build(), vec![])));
-        
+
         // Since receipts are not required, fetch_receipts should not be called
         harness.mock_data_source.expect_fetch_receipts().times(0);
 
@@ -302,12 +301,9 @@ mod tests {
     async fn test_ingestor_waits_when_caught_up_to_confirmation_head() {
         // This test ensures that if `from_block` > `safe_to_block`, we fetch nothing.
         let mut harness = TestHarness::new();
-        
-        harness.mock_filtering_engine
-            .expect_requires_receipt_data()
-            .times(1)
-            .returning(|| false);
-        
+
+        harness.mock_filtering_engine.expect_requires_receipt_data().times(1).returning(|| false);
+
         // last processed is 121, next should be 122
         harness.mock_state_repo.expect_get_last_processed_block().returning(|_| Ok(Some(121)));
         // current is 122, so safe_to_block is 121
@@ -326,13 +322,10 @@ mod tests {
     async fn test_ingestor_handles_data_source_error_gracefully() {
         let mut harness = TestHarness::new();
 
-        harness.mock_filtering_engine
-            .expect_requires_receipt_data()
-            .times(1)
-            .returning(|| false);
+        harness.mock_filtering_engine.expect_requires_receipt_data().times(1).returning(|| false);
 
         harness.mock_state_repo.expect_get_last_processed_block().returning(|_| Ok(Some(100)));
-        
+
         harness
             .mock_data_source
             .expect_get_current_block_number()
@@ -372,13 +365,10 @@ mod tests {
     async fn test_ingestor_stops_before_fetching_on_cancellation() {
         let mut harness = TestHarness::new();
 
-        harness.mock_filtering_engine
-            .expect_requires_receipt_data()
-            .times(1)
-            .returning(|| false);
+        harness.mock_filtering_engine.expect_requires_receipt_data().times(1).returning(|| false);
 
         harness.mock_state_repo.expect_get_last_processed_block().returning(|_| Ok(Some(100)));
-        
+
         harness.mock_data_source.expect_get_current_block_number().returning(|| Ok(120));
 
         // The batch fetch will still happen, but processing stops due to cancellation

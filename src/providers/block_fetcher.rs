@@ -14,11 +14,11 @@ use crate::{
 /// Fetches all necessary data for a single block.
 pub async fn fetch_single_block_data<D: DataSource + ?Sized>(
     data_source: &D,
-    needs_receipts: &bool,
+    needs_receipts: bool,
     block_num: u64,
 ) -> Result<BlockData, DataSourceError> {
     let (block, logs) = data_source.fetch_block_core_data(block_num).await?;
-    let receipts = if *needs_receipts {
+    let receipts = if needs_receipts {
         let tx_hashes: Vec<_> = block.transactions.hashes().collect();
         if tx_hashes.is_empty() {
             HashMap::new()
@@ -38,7 +38,7 @@ pub async fn fetch_single_block_data<D: DataSource + ?Sized>(
 /// behavior across all components and prevents gaps in block processing.
 pub async fn fetch_blocks_concurrent<D: DataSource + ?Sized>(
     data_source: &D,
-    needs_receipts: &bool,
+    needs_receipts: bool,
     from_block: u64,
     to_block: u64,
     concurrency: usize,

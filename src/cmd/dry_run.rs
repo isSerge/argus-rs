@@ -288,7 +288,7 @@ async fn run_dry_run_loop<T: KeyValueStore>(
         // Use the reusable concurrent fetching function
         let block_data_batch = block_fetcher::fetch_blocks_concurrent(
             data_source_ref,
-            &needs_receipts,
+            needs_receipts,
             current_block,
             batch_end_block,
             concurrency,
