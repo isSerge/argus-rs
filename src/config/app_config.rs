@@ -30,7 +30,7 @@ fn default_aggregation_check_interval_secs() -> Duration {
 
 /// Provides the default value for concurrency.
 fn default_concurrency() -> u64 {
-    4
+    12
 }
 
 /// Application configuration for Argus.
