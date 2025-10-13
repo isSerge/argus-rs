@@ -16,13 +16,14 @@ use crate::{
         filtering::{FilteringEngine, RhaiError, RhaiFilteringEngine},
     },
     http_client::HttpClientPool,
-    models::{BlockData, action::ActionConfig, monitor_match::MonitorMatch},
+    models::{action::ActionConfig, monitor_match::MonitorMatch},
     monitor::MonitorManager,
     persistence::{
         error::PersistenceError,
         traits::{AppRepository, KeyValueStore},
     },
     providers::{
+        block_fetcher,
         rpc::{EvmRpcSource, ProviderError},
         traits::{DataSource, DataSourceError},
     },
@@ -153,6 +154,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
         Box::new(evm_source),
         filtering_engine,
         alert_manager.clone(),
+        config.concurrency as usize,
     )
     .await?;
 
@@ -256,6 +258,7 @@ async fn run_dry_run_loop<T: KeyValueStore>(
     data_source: Box<dyn DataSource>,
     filtering_engine: RhaiFilteringEngine,
     alert_manager: Arc<AlertManager<T>>,
+    concurrency: usize,
 ) -> Result<Vec<MonitorMatch>, DryRunError> {
     // Define a batch size for processing blocks in chunks.
     const BATCH_SIZE: u64 = 50;
@@ -278,25 +281,19 @@ async fn run_dry_run_loop<T: KeyValueStore>(
         let batch_end_block = calculate_batch_end_block(current_block, BATCH_SIZE, to_block);
         tracing::info!(from = current_block, to = batch_end_block, "Fetching block batch...");
 
-        let mut block_data_batch =
-            Vec::with_capacity((batch_end_block - current_block + 1) as usize);
+        // Capture references for the concurrent processing
+        let data_source_ref = data_source.as_ref();
+        let needs_receipts = filtering_engine.requires_receipt_data();
 
-        // Inner loop collects data for the current batch.
-        for block_num in current_block..=batch_end_block {
-            let (block, logs) = data_source.fetch_block_core_data(block_num).await?;
-
-            let receipts = if filtering_engine.requires_receipt_data() {
-                let tx_hashes: Vec<_> = block.transactions.hashes().collect();
-                if tx_hashes.is_empty() {
-                    Default::default()
-                } else {
-                    data_source.fetch_receipts(&tx_hashes).await?
-                }
-            } else {
-                Default::default()
-            };
-            block_data_batch.push(BlockData::from_raw_data(block, receipts, logs));
-        }
+        // Use the reusable concurrent fetching function
+        let block_data_batch = block_fetcher::fetch_blocks_concurrent(
+            data_source_ref,
+            &needs_receipts,
+            current_block,
+            batch_end_block,
+            concurrency,
+        )
+        .await?;
 
         // Process the entire collected batch in one call.
         if !block_data_batch.is_empty() {
@@ -362,6 +359,8 @@ mod tests {
         Arc::new(AlertManager::new(action_dispatcher, Arc::new(state_repo), actions))
     }
 
+    const CONCURRENCY: usize = 4;
+
     #[tokio::test]
     async fn test_run_dry_run_loop_succeeds() {
         // Arrange
@@ -420,6 +419,7 @@ mod tests {
             Box::new(mock_data_source),
             filtering_engine,
             alert_manager,
+            CONCURRENCY,
         )
         .await;
 
@@ -483,6 +483,7 @@ mod tests {
             Box::new(mock_data_source),
             filtering_engine,
             alert_manager,
+            CONCURRENCY,
         )
         .await;
 
@@ -541,6 +542,7 @@ mod tests {
             Box::new(mock_data_source),
             filtering_engine,
             alert_manager,
+            CONCURRENCY,
         )
         .await;
 
@@ -592,6 +594,7 @@ mod tests {
             Box::new(mock_data_source),
             filtering_engine,
             alert_manager,
+            CONCURRENCY,
         )
         .await;
 
@@ -671,6 +674,7 @@ mod tests {
             Box::new(mock_data_source),
             filtering_engine,
             alert_manager,
+            CONCURRENCY,
         )
         .await;
 
@@ -717,6 +721,7 @@ mod tests {
             Box::new(mock_data_source),
             filtering_engine,
             alert_manager,
+            CONCURRENCY,
         )
         .await;
 
