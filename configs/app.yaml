@@ -7,9 +7,10 @@ network_id: "ethereum"
 
 # Controls where Argus starts on a fresh database.
 # Can be a block number, 'latest', or a negative offset from the head.
-initial_start_block: -100 
+initial_start_block: -100
 
-block_chunk_size: 5
+block_chunk_size: 100
+concurrency: 8
 polling_interval_ms: 10000
 confirmation_blocks: 12
 notification_channel_capacity: 1024

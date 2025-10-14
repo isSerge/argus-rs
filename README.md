@@ -39,9 +39,9 @@ Benchmarks were run on a MacBook Pro (Apple M1 Pro) over a consistent 100 block 
 
 | Scenario                   | Objective                                           | Mean Time (± σ)     |
 | -------------------------- | --------------------------------------------------- | ------------------- |
-| **A: Baseline Throughput** | Raw block ingestion and simple `tx.value` filtering | 651.0 ms ± 35.4 ms  |
-| **B: Log-Heavy Workload**  | Global ERC20 `Transfer` log decoding and matching   | 2.461 s ± 0.043 s   |
-| **C: Calldata-Heavy**      | Calldata decoding for a high-traffic contract       | 645.7 ms ± 15.1 ms  |
+| **A: Baseline Throughput** | Raw block ingestion and simple `tx.value` filtering | 457.2 ms ± 31.7 ms  |
+| **B: Log-Heavy Workload**  | Global ERC20 `Transfer` log decoding and matching   | 2.061 s ± 0.020 s   |
+| **C: Calldata-Heavy**      | Calldata decoding for a high-traffic contract       | 428.2 ms ± 8.4 ms   |
 
 For more details on how to run the benchmarks yourself, see the [`benchmarks/README.md`](./benchmarks/README.md).
 

@@ -1,7 +1,7 @@
 //! The BlockIngestor module is responsible for continuously fetching block data
 //! from a DataSource and ingesting it into the processing pipeline.
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -12,7 +12,10 @@ use crate::{
     engine::filtering::FilteringEngine,
     models::BlockData,
     persistence::traits::AppRepository,
-    providers::traits::{DataSource, DataSourceError},
+    providers::{
+        block_fetcher,
+        traits::{DataSource, DataSourceError},
+    },
 };
 
 /// The BlockIngestor service.
@@ -92,6 +95,7 @@ impl<S: AppRepository + ?Sized, D: DataSource + ?Sized, F: FilteringEngine + ?Si
     /// Performs one cycle of fetching and sending block data.
     async fn ingest_blocks(&self) -> Result<(), DataSourceError> {
         let network_id = &self.config.network_id;
+        let needs_receipts = self.filtering.requires_receipt_data();
         let last_processed_block = self.state.get_last_processed_block(network_id).await?;
         let current_block = self.data_source.get_current_block_number().await?;
 
@@ -114,33 +118,31 @@ impl<S: AppRepository + ?Sized, D: DataSource + ?Sized, F: FilteringEngine + ?Si
         let to_block = std::cmp::min(from_block + self.config.block_chunk_size, safe_to_block);
         tracing::info!(from_block = from_block, to_block = to_block, "Processing block range.");
 
-        for block_num in from_block..=to_block {
+        // Use the same batch processing approach as dry_run for consistency
+        let block_data_batch = block_fetcher::fetch_blocks_concurrent(
+            self.data_source.as_ref(),
+            needs_receipts,
+            from_block,
+            to_block,
+            self.config.concurrency as usize,
+        )
+        .await?;
+
+        // Process each block in the successfully fetched batch
+        for block_data in block_data_batch {
             if self.cancellation_token.is_cancelled() {
                 tracing::info!("Cancellation requested, stopping block ingestion.");
                 break;
             }
 
-            let (block, logs) = self.data_source.fetch_block_core_data(block_num).await?;
-            let needs_receipts = self.filtering.requires_receipt_data();
-            let receipts = if needs_receipts {
-                let tx_hashes: Vec<_> = block.transactions.hashes().collect();
-                if tx_hashes.is_empty() {
-                    HashMap::new()
-                } else {
-                    self.data_source.fetch_receipts(&tx_hashes).await?
-                }
-            } else {
-                HashMap::new()
-            };
-
-            let block_data = BlockData::from_raw_data(block, receipts, logs);
             let block_timestamp = block_data.block.header.timestamp;
+            let block_num = block_data.block.header.number;
 
             if self.raw_blocks_tx.send(block_data).await.is_err() {
                 tracing::warn!("Raw blocks channel closed, stopping further ingestion.");
                 return Err(DataSourceError::ChannelClosed);
             }
-            // Update metrics after successfully sending the block data.
+
             let mut metrics = self.app_metrics.metrics.write().await;
             metrics.latest_processed_block = block_num;
             metrics.latest_processed_block_timestamp_secs = block_timestamp;
@@ -152,6 +154,8 @@ impl<S: AppRepository + ?Sized, D: DataSource + ?Sized, F: FilteringEngine + ?Si
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use alloy::primitives::B256;
     use mockall::predicate::eq;
 
@@ -175,7 +179,11 @@ mod tests {
     impl TestHarness {
         fn new() -> Self {
             let config = Arc::new(
-                AppConfig::builder().network_id(TEST_NETWORK_ID).confirmation_blocks(1).build(),
+                AppConfig::builder()
+                    .network_id(TEST_NETWORK_ID)
+                    .confirmation_blocks(1)
+                    .concurrency(1) // Use concurrency of 1 for tests to avoid mock issues
+                    .build(),
             );
             Self {
                 config,
@@ -205,14 +213,27 @@ mod tests {
     #[tokio::test]
     async fn test_ingest_blocks_succeeds_without_fetching_receipts_when_not_required() {
         let mut harness = TestHarness::new();
-        harness.mock_filtering_engine.expect_requires_receipt_data().returning(|| false);
-        harness.mock_state_repo.expect_get_last_processed_block().returning(|_| Ok(Some(121)));
-        harness.mock_data_source.expect_get_current_block_number().returning(|| Ok(123));
+
+        // Set up the mocks in order they'll be called
+        harness.mock_filtering_engine.expect_requires_receipt_data().times(1).returning(|| false);
+
+        harness
+            .mock_state_repo
+            .expect_get_last_processed_block()
+            .times(1)
+            .returning(|_| Ok(Some(121)));
+
+        harness.mock_data_source.expect_get_current_block_number().times(1).returning(|| Ok(123));
+
+        // The concurrent batch will call fetch_block_core_data for block 122
         harness
             .mock_data_source
             .expect_fetch_block_core_data()
             .with(eq(122))
+            .times(1)
             .returning(|block_num| Ok((BlockBuilder::new().number(block_num).build(), vec![])));
+
+        // Since receipts are not required, fetch_receipts should not be called
         harness.mock_data_source.expect_fetch_receipts().times(0);
 
         let (tx, _rx) = mpsc::channel(10);
@@ -228,6 +249,8 @@ mod tests {
         harness.mock_filtering_engine.expect_requires_receipt_data().returning(|| true);
         harness.mock_state_repo.expect_get_last_processed_block().returning(|_| Ok(Some(121)));
         harness.mock_data_source.expect_get_current_block_number().returning(|| Ok(123));
+        // The batch will process block 122 (from 122 to 122) - empty block so no
+        // receipts
         harness
             .mock_data_source
             .expect_fetch_block_core_data()
@@ -255,6 +278,7 @@ mod tests {
         harness.mock_filtering_engine.expect_requires_receipt_data().returning(|| true);
         harness.mock_state_repo.expect_get_last_processed_block().returning(|_| Ok(Some(121)));
         harness.mock_data_source.expect_get_current_block_number().returning(|| Ok(123));
+        // The batch will process block 122 (from 122 to 122) - block with transaction
         harness
             .mock_data_source
             .expect_fetch_block_core_data()
@@ -277,6 +301,9 @@ mod tests {
     async fn test_ingestor_waits_when_caught_up_to_confirmation_head() {
         // This test ensures that if `from_block` > `safe_to_block`, we fetch nothing.
         let mut harness = TestHarness::new();
+
+        harness.mock_filtering_engine.expect_requires_receipt_data().times(1).returning(|| false);
+
         // last processed is 121, next should be 122
         harness.mock_state_repo.expect_get_last_processed_block().returning(|_| Ok(Some(121)));
         // current is 122, so safe_to_block is 121
@@ -294,7 +321,11 @@ mod tests {
     #[tokio::test]
     async fn test_ingestor_handles_data_source_error_gracefully() {
         let mut harness = TestHarness::new();
+
+        harness.mock_filtering_engine.expect_requires_receipt_data().times(1).returning(|| false);
+
         harness.mock_state_repo.expect_get_last_processed_block().returning(|_| Ok(Some(100)));
+
         harness
             .mock_data_source
             .expect_get_current_block_number()
@@ -333,11 +364,20 @@ mod tests {
     #[tokio::test]
     async fn test_ingestor_stops_before_fetching_on_cancellation() {
         let mut harness = TestHarness::new();
+
+        harness.mock_filtering_engine.expect_requires_receipt_data().times(1).returning(|| false);
+
         harness.mock_state_repo.expect_get_last_processed_block().returning(|_| Ok(Some(100)));
+
         harness.mock_data_source.expect_get_current_block_number().returning(|| Ok(120));
 
-        // We expect no block fetches since we cancel before starting
-        harness.mock_data_source.expect_fetch_block_core_data().times(0);
+        // The batch fetch will still happen, but processing stops due to cancellation
+        harness
+            .mock_data_source
+            .expect_fetch_block_core_data()
+            .with(eq(101))
+            .times(1)
+            .returning(|n| Ok((BlockBuilder::new().number(n).build(), vec![])));
 
         let (tx, _rx) = mpsc::channel(10);
         let token = CancellationToken::new();
@@ -348,7 +388,7 @@ mod tests {
         let ingestor = harness.build(tx, token);
 
         let result = ingestor.ingest_blocks().await;
-        assert!(result.is_ok(), "Should return Ok even if cancelled before starting");
+        assert!(result.is_ok(), "Should return Ok even if cancelled during processing");
     }
 
     #[tokio::test]
@@ -360,13 +400,20 @@ mod tests {
             AppConfig::builder()
                 .network_id(TEST_NETWORK_ID)
                 .confirmation_blocks(1)
+                .concurrency(1) // Use concurrency of 1 for tests
                 .polling_interval(10) // Fast polling
                 .build(),
         );
 
         let mut seq = Sequence::new();
 
-        // --- Expectations for ONLY ONE successful run loop iteration ---
+        // Expectations for one successful run loop iteration - in correct order
+        harness
+            .mock_filtering_engine
+            .expect_requires_receipt_data()
+            .times(1)
+            .in_sequence(&mut seq)
+            .returning(|| false);
         harness
             .mock_state_repo
             .expect_get_last_processed_block()
@@ -386,12 +433,6 @@ mod tests {
             .times(1)
             .in_sequence(&mut seq)
             .returning(|n| Ok((BlockBuilder::new().number(n).build(), vec![])));
-        harness
-            .mock_filtering_engine
-            .expect_requires_receipt_data()
-            .times(1)
-            .in_sequence(&mut seq)
-            .returning(|| false);
 
         let (tx, mut rx) = mpsc::channel(10);
         let token = CancellationToken::new();
