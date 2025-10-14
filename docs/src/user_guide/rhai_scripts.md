@@ -2,6 +2,15 @@
 
 Argus is using the [Rhai](https://rhai.rs) scripting language for its filtering logic. Each monitor you define has a `filter_script` that determines whether a given transaction or log should trigger a notification.
 
+## Why Rhai?
+
+The choice of Rhai as the scripting language for Argus was deliberate, focusing on providing a powerful yet safe filtering experience. Here are the key reasons:
+
+*   **Performance**: Rhai is a lightweight and fast scripting engine. Scripts are compiled to an efficient bytecode format before execution, making it highly suitable for the repetitive, high-throughput task of evaluating thousands of blockchain events.
+*   **Safety**: Rhai is designed to be sandboxed. User-provided scripts run in a controlled environment and cannot access the file system, network, or other system resources. This ensures that a poorly written or malicious script cannot compromise the stability or security of the Argus service.
+*   **Ease of Use**: The syntax is relatively simple and should feel familiar to anyone with experience in languages like JavaScript, Python, or Rust, lowering the learning curve for writing effective filters.
+*   **Seamless Rust Integration**: As a Rust-native scripting language, Rhai integrates cleanly and efficiently into the Argus codebase, allowing for tight and performant interaction between the core application and the filtering logic.
+
 ## The `filter_script`
 
 The `filter_script` is a short piece of Rhai code that must evaluate to a boolean (`true` or `false`).

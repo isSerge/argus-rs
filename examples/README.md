@@ -20,6 +20,8 @@ Argus EVM Monitor.
 - [8. High Priority Fee](./8_high_priority_fee/README.md): This example demonstrates how to monitor for transactions with unusually high priority fees.
 - [9. Admin Function Call Monitor](./9_admin_function_call/README.md): This example demonstrates how to monitor for calls to a specific function on a contract.
 - [10. Action with Kafka Publisher](./10_action_with_kafka_publisher/README.md): This example demonstrates how to configure and use a `kafka` action to send notifications to a Kafka topic.
+- [11. Action with RabbitMQ Publisher](./11_action_with_rabbitmq_publisher/README.md): This example demonstrates how to configure and use a `rabbitmq` action to send notifications to a RabbitMQ exchange.
+- [12. Action with NATS Publisher](./12_action_with_nats_publisher/README.md): This example demonstrates how to configure and use a `nats` action to send notifications to a NATS subject.
 
 ---
 

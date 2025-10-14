@@ -254,6 +254,7 @@ You can view logs with `docker compose logs -f` and stop the application with `d
 The repository is organized to separate application logic, configuration, and documentation.
 
 -   `configs`: Holds the default YAML configuration files (`app.yaml`, `monitors.yaml`, `actions.yaml`).
+-   `benchmarks`: Contains performance benchmark configurations and scripts.
 -   `examples`: Contains a collection of self-contained, runnable examples, each demonstrating a specific feature or use case.
 -   `docs`: The source for the project's official documentation, built with `mdbook`.
 -   `abis`: The default directory for storing contract ABI JSON files, which are used to decode event logs.
