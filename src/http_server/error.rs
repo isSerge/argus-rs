@@ -36,7 +36,7 @@ impl IntoResponse for ApiError {
         let (status, error_message) = match self {
             ApiError::InternalServerError(err) => {
                 // Log the detailed error for debugging purposes.
-                tracing::error!("Database error: {:?}", err);
+                tracing::error!("Internal server error: {}", err);
                 // Return a generic error message to the user for security.
                 (StatusCode::INTERNAL_SERVER_ERROR, "An internal server error occurred".to_string())
             }
