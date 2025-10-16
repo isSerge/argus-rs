@@ -39,6 +39,7 @@ struct TestServer {
     pub address: SocketAddr,
     pub server_handle: task::JoinHandle<()>,
     pub client: Client,
+    _config_rx: watch::Receiver<()>,
 }
 
 impl TestServer {
@@ -49,7 +50,7 @@ impl TestServer {
 
         let config = create_test_server_config(&addr.to_string());
         let metrics = AppMetrics::default();
-        let (config_tx, _config_rx) = watch::channel(());
+        let (config_tx, config_rx) = watch::channel(());
 
         // Spawn the actual app server
         let server_handle = task::spawn(async move {
@@ -59,7 +60,7 @@ impl TestServer {
         // Wait for server to start
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-        Self { address: addr, server_handle, client: Client::new() }
+        Self { address: addr, server_handle, client: Client::new(), _config_rx: config_rx }
     }
 
     async fn new_with_test_monitors() -> (Self, Arc<SqliteStateRepository>) {
