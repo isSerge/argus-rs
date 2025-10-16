@@ -17,10 +17,7 @@ use futures::future;
 use mockall::automock;
 use rhai::{AST, Engine, EvalAltResult, Map, Scope};
 use thiserror::Error;
-use tokio::{
-    sync::{mpsc, watch},
-    time::timeout,
-};
+use tokio::{sync::mpsc, time::timeout};
 
 use super::rhai::{
     conversions::{
@@ -83,7 +80,6 @@ pub trait FilteringEngine: Send + Sync {
         &self,
         mut receiver: mpsc::Receiver<CorrelatedBlockData>,
         notifications_tx: mpsc::Sender<MonitorMatch>,
-        mut monitor_config_rx: watch::Receiver<()>,
     );
 }
 
@@ -333,7 +329,6 @@ impl FilteringEngine for RhaiFilteringEngine {
         &self,
         mut receiver: mpsc::Receiver<CorrelatedBlockData>,
         notifications_tx: mpsc::Sender<MonitorMatch>,
-        mut monitor_config_rx: watch::Receiver<()>,
     ) {
         while let Some(correlated_block) = receiver.recv().await {
             let futures = correlated_block.items.iter().map(|item| self.evaluate_item(item));

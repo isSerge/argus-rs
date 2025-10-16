@@ -234,8 +234,8 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
         let (monitor_matches_tx, mut monitor_matches_rx) =
             mpsc::channel::<MonitorMatch>(self.config.notification_channel_capacity as usize);
 
-        // Create the channel for monitor configuration updates.
-        let (monitor_config_tx, monitor_config_rx) = tokio::sync::watch::channel(());
+        // Create the channel for configuration updates.
+        let (config_tx, mut config_rx) = tokio::sync::watch::channel(());
 
         // Spawn the HTTP server as a background task if enabled.
         if self.config.server.enabled {
@@ -245,7 +245,7 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
             let app_metrics_clone = self.app_metrics.clone();
             self.join_set.spawn(async move {
                 tokio::select! {
-                    _ = http_server::run_server_from_config(server_config_clone, server_repo_clone, app_metrics_clone, monitor_config_tx) => {},
+                    _ = http_server::run_server_from_config(server_config_clone, server_repo_clone, app_metrics_clone, config_tx) => {},
                     _ = http_cancellation_token.cancelled() => {
                         tracing::info!("HTTP server received shutdown signal.");
                     }
@@ -284,7 +284,7 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
         // Spawn the FilteringEngine service.
         let filtering_engine_clone = Arc::clone(&self.filtering);
         self.join_set.spawn(async move {
-            filtering_engine_clone.run(correlated_blocks_rx, monitor_matches_tx, monitor_config_rx).await;
+            filtering_engine_clone.run(correlated_blocks_rx, monitor_matches_tx).await;
         });
 
         // Spawn the AlertManager's main processing loop.
@@ -332,6 +332,19 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
                 _ = self.cancellation_token.cancelled() => {
                     // Cancellation requested externally, break the loop.
                     break;
+                }
+                // Listen for configuration change signals to reload monitors.
+                _ = config_rx.changed() => {
+                    tracing::info!("Configuration change signal received, reloading monitors...");
+                    match self.state.get_monitors(&self.config.network_id).await {
+                        Ok(monitors) => {
+                            self.monitor_manager.update(monitors);
+                            tracing::info!("Monitors reloaded successfully.");
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to reload monitors from database: {}", e);
+                        }
+                    }
                 }
             }
         }
