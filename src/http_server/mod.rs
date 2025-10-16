@@ -15,6 +15,7 @@ use axum::{
 use error::ApiError;
 use serde_json::json;
 use status::StatusResponse;
+use tokio::sync::watch;
 
 use crate::{config::AppConfig, context::AppMetrics, persistence::traits::AppRepository};
 
@@ -92,6 +93,7 @@ pub async fn run_server_from_config(
     config: Arc<AppConfig>,
     repo: Arc<dyn AppRepository>,
     app_metrics: AppMetrics,
+    config_tx: watch::Sender<()>,
 ) {
     let addr: SocketAddr =
         config.server.listen_address.parse().expect("Invalid server.listen_address format");

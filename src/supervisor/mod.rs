@@ -220,22 +220,6 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
             cancellation_token.cancel();
         });
 
-        // Spawn the HTTP server as a background task if
-        if self.config.server.enabled {
-            let server_config_clone = Arc::clone(&self.config);
-            let http_cancellation_token = self.cancellation_token.clone();
-            let server_repo_clone = Arc::clone(&self.state);
-            let app_metrics_clone = self.app_metrics.clone();
-            self.join_set.spawn(async move {
-                tokio::select! {
-                    _ = http_server::run_server_from_config(server_config_clone, server_repo_clone, app_metrics_clone) => {},
-                    _ = http_cancellation_token.cancelled() => {
-                        tracing::info!("HTTP server received shutdown signal.");
-                    }
-                }
-            });
-        }
-
         // --- Service Initialization ---
 
         // Create the channel that connects the BlockIngestor to the BlockProcessor.
@@ -249,6 +233,25 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
         // Create the channel that connects the FilteringEngine to the AlertManager.
         let (monitor_matches_tx, mut monitor_matches_rx) =
             mpsc::channel::<MonitorMatch>(self.config.notification_channel_capacity as usize);
+
+        // Create the channel for monitor configuration updates.
+        let (monitor_config_tx, monitor_config_rx) = tokio::sync::watch::channel(());
+
+        // Spawn the HTTP server as a background task if enabled.
+        if self.config.server.enabled {
+            let server_config_clone = Arc::clone(&self.config);
+            let http_cancellation_token = self.cancellation_token.clone();
+            let server_repo_clone = Arc::clone(&self.state);
+            let app_metrics_clone = self.app_metrics.clone();
+            self.join_set.spawn(async move {
+                tokio::select! {
+                    _ = http_server::run_server_from_config(server_config_clone, server_repo_clone, app_metrics_clone, monitor_config_tx) => {},
+                    _ = http_cancellation_token.cancelled() => {
+                        tracing::info!("HTTP server received shutdown signal.");
+                    }
+                }
+            });
+        }
 
         // --- Task Spawning ---
 
@@ -281,7 +284,7 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
         // Spawn the FilteringEngine service.
         let filtering_engine_clone = Arc::clone(&self.filtering);
         self.join_set.spawn(async move {
-            filtering_engine_clone.run(correlated_blocks_rx, monitor_matches_tx).await;
+            filtering_engine_clone.run(correlated_blocks_rx, monitor_matches_tx, monitor_config_rx).await;
         });
 
         // Spawn the AlertManager's main processing loop.
