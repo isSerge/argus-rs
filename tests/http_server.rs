@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
 use argus::{
     config::{AppConfig, ServerConfig},
@@ -11,13 +11,20 @@ use argus::{
     persistence::{sqlite::SqliteStateRepository, traits::AppRepository},
 };
 use reqwest::Client;
-use tokio::task;
+use tokio::{sync::watch, task};
 
 async fn create_test_repo() -> Arc<SqliteStateRepository> {
     let repo = SqliteStateRepository::new("sqlite::memory:")
         .await
         .expect("Failed to create in-memory repo");
     repo.run_migrations().await.expect("Failed to run migrations");
+    Arc::new(repo)
+}
+
+async fn create_test_repo_without_migrations() -> Arc<SqliteStateRepository> {
+    let repo = SqliteStateRepository::new("sqlite::memory:")
+        .await
+        .expect("Failed to create in-memory repo");
     Arc::new(repo)
 }
 
@@ -28,197 +35,214 @@ fn create_test_server_config(address: &str) -> Arc<AppConfig> {
     })
 }
 
-#[tokio::test]
-async fn health_endpoint_returns_ok() {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind");
-    let addr = listener.local_addr().expect("Failed to get address");
-    drop(listener); // Release port for the app to use
-
-    let config = create_test_server_config(&addr.to_string());
-    let repo = create_test_repo().await;
-    let metrics = AppMetrics::default();
-
-    // Spawn the actual app server
-    let server_handle = task::spawn(async move {
-        http_server::run_server_from_config(config, repo, metrics).await;
-    });
-
-    // Wait for server to start
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-    // Test the endpoint
-    let url = format!("http://{}/health", addr);
-    let client = Client::new();
-    let resp = client.get(&url).send().await.expect("Request failed");
-
-    assert_eq!(resp.status(), 200);
-    let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
-    assert_eq!(body["status"], "ok");
-
-    // Clean up
-    server_handle.abort();
+struct TestServer {
+    pub address: SocketAddr,
+    pub server_handle: task::JoinHandle<()>,
+    pub client: Client,
 }
 
-#[tokio::test]
-async fn monitors_endpoint_returns_empty_list() {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind");
-    let addr = listener.local_addr().expect("Failed to get address");
-    drop(listener); // Release port for the app to use
+impl TestServer {
+    async fn new(repo: Arc<dyn AppRepository>) -> Self {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind");
+        let addr = listener.local_addr().expect("Failed to get address");
+        drop(listener); // Release port for the app to use
 
-    let config = create_test_server_config(&addr.to_string());
-    let repo = create_test_repo().await;
-    let metrics = AppMetrics::default();
+        let config = create_test_server_config(&addr.to_string());
+        let metrics = AppMetrics::default();
+        let (config_tx, _config_rx) = watch::channel(());
 
-    // Spawn the actual app server
-    let server_handle = task::spawn(async move {
-        http_server::run_server_from_config(config, repo, metrics).await;
-    });
+        // Spawn the actual app server
+        let server_handle = task::spawn(async move {
+            http_server::run_server_from_config(config, repo, metrics, config_tx).await;
+        });
 
-    // Wait for server to start
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        // Wait for server to start
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-    // Test the endpoint
-    let url = format!("http://{}/monitors", addr);
-    let client = Client::new();
-    let resp = client.get(&url).send().await.expect("Request failed");
+        Self { address: addr, server_handle, client: Client::new() }
+    }
 
-    assert_eq!(resp.status(), 200);
-    let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
-    assert_eq!(body["monitors"], serde_json::Value::Array(vec![]));
+    async fn new_with_test_monitors() -> (Self, Arc<SqliteStateRepository>) {
+        let repo = create_test_repo().await;
+        let config = AppConfig::default();
 
-    // Clean up
-    server_handle.abort();
-}
-
-#[tokio::test]
-async fn monitor_by_id_endpoint_returns_404_for_nonexistent_id() {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind");
-    let addr = listener.local_addr().expect("Failed to get address");
-    drop(listener); // Release port for the app to use
-
-    let config = create_test_server_config(&addr.to_string());
-    let repo = create_test_repo().await;
-    let metrics = AppMetrics::default();
-
-    // Spawn the actual app server
-    let server_handle = task::spawn(async move {
-        http_server::run_server_from_config(config, repo, metrics).await;
-    });
-
-    // Wait for server to start
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-    // Test the endpoint
-    let url = format!("http://{}/monitors/1234", addr);
-    let client = Client::new();
-    let resp = client.get(&url).send().await.expect("Request failed");
-
-    assert_eq!(resp.status(), 404);
-    let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
-    assert_eq!(body["error"], "Monitor not found");
-
-    // Clean up
-    server_handle.abort();
-}
-
-#[tokio::test]
-async fn monitor_by_id_endpoint_returns_monitor_when_exists() {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind");
-    let addr = listener.local_addr().expect("Failed to get address");
-    drop(listener); // Release port for the app to use
-
-    let config = create_test_server_config(&addr.to_string());
-    let repo = create_test_repo().await;
-    let metrics = AppMetrics::default();
-
-    // Add a test monitor to the repo
-    let add_result = repo
-        .add_monitors(
-            &config.network_id,
-            vec![MonitorConfig {
-                name: "Test Monitor".to_string(),
-                network: config.network_id.clone(),
-                address: None,
-                abi: None,
-                filter_script: "true".to_string(),
-                actions: vec![],
-            }],
-        )
-        .await;
-
-    assert!(add_result.is_ok(), "Failed to add test monitor");
-
-    // Spawn the actual app server
-    let server_handle = task::spawn(async move {
-        http_server::run_server_from_config(config, repo, metrics).await;
-    });
-
-    // Wait for server to start
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-    // Test the endpoint
-    let url = format!("http://{}/monitors/1", addr);
-    let client = Client::new();
-    let resp = client.get(&url).send().await.expect("Request failed");
-
-    assert_eq!(resp.status(), 200);
-    let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
-    assert_eq!(body["monitor"]["id"], 1);
-    assert_eq!(body["monitor"]["name"], "Test Monitor");
-
-    // Clean up
-    server_handle.abort();
-}
-
-#[tokio::test]
-async fn monitors_returns_list_of_monitors_when_exist() {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind");
-    let addr = listener.local_addr().expect("Failed to get address");
-    drop(listener); // Release port for the app to use
-
-    let config = create_test_server_config(&addr.to_string());
-    let repo = create_test_repo().await;
-    let metrics = AppMetrics::default();
-
-    // Add a test monitor to the repo
-    let add_result = repo
-        .add_monitors(
-            &config.network_id,
-            vec![
-                MonitorConfig {
+        // Add test monitors
+        let add_result = repo
+            .add_monitors(
+                &config.network_id,
+                vec![MonitorConfig {
                     name: "Test Monitor".to_string(),
                     network: config.network_id.clone(),
                     address: None,
                     abi: None,
                     filter_script: "true".to_string(),
                     actions: vec![],
-                },
-                MonitorConfig {
-                    name: "Another Monitor".to_string(),
-                    network: config.network_id.clone(),
-                    address: None,
-                    abi: None,
-                    filter_script: "false".to_string(),
-                    actions: vec![],
-                },
-            ],
-        )
-        .await;
+                }],
+            )
+            .await;
+        assert!(add_result.is_ok(), "Failed to add test monitor");
 
-    assert!(add_result.is_ok(), "Failed to add test monitor");
+        let server = Self::new(repo.clone()).await;
+        (server, repo)
+    }
 
-    // Spawn the actual app server
-    let server_handle = task::spawn(async move {
-        http_server::run_server_from_config(config, repo, metrics).await;
-    });
+    async fn new_with_multiple_monitors() -> (Self, Arc<SqliteStateRepository>) {
+        let repo = create_test_repo().await;
+        let config = AppConfig::default();
 
-    // Wait for server to start
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        // Add test monitors
+        let add_result = repo
+            .add_monitors(
+                &config.network_id,
+                vec![
+                    MonitorConfig {
+                        name: "Test Monitor".to_string(),
+                        network: config.network_id.clone(),
+                        address: None,
+                        abi: None,
+                        filter_script: "true".to_string(),
+                        actions: vec![],
+                    },
+                    MonitorConfig {
+                        name: "Another Monitor".to_string(),
+                        network: config.network_id.clone(),
+                        address: None,
+                        abi: None,
+                        filter_script: "false".to_string(),
+                        actions: vec![],
+                    },
+                ],
+            )
+            .await;
+        assert!(add_result.is_ok(), "Failed to add test monitors");
 
-    // Test the endpoint
-    let url = format!("http://{}/monitors", addr);
-    let client = Client::new();
-    let resp = client.get(&url).send().await.expect("Request failed");
+        let server = Self::new(repo.clone()).await;
+        (server, repo)
+    }
+
+    async fn new_with_test_actions() -> (Self, Arc<SqliteStateRepository>) {
+        let repo = create_test_repo().await;
+        let config = AppConfig::default();
+
+        // Add test actions
+        let add_result = repo
+            .add_actions(
+                &config.network_id,
+                vec![ActionConfig {
+                    id: None,
+                    name: "Test Action".to_string(),
+                    config: ActionTypeConfig::Stdout(StdoutConfig { message: None }),
+                    policy: None,
+                }],
+            )
+            .await;
+        assert!(add_result.is_ok(), "Failed to add test action");
+
+        let server = Self::new(repo.clone()).await;
+        (server, repo)
+    }
+
+    async fn new_with_multiple_actions() -> (Self, Arc<SqliteStateRepository>) {
+        let repo = create_test_repo().await;
+        let config = AppConfig::default();
+
+        // Add test actions
+        let add_result = repo
+            .add_actions(
+                &config.network_id,
+                vec![
+                    ActionConfig {
+                        id: None,
+                        name: "Test Action".to_string(),
+                        config: ActionTypeConfig::Stdout(StdoutConfig { message: None }),
+                        policy: None,
+                    },
+                    ActionConfig {
+                        id: None,
+                        name: "Another Action".to_string(),
+                        config: ActionTypeConfig::Stdout(StdoutConfig { message: None }),
+                        policy: None,
+                    },
+                ],
+            )
+            .await;
+        assert!(add_result.is_ok(), "Failed to add test actions");
+
+        let server = Self::new(repo.clone()).await;
+        (server, repo)
+    }
+
+    async fn get(&self, path: &str) -> reqwest::Response {
+        let url = format!("http://{}{}", self.address, path);
+        self.client.get(&url).send().await.expect("Request failed")
+    }
+
+    fn cleanup(self) {
+        self.server_handle.abort();
+    }
+}
+
+#[tokio::test]
+async fn health_endpoint_returns_ok() {
+    let repo = create_test_repo().await;
+    let server = TestServer::new(repo).await;
+
+    let resp = server.get("/health").await;
+
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
+    assert_eq!(body["status"], "ok");
+
+    server.cleanup();
+}
+
+#[tokio::test]
+async fn monitors_endpoint_returns_empty_list() {
+    let repo = create_test_repo().await;
+    let server = TestServer::new(repo).await;
+
+    let resp = server.get("/monitors").await;
+
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
+    assert_eq!(body["monitors"], serde_json::Value::Array(vec![]));
+
+    server.cleanup();
+}
+
+#[tokio::test]
+async fn monitor_by_id_endpoint_returns_404_for_nonexistent_id() {
+    let repo = create_test_repo().await;
+    let server = TestServer::new(repo).await;
+
+    let resp = server.get("/monitors/1234").await;
+
+    assert_eq!(resp.status(), 404);
+    let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
+    assert_eq!(body["error"], "Monitor not found");
+
+    server.cleanup();
+}
+
+#[tokio::test]
+async fn monitor_by_id_endpoint_returns_monitor_when_exists() {
+    let (server, _repo) = TestServer::new_with_test_monitors().await;
+
+    let resp = server.get("/monitors/1").await;
+
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
+    assert_eq!(body["monitor"]["id"], 1);
+    assert_eq!(body["monitor"]["name"], "Test Monitor");
+
+    server.cleanup();
+}
+
+#[tokio::test]
+async fn monitors_returns_list_of_monitors_when_exist() {
+    let (server, _repo) = TestServer::new_with_multiple_monitors().await;
+
+    let resp = server.get("/monitors").await;
 
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
@@ -228,188 +252,76 @@ async fn monitors_returns_list_of_monitors_when_exist() {
     assert_eq!(body["monitors"][1]["id"], 2);
     assert_eq!(body["monitors"][1]["name"], "Another Monitor");
 
-    // Clean up
-    server_handle.abort();
+    server.cleanup();
 }
 
 #[tokio::test]
 async fn monitors_endpoint_handles_db_error() {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind");
-    let addr = listener.local_addr().expect("Failed to get address");
-    drop(listener); // Release port for the app to use
-
-    let config = create_test_server_config(&addr.to_string());
-
-    // Create a repo but do not run migrations to simulate a DB error
-    let repo = Arc::new(
-        SqliteStateRepository::new("sqlite::memory:")
-            .await
-            .expect("Failed to create in-memory repo"),
-    );
-    let metrics = AppMetrics::default();
-
-    // Spawn the actual app server
-    let server_handle = task::spawn(async move {
-        http_server::run_server_from_config(config, repo, metrics).await;
-    });
-
-    // Wait for server to start
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let repo = create_test_repo_without_migrations().await;
+    let server = TestServer::new(repo).await;
 
     // Test the /monitors endpoint
-    let url = format!("http://{}/monitors", addr);
-    let client = Client::new();
-    let resp = client.get(&url).send().await.expect("Request failed");
+    let resp = server.get("/monitors").await;
     assert_eq!(resp.status(), 500);
     let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
     assert_eq!(body["error"], "An internal server error occurred");
 
     // Test the /monitors/{id} endpoint
-    let url = format!("http://{}/monitors/1", addr);
-    let resp = client.get(&url).send().await.expect("Request failed");
+    let resp = server.get("/monitors/1").await;
     assert_eq!(resp.status(), 500);
     let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
     assert_eq!(body["error"], "An internal server error occurred");
 
-    // Clean up
-    server_handle.abort();
+    server.cleanup();
 }
 
 #[tokio::test]
 async fn actions_endpoint_returns_empty_list() {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind");
-    let addr = listener.local_addr().expect("Failed to get address");
-    drop(listener);
-
-    let config = create_test_server_config(&addr.to_string());
     let repo = create_test_repo().await;
-    let metrics = AppMetrics::default();
+    let server = TestServer::new(repo).await;
 
-    let server_handle = task::spawn(async move {
-        http_server::run_server_from_config(config, repo, metrics).await;
-    });
-
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-    let url = format!("http://{}/actions", addr);
-    let client = Client::new();
-    let resp = client.get(&url).send().await.expect("Request failed");
+    let resp = server.get("/actions").await;
 
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
     assert_eq!(body["actions"], serde_json::Value::Array(vec![]));
 
-    server_handle.abort();
+    server.cleanup();
 }
 
 #[tokio::test]
 async fn action_by_id_endpoint_returns_404_for_nonexistent_id() {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind");
-    let addr = listener.local_addr().expect("Failed to get address");
-    drop(listener);
-
-    let config = create_test_server_config(&addr.to_string());
     let repo = create_test_repo().await;
-    let metrics = AppMetrics::default();
+    let server = TestServer::new(repo).await;
 
-    let server_handle = task::spawn(async move {
-        http_server::run_server_from_config(config, repo, metrics).await;
-    });
-
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-    let url = format!("http://{}/actions/1234", addr);
-    let client = Client::new();
-    let resp = client.get(&url).send().await.expect("Request failed");
+    let resp = server.get("/actions/1234").await;
 
     assert_eq!(resp.status(), 404);
     let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
     assert_eq!(body["error"], "Action not found");
 
-    server_handle.abort();
+    server.cleanup();
 }
 
 #[tokio::test]
 async fn action_by_id_endpoint_returns_action_when_exists() {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind");
-    let addr = listener.local_addr().expect("Failed to get address");
-    drop(listener);
+    let (server, _repo) = TestServer::new_with_test_actions().await;
 
-    let config = create_test_server_config(&addr.to_string());
-    let repo = create_test_repo().await;
-    let metrics = AppMetrics::default();
-
-    let add_result = repo
-        .add_actions(
-            &config.network_id,
-            vec![ActionConfig {
-                id: None,
-                name: "Test Action".to_string(),
-                config: ActionTypeConfig::Stdout(StdoutConfig { message: None }),
-                policy: None,
-            }],
-        )
-        .await;
-    assert!(add_result.is_ok(), "Failed to add test action");
-
-    let server_handle = task::spawn(async move {
-        http_server::run_server_from_config(config, repo, metrics).await;
-    });
-
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-    let url = format!("http://{}/actions/1", addr);
-    let client = Client::new();
-    let resp = client.get(&url).send().await.expect("Request failed");
+    let resp = server.get("/actions/1").await;
 
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
     assert_eq!(body["action"]["id"], 1);
     assert_eq!(body["action"]["name"], "Test Action");
 
-    server_handle.abort();
+    server.cleanup();
 }
 
 #[tokio::test]
 async fn actions_returns_list_of_actions_when_exist() {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind");
-    let addr = listener.local_addr().expect("Failed to get address");
-    drop(listener);
+    let (server, _repo) = TestServer::new_with_multiple_actions().await;
 
-    let config = create_test_server_config(&addr.to_string());
-    let repo = create_test_repo().await;
-    let metrics = AppMetrics::default();
-
-    let add_result = repo
-        .add_actions(
-            &config.network_id,
-            vec![
-                ActionConfig {
-                    id: None,
-                    name: "Test Action".to_string(),
-                    config: ActionTypeConfig::Stdout(StdoutConfig { message: None }),
-                    policy: None,
-                },
-                ActionConfig {
-                    id: None,
-                    name: "Another Action".to_string(),
-                    config: ActionTypeConfig::Stdout(StdoutConfig { message: None }),
-                    policy: None,
-                },
-            ],
-        )
-        .await;
-    assert!(add_result.is_ok(), "Failed to add test actions");
-
-    let server_handle = task::spawn(async move {
-        http_server::run_server_from_config(config, repo, metrics).await;
-    });
-
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-    let url = format!("http://{}/actions", addr);
-    let client = Client::new();
-    let resp = client.get(&url).send().await.expect("Request failed");
+    let resp = server.get("/actions").await;
 
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
@@ -419,66 +331,33 @@ async fn actions_returns_list_of_actions_when_exist() {
     assert_eq!(body["actions"][1]["id"], 2);
     assert_eq!(body["actions"][1]["name"], "Another Action");
 
-    server_handle.abort();
+    server.cleanup();
 }
 
 #[tokio::test]
 async fn actions_endpoint_handles_db_error() {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind");
-    let addr = listener.local_addr().expect("Failed to get address");
-    drop(listener);
+    let repo = create_test_repo_without_migrations().await;
+    let server = TestServer::new(repo).await;
 
-    let config = create_test_server_config(&addr.to_string());
-
-    // Create a repo but do not run migrations to simulate a DB error
-    let repo = Arc::new(
-        SqliteStateRepository::new("sqlite::memory:")
-            .await
-            .expect("Failed to create in-memory repo"),
-    );
-    let metrics = AppMetrics::default();
-
-    let server_handle = task::spawn(async move {
-        http_server::run_server_from_config(config, repo, metrics).await;
-    });
-
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-    let url = format!("http://{}/actions", addr);
-    let client = Client::new();
-    let resp = client.get(&url).send().await.expect("Request failed");
+    let resp = server.get("/actions").await;
     assert_eq!(resp.status(), 500);
     let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
     assert_eq!(body["error"], "An internal server error occurred");
 
-    let url = format!("http://{}/actions/1", addr);
-    let resp = client.get(&url).send().await.expect("Request failed");
+    let resp = server.get("/actions/1").await;
     assert_eq!(resp.status(), 500);
     let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
     assert_eq!(body["error"], "An internal server error occurred");
 
-    server_handle.abort();
+    server.cleanup();
 }
 
 #[tokio::test]
 async fn status_endpoint_returns_status_json() {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("Failed to bind");
-    let addr = listener.local_addr().expect("Failed to get address");
-    drop(listener);
-
-    let config = create_test_server_config(&addr.to_string());
     let repo = create_test_repo().await;
-    let metrics = AppMetrics::default();
+    let server = TestServer::new(repo).await;
 
-    let server_handle = task::spawn(async move {
-        http_server::run_server_from_config(config, repo, metrics).await;
-    });
-
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
-    let url = format!("http://{}/status", addr);
-    let client = Client::new();
-    let resp = client.get(&url).send().await.expect("Request failed");
+    let resp = server.get("/status").await;
 
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
@@ -488,5 +367,5 @@ async fn status_endpoint_returns_status_json() {
     assert_eq!(body["latest_processed_block"], 0);
     assert_eq!(body["latest_processed_block_timestamp_secs"], 0);
 
-    server_handle.abort();
+    server.cleanup();
 }
