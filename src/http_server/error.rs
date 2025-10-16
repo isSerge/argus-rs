@@ -10,10 +10,11 @@ use crate::persistence::error::PersistenceError;
 
 /// A custom error type for the API that can be converted into an HTTP response.
 pub enum ApiError {
-    /// Represents an error that occurred in the persistence layer.
-    DatabaseError(PersistenceError),
     /// Represents a resource that could not be found.
     NotFound(String),
+
+    /// Represents a generic internal server error.
+    InternalServerError(String),
 }
 
 /// Converts a `PersistenceError` into an `ApiError`.
@@ -22,7 +23,7 @@ pub enum ApiError {
 /// on functions that return `Result<_, PersistenceError>`.
 impl From<PersistenceError> for ApiError {
     fn from(err: PersistenceError) -> Self {
-        ApiError::DatabaseError(err)
+        ApiError::InternalServerError(err.to_string())
     }
 }
 
@@ -33,7 +34,7 @@ impl From<PersistenceError> for ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         let (status, error_message) = match self {
-            ApiError::DatabaseError(err) => {
+            ApiError::InternalServerError(err) => {
                 // Log the detailed error for debugging purposes.
                 tracing::error!("Database error: {:?}", err);
                 // Return a generic error message to the user for security.

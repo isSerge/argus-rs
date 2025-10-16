@@ -1,6 +1,14 @@
-//! Represents the response structure for the `/status` endpoint in the HTTP
-//! server.
+//! Represents the `/status` endpoint handler and response structure.
+//! Provides application status and metrics.
+
+use axum::{
+    extract::State,
+    http::StatusCode,
+    response::{IntoResponse, Json},
+};
 use serde::Serialize;
+
+use super::{ApiError, ApiState};
 
 /// Represents the response from the `/status` endpoint.
 #[derive(Debug, Serialize, Clone)]
@@ -15,4 +23,17 @@ pub struct StatusResponse {
     pub latest_processed_block: u64,
     /// The timestamp of the latest processed block in seconds.
     pub latest_processed_block_timestamp_secs: u64,
+}
+
+/// Retrieves application status and metrics.
+pub async fn status(State(state): State<ApiState>) -> Result<impl IntoResponse, ApiError> {
+    let metrics = state.app_metrics.metrics.read().await;
+    let response = StatusResponse {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        network_id: state.config.network_id.clone(),
+        uptime_secs: metrics.start_time.elapsed().as_secs(),
+        latest_processed_block: metrics.latest_processed_block,
+        latest_processed_block_timestamp_secs: metrics.latest_processed_block_timestamp_secs,
+    };
+    Ok((StatusCode::OK, Json(response)))
 }
