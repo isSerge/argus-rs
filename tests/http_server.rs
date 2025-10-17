@@ -296,25 +296,13 @@ async fn update_monitors_endpoint_requires_auth() {
     assert_eq!(body["error"], "Unauthorized");
 
     // 2. Invalid token
-    let resp = server
-        .post("/monitors")
-        .await
-        .bearer_auth("invalid-key")
-        .send()
-        .await
-        .unwrap();
+    let resp = server.post("/monitors").await.bearer_auth("invalid-key").send().await.unwrap();
     assert_eq!(resp.status(), 401);
     let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
     assert_eq!(body["error"], "Unauthorized");
 
     // 3. Valid token
-    let resp = server
-        .post("/monitors")
-        .await
-        .bearer_auth("test-key")
-        .send()
-        .await
-        .unwrap();
+    let resp = server.post("/monitors").await.bearer_auth("test-key").send().await.unwrap();
     assert_eq!(resp.status(), 200);
 
     server.cleanup();

@@ -11,10 +11,9 @@ use std::{net::SocketAddr, sync::Arc};
 use actions::{action_details, actions};
 use auth::auth;
 use axum::{
-    middleware,
+    Router, middleware,
     response::{IntoResponse, Json},
     routing::{get, post},
-    Router,
 };
 use error::ApiError;
 use monitors::{monitor_details, monitors, update_monitors};
@@ -62,8 +61,7 @@ pub async fn run_server_from_config(
         .route("/status", get(status))
         .route(
             "/monitors",
-            post(update_monitors)
-                .route_layer(middleware::from_fn_with_state(state.clone(), auth)),
+            post(update_monitors).route_layer(middleware::from_fn_with_state(state.clone(), auth)),
         )
         .route("/monitors", get(monitors))
         .route("/monitors/{id}", get(monitor_details))
