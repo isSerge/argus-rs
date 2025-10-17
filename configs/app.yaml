@@ -32,7 +32,7 @@ shutdown_timeout_secs: 30
 
 # API server configuration
 server:
-  # Enable or disable the HTTP server (default: disabled).
-  enabled: true 
   # Address and port for the HTTP server to listen on.
   listen_address: "0.0.0.0:8080"
+  # API key for securing write endpoints (alternatively set ARGUS_API_KEY env var)
+  # api_key: "your-secret-api-key-here"

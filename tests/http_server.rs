@@ -30,7 +30,7 @@ async fn create_test_repo_without_migrations() -> Arc<SqliteStateRepository> {
 
 fn create_test_server_config(address: &str) -> Arc<AppConfig> {
     Arc::new(AppConfig {
-        server: ServerConfig { enabled: true, listen_address: address.into() },
+        server: ServerConfig { listen_address: address.into(), ..Default::default() },
         ..Default::default()
     })
 }
@@ -48,7 +48,10 @@ impl TestServer {
         let addr = listener.local_addr().expect("Failed to get address");
         drop(listener); // Release port for the app to use
 
-        let config = create_test_server_config(&addr.to_string());
+        let mut config = create_test_server_config(&addr.to_string()).as_ref().clone();
+        config.server.api_key = Some("test-key".to_string());
+        let config = Arc::new(config);
+
         let metrics = AppMetrics::default();
         let (config_tx, config_rx) = watch::channel(());
 
@@ -178,6 +181,11 @@ impl TestServer {
         self.client.get(&url).send().await.expect("Request failed")
     }
 
+    async fn post(&self, path: &str) -> reqwest::RequestBuilder {
+        let url = format!("http://{}{}", self.address, path);
+        self.client.post(&url)
+    }
+
     fn cleanup(self) {
         self.server_handle.abort();
     }
@@ -272,6 +280,30 @@ async fn monitors_endpoint_handles_db_error() {
     assert_eq!(resp.status(), 500);
     let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
     assert_eq!(body["error"], "An internal server error occurred");
+
+    server.cleanup();
+}
+
+#[tokio::test]
+async fn update_monitors_endpoint_requires_auth() {
+    let repo = create_test_repo().await;
+    let server = TestServer::new(repo).await;
+
+    // 1. No auth header
+    let resp = server.post("/monitors").await.send().await.unwrap();
+    assert_eq!(resp.status(), 401);
+    let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
+    assert_eq!(body["error"], "Unauthorized");
+
+    // 2. Invalid token
+    let resp = server.post("/monitors").await.bearer_auth("invalid-key").send().await.unwrap();
+    assert_eq!(resp.status(), 401);
+    let body: serde_json::Value = resp.json().await.expect("Failed to parse JSON");
+    assert_eq!(body["error"], "Unauthorized");
+
+    // 3. Valid token
+    let resp = server.post("/monitors").await.bearer_auth("test-key").send().await.unwrap();
+    assert_eq!(resp.status(), 200);
 
     server.cleanup();
 }

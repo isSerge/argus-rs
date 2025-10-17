@@ -2,20 +2,55 @@
 
 Argus includes a built-in REST API server for system introspection. This API provides a way to observe the state of the running application, such as its health and the configuration of its active monitors.
 
-## Enabling the API
+## Configuring the API
 
-For security, the API server is **disabled by default**. To enable it, you must configure the `server` section in your [`app.yaml`](../user_guide/app_yaml.md).
+The API server provides both read-only and secured write endpoints. To configure it, you must set up the `server` section in your [`app.yaml`](../user_guide/app_yaml.md).
 
 ```yaml
 # in configs/app.yaml
 server:
-  # Set to true to enable the API server.
-  enabled: true
-  # (Optional) The address and port for the server to listen on.
+  # The address and port for the server to listen on.
   listen_address: "0.0.0.0:8080"
+  # API key for securing write endpoints (or set ARGUS_API_KEY env var)
+  api_key: "your-secret-api-key-here"
 ```
 
-Once enabled, the API endpoints will be available at the specified `listen_address`.
+**Important:** An API key is **required** for write operations. If no `api_key` is configured and the `ARGUS_API_KEY` environment variable is not set, the server will refuse to start.
+
+Once configured, the API endpoints will be available at the specified `listen_address`.
+
+## Authentication
+
+The API uses **Bearer token authentication** for write operations. Read-only endpoints (like `GET /health`, `GET /status`, `GET /monitors`) do not require authentication.
+
+### Write Endpoints (Require Authentication)
+- `POST /monitors` - Create or update monitors
+
+### Authentication Header
+
+For write operations, include the API key in the `Authorization` header:
+
+```bash
+# Example authenticated request
+curl -X POST http://localhost:8080/monitors \
+  -H "Authorization: Bearer your-secret-api-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{...}'
+```
+
+### Error Responses
+
+**Unauthorized (`401 Unauthorized`)**
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+This error occurs when:
+- No `Authorization` header is provided for a write endpoint
+- The bearer token doesn't match the configured API key
+- An invalid authorization format is used
 
 ## API Endpoints
 

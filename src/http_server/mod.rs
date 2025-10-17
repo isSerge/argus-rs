@@ -1,6 +1,7 @@
 //! HTTP server module
 
 mod actions;
+mod auth;
 mod error;
 mod monitors;
 mod status;
@@ -8,8 +9,9 @@ mod status;
 use std::{net::SocketAddr, sync::Arc};
 
 use actions::{action_details, actions};
+use auth::auth;
 use axum::{
-    Router,
+    Router, middleware,
     response::{IntoResponse, Json},
     routing::{get, post},
 };
@@ -48,12 +50,19 @@ pub async fn run_server_from_config(
     let addr: SocketAddr =
         config.server.listen_address.parse().expect("Invalid server.listen_address format");
 
+    if config.server.api_key.is_none() {
+        panic!("`server.api_key` or `ARGUS_API_KEY` must be set to run the API server");
+    }
+
     let state = ApiState { config, repo, app_metrics, config_tx };
 
     let app = Router::new()
         .route("/health", get(health))
         .route("/status", get(status))
-        .route("/monitors", post(update_monitors))
+        .route(
+            "/monitors",
+            post(update_monitors).route_layer(middleware::from_fn_with_state(state.clone(), auth)),
+        )
         .route("/monitors", get(monitors))
         .route("/monitors/{id}", get(monitor_details))
         .route("/actions", get(actions))

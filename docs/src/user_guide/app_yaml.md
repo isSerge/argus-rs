@@ -31,8 +31,8 @@ confirmation_blocks: 12
 
 # API server configuration
 server:
-  enabled: true
   listen_address: "0.0.0.0:8080"
+  api_key: "your-secret-api-key-here"
 ```
 
 ## Configuration Parameters
@@ -66,19 +66,21 @@ The following configurations are nested under their respective top-level keys in
 
 ### Server Settings (`server`)
 
-These settings control the built-in REST API server.
+These settings control the built-in REST API server. The API server provides read-only introspection endpoints and secured write endpoints for dynamic configuration.
 
 **Default Configuration:**
 ```yaml
 server:
-  enabled: false
   listen_address: "0.0.0.0:8080"
+  api_key: null  # Can be set via ARGUS_API_KEY environment variable
 ```
 
 | Parameter | Description |
 | :--- | :--- |
-| `enabled` | Set to `true` to enable the API server. Defaults to `false` for security. |
 | `listen_address` | The address and port for the HTTP server to listen on. |
+| `api_key` | Optional API key for securing write endpoints. If not set in config, falls back to `ARGUS_API_KEY` environment variable. **Required** for write operations like `POST /monitors`. |
+
+**Security Note:** All write endpoints (like `POST /monitors`) require bearer token authentication. The API key must be included in the `Authorization` header as `Bearer <your-api-key>`. Read-only endpoints like `GET /monitors` and `GET /health` do not require authentication.
 
 ### RPC Client Settings (`rpc_retry_config`)
 

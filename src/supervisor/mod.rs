@@ -238,7 +238,8 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
         let (config_tx, mut config_rx) = tokio::sync::watch::channel(());
 
         // Spawn the HTTP server as a background task if enabled.
-        if self.config.server.enabled {
+        if self.config.server.api_key.is_some() {
+            tracing::info!("Starting HTTP server...");
             let server_config_clone = Arc::clone(&self.config);
             let http_cancellation_token = self.cancellation_token.clone();
             let server_repo_clone = Arc::clone(&self.state);
@@ -251,6 +252,8 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
                     }
                 }
             });
+        } else {
+            tracing::warn!("HTTP server is disabled because no API key is configured.");
         }
 
         // --- Task Spawning ---

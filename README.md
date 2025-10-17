@@ -93,10 +93,10 @@ abi_config_path: abis/
 
 # API server configuration
 server:
-  # Enable or disable the HTTP server (default: disabled).
-  enabled: true 
   # Address and port for the HTTP server to listen on.
   listen_address: "0.0.0.0:8080"
+  # API key for securing write endpoints (can also be set via ARGUS_API_KEY env var)
+  api_key: "your-secret-api-key-here"
 ```
 
 ### `monitors.yaml`

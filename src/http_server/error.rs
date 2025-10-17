@@ -10,6 +10,9 @@ use crate::persistence::error::PersistenceError;
 
 /// A custom error type for the API that can be converted into an HTTP response.
 pub enum ApiError {
+    /// Represents an unauthorized request.
+    Unauthorized,
+
     /// Represents a resource that could not be found.
     NotFound(String),
 
@@ -34,6 +37,7 @@ impl From<PersistenceError> for ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         let (status, error_message) = match self {
+            ApiError::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()),
             ApiError::InternalServerError(err) => {
                 // Log the detailed error for debugging purposes.
                 tracing::error!("Internal server error: {}", err);
