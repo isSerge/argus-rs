@@ -3,6 +3,8 @@
 
 pub mod filters;
 
+use std::collections::HashSet;
+
 use minijinja::Environment;
 use thiserror::Error;
 
@@ -64,6 +66,15 @@ impl TemplateService {
                 Err(TemplateServiceError::RenderError(e))
             }
         }
+    }
+
+    /// Extracts all unique variable keys from a template string.
+    pub fn extract_variables(
+        &self,
+        template_str: &str,
+    ) -> Result<HashSet<String>, TemplateServiceError> {
+        let tmpl = self.env.template_from_str(template_str)?;
+        Ok(tmpl.undeclared_variables(true))
     }
 }
 
@@ -160,5 +171,15 @@ mod tests {
         let context = json!({ "name": "World" });
         let result = service.render(template, context).unwrap();
         assert_eq!(result, "Hello, World!");
+    }
+
+    #[test]
+    fn test_extract_variables() {
+        let service = TemplateService::new();
+        let template = "Block number: {{ block.number }}, Tx hash: {{ transaction.hash }}";
+        let variables = service.extract_variables(template).unwrap();
+        let expected: HashSet<_> =
+            ["block.number", "transaction.hash"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(variables, expected);
     }
 }
