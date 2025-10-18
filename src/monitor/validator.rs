@@ -656,7 +656,7 @@ impl TemplateValidator {
     fn create_dummy_value_for_type(solidity_type: &str) -> serde_json::Value {
         match solidity_type {
             // Address types
-            t if t == "address" => json!("0x0000000000000000000000000000000000000000"),
+            "address" => json!("0x0000000000000000000000000000000000000000"),
 
             // Integer types (uint256, uint8, int256, etc.)
             t if t.starts_with("uint") || t.starts_with("int") => {
@@ -665,13 +665,13 @@ impl TemplateValidator {
             }
 
             // Boolean type
-            t if t == "bool" => json!(true),
+            "bool" => json!(true),
 
             // Bytes types
             t if t.starts_with("bytes") => json!("0x000000"),
 
             // String type
-            t if t == "string" => json!("dummy_string"),
+            "string" => json!("dummy_string"),
 
             // Array types - simplified to empty array
             t if t.contains("[") => json!([]),
