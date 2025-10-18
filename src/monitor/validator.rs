@@ -3,21 +3,50 @@
 use std::sync::Arc;
 
 use alloy::{json_abi::JsonAbi, primitives::Address};
+use serde_json::{json, Value};
 use thiserror::Error;
 
 use crate::{
     abi::AbiService,
-    engine::rhai::{RhaiScriptValidationError, RhaiScriptValidationResult, RhaiScriptValidator},
+    actions::template::{TemplateServiceError, TemplateService},
+    engine::rhai::{
+        RhaiScriptValidationError, RhaiScriptValidationResult, RhaiScriptValidator,
+    },
     models::{action::ActionConfig, monitor::MonitorConfig},
 };
 
-/// A validator for monitor configurations.
+/// Validates monitor addresses and determines monitor type.
+struct AddressValidator;
+
+/// Validates action templates using a dummy context.
+struct TemplateValidator {
+    template_service: Arc<TemplateService>,
+}
+
+/// Validates that actions exist and monitors reference valid actions.
+struct ActionValidator<'a> {
+    actions: &'a [ActionConfig],
+}
+
+/// Validates calldata configuration rules.
+struct CalldataValidator;
+
+/// A coordinator that orchestrates validation of monitor configurations using specialized validators.
 pub struct MonitorValidator<'a> {
     /// The application network ID.
     network_id: &'a str,
 
-    /// The list of available actions.
-    actions: &'a [ActionConfig],
+    /// Validates addresses and determines monitor types.
+    address_validator: AddressValidator,
+
+    /// Validates action templates.
+    template_validator: TemplateValidator,
+
+    /// Validates action references.
+    action_validator: ActionValidator<'a>,
+
+    /// Validates calldata configuration.
+    calldata_validator: CalldataValidator,
 
     /// The script validator for validating Rhai scripts.
     script_validator: RhaiScriptValidator,
@@ -102,6 +131,23 @@ pub enum MonitorValidationError {
         /// The reason for the validation failure.
         reason: String,
     },
+
+    /// An action's template references a field that is not available for the
+    /// monitor.
+    #[error(
+        "Action '{action_name}' on monitor '{monitor_name}' has an invalid template: \
+         '{template}'. The variable '{invalid_variable}' is not available for this monitor."
+    )]
+    InvalidActionTemplate {
+        /// The name of the monitor.
+        monitor_name: String,
+        /// The name of the action.
+        action_name: String,
+        /// The invalid template.
+        template: String,
+        /// The invalid variable.
+        invalid_variable: String,
+    },
 }
 
 impl<'a> MonitorValidator<'a> {
@@ -109,39 +155,42 @@ impl<'a> MonitorValidator<'a> {
     pub fn new(
         script_validator: RhaiScriptValidator,
         abi_service: Arc<AbiService>,
+        template_service: Arc<TemplateService>,
         network_id: &'a str,
         actions: &'a [ActionConfig],
     ) -> Self {
-        MonitorValidator { network_id, actions, script_validator, abi_service }
+        MonitorValidator {
+            network_id,
+            address_validator: AddressValidator,
+            template_validator: TemplateValidator { template_service },
+            action_validator: ActionValidator { actions },
+            calldata_validator: CalldataValidator,
+            script_validator,
+            abi_service,
+        }
     }
 
     /// Validates the given monitor configuration.
     pub fn validate(&self, monitor: &MonitorConfig) -> Result<(), MonitorValidationError> {
         tracing::debug!(monitor = ?monitor, "Validating monitor configuration...");
 
-        // Check if network id matches the monitor's network.
-        if monitor.network != self.network_id {
-            return Err(MonitorValidationError::InvalidNetwork {
-                monitor_name: monitor.name.clone(),
-                expected_network: self.network_id.to_string(),
-                actual_network: monitor.network.clone(),
-            });
-        }
+        // Validate network compatibility
+        self.validate_network(monitor)?;
 
-        self.validate_actions(monitor)?;
+        // Validate action references
+        self.action_validator.validate(monitor)?;
 
-        let (parsed_address, is_global_log_monitor) = self.parse_and_validate_address(monitor)?;
+        // Parse and validate address
+        let (parsed_address, is_global_log_monitor) = 
+            self.address_validator.parse_and_validate(monitor)?;
 
+        // Retrieve ABI if available
         let abi_json = self.get_monitor_abi_json(monitor, parsed_address);
 
-        let script_validation_result = self
-            .script_validator
-            .validate_script(&monitor.filter_script, abi_json.as_deref())
-            .map_err(|e| MonitorValidationError::ScriptError {
-                monitor_name: monitor.name.clone(),
-                error: e,
-            })?;
+        // Validate the script
+        let script_validation_result = self.validate_script(monitor, abi_json.as_deref())?;
 
+        // Validate script and ABI compatibility rules
         self.validate_script_and_abi_rules(
             monitor,
             &script_validation_result,
@@ -149,100 +198,46 @@ impl<'a> MonitorValidator<'a> {
             abi_json.is_some(),
         )?;
 
+        // Validate calldata configuration if needed
         if script_validation_result.ast_analysis.accesses_call_variable {
-            self.validate_calldata_rules(monitor)?;
+            self.calldata_validator.validate(monitor)?;
         }
+
+        // Validate action templates
+        self.template_validator.validate(
+            monitor, 
+            &self.action_validator, 
+            abi_json.as_deref(), 
+            &script_validation_result
+        )?;
 
         Ok(())
     }
 
-    /// Validates that all actions referenced by the monitor exist.
-    fn validate_actions(&self, monitor: &MonitorConfig) -> Result<(), MonitorValidationError> {
-        if monitor.actions.is_empty() {
-            tracing::warn!(
-                monitor_name = monitor.name,
-                "Monitor has no actions configured and will not send any notifications."
-            );
-        }
-
-        // Check if all actions exist.
-        for action_name in &monitor.actions {
-            if !self.actions.iter().any(|n| n.name == *action_name) {
-                return Err(MonitorValidationError::UnknownAction {
-                    monitor_name: monitor.name.clone(),
-                    action_name: action_name.clone(),
-                });
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Validates the calldata decoding rules for the monitor.
-    fn validate_calldata_rules(
-        &self,
-        monitor: &MonitorConfig,
-    ) -> Result<(), MonitorValidationError> {
-        // Check if ABI is provided when calldata decoding is enabled.
-        if monitor.abi.is_none() {
-            return Err(MonitorValidationError::InvalidCalldataConfig {
+    /// Validates that the monitor is configured for the correct network.
+    fn validate_network(&self, monitor: &MonitorConfig) -> Result<(), MonitorValidationError> {
+        if monitor.network != self.network_id {
+            return Err(MonitorValidationError::InvalidNetwork {
                 monitor_name: monitor.name.clone(),
-                reason: "Calldata decoding is enabled, but no ABI is specified. Please provide an \
-                         ABI name."
-                    .to_string(),
+                expected_network: self.network_id.to_string(),
+                actual_network: monitor.network.clone(),
             });
         }
-
-        // Check if address is provided when calldata decoding is enabled.
-        match monitor.address.as_deref() {
-            // Global address case
-            Some(addr) if addr.eq_ignore_ascii_case("all") =>
-                Err(MonitorValidationError::InvalidCalldataConfig {
-                    monitor_name: monitor.name.clone(),
-                    reason: "Calldata decoding cannot be enabled for global monitors (address: \
-                             all). Please specify a concrete contract address."
-                        .to_string(),
-                }),
-            // Specific address case
-            Some(_) => Ok(()),
-            // No address case
-            None => Err(MonitorValidationError::InvalidCalldataConfig {
-                monitor_name: monitor.name.clone(),
-                reason: "Calldata decoding is enabled, but no contract address is specified. \
-                         Please provide a contract address."
-                    .to_string(),
-            }),
-        }
+        Ok(())
     }
 
-    /// Parses and validates the address for the monitor.
-    /// Returns the parsed address (if any) and a flag indicating if it's a
-    /// global log monitor.
-    fn parse_and_validate_address(
+    /// Validates the monitor's script.
+    fn validate_script(
         &self,
         monitor: &MonitorConfig,
-    ) -> Result<(Option<Address>, bool), MonitorValidationError> {
-        // Parse and validate the contract address if provided.
-        let mut parsed_address: Option<Address> = None;
-        let mut is_global_log_monitor = false;
-
-        if let Some(address_str) = &monitor.address {
-            if address_str.eq_ignore_ascii_case("all") {
-                is_global_log_monitor = true;
-                // For global monitors, parsed_address remains None.
-            } else {
-                match address_str.parse::<Address>() {
-                    Ok(addr) => parsed_address = Some(addr),
-                    Err(_) => {
-                        return Err(MonitorValidationError::InvalidAddress {
-                            monitor_name: monitor.name.clone(),
-                            address: address_str.clone(),
-                        });
-                    }
-                }
-            }
-        }
-        Ok((parsed_address, is_global_log_monitor))
+        abi: Option<&JsonAbi>,
+    ) -> Result<RhaiScriptValidationResult, MonitorValidationError> {
+        self.script_validator
+            .validate_script(&monitor.filter_script, abi)
+            .map_err(|e| MonitorValidationError::ScriptError {
+                monitor_name: monitor.name.clone(),
+                error: e,
+            })
     }
 
     /// Gets the ABI JSON for the monitor based on its configuration.
@@ -327,17 +322,297 @@ impl<'a> MonitorValidator<'a> {
         }
         Ok(())
     }
+
+
+}
+
+impl AddressValidator {
+    /// Parses and validates the address for the monitor.
+    /// Returns the parsed address (if any) and a flag indicating if it's a global log monitor.
+    fn parse_and_validate(
+        &self,
+        monitor: &MonitorConfig,
+    ) -> Result<(Option<Address>, bool), MonitorValidationError> {
+        match &monitor.address {
+            None => Ok((None, false)),
+            Some(address_str) if address_str.eq_ignore_ascii_case("all") => Ok((None, true)),
+            Some(address_str) => {
+                let parsed_address = address_str.parse::<Address>().map_err(|_| {
+                    MonitorValidationError::InvalidAddress {
+                        monitor_name: monitor.name.clone(),
+                        address: address_str.clone(),
+                    }
+                })?;
+                Ok((Some(parsed_address), false))
+            }
+        }
+    }
+}
+
+impl<'a> ActionValidator<'a> {
+    /// Validates that all actions referenced by the monitor exist.
+    fn validate(&self, monitor: &MonitorConfig) -> Result<(), MonitorValidationError> {
+        if monitor.actions.is_empty() {
+            tracing::warn!(
+                monitor_name = monitor.name,
+                "Monitor has no actions configured and will not send any notifications."
+            );
+            return Ok(());
+        }
+
+        // Check if all actions exist
+        for action_name in &monitor.actions {
+            if !self.action_exists(action_name) {
+                return Err(MonitorValidationError::UnknownAction {
+                    monitor_name: monitor.name.clone(),
+                    action_name: action_name.clone(),
+                });
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Checks if an action with the given name exists.
+    fn action_exists(&self, action_name: &str) -> bool {
+        self.actions.iter().any(|action| action.name == action_name)
+    }
+
+    /// Finds an action by name.
+    fn find_action(&self, action_name: &str) -> Option<&ActionConfig> {
+        self.actions.iter().find(|action| action.name == action_name)
+    }
+}
+
+impl CalldataValidator {
+    /// Validates the calldata decoding rules for the monitor.
+    fn validate(&self, monitor: &MonitorConfig) -> Result<(), MonitorValidationError> {
+        // Check if ABI is provided when calldata decoding is enabled.
+        if monitor.abi.is_none() {
+            return Err(MonitorValidationError::InvalidCalldataConfig {
+                monitor_name: monitor.name.clone(),
+                reason: "Calldata decoding is enabled, but no ABI is specified. Please provide an \
+                         ABI name."
+                    .to_string(),
+            });
+        }
+
+        // Check if address is provided when calldata decoding is enabled.
+        match monitor.address.as_deref() {
+            // Global address case
+            Some(addr) if addr.eq_ignore_ascii_case("all") =>
+                Err(MonitorValidationError::InvalidCalldataConfig {
+                    monitor_name: monitor.name.clone(),
+                    reason: "Calldata decoding cannot be enabled for global monitors (address: \
+                             all). Please specify a concrete contract address."
+                        .to_string(),
+                }),
+            // Specific address case
+            Some(_) => Ok(()),
+            // No address case
+            None => Err(MonitorValidationError::InvalidCalldataConfig {
+                monitor_name: monitor.name.clone(),
+                reason: "Calldata decoding is enabled, but no contract address is specified. \
+                         Please provide a contract address."
+                    .to_string(),
+            }),
+        }
+    }
+}
+
+impl TemplateValidator {
+    /// Validates the templates of all actions associated with the monitor.
+    fn validate(
+        &self,
+        monitor: &MonitorConfig,
+        action_validator: &ActionValidator,
+        abi: Option<&JsonAbi>,
+        script_result: &RhaiScriptValidationResult,
+    ) -> Result<(), MonitorValidationError> {
+        let context = Self::generate_dummy_context(monitor, abi, script_result);
+
+        for action_name in &monitor.actions {
+            self.validate_single_action_template(monitor, action_name, action_validator, &context)?;
+        }
+
+        Ok(())
+    }
+
+    /// Validates the template of a single action.
+    fn validate_single_action_template(
+        &self,
+        monitor: &MonitorConfig,
+        action_name: &str,
+        action_validator: &ActionValidator,
+        context: &serde_json::Value,
+    ) -> Result<(), MonitorValidationError> {
+        // Find the action (this should always succeed due to earlier validation)
+        let action = action_validator.find_action(action_name)
+            .expect("Action should exist due to earlier validation");
+
+        // Serialize the action to JSON and extract all template strings
+        let action_value = serde_json::to_value(action).unwrap_or(Value::Null);
+        let templates = Self::extract_templates(&action_value);
+
+        // Validate each template by attempting to render it
+        for template in templates {
+            if let Err(e) = self.template_service.render(&template, context.clone()) {
+                let invalid_variable = match e {
+                    TemplateServiceError::RenderError(e) => e.to_string(),
+                };
+                return Err(MonitorValidationError::InvalidActionTemplate {
+                    monitor_name: monitor.name.clone(),
+                    action_name: action_name.to_string(),
+                    template,
+                    invalid_variable,
+                });
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Recursively extracts template strings from a JSON value.
+    /// A template string is one that contains both "{{" and "}}" and appears to be a valid template.
+    fn extract_templates(val: &Value) -> Vec<String> {
+        let mut templates = Vec::new();
+        Self::find_templates_recursive(val, &mut templates);
+        templates
+    }
+
+    /// Helper function to recursively find template strings in JSON values.
+    fn find_templates_recursive(val: &Value, templates: &mut Vec<String>) {
+        match val {
+            Value::String(s) => {
+                if Self::is_template_string(s) {
+                    templates.push(s.clone());
+                }
+            }
+            Value::Object(obj) => {
+                for v in obj.values() {
+                    Self::find_templates_recursive(v, templates);
+                }
+            }
+            Value::Array(arr) => {
+                for v in arr {
+                    Self::find_templates_recursive(v, templates);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Checks if a string appears to be a template string.
+    /// This is a simple heuristic that looks for "{{" and "}}" patterns.
+    fn is_template_string(s: &str) -> bool {
+        s.contains("{{") && s.contains("}}")
+    }
+
+    /// Generates a dummy context for validating action templates.
+    /// This context includes all possible variables that could be available to a
+    /// template, allowing for a "dry run" rendering to catch invalid field access.
+    fn generate_dummy_context(
+        _monitor: &MonitorConfig,
+        abi: Option<&JsonAbi>,
+        script_result: &RhaiScriptValidationResult,
+    ) -> serde_json::Value {
+        let mut context = serde_json::Map::new();
+
+        // Always include transaction data as it's the most basic context
+        context.insert("transaction".to_string(), Self::create_dummy_transaction());
+
+        // Add log context if the script accesses log variables
+        if script_result.ast_analysis.accesses_log_variable {
+            context.insert("log".to_string(), Self::create_dummy_log_context(abi));
+        }
+
+        // Add calldata context if the script accesses call variables
+        if script_result.ast_analysis.accesses_call_variable {
+            context.insert("decoded_call".to_string(), Self::create_dummy_calldata_context(abi));
+        }
+
+        serde_json::Value::Object(context)
+    }
+
+    /// Creates a dummy transaction object with all expected fields.
+    fn create_dummy_transaction() -> serde_json::Value {
+        json!({
+            "hash": "0x000...",
+            "index": 0,
+            "from": "0x000...",
+            "to": "0x000...",
+            "value": "0",
+            "input": "0x000...",
+            "nonce": 0,
+            "gas_limit": "0",
+            "gas_price": "0",
+            "max_fee_per_gas": "0",
+            "max_priority_fee_per_gas": "0",
+            "v": "0",
+            "r": "0x000...",
+            "s": "0x000...",
+        })
+    }
+
+    /// Creates a dummy log context with parameters from the ABI events.
+    fn create_dummy_log_context(abi: Option<&JsonAbi>) -> serde_json::Value {
+        let params = match abi {
+            Some(abi) => Self::extract_event_parameters(abi),
+            None => serde_json::Map::new(),
+        };
+
+        json!({
+            "name": "DummyEvent",
+            "params": params,
+        })
+    }
+
+    /// Creates a dummy calldata context with inputs from the ABI functions.
+    fn create_dummy_calldata_context(abi: Option<&JsonAbi>) -> serde_json::Value {
+        let inputs = match abi {
+            Some(abi) => Self::extract_function_inputs(abi),
+            None => serde_json::Map::new(),
+        };
+
+        json!({
+            "name": "DummyFunction",
+            "inputs": inputs,
+        })
+    }
+
+    /// Extracts all unique parameter names from events in the ABI.
+    fn extract_event_parameters(abi: &JsonAbi) -> serde_json::Map<String, serde_json::Value> {
+        let mut params = serde_json::Map::new();
+        for event in abi.events.values().flatten() {
+            for input in &event.inputs {
+                params.entry(input.name.clone()).or_insert_with(|| json!(""));
+            }
+        }
+        params
+    }
+
+    /// Extracts all unique input parameter names from functions in the ABI.
+    fn extract_function_inputs(abi: &JsonAbi) -> serde_json::Map<String, serde_json::Value> {
+        let mut inputs = serde_json::Map::new();
+        for function in abi.functions.values().flatten() {
+            for input in &function.inputs {
+                inputs.entry(input.name.clone()).or_insert_with(|| json!(""));
+            }
+        }
+        inputs
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
-    use alloy::primitives::{Address, address};
+    use alloy::primitives::{address, Address};
     use tempfile::tempdir;
 
     use crate::{
-        abi::{AbiService, repository::AbiRepository},
+        abi::{repository::AbiRepository, AbiService},
+        actions::template::TemplateService,
         config::RhaiConfig,
         engine::rhai::{RhaiCompiler, RhaiScriptValidationError, RhaiScriptValidator},
         models::{action::ActionConfig, monitor::MonitorConfig},
@@ -373,6 +648,7 @@ mod tests {
         let config = RhaiConfig::default();
         let compiler = Arc::new(RhaiCompiler::new(config));
         let script_validator = RhaiScriptValidator::new(compiler);
+        let template_service = Arc::new(TemplateService::new());
 
         let temp_dir = tempdir().unwrap();
         let abi_dir_path = temp_dir.path().to_path_buf();
@@ -390,7 +666,7 @@ mod tests {
             abi_service.link_abi(address, abi_name).unwrap();
         }
 
-        MonitorValidator::new(script_validator, abi_service, "testnet", actions)
+        MonitorValidator::new(script_validator, abi_service, template_service, "testnet", actions)
     }
 
     #[tokio::test]
@@ -896,5 +1172,127 @@ mod tests {
         let result = validator.validate(&invalid_monitor);
 
         assert!(result.is_ok(), "Expected validation to succeed but got error: {:?}", result);
+    }
+
+    #[tokio::test]
+    async fn test_monitor_validation_action_template() {
+        let contract_address = address!("0x1234567890abcdef1234567890abcdef12345678");
+        let actions = vec![
+            ActionBuilder::new("valid_action")
+                .discord_config("http://localhost")
+                .message("Tx hash: {{ transaction.hash }}")
+                .build(),
+            ActionBuilder::new("invalid_action")
+                .discord_config("http://localhost")
+                .message("Invalid field: {{ transaction.invalid_field }}")
+                .build(),
+        ];
+        let validator =
+            create_monitor_validator(&actions, Some((contract_address, "erc20", erc20_abi_json())));
+
+        // Test case 1: Valid template
+        let monitor_with_valid_action = create_test_monitor(
+            1,
+            Some(&contract_address.to_string()),
+            Some("erc20"),
+            "true",
+            vec!["valid_action".to_string()],
+        );
+        let result = validator.validate(&monitor_with_valid_action);
+        assert!(result.is_ok(), "Expected validation to succeed but got error: {:?}", result);
+
+        // Test case 2: Invalid template
+        let monitor_with_invalid_action = create_test_monitor(
+            2,
+            Some(&contract_address.to_string()),
+            Some("erc20"),
+            "true",
+            vec!["invalid_action".to_string()],
+        );
+        let result = validator.validate(&monitor_with_invalid_action);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            MonitorValidationError::InvalidActionTemplate { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_monitor_validation_action_template_log_and_calldata() {
+        let contract_address = address!("0x1234567890abcdef1234567890abcdef12345678");
+        let actions = vec![
+            ActionBuilder::new("valid_log_action")
+                .discord_config("http://localhost")
+                .message("Log name: {{ log.name }}, Param: {{ log.params.from }}")
+                .build(),
+            ActionBuilder::new("invalid_log_action")
+                .discord_config("http://localhost")
+                .message("Invalid field: {{ log.params.invalid_param }}")
+                .build(),
+            ActionBuilder::new("valid_calldata_action")
+                .discord_config("http://localhost")
+                .message(
+                    "Call name: {{ decoded_call.name }}, Input: {{ decoded_call.inputs._to }}",
+                )
+                .build(),
+            ActionBuilder::new("invalid_calldata_action")
+                .discord_config("http://localhost")
+                .message("Invalid field: {{ decoded_call.inputs.invalid_input }}")
+                .build(),
+        ];
+        let validator =
+            create_monitor_validator(&actions, Some((contract_address, "erc20", erc20_abi_json())));
+
+        // Test case 1: Valid log template
+        let monitor_with_valid_log_action = create_test_monitor(
+            1,
+            Some(&contract_address.to_string()),
+            Some("erc20"),
+            "log.name == \"Transfer\"",
+            vec!["valid_log_action".to_string()],
+        );
+        let result = validator.validate(&monitor_with_valid_log_action);
+        assert!(result.is_ok(), "Expected validation to succeed but got error: {:?}", result);
+
+        // Test case 2: Invalid log template
+        let monitor_with_invalid_log_action = create_test_monitor(
+            2,
+            Some(&contract_address.to_string()),
+            Some("erc20"),
+            "log.name == \"Transfer\"",
+            vec!["invalid_log_action".to_string()],
+        );
+        let result = validator.validate(&monitor_with_invalid_log_action);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            MonitorValidationError::InvalidActionTemplate { .. }
+        ));
+
+        // Test case 3: Valid calldata template
+        let monitor_with_valid_calldata_action = create_test_monitor(
+            3,
+            Some(&contract_address.to_string()),
+            Some("erc20"),
+            "decoded_call.name == \"transfer\"",
+            vec!["valid_calldata_action".to_string()],
+        );
+        let result = validator.validate(&monitor_with_valid_calldata_action);
+        assert!(result.is_ok(), "Expected validation to succeed but got error: {:?}", result);
+
+        // Test case 4: Invalid calldata template
+        let monitor_with_invalid_calldata_action = create_test_monitor(
+            4,
+            Some(&contract_address.to_string()),
+            Some("erc20"),
+            "decoded_call.name == \"transfer\"",
+            vec!["invalid_calldata_action".to_string()],
+        );
+        let result = validator.validate(&monitor_with_invalid_calldata_action);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            MonitorValidationError::InvalidActionTemplate { .. }
+        ));
     }
 }
