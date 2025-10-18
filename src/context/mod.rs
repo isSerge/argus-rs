@@ -15,6 +15,7 @@ pub use metrics::{AppMetrics, Metrics};
 
 use crate::{
     abi::{AbiService, repository::AbiRepository},
+    actions::template::TemplateService,
     config::{AppConfig, InitialStartBlock},
     engine::rhai::{RhaiCompiler, RhaiScriptValidator},
     loader::load_config,
@@ -41,6 +42,9 @@ pub struct AppContext<T: AppRepository> {
 
     /// The EVM data provider for blockchain interactions.
     pub provider: Arc<dyn Provider + Send + Sync>,
+
+    /// Template service for rendering action templates.
+    pub template_service: Arc<TemplateService>,
 }
 
 /// A builder for the `AppContext`, allowing configuration overrides
@@ -105,6 +109,8 @@ impl AppContextBuilder {
         tracing::debug!("Initializing ABI service");
         let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
 
+        let template_service = Arc::new(TemplateService::new());
+
         let script_compiler = Arc::new(RhaiCompiler::new(config.rhai.clone()));
 
         tracing::debug!(rpc_urls = ?config.rpc_urls, "Initializing EVM data provider...");
@@ -118,11 +124,12 @@ impl AppContextBuilder {
             repo.as_ref(),
             abi_service.clone(),
             script_compiler.clone(),
+            template_service.clone(),
         )
         .await?;
         Self::load_abis_from_monitors(&config, repo.as_ref(), abi_service.clone()).await?;
 
-        Ok(AppContext { config, repo, abi_service, script_compiler, provider })
+        Ok(AppContext { config, repo, abi_service, script_compiler, provider, template_service })
     }
 
     /// Initializes the block state in the database if not already set.
@@ -192,6 +199,7 @@ impl AppContextBuilder {
         repo: &dyn AppRepository,
         abi_service: Arc<AbiService>,
         script_compiler: Arc<RhaiCompiler>,
+        template_service: Arc<TemplateService>,
     ) -> Result<(), InitializationError> {
         let network_id = &config.network_id;
         let config_path = &config.monitor_config_path;
@@ -224,7 +232,13 @@ impl AppContextBuilder {
         })?;
 
         let script_validator = RhaiScriptValidator::new(script_compiler);
-        let validator = MonitorValidator::new(script_validator, abi_service, network_id, &actions);
+        let validator = MonitorValidator::new(
+            script_validator,
+            abi_service,
+            template_service,
+            network_id,
+            &actions,
+        );
         for monitor in &monitors {
             validator.validate(monitor).map_err(|e| {
                 InitializationError::MonitorLoad(format!(
@@ -415,6 +429,7 @@ mod tests {
             repo.as_ref(),
             Arc::new(AbiService::new(Arc::new(AbiRepository::new(temp_dir.path()).unwrap()))),
             Arc::new(RhaiCompiler::new(RhaiConfig::default())),
+            Arc::new(TemplateService::new()),
         )
         .await;
 
@@ -471,6 +486,7 @@ mod tests {
             repo.as_ref(),
             Arc::new(AbiService::new(Arc::new(AbiRepository::new(temp_dir.path()).unwrap()))),
             Arc::new(RhaiCompiler::new(RhaiConfig::default())),
+            Arc::new(TemplateService::new()),
         )
         .await;
 

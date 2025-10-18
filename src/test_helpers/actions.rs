@@ -107,6 +107,24 @@ impl ActionBuilder {
         self
     }
 
+    /// Sets the message for the action.
+    pub fn message(mut self, message: &str) -> Self {
+        let new_message = NotificationMessage {
+            title: "Test Notification".to_string(),
+            body: message.to_string(),
+        };
+
+        match &mut self.config {
+            ActionTypeConfig::Webhook(cfg) => cfg.message = new_message,
+            ActionTypeConfig::Slack(cfg) => cfg.message = new_message,
+            ActionTypeConfig::Discord(cfg) => cfg.message = new_message,
+            ActionTypeConfig::Telegram(cfg) => cfg.message = new_message,
+            ActionTypeConfig::Stdout(cfg) => cfg.message = Some(new_message),
+            _ => { /* No message for other action types */ }
+        }
+        self
+    }
+
     /// Sets the Action policy.
     pub fn policy(mut self, policy: ActionPolicy) -> Self {
         self.policy = Some(policy);

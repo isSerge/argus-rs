@@ -114,6 +114,7 @@ mod tests {
 
     use super::*;
     use crate::{
+        actions::template::TemplateService,
         config::{AppConfig, RhaiConfig},
         context::AppContext,
         engine::rhai::RhaiCompiler,
@@ -164,6 +165,7 @@ mod tests {
             abi_service,
             script_compiler: Arc::new(RhaiCompiler::new(RhaiConfig::default())),
             provider,
+            template_service: Arc::new(TemplateService::new()),
         };
 
         let builder = SupervisorBuilder::new().app_metrics(AppMetrics::default()).context(context);
@@ -176,7 +178,8 @@ mod tests {
     async fn build_fails_if_config_is_missing() {
         let builder = SupervisorBuilder::<SqliteStateRepository>::new();
 
-        let result = builder.build().await;
+        let result: Result<Supervisor<SqliteStateRepository>, SupervisorError> =
+            builder.build().await;
         assert!(matches!(result, Err(SupervisorError::MissingConfig)));
     }
 }
