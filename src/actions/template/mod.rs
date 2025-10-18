@@ -47,6 +47,16 @@ impl TemplateService {
         Self { env }
     }
 
+    /// Validates a template's syntax without attempting to render it.
+    /// This only checks for template syntax errors, not variable availability.
+    pub fn validate_syntax(&self, template_str: &str) -> Result<(), TemplateServiceError> {
+        // Parse the template to check for syntax errors
+        match self.env.template_from_str(template_str) {
+            Ok(_) => Ok(()),
+            Err(e) => Err(TemplateServiceError::RenderError(e)),
+        }
+    }
+
     /// Renders a template with the given context.
     pub fn render(
         &self,
