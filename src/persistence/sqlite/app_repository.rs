@@ -5,6 +5,7 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 
 use crate::{
     models::{
+        abi::Abi,
         action::ActionConfig,
         monitor::{Monitor, MonitorConfig},
     },
@@ -31,6 +32,15 @@ struct ActionRow {
     action_id: i64,
     name: String,
     config: String,
+}
+
+// Helper struct for mapping ABI from the database row
+#[derive(sqlx::FromRow)]
+struct AbiRow {
+    name: String,
+    abi_content: String,
+    created_at: NaiveDateTime,
+    updated_at: NaiveDateTime,
 }
 
 #[async_trait]
@@ -508,5 +518,175 @@ impl AppRepository for SqliteStateRepository {
         let deleted_count = result.rows_affected();
         tracing::info!(network_id, deleted_count, "actions cleared successfully.");
         Ok(())
+    }
+
+    // ABI management operations
+
+    /// Retrieves all ABIs from the database.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn get_abis(&self) -> Result<Vec<Abi>, PersistenceError> {
+        tracing::debug!("Querying for all ABIs.");
+
+        let abi_rows = self
+            .execute_query_with_error_handling(
+                "query ABIs",
+                sqlx::query_as!(
+                    AbiRow,
+                    r#"
+                SELECT 
+                    name, 
+                    abi_content, 
+                    created_at as "created_at!", 
+                    updated_at as "updated_at!"
+                FROM abis
+                ORDER BY name
+                "#
+                )
+                .fetch_all(&self.pool),
+            )
+            .await?;
+
+        let abis = abi_rows
+            .into_iter()
+            .map(|row| {
+                let created_at = DateTime::<Utc>::from_naive_utc_and_offset(row.created_at, Utc);
+                let updated_at = DateTime::<Utc>::from_naive_utc_and_offset(row.updated_at, Utc);
+                Abi {
+                    name: row.name,
+                    abi_content: row.abi_content,
+                    created_at,
+                    updated_at,
+                }
+            })
+            .collect();
+
+        tracing::debug!(abi_count = abis.len(), "ABIs retrieved successfully.");
+        Ok(abis)
+    }
+
+    /// Retrieves a specific ABI by its name.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn get_abi_by_name(&self, name: &str) -> Result<Option<Abi>, PersistenceError> {
+        tracing::debug!(name, "Querying for ABI by name.");
+
+        let abi_row = self
+            .execute_query_with_error_handling(
+                "query ABI by name",
+                sqlx::query_as!(
+                    AbiRow,
+                    r#"
+                SELECT 
+                    name, 
+                    abi_content, 
+                    created_at as "created_at!", 
+                    updated_at as "updated_at!"
+                FROM abis 
+                WHERE name = ?
+                "#,
+                    name
+                )
+                .fetch_optional(&self.pool),
+            )
+            .await?;
+
+        if let Some(row) = abi_row {
+            let created_at = DateTime::<Utc>::from_naive_utc_and_offset(row.created_at, Utc);
+            let updated_at = DateTime::<Utc>::from_naive_utc_and_offset(row.updated_at, Utc);
+            let abi = Abi {
+                name: row.name,
+                abi_content: row.abi_content,
+                created_at,
+                updated_at,
+            };
+            tracing::debug!(name, "ABI found.");
+            Ok(Some(abi))
+        } else {
+            tracing::debug!(name, "No ABI found with given name.");
+            Ok(None)
+        }
+    }
+
+    /// Adds a new ABI to the database.
+    #[tracing::instrument(skip(self, abi_content), level = "debug")]
+    async fn add_abi(&self, name: &str, abi_content: &str) -> Result<(), PersistenceError> {
+        tracing::debug!(name, "Adding new ABI.");
+
+        // Validate that the ABI content is valid JSON
+        serde_json::from_str::<serde_json::Value>(abi_content).map_err(|e| {
+            tracing::error!(name, error = %e, "Invalid ABI JSON content.");
+            PersistenceError::InvalidInput(format!("Invalid ABI JSON: {}", e))
+        })?;
+
+        // Check if ABI already exists
+        let existing = self.get_abi_by_name(name).await?;
+        if existing.is_some() {
+            tracing::warn!(name, "ABI with this name already exists.");
+            return Err(PersistenceError::AlreadyExists(format!(
+                "ABI with name '{}' already exists",
+                name
+            )));
+        }
+
+        self.execute_query_with_error_handling(
+            "add ABI",
+            sqlx::query!(
+                "INSERT INTO abis (name, abi_content) VALUES (?, ?)",
+                name,
+                abi_content
+            )
+            .execute(&self.pool),
+        )
+        .await?;
+
+        tracing::info!(name, "ABI added successfully.");
+        Ok(())
+    }
+
+    /// Deletes an ABI by its name.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn delete_abi(&self, name: &str) -> Result<(), PersistenceError> {
+        tracing::debug!(name, "Deleting ABI.");
+
+        // Check if ABI is in use by any monitors
+        if self.is_abi_in_use(name).await? {
+            tracing::warn!(name, "Cannot delete ABI that is in use by monitors.");
+            return Err(PersistenceError::InvalidInput(format!(
+                "Cannot delete ABI '{}' as it is currently in use by one or more monitors",
+                name
+            )));
+        }
+
+        let result = self
+            .execute_query_with_error_handling(
+                "delete ABI",
+                sqlx::query!("DELETE FROM abis WHERE name = ?", name).execute(&self.pool),
+            )
+            .await?;
+
+        if result.rows_affected() == 0 {
+            tracing::warn!(name, "No ABI found with given name to delete.");
+            return Err(PersistenceError::NotFound(format!("ABI '{}' not found", name)));
+        }
+
+        tracing::info!(name, "ABI deleted successfully.");
+        Ok(())
+    }
+
+    /// Checks if an ABI is currently in use by any monitors.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn is_abi_in_use(&self, name: &str) -> Result<bool, PersistenceError> {
+        tracing::debug!(name, "Checking if ABI is in use.");
+
+        let count = self
+            .execute_query_with_error_handling(
+                "check ABI usage",
+                sqlx::query!("SELECT COUNT(*) as count FROM monitors WHERE abi = ?", name)
+                    .fetch_one(&self.pool),
+            )
+            .await?;
+
+        let is_in_use = count.count > 0;
+        tracing::debug!(name, is_in_use, "ABI usage check completed.");
+        Ok(is_in_use)
     }
 }

@@ -664,4 +664,131 @@ mod tests {
             repo.get_json_state("non_existent_key").await.unwrap();
         assert!(non_existent.is_none());
     }
+
+    #[tokio::test]
+    async fn test_abi_management_operations() {
+        let repo = setup_test_db().await;
+
+        // Initially, should have no ABIs
+        let abis = repo.get_abis().await.unwrap();
+        assert!(abis.is_empty());
+
+        // Add a test ABI
+        let abi_name = "erc20";
+        let abi_content = r#"[{"type":"function","name":"transfer"}]"#;
+        repo.add_abi(abi_name, abi_content).await.unwrap();
+
+        // Retrieve all ABIs
+        let abis = repo.get_abis().await.unwrap();
+        assert_eq!(abis.len(), 1);
+        assert_eq!(abis[0].name, abi_name);
+        assert_eq!(abis[0].abi_content, abi_content);
+
+        // Retrieve specific ABI by name
+        let abi = repo.get_abi_by_name(abi_name).await.unwrap();
+        assert!(abi.is_some());
+        let abi = abi.unwrap();
+        assert_eq!(abi.name, abi_name);
+        assert_eq!(abi.abi_content, abi_content);
+
+        // Try to add duplicate ABI (should fail)
+        let result = repo.add_abi(abi_name, abi_content).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), PersistenceError::AlreadyExists(_)));
+
+        // Add another ABI
+        let abi_name2 = "weth";
+        let abi_content2 = r#"[{"type":"function","name":"deposit"}]"#;
+        repo.add_abi(abi_name2, abi_content2).await.unwrap();
+
+        // Should have 2 ABIs now
+        let abis = repo.get_abis().await.unwrap();
+        assert_eq!(abis.len(), 2);
+
+        // Test ABI in use check (not in use yet)
+        let in_use = repo.is_abi_in_use(abi_name).await.unwrap();
+        assert!(!in_use);
+
+        // Delete the second ABI
+        repo.delete_abi(abi_name2).await.unwrap();
+
+        // Should have 1 ABI now
+        let abis = repo.get_abis().await.unwrap();
+        assert_eq!(abis.len(), 1);
+
+        // Try to delete non-existent ABI (should fail)
+        let result = repo.delete_abi("nonexistent").await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), PersistenceError::NotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn test_abi_in_use_by_monitor() {
+        let repo = setup_test_db().await;
+        let network_id = "ethereum";
+        let abi_name = "erc20";
+
+        // Add an ABI
+        let abi_content = r#"[{"type":"function","name":"transfer"}]"#;
+        repo.add_abi(abi_name, abi_content).await.unwrap();
+
+        // ABI should not be in use initially
+        let in_use = repo.is_abi_in_use(abi_name).await.unwrap();
+        assert!(!in_use);
+
+        // Create a monitor that uses this ABI
+        let monitor = MonitorConfig::from_config(
+            "Test Monitor".to_string(),
+            network_id.to_string(),
+            Some("0x123".to_string()),
+            Some(abi_name.to_string()),
+            "true".to_string(),
+            vec![],
+        );
+        repo.add_monitors(network_id, vec![monitor]).await.unwrap();
+
+        // Now ABI should be in use
+        let in_use = repo.is_abi_in_use(abi_name).await.unwrap();
+        assert!(in_use);
+
+        // Try to delete ABI that's in use (should fail)
+        let result = repo.delete_abi(abi_name).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), PersistenceError::InvalidInput(_)));
+
+        // Clear monitors
+        repo.clear_monitors(network_id).await.unwrap();
+
+        // Now ABI should not be in use
+        let in_use = repo.is_abi_in_use(abi_name).await.unwrap();
+        assert!(!in_use);
+
+        // Should be able to delete now
+        repo.delete_abi(abi_name).await.unwrap();
+        let abis = repo.get_abis().await.unwrap();
+        assert!(abis.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_abi_invalid_json() {
+        let repo = setup_test_db().await;
+
+        // Try to add ABI with invalid JSON
+        let result = repo.add_abi("invalid", "{not valid json}").await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), PersistenceError::InvalidInput(_)));
+
+        // No ABIs should be added
+        let abis = repo.get_abis().await.unwrap();
+        assert!(abis.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_nonexistent_abi() {
+        let repo = setup_test_db().await;
+
+        // Try to get non-existent ABI
+        let abi = repo.get_abi_by_name("nonexistent").await.unwrap();
+        assert!(abi.is_none());
+    }
 }

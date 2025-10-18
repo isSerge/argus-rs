@@ -16,6 +16,12 @@ pub enum ApiError {
     /// Represents a resource that could not be found.
     NotFound(String),
 
+    /// Represents a conflict (e.g., duplicate resource).
+    Conflict(String),
+
+    /// Represents a bad request (e.g., invalid input).
+    BadRequest(String),
+
     /// Represents a generic internal server error.
     InternalServerError(String),
 }
@@ -26,7 +32,12 @@ pub enum ApiError {
 /// on functions that return `Result<_, PersistenceError>`.
 impl From<PersistenceError> for ApiError {
     fn from(err: PersistenceError) -> Self {
-        ApiError::InternalServerError(err.to_string())
+        match err {
+            PersistenceError::NotFound(msg) => ApiError::NotFound(msg),
+            PersistenceError::AlreadyExists(msg) => ApiError::Conflict(msg),
+            PersistenceError::InvalidInput(msg) => ApiError::BadRequest(msg),
+            _ => ApiError::InternalServerError(err.to_string()),
+        }
     }
 }
 
@@ -38,13 +49,15 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         let (status, error_message) = match self {
             ApiError::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()),
+            ApiError::NotFound(message) => (StatusCode::NOT_FOUND, message),
+            ApiError::Conflict(message) => (StatusCode::CONFLICT, message),
+            ApiError::BadRequest(message) => (StatusCode::BAD_REQUEST, message),
             ApiError::InternalServerError(err) => {
                 // Log the detailed error for debugging purposes.
                 tracing::error!("Internal server error: {}", err);
                 // Return a generic error message to the user for security.
                 (StatusCode::INTERNAL_SERVER_ERROR, "An internal server error occurred".to_string())
             }
-            ApiError::NotFound(message) => (StatusCode::NOT_FOUND, message),
         };
 
         let body = Json(json!({

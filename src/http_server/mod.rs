@@ -1,5 +1,6 @@
 //! HTTP server module
 
+mod abis;
 mod actions;
 mod auth;
 mod error;
@@ -8,12 +9,13 @@ mod status;
 
 use std::{net::SocketAddr, sync::Arc};
 
+use abis::{create_abi, delete_abi, get_abi_by_name, get_abis, list_abi_names};
 use actions::{action_details, actions};
 use auth::auth;
 use axum::{
     Router, middleware,
     response::{IntoResponse, Json},
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 use error::ApiError;
 use monitors::{monitor_details, monitors, update_monitors};
@@ -67,6 +69,18 @@ pub async fn run_server_from_config(
         .route("/monitors/{id}", get(monitor_details))
         .route("/actions", get(actions))
         .route("/actions/{id}", get(action_details))
+        // ABI endpoints
+        .route(
+            "/abis",
+            post(create_abi).route_layer(middleware::from_fn_with_state(state.clone(), auth)),
+        )
+        .route("/abis", get(list_abi_names))
+        .route("/abis/all", get(get_abis))
+        .route("/abis/{name}", get(get_abi_by_name))
+        .route(
+            "/abis/{name}",
+            delete(delete_abi).route_layer(middleware::from_fn_with_state(state.clone(), auth)),
+        )
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(addr).await.expect("Failed to bind address");
