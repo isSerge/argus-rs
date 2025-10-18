@@ -119,7 +119,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
         .build()
         .await?;
 
-    let AppContext { config, repo, abi_service, script_compiler, provider } = context;
+    let AppContext { config, repo, abi_service, script_compiler, provider, .. } = context;
 
     let monitors = repo.get_monitors(&config.network_id).await?;
     let monitor_manager = Arc::new(MonitorManager::new(
