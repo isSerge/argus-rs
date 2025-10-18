@@ -15,6 +15,7 @@ pub use metrics::{AppMetrics, Metrics};
 
 use crate::{
     abi::{AbiService, repository::AbiRepository},
+    actions::template::TemplateService,
     config::{AppConfig, InitialStartBlock},
     engine::rhai::{RhaiCompiler, RhaiScriptValidator},
     loader::load_config,
@@ -22,7 +23,6 @@ use crate::{
     monitor::MonitorValidator,
     persistence::{sqlite::SqliteStateRepository, traits::AppRepository},
     providers::rpc::create_provider,
-    actions::template::TemplateService,
 };
 
 /// The application context, holding configuration, database repository,
@@ -232,7 +232,13 @@ impl AppContextBuilder {
         })?;
 
         let script_validator = RhaiScriptValidator::new(script_compiler);
-        let validator = MonitorValidator::new(script_validator, abi_service, template_service, network_id, &actions);
+        let validator = MonitorValidator::new(
+            script_validator,
+            abi_service,
+            template_service,
+            network_id,
+            &actions,
+        );
         for monitor in &monitors {
             validator.validate(monitor).map_err(|e| {
                 InitializationError::MonitorLoad(format!(

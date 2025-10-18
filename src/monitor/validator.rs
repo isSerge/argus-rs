@@ -3,15 +3,13 @@
 use std::sync::Arc;
 
 use alloy::{json_abi::JsonAbi, primitives::Address};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use thiserror::Error;
 
 use crate::{
     abi::AbiService,
-    actions::template::{TemplateServiceError, TemplateService},
-    engine::rhai::{
-        RhaiScriptValidationError, RhaiScriptValidationResult, RhaiScriptValidator,
-    },
+    actions::template::{TemplateService, TemplateServiceError},
+    engine::rhai::{RhaiScriptValidationError, RhaiScriptValidationResult, RhaiScriptValidator},
     models::{action::ActionConfig, monitor::MonitorConfig},
 };
 
@@ -31,7 +29,8 @@ struct ActionValidator<'a> {
 /// Validates calldata configuration rules.
 struct CalldataValidator;
 
-/// A coordinator that orchestrates validation of monitor configurations using specialized validators.
+/// A coordinator that orchestrates validation of monitor configurations using
+/// specialized validators.
 pub struct MonitorValidator<'a> {
     /// The application network ID.
     network_id: &'a str,
@@ -181,7 +180,7 @@ impl<'a> MonitorValidator<'a> {
         self.action_validator.validate(monitor)?;
 
         // Parse and validate address
-        let (parsed_address, is_global_log_monitor) = 
+        let (parsed_address, is_global_log_monitor) =
             self.address_validator.parse_and_validate(monitor)?;
 
         // Retrieve ABI if available
@@ -205,10 +204,10 @@ impl<'a> MonitorValidator<'a> {
 
         // Validate action templates
         self.template_validator.validate(
-            monitor, 
-            &self.action_validator, 
-            abi_json.as_deref(), 
-            &script_validation_result
+            monitor,
+            &self.action_validator,
+            abi_json.as_deref(),
+            &script_validation_result,
         )?;
 
         Ok(())
@@ -232,12 +231,9 @@ impl<'a> MonitorValidator<'a> {
         monitor: &MonitorConfig,
         abi: Option<&JsonAbi>,
     ) -> Result<RhaiScriptValidationResult, MonitorValidationError> {
-        self.script_validator
-            .validate_script(&monitor.filter_script, abi)
-            .map_err(|e| MonitorValidationError::ScriptError {
-                monitor_name: monitor.name.clone(),
-                error: e,
-            })
+        self.script_validator.validate_script(&monitor.filter_script, abi).map_err(|e| {
+            MonitorValidationError::ScriptError { monitor_name: monitor.name.clone(), error: e }
+        })
     }
 
     /// Gets the ABI JSON for the monitor based on its configuration.
@@ -322,13 +318,12 @@ impl<'a> MonitorValidator<'a> {
         }
         Ok(())
     }
-
-
 }
 
 impl AddressValidator {
     /// Parses and validates the address for the monitor.
-    /// Returns the parsed address (if any) and a flag indicating if it's a global log monitor.
+    /// Returns the parsed address (if any) and a flag indicating if it's a
+    /// global log monitor.
     fn parse_and_validate(
         &self,
         monitor: &MonitorConfig,
@@ -447,7 +442,8 @@ impl TemplateValidator {
         context: &serde_json::Value,
     ) -> Result<(), MonitorValidationError> {
         // Find the action (this should always succeed due to earlier validation)
-        let action = action_validator.find_action(action_name)
+        let action = action_validator
+            .find_action(action_name)
             .expect("Action should exist due to earlier validation");
 
         // Serialize the action to JSON and extract all template strings
@@ -473,7 +469,8 @@ impl TemplateValidator {
     }
 
     /// Recursively extracts template strings from a JSON value.
-    /// A template string is one that contains both "{{" and "}}" and appears to be a valid template.
+    /// A template string is one that contains both "{{" and "}}" and appears to
+    /// be a valid template.
     fn extract_templates(val: &Value) -> Vec<String> {
         let mut templates = Vec::new();
         Self::find_templates_recursive(val, &mut templates);
@@ -483,21 +480,18 @@ impl TemplateValidator {
     /// Helper function to recursively find template strings in JSON values.
     fn find_templates_recursive(val: &Value, templates: &mut Vec<String>) {
         match val {
-            Value::String(s) => {
+            Value::String(s) =>
                 if Self::is_template_string(s) {
                     templates.push(s.clone());
-                }
-            }
-            Value::Object(obj) => {
+                },
+            Value::Object(obj) =>
                 for v in obj.values() {
                     Self::find_templates_recursive(v, templates);
-                }
-            }
-            Value::Array(arr) => {
+                },
+            Value::Array(arr) =>
                 for v in arr {
                     Self::find_templates_recursive(v, templates);
-                }
-            }
+                },
             _ => {}
         }
     }
@@ -509,8 +503,9 @@ impl TemplateValidator {
     }
 
     /// Generates a dummy context for validating action templates.
-    /// This context includes all possible variables that could be available to a
-    /// template, allowing for a "dry run" rendering to catch invalid field access.
+    /// This context includes all possible variables that could be available to
+    /// a template, allowing for a "dry run" rendering to catch invalid
+    /// field access.
     fn generate_dummy_context(
         _monitor: &MonitorConfig,
         abi: Option<&JsonAbi>,
@@ -607,11 +602,11 @@ impl TemplateValidator {
 mod tests {
     use std::sync::Arc;
 
-    use alloy::primitives::{address, Address};
+    use alloy::primitives::{Address, address};
     use tempfile::tempdir;
 
     use crate::{
-        abi::{repository::AbiRepository, AbiService},
+        abi::{AbiService, repository::AbiRepository},
         actions::template::TemplateService,
         config::RhaiConfig,
         engine::rhai::{RhaiCompiler, RhaiScriptValidationError, RhaiScriptValidator},
@@ -1231,9 +1226,7 @@ mod tests {
                 .build(),
             ActionBuilder::new("valid_calldata_action")
                 .discord_config("http://localhost")
-                .message(
-                    "Call name: {{ decoded_call.name }}, Input: {{ decoded_call.inputs._to }}",
-                )
+                .message("Call name: {{ decoded_call.name }}, Input: {{ decoded_call.inputs._to }}")
                 .build(),
             ActionBuilder::new("invalid_calldata_action")
                 .discord_config("http://localhost")

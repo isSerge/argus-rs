@@ -114,7 +114,13 @@ mod tests {
 
     use super::*;
     use crate::{
-        actions::template::TemplateService, config::{AppConfig, RhaiConfig}, context::AppContext, engine::rhai::RhaiCompiler, models::monitor::MonitorConfig, persistence::sqlite::SqliteStateRepository, test_helpers::{create_test_abi_service, mock_provider}
+        actions::template::TemplateService,
+        config::{AppConfig, RhaiConfig},
+        context::AppContext,
+        engine::rhai::RhaiCompiler,
+        models::monitor::MonitorConfig,
+        persistence::sqlite::SqliteStateRepository,
+        test_helpers::{create_test_abi_service, mock_provider},
     };
 
     async fn setup_test_db() -> SqliteStateRepository {
@@ -172,7 +178,8 @@ mod tests {
     async fn build_fails_if_config_is_missing() {
         let builder = SupervisorBuilder::<SqliteStateRepository>::new();
 
-        let result: Result<Supervisor<SqliteStateRepository>, SupervisorError> = builder.build().await;
+        let result: Result<Supervisor<SqliteStateRepository>, SupervisorError> =
+            builder.build().await;
         assert!(matches!(result, Err(SupervisorError::MissingConfig)));
     }
 }
