@@ -1,5 +1,6 @@
 //! This module contains the data models for the Argus application.
 
+pub mod abi;
 pub mod action;
 pub mod alert_manager_state;
 pub mod block_data;

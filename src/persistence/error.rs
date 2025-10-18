@@ -10,8 +10,8 @@ pub enum PersistenceError {
     OperationFailed(String),
 
     /// The requested item was not found in the data store.
-    #[error("The requested item was not found")]
-    NotFound,
+    #[error("The requested item was not found: {0}")]
+    NotFound(String),
 
     /// An error occurred during serialization or deserialization.
     #[error("Failed to serialize or deserialize data: {0}")]
@@ -24,4 +24,8 @@ pub enum PersistenceError {
     /// An invalid configuration or input was provided.
     #[error("An invalid configuration or input was provided: {0}")]
     InvalidInput(String),
+
+    /// The item already exists in the data store.
+    #[error("Item already exists: {0}")]
+    AlreadyExists(String),
 }

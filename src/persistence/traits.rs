@@ -7,6 +7,7 @@ use serde::{Serialize, de::DeserializeOwned};
 
 use super::error::PersistenceError;
 use crate::models::{
+    abi::Abi,
     action::ActionConfig,
     monitor::{Monitor, MonitorConfig},
 };
@@ -82,6 +83,24 @@ pub trait AppRepository: Send + Sync {
 
     /// Clears all actions for a specific network.
     async fn clear_actions(&self, network_id: &str) -> Result<(), PersistenceError>;
+
+    // ABI management operations:
+    /// Retrieves all ABIs from the database.
+    async fn get_abis(&self) -> Result<Vec<Abi>, PersistenceError>;
+
+    /// Retrieves a specific ABI by its name.
+    async fn get_abi_by_name(&self, name: &str) -> Result<Option<Abi>, PersistenceError>;
+
+    /// Adds a new ABI to the database.
+    /// Returns an error if an ABI with the same name already exists.
+    async fn add_abi(&self, name: &str, abi_content: &str) -> Result<(), PersistenceError>;
+
+    /// Deletes an ABI by its name.
+    /// Should check if the ABI is in use by any monitors before deletion.
+    async fn delete_abi(&self, name: &str) -> Result<(), PersistenceError>;
+
+    /// Checks if an ABI is currently in use by any monitors.
+    async fn is_abi_in_use(&self, name: &str) -> Result<bool, PersistenceError>;
 }
 
 /// Represents a generic key-value store for JSON-serializable objects.
