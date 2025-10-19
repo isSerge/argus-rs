@@ -422,6 +422,7 @@ mod tests {
             Box::new(mock_data_source),
             filtering_engine,
             alert_manager,
+            monitor_manager,
             CONCURRENCY,
         )
         .await;
@@ -486,6 +487,7 @@ mod tests {
             Box::new(mock_data_source),
             filtering_engine,
             alert_manager,
+            monitor_manager,
             CONCURRENCY,
         )
         .await;
@@ -545,6 +547,7 @@ mod tests {
             Box::new(mock_data_source),
             filtering_engine,
             alert_manager,
+            monitor_manager,
             CONCURRENCY,
         )
         .await;
@@ -597,6 +600,7 @@ mod tests {
             Box::new(mock_data_source),
             filtering_engine,
             alert_manager,
+            monitor_manager,
             CONCURRENCY,
         )
         .await;
@@ -677,6 +681,7 @@ mod tests {
             Box::new(mock_data_source),
             filtering_engine,
             alert_manager,
+            monitor_manager,
             CONCURRENCY,
         )
         .await;
@@ -724,6 +729,7 @@ mod tests {
             Box::new(mock_data_source),
             filtering_engine,
             alert_manager,
+            monitor_manager,
             CONCURRENCY,
         )
         .await;

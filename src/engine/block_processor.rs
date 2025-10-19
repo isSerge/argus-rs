@@ -224,7 +224,9 @@ mod tests {
     use super::*;
     use crate::{
         persistence::traits::MockAppRepository,
-        test_helpers::{BlockBuilder, TransactionBuilder},
+        test_helpers::{
+            BlockBuilder, MonitorBuilder, TransactionBuilder, create_test_monitor_manager,
+        },
     };
 
     const TEST_NETWORK_ID: &str = "testnet";
@@ -246,7 +248,18 @@ mod tests {
             tx: mpsc::Sender<CorrelatedBlockData>,
             token: CancellationToken,
         ) -> BlockProcessor<MockAppRepository> {
-            BlockProcessor::new(self.config, Arc::new(self.mock_state_repo), rx, tx, token)
+            let monitor =
+                MonitorBuilder::new().network(TEST_NETWORK_ID).filter_script("true").build();
+            let monitors = vec![monitor];
+            let monitor_manager = create_test_monitor_manager(monitors);
+            BlockProcessor::new(
+                self.config,
+                Arc::new(self.mock_state_repo),
+                monitor_manager,
+                rx,
+                tx,
+                token,
+            )
         }
     }
 
