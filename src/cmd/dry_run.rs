@@ -154,6 +154,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
         Box::new(evm_source),
         filtering_engine,
         alert_manager.clone(),
+        monitor_manager.clone(),
         config.concurrency as usize,
     )
     .await?;
@@ -258,6 +259,7 @@ async fn run_dry_run_loop<T: KeyValueStore>(
     data_source: Box<dyn DataSource>,
     filtering_engine: RhaiFilteringEngine,
     alert_manager: Arc<AlertManager<T>>,
+    monitor_manager: Arc<MonitorManager>,
     concurrency: usize,
 ) -> Result<Vec<MonitorMatch>, DryRunError> {
     // Define a batch size for processing blocks in chunks.
@@ -298,7 +300,8 @@ async fn run_dry_run_loop<T: KeyValueStore>(
         // Process the entire collected batch in one call.
         if !block_data_batch.is_empty() {
             tracing::info!(count = block_data_batch.len(), "Processing block batch...");
-            let decoded_blocks_batch = process_blocks_batch(block_data_batch).await?;
+            let decoded_blocks_batch =
+                process_blocks_batch(block_data_batch, monitor_manager.clone()).await?;
 
             // Evaluate each item from the entire batch of decoded blocks.
             for decoded_block in decoded_blocks_batch {
