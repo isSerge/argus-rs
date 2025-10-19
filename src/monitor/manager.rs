@@ -53,6 +53,10 @@ pub struct MonitorAssetState {
 
     /// The flag indicating if any monitor in this snapshot requires receipts.
     pub requires_receipts: bool,
+
+    /// The flag indicating if any monitor is purely transaction-based (used for
+    /// filtering optimizations).
+    pub has_transaction_only_monitors: bool,
 }
 
 /// Manages monitors, including organizing them for efficient execution and
@@ -119,14 +123,22 @@ impl MonitorManager {
         let monitors = classified_monitors.into_iter().map(|(cm, _)| cm).collect::<Vec<_>>();
 
         let interest_registry = Self::build_interest_registry(&monitors, abi_service);
+        let has_transaction_only_monitors =
+            monitors.iter().any(|m| m.caps == MonitorCapabilities::TX);
 
         tracing::debug!(
-            "Organized monitors: {} total, requires_receipts={}",
+            "Organized monitors: {} total, requires_receipts={}, has_tx_only_monitors={}",
             monitors.len(),
-            requires_receipts
+            requires_receipts,
+            has_transaction_only_monitors
         );
 
-        MonitorAssetState { monitors, requires_receipts, interest_registry }
+        MonitorAssetState {
+            monitors,
+            requires_receipts,
+            interest_registry,
+            has_transaction_only_monitors,
+        }
     }
 
     /// Classifies a single monitor by analyzing its script and determining its

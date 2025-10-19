@@ -11,6 +11,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     config::AppConfig,
     models::{BlockData, CorrelatedBlockData, CorrelatedBlockItem, transaction::Transaction},
+    monitor::{MonitorAssetState, MonitorManager},
     persistence::traits::AppRepository,
 };
 
@@ -26,6 +27,8 @@ pub struct BlockProcessor<S: AppRepository + ?Sized> {
     config: Arc<AppConfig>,
     /// The persistent state repository for managing application state.
     state: Arc<S>,
+    /// The monitor manager.
+    monitor_manager: Arc<MonitorManager>,
     /// The receiver for the raw block data channel.
     raw_blocks_rx: mpsc::Receiver<BlockData>,
     /// The sender for the correlated block data channel.
@@ -34,16 +37,24 @@ pub struct BlockProcessor<S: AppRepository + ?Sized> {
     cancellation_token: CancellationToken,
 }
 
-impl<S: AppRepository + ?Sized> BlockProcessor<S> {
+impl<S: AppRepository + ?Sized + Send + Sync> BlockProcessor<S> {
     /// Creates a new BlockProcessor instance.
     pub fn new(
         config: Arc<AppConfig>,
         state: Arc<S>,
+        monitor_manager: Arc<MonitorManager>,
         raw_blocks_rx: mpsc::Receiver<BlockData>,
         correlated_blocks_tx: mpsc::Sender<CorrelatedBlockData>,
         cancellation_token: CancellationToken,
     ) -> Self {
-        Self { config, state, raw_blocks_rx, correlated_blocks_tx, cancellation_token }
+        Self {
+            config,
+            state,
+            monitor_manager,
+            raw_blocks_rx,
+            correlated_blocks_tx,
+            cancellation_token,
+        }
     }
 
     /// Starts the long-running service loop.
@@ -79,7 +90,7 @@ impl<S: AppRepository + ?Sized> BlockProcessor<S> {
 
     /// Processes a batch of blocks and dispatches them to the filtering engine.
     async fn process_and_dispatch(&self, blocks: Vec<BlockData>) {
-        match process_blocks_batch(blocks).await {
+        match process_blocks_batch(blocks, self.monitor_manager.clone()).await {
             Ok(correlated_blocks) => {
                 let mut last_processed = None;
                 for correlated_block in correlated_blocks {
@@ -121,6 +132,7 @@ impl<S: AppRepository + ?Sized> BlockProcessor<S> {
 /// and potential reuse.
 pub async fn process_blocks_batch(
     blocks: Vec<BlockData>,
+    monitor_manager: Arc<MonitorManager>,
 ) -> Result<Vec<CorrelatedBlockData>, Box<dyn std::error::Error + Send + Sync>> {
     if blocks.is_empty() {
         return Ok(Vec::new());
@@ -134,9 +146,11 @@ pub async fn process_blocks_batch(
         "Processing batch of blocks."
     );
 
-    let correlated_blocks: Vec<CorrelatedBlockData> =
-        tokio::task::spawn_blocking(move || blocks.into_iter().map(process_block).collect())
-            .await?;
+    let correlated_blocks: Vec<CorrelatedBlockData> = tokio::task::spawn_blocking(move || {
+        let monitor_snapshot = monitor_manager.load();
+        blocks.into_iter().map(|block| process_block(block, &monitor_snapshot)).collect()
+    })
+    .await?;
 
     tracing::info!(total_correlated_blocks = count, "Batch correlation completed.");
 
@@ -145,27 +159,56 @@ pub async fn process_blocks_batch(
 
 /// Correlates a single block's data, grouping transactions with their logs and
 /// receipts.
-fn process_block(block_data: BlockData) -> CorrelatedBlockData {
-    tracing::debug!(block_number = block_data.block.header.number, "Correlating block data.");
-
+fn process_block(
+    block_data: BlockData,
+    monitor_snapshot: &MonitorAssetState,
+) -> CorrelatedBlockData {
     let mut correlated_items = Vec::new();
+    let interest_registry = &monitor_snapshot.interest_registry;
 
     if let BlockTransactions::Full(transactions) = block_data.block.transactions {
         correlated_items.reserve(transactions.len());
-        for tx in transactions {
-            let tx: Transaction = tx.into();
-            let tx_hash = tx.hash();
 
-            let logs = block_data.logs.get(&tx_hash).cloned().unwrap_or_default();
-            let receipt = block_data.receipts.get(&tx_hash).cloned();
+        // Choose the processing strategy based on whether any transaction-only monitors
+        // exist.
+        if monitor_snapshot.has_transaction_only_monitors {
+            // Fast Path: If there's a global transaction monitor, we can't skip any
+            // transaction. This path avoids the overhead of checking each
+            // transaction for potential matches.
+            for tx in transactions {
+                let tx: Transaction = tx.into();
+                let tx_hash = tx.hash();
+                let logs = block_data.logs.get(&tx_hash).cloned().unwrap_or_default();
+                let receipt = block_data.receipts.get(&tx_hash).cloned();
+                let correlated_item = CorrelatedBlockItem::new(tx, logs, receipt);
+                correlated_items.push(correlated_item);
+            }
+        } else {
+            // Optimized Path: No global transaction monitors, so we can inspect each
+            // transaction and skip those that are not potentially matchable.
+            for tx in transactions {
+                let tx: Transaction = tx.into();
+                let tx_hash = tx.hash();
+                let logs = block_data.logs.get(&tx_hash).cloned().unwrap_or_default();
+                let to_addr = tx.to();
 
-            let correlated_item = CorrelatedBlockItem::new(tx, logs, receipt);
-            correlated_items.push(correlated_item);
+                // A transaction is "potentially matchable" if it has logs or is directed at an
+                // address we're monitoring for calldata.
+                let is_potentially_matchable = !logs.is_empty()
+                    || (to_addr.is_some()
+                        && interest_registry.calldata_addresses.contains(&to_addr.unwrap()));
+
+                if is_potentially_matchable {
+                    let receipt = block_data.receipts.get(&tx_hash).cloned();
+                    let correlated_item = CorrelatedBlockItem::new(tx, logs, receipt);
+                    correlated_items.push(correlated_item);
+                }
+            }
         }
     } else {
         tracing::warn!(
             block_number = block_data.block.header.number,
-            "Block does not contain full transaction objects. Skipping correlation."
+            "Block contains only transaction hashes, not full transaction data."
         );
     }
 
@@ -174,14 +217,19 @@ fn process_block(block_data: BlockData) -> CorrelatedBlockData {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
+    use alloy::primitives::{B256, address};
     use mockall::predicate::eq;
 
     use super::*;
     use crate::{
+        monitor::InterestRegistry,
         persistence::traits::MockAppRepository,
-        test_helpers::{BlockBuilder, TransactionBuilder},
+        test_helpers::{
+            BlockBuilder, LogBuilder, MonitorBuilder, TransactionBuilder,
+            create_test_monitor_manager,
+        },
     };
 
     const TEST_NETWORK_ID: &str = "testnet";
@@ -203,7 +251,18 @@ mod tests {
             tx: mpsc::Sender<CorrelatedBlockData>,
             token: CancellationToken,
         ) -> BlockProcessor<MockAppRepository> {
-            BlockProcessor::new(self.config, Arc::new(self.mock_state_repo), rx, tx, token)
+            let monitor =
+                MonitorBuilder::new().network(TEST_NETWORK_ID).filter_script("true").build();
+            let monitors = vec![monitor];
+            let monitor_manager = create_test_monitor_manager(monitors);
+            BlockProcessor::new(
+                self.config,
+                Arc::new(self.mock_state_repo),
+                monitor_manager,
+                rx,
+                tx,
+                token,
+            )
         }
     }
 
@@ -232,5 +291,113 @@ mod tests {
 
         let correlated_block = correlated_rx.recv().await.unwrap();
         assert_eq!(correlated_block.block_number, block_number);
+    }
+
+    // Tests for the process_block function
+    fn empty_monitor_snapshot() -> MonitorAssetState {
+        MonitorAssetState {
+            monitors: vec![],
+            requires_receipts: false,
+            interest_registry: InterestRegistry::default(),
+            has_transaction_only_monitors: false,
+        }
+    }
+
+    #[test]
+    fn test_fast_path_processes_all_transactions() {
+        // Arrange
+        let mut monitor_snapshot = empty_monitor_snapshot();
+        monitor_snapshot.has_transaction_only_monitors = true;
+
+        let tx1 = TransactionBuilder::new().build();
+        let tx2 = TransactionBuilder::new().build();
+        let block = BlockBuilder::new().number(100).transaction(tx1).transaction(tx2).build();
+        let block_data = BlockData::from_raw_data(block, HashMap::new(), vec![]);
+
+        // Act
+        let result = process_block(block_data, &monitor_snapshot);
+
+        // Assert
+        assert_eq!(result.items.len(), 2, "All transactions should be processed on the fast path");
+    }
+
+    #[test]
+    fn test_optimized_path_filters_irrelevant_transactions() {
+        // Arrange
+        let mut monitor_snapshot = empty_monitor_snapshot();
+        let monitored_addr = address!("0000000000000000000000000000000000000001");
+        monitor_snapshot.interest_registry.calldata_addresses =
+            HashSet::from([monitored_addr]).into();
+
+        // Create transactions with unique hashes
+        let hash1 = B256::from([1u8; 32]);
+        let hash2 = B256::from([2u8; 32]);
+        let hash3 = B256::from([3u8; 32]);
+
+        let tx_with_log = TransactionBuilder::new().hash(hash1).build();
+        let tx_to_monitored_addr =
+            TransactionBuilder::new().hash(hash2).to(Some(monitored_addr)).build();
+        // Ensure the irrelevant transaction does not accidentally match the monitored
+        // address.
+        let irrelevant_addr = address!("0000000000000000000000000000000000000002");
+        let irrelevant_tx = TransactionBuilder::new().hash(hash3).to(Some(irrelevant_addr)).build();
+
+        let block = BlockBuilder::new()
+            .number(100)
+            .transaction(tx_with_log.clone())
+            .transaction(tx_to_monitored_addr.clone())
+            .transaction(irrelevant_tx)
+            .build();
+
+        // `from_raw_data` expects a Vec of raw Alloy logs, not a HashMap.
+        let log = LogBuilder::new().transaction_hash(tx_with_log.hash()).build();
+        let raw_logs = vec![log.into()];
+        let block_data = BlockData::from_raw_data(block, HashMap::new(), raw_logs);
+
+        // Act
+        let result = process_block(block_data, &monitor_snapshot);
+
+        // Assert
+        assert_eq!(
+            result.items.len(),
+            2,
+            "Should only process transactions with logs or to a monitored address"
+        );
+        assert_eq!(result.items[0].transaction, tx_with_log);
+        assert_eq!(result.items[1].transaction, tx_to_monitored_addr);
+    }
+
+    #[test]
+    fn test_optimized_path_processes_nothing_when_no_matches() {
+        // Arrange
+        let monitor_snapshot = empty_monitor_snapshot();
+
+        let tx1 = TransactionBuilder::new().build();
+        let tx2 = TransactionBuilder::new().build();
+        let block = BlockBuilder::new().number(100).transaction(tx1).transaction(tx2).build();
+        let block_data = BlockData::from_raw_data(block, HashMap::new(), vec![]);
+
+        // Act
+        let result = process_block(block_data, &monitor_snapshot);
+
+        // Assert
+        assert!(
+            result.items.is_empty(),
+            "No transactions should be processed when none are relevant"
+        );
+    }
+
+    #[test]
+    fn test_process_block_with_no_transactions() {
+        // Arrange
+        let monitor_snapshot = empty_monitor_snapshot();
+        let block = BlockBuilder::new().number(100).build();
+        let block_data = BlockData::from_raw_data(block, HashMap::new(), vec![]);
+
+        // Act
+        let result = process_block(block_data, &monitor_snapshot);
+
+        // Assert
+        assert!(result.items.is_empty());
     }
 }

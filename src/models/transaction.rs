@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 /// A newtype wrapper around `alloy::rpc::types::Transaction` to create a stable
 /// API boundary for the rest of the application.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Transaction(pub AlloyTransaction);
 
 impl Transaction {
