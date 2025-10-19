@@ -217,15 +217,18 @@ fn process_block(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
+    use alloy::primitives::{B256, address};
     use mockall::predicate::eq;
 
     use super::*;
     use crate::{
+        monitor::InterestRegistry,
         persistence::traits::MockAppRepository,
         test_helpers::{
-            BlockBuilder, MonitorBuilder, TransactionBuilder, create_test_monitor_manager,
+            BlockBuilder, LogBuilder, MonitorBuilder, TransactionBuilder,
+            create_test_monitor_manager,
         },
     };
 
@@ -288,5 +291,113 @@ mod tests {
 
         let correlated_block = correlated_rx.recv().await.unwrap();
         assert_eq!(correlated_block.block_number, block_number);
+    }
+
+    // Tests for the process_block function
+    fn empty_monitor_snapshot() -> MonitorAssetState {
+        MonitorAssetState {
+            monitors: vec![],
+            requires_receipts: false,
+            interest_registry: InterestRegistry::default(),
+            has_transaction_only_monitors: false,
+        }
+    }
+
+    #[test]
+    fn test_fast_path_processes_all_transactions() {
+        // Arrange
+        let mut monitor_snapshot = empty_monitor_snapshot();
+        monitor_snapshot.has_transaction_only_monitors = true;
+
+        let tx1 = TransactionBuilder::new().build();
+        let tx2 = TransactionBuilder::new().build();
+        let block = BlockBuilder::new().number(100).transaction(tx1).transaction(tx2).build();
+        let block_data = BlockData::from_raw_data(block, HashMap::new(), vec![]);
+
+        // Act
+        let result = process_block(block_data, &monitor_snapshot);
+
+        // Assert
+        assert_eq!(result.items.len(), 2, "All transactions should be processed on the fast path");
+    }
+
+    #[test]
+    fn test_optimized_path_filters_irrelevant_transactions() {
+        // Arrange
+        let mut monitor_snapshot = empty_monitor_snapshot();
+        let monitored_addr = address!("0000000000000000000000000000000000000001");
+        monitor_snapshot.interest_registry.calldata_addresses =
+            HashSet::from([monitored_addr]).into();
+
+        // Create transactions with unique hashes
+        let hash1 = B256::from([1u8; 32]);
+        let hash2 = B256::from([2u8; 32]);
+        let hash3 = B256::from([3u8; 32]);
+
+        let tx_with_log = TransactionBuilder::new().hash(hash1).build();
+        let tx_to_monitored_addr =
+            TransactionBuilder::new().hash(hash2).to(Some(monitored_addr)).build();
+        // Ensure the irrelevant transaction does not accidentally match the monitored
+        // address.
+        let irrelevant_addr = address!("0000000000000000000000000000000000000002");
+        let irrelevant_tx = TransactionBuilder::new().hash(hash3).to(Some(irrelevant_addr)).build();
+
+        let block = BlockBuilder::new()
+            .number(100)
+            .transaction(tx_with_log.clone())
+            .transaction(tx_to_monitored_addr.clone())
+            .transaction(irrelevant_tx)
+            .build();
+
+        // `from_raw_data` expects a Vec of raw Alloy logs, not a HashMap.
+        let log = LogBuilder::new().transaction_hash(tx_with_log.hash()).build();
+        let raw_logs = vec![log.into()];
+        let block_data = BlockData::from_raw_data(block, HashMap::new(), raw_logs);
+
+        // Act
+        let result = process_block(block_data, &monitor_snapshot);
+
+        // Assert
+        assert_eq!(
+            result.items.len(),
+            2,
+            "Should only process transactions with logs or to a monitored address"
+        );
+        assert_eq!(result.items[0].transaction, tx_with_log);
+        assert_eq!(result.items[1].transaction, tx_to_monitored_addr);
+    }
+
+    #[test]
+    fn test_optimized_path_processes_nothing_when_no_matches() {
+        // Arrange
+        let monitor_snapshot = empty_monitor_snapshot();
+
+        let tx1 = TransactionBuilder::new().build();
+        let tx2 = TransactionBuilder::new().build();
+        let block = BlockBuilder::new().number(100).transaction(tx1).transaction(tx2).build();
+        let block_data = BlockData::from_raw_data(block, HashMap::new(), vec![]);
+
+        // Act
+        let result = process_block(block_data, &monitor_snapshot);
+
+        // Assert
+        assert!(
+            result.items.is_empty(),
+            "No transactions should be processed when none are relevant"
+        );
+    }
+
+    #[test]
+    fn test_process_block_with_no_transactions() {
+        // Arrange
+        let monitor_snapshot = empty_monitor_snapshot();
+        let block = BlockBuilder::new().number(100).build();
+        let block_data = BlockData::from_raw_data(block, HashMap::new(), vec![]);
+
+        // Act
+        let result = process_block(block_data, &monitor_snapshot);
+
+        // Assert
+        assert!(result.items.is_empty());
     }
 }
