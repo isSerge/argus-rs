@@ -37,11 +37,11 @@ Argus is a next-generation, open-source, self-hosted monitoring tool for EVM cha
 
 Benchmarks were run on a MacBook Pro (Apple M1 Pro) over a consistent 100 block range (23,545,500 to 23,545,600) using a local RPC cache to eliminate network latency. The numbers below represent the mean execution time.
 
-| Scenario                   | Objective                                           | Mean Time (± σ)     |
-| -------------------------- | --------------------------------------------------- | ------------------- |
-| **A: Baseline Throughput** | Raw block ingestion and simple `tx.value` filtering | 457.2 ms ± 31.7 ms  |
-| **B: Log-Heavy Workload**  | Global ERC20 `Transfer` log decoding and matching   | 2.061 s ± 0.020 s   |
-| **C: Calldata-Heavy**      | Calldata decoding for a high-traffic contract       | 428.2 ms ± 8.4 ms   |
+| Scenario                   | Objective                                           | Mean Time (± σ)       |
+| -------------------------- | --------------------------------------------------- | --------------------- |
+| **A: Baseline Throughput** | Raw block ingestion and simple `tx.value` filtering | 449.9 ms ± 14.6 ms    |
+| **B: Log-Heavy Workload**  | Global ERC20 `Transfer` log decoding and matching   | 2.213 s ± 0.287 s     |
+| **C: Calldata-Heavy**      | Calldata decoding for a high-traffic contract       | 259.9 ms ± 8.9 ms     |
 
 For more details on how to run the benchmarks yourself, see the [`benchmarks/README.md`](./benchmarks/README.md).
 
