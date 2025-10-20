@@ -130,6 +130,23 @@ pub struct DecodedCall {
     pub tx: Transaction,
 }
 
+impl DecodedCall {
+    /// Converts the decoded call to a JSON value for template serialization.
+    pub fn to_json_value(&self) -> serde_json::Value {
+        use crate::engine::rhai::conversions::dyn_sol_value_to_json;
+
+        let mut params_map = serde_json::Map::new();
+        for (name, value) in &self.params {
+            params_map.insert(name.clone(), dyn_sol_value_to_json(value));
+        }
+
+        serde_json::json!({
+            "name": self.name,
+            "params": params_map
+        })
+    }
+}
+
 /// A service for managing and using contract ABIs.
 ///
 /// This service caches parsed ABIs and provides methods for decoding
