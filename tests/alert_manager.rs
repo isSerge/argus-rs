@@ -34,6 +34,7 @@ fn create_monitor_match(monitor_name: &str, action_name: &str) -> MonitorMatch {
         123,
         Default::default(),
         json!({ "key": "value" }),
+        None,
     )
 }
 

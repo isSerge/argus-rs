@@ -73,6 +73,7 @@ mod tests {
             123,
             TxHash::default(),
             serde_json::json!({ "foo": "bar" }),
+            None,
         );
         let payload = ActionPayload::Single(monitor_match.clone());
         let context = payload.context().unwrap();
@@ -89,6 +90,7 @@ mod tests {
             123,
             TxHash::default(),
             serde_json::json!({ "foo": "bar" }),
+            None,
         );
         let monitor_match2 = MonitorMatch::new_tx_match(
             2,
@@ -97,6 +99,7 @@ mod tests {
             124,
             TxHash::default(),
             serde_json::json!({ "baz": "qux" }),
+            None,
         );
         let payload = ActionPayload::Aggregated {
             action_name: "test-action".to_string(),
@@ -123,6 +126,7 @@ mod tests {
             123,
             TxHash::default(),
             serde_json::json!({ "foo": "bar" }),
+            None,
         );
         let single_payload = ActionPayload::Single(monitor_match.clone());
         assert_eq!(single_payload.action_name(), "test-action");
@@ -147,6 +151,7 @@ mod tests {
             123,
             TxHash::default(),
             serde_json::json!({ "foo": "bar" }),
+            None,
         );
         let single_payload = ActionPayload::Single(monitor_match.clone());
         assert_eq!(single_payload.monitor_name(), "test-monitor");

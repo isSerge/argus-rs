@@ -239,6 +239,7 @@ mod tests {
             123,
             Default::default(),
             serde_json::json!({"value": "100"}),
+            None,
         );
         let payload = ActionPayload::Single(monitor_match.clone());
 

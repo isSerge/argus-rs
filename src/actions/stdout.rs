@@ -73,6 +73,7 @@ mod tests {
             TxHash::default(),
             log_details,
             json!({}),
+            None,
         )
     }
 

@@ -45,6 +45,7 @@ fn create_test_payload() -> ActionPayload {
         123,
         TxHash::default(),
         serde_json::json!({ "foo": "bar" }),
+        None,
     );
     ActionPayload::Single(monitor_match)
 }

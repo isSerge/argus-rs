@@ -72,6 +72,7 @@ async fn test_webhook_action_success() {
         123,
         Default::default(),
         json!({"value": "100"}),
+        None,
     );
 
     let payload = ActionPayload::Single(monitor_match.clone());
@@ -96,6 +97,7 @@ async fn test_stdout_action_success() {
         123,
         Default::default(),
         json!({"value": "100"}),
+        None,
     );
 
     let payload = ActionPayload::Single(monitor_match.clone());
@@ -136,6 +138,7 @@ async fn test_failure_with_retryable_error() {
         456,
         Default::default(),
         json!({}),
+        None,
     );
 
     let payload = ActionPayload::Single(monitor_match.clone());
@@ -179,6 +182,7 @@ async fn test_failure_with_non_retryable_error() {
         789,
         Default::default(),
         json!({}),
+        None,
     );
 
     let payload = ActionPayload::Single(monitor_match.clone());
@@ -211,6 +215,7 @@ async fn test_failure_with_invalid_url() {
         101,
         Default::default(),
         json!({}),
+        None,
     );
 
     let payload = ActionPayload::Single(monitor_match.clone());
@@ -254,6 +259,7 @@ async fn test_kafka_action_success() {
         123,
         Default::default(),
         json!({"value": "100"}),
+        None,
     );
     let payload = ActionPayload::Single(monitor_match.clone());
     let result = action_dispatcher.execute(payload.clone()).await;
@@ -289,6 +295,7 @@ async fn test_kafka_action_failure() {
         123,
         Default::default(),
         json!({"value": "100"}),
+        None,
     );
 
     let payload = ActionPayload::Single(monitor_match.clone());
@@ -367,6 +374,7 @@ async fn test_rabbitmq_action_success() {
         123,
         Default::default(),
         json!({"value": "100"}),
+        None,
     );
     let payload = ActionPayload::Single(monitor_match.clone());
     let result = action_dispatcher.execute(payload.clone()).await;
@@ -403,6 +411,7 @@ async fn test_rabbitmq_action_failure() {
         123,
         Default::default(),
         json!({"value": "100"}),
+        None,
     );
 
     let payload = ActionPayload::Single(monitor_match.clone());
@@ -440,6 +449,7 @@ async fn test_nats_action_success() {
         123,
         Default::default(),
         json!({"value": "100"}),
+        None,
     );
     let payload = ActionPayload::Single(monitor_match.clone());
     let result = action_dispatcher.execute(payload.clone()).await;
@@ -473,6 +483,7 @@ async fn test_nats_action_failure() {
         123,
         Default::default(),
         json!({"value": "100"}),
+        None,
     );
 
     let payload = ActionPayload::Single(monitor_match.clone());

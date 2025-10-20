@@ -759,6 +759,7 @@ mod tests {
                 100,
                 Default::default(),
                 json!({}),
+                None,
             ),
             MonitorMatch::new_tx_match(
                 2,
@@ -767,6 +768,7 @@ mod tests {
                 101,
                 Default::default(),
                 json!({}),
+                None,
             ),
             MonitorMatch::new_tx_match(
                 3,
@@ -775,6 +777,7 @@ mod tests {
                 102,
                 Default::default(),
                 json!({}),
+                None,
             ),
         ];
 
