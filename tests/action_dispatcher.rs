@@ -12,7 +12,7 @@ use argus::{
         action::{ActionConfig, ActionTypeConfig, DiscordConfig},
         monitor_match::MonitorMatch,
     },
-    test_helpers::ActionBuilder,
+    test_helpers::{ActionBuilder, create_test_monitor_match},
 };
 use lapin::{
     Connection, ConnectionProperties, ExchangeKind,
@@ -65,16 +65,7 @@ async fn test_webhook_action_success() {
         Arc::new(vec![mock_discord_action].into_iter().map(|n| (n.name.clone(), n)).collect());
     let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
 
-    let monitor_match = MonitorMatch::builder(
-        1,
-        "Test Monitor".to_string(),
-        "test_discord".to_string(),
-        123,
-        Default::default(),
-    )
-    .transaction_match(json!({"value": "100"}))
-    .decoded_call(None)
-    .build();
+    let monitor_match = create_test_monitor_match("Test Monitor", "test_discord");
 
     let payload = ActionPayload::Single(monitor_match.clone());
     let result = action_dispatcher.execute(payload).await;
@@ -91,16 +82,7 @@ async fn test_stdout_action_success() {
     let actions = Arc::new(vec![stdout_action].into_iter().map(|n| (n.name.clone(), n)).collect());
     let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
 
-    let monitor_match = MonitorMatch::builder(
-        1,
-        "Test Monitor".to_string(),
-        "test_stdout".to_string(),
-        123,
-        Default::default(),
-    )
-    .transaction_match(json!({"value": "100"}))
-    .decoded_call(None)
-    .build();
+    let monitor_match = create_test_monitor_match("Test Monitor", "test_stdout");
 
     let payload = ActionPayload::Single(monitor_match.clone());
     let result = action_dispatcher.execute(payload).await;
