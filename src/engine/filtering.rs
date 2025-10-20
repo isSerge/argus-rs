@@ -288,11 +288,7 @@ impl RhaiFilteringEngine {
                     context.item.transaction.hash(),
                 )
                 .log_match(log_details, tx_details.clone())
-                .decoded_call(context.decoded_call_cache.as_ref().and_then(|opt| {
-                    opt.as_ref().map(|call| {
-                        serde_json::to_value(call.as_ref()).unwrap_or(serde_json::Value::Null)
-                    })
-                }))
+                .decoded_call(Self::extract_decoded_call_json(&context.decoded_call_cache))
                 .build(),
             );
         }
@@ -314,14 +310,21 @@ impl RhaiFilteringEngine {
                     context.item.transaction.hash(),
                 )
                 .transaction_match(tx_match_payload.clone())
-                .decoded_call(context.decoded_call_cache.as_ref().and_then(|opt| {
-                    opt.as_ref().map(|call| {
-                        serde_json::to_value(call.as_ref()).unwrap_or(serde_json::Value::Null)
-                    })
-                }))
+                .decoded_call(Self::extract_decoded_call_json(&context.decoded_call_cache))
                 .build(),
             );
         }
+    }
+
+    /// Converts the decoded call cache to a JSON value for use in MonitorMatch.
+    /// Returns None if there's no decoded call available.
+    fn extract_decoded_call_json(
+        decoded_call_cache: &Option<Option<Arc<DecodedCall>>>,
+    ) -> Option<serde_json::Value> {
+        decoded_call_cache.as_ref().and_then(|opt| {
+            opt.as_ref()
+                .map(|call| serde_json::to_value(call.as_ref()).unwrap_or(serde_json::Value::Null))
+        })
     }
 
     /// Executes a pre-compiled AST with security controls including a timeout.
