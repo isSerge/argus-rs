@@ -288,12 +288,11 @@ impl RhaiFilteringEngine {
                     context.item.transaction.hash(),
                 )
                 .log_match(log_details, tx_details.clone())
-                .decoded_call(
-                    context
-                        .decoded_call_cache
-                        .as_ref()
-                        .and_then(|opt| opt.as_ref().map(|call| call.to_json_value())),
-                )
+                .decoded_call(context.decoded_call_cache.as_ref().and_then(|opt| {
+                    opt.as_ref().map(|call| {
+                        serde_json::to_value(call.as_ref()).unwrap_or(serde_json::Value::Null)
+                    })
+                }))
                 .build(),
             );
         }
@@ -315,12 +314,11 @@ impl RhaiFilteringEngine {
                     context.item.transaction.hash(),
                 )
                 .transaction_match(tx_match_payload.clone())
-                .decoded_call(
-                    context
-                        .decoded_call_cache
-                        .as_ref()
-                        .and_then(|opt| opt.as_ref().map(|call| call.to_json_value())),
-                )
+                .decoded_call(context.decoded_call_cache.as_ref().and_then(|opt| {
+                    opt.as_ref().map(|call| {
+                        serde_json::to_value(call.as_ref()).unwrap_or(serde_json::Value::Null)
+                    })
+                }))
                 .build(),
             );
         }

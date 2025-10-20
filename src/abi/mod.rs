@@ -18,6 +18,7 @@ use alloy::{
 };
 use dashmap::DashMap;
 use parking_lot::RwLock;
+use serde::Serialize;
 use thiserror::Error;
 
 pub use self::repository::AbiRepository;
@@ -130,20 +131,26 @@ pub struct DecodedCall {
     pub tx: Transaction,
 }
 
-impl DecodedCall {
-    /// Converts the decoded call to a JSON value for template serialization.
-    pub fn to_json_value(&self) -> serde_json::Value {
+impl Serialize for DecodedCall {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+
         use crate::engine::rhai::conversions::dyn_sol_value_to_json;
 
+        let mut state = serializer.serialize_struct("DecodedCall", 2)?;
+        state.serialize_field("name", &self.name)?;
+
+        // Convert params to a map using the existing conversion function
         let mut params_map = serde_json::Map::new();
         for (name, value) in &self.params {
             params_map.insert(name.clone(), dyn_sol_value_to_json(value));
         }
+        state.serialize_field("params", &params_map)?;
 
-        serde_json::json!({
-            "name": self.name,
-            "params": params_map
-        })
+        state.end()
     }
 }
 
