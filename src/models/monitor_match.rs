@@ -36,48 +36,66 @@ pub struct MonitorMatch {
 }
 
 impl MonitorMatch {
-    /// Creates a new transaction match.
-    #[allow(clippy::too_many_arguments)]
-    pub fn new_tx_match(
+    /// Creates a new `MonitorMatchBuilder` to construct a `MonitorMatch`.
+    pub fn builder(
         monitor_id: i64,
         monitor_name: String,
         action_name: String,
         block_number: u64,
         transaction_hash: TxHash,
-        details: Value,
-        decoded_call: Option<Value>,
-    ) -> Self {
-        Self {
+    ) -> MonitorMatchBuilder {
+        MonitorMatchBuilder {
             monitor_id,
             monitor_name,
             action_name,
             block_number,
             transaction_hash,
-            match_data: MatchData::Transaction(TransactionMatchData { details }),
-            decoded_call,
+            match_data: None,
+            decoded_call: None,
         }
     }
+}
 
-    /// Creates a new log match.
-    #[allow(clippy::too_many_arguments)]
-    pub fn new_log_match(
-        monitor_id: i64,
-        monitor_name: String,
-        action_name: String,
-        block_number: u64,
-        transaction_hash: TxHash,
-        log_details: LogDetails,
-        tx_details: Value,
-        decoded_call: Option<Value>,
-    ) -> Self {
-        Self {
-            monitor_id,
-            monitor_name,
-            action_name,
-            block_number,
-            transaction_hash,
-            match_data: MatchData::Log(LogMatchData { log_details, tx_details }),
-            decoded_call,
+/// A builder for creating `MonitorMatch` instances.
+pub struct MonitorMatchBuilder {
+    monitor_id: i64,
+    monitor_name: String,
+    action_name: String,
+    block_number: u64,
+    transaction_hash: TxHash,
+    match_data: Option<MatchData>,
+    decoded_call: Option<Value>,
+}
+
+impl MonitorMatchBuilder {
+    /// Sets the match data to a transaction match.
+    pub fn transaction_match(mut self, details: Value) -> Self {
+        self.match_data = Some(MatchData::Transaction(TransactionMatchData { details }));
+        self
+    }
+
+    /// Sets the match data to a log match.
+    pub fn log_match(mut self, log_details: LogDetails, tx_details: Value) -> Self {
+        self.match_data = Some(MatchData::Log(LogMatchData { log_details, tx_details }));
+        self
+    }
+
+    /// Sets the decoded call data.
+    pub fn decoded_call(mut self, decoded_call: Option<Value>) -> Self {
+        self.decoded_call = decoded_call;
+        self
+    }
+
+    /// Builds the `MonitorMatch` instance.
+    pub fn build(self) -> MonitorMatch {
+        MonitorMatch {
+            monitor_id: self.monitor_id,
+            monitor_name: self.monitor_name,
+            action_name: self.action_name,
+            block_number: self.block_number,
+            transaction_hash: self.transaction_hash,
+            match_data: self.match_data.expect("Match data must be set"),
+            decoded_call: self.decoded_call,
         }
     }
 }
@@ -314,15 +332,16 @@ mod tests {
 
     #[test]
     fn test_monitor_match_construction_from_tx() {
-        let monitor_match = MonitorMatch::new_tx_match(
+        let monitor_match = MonitorMatch::builder(
             1,
             "Test Monitor".to_string(),
             "Test Action".to_string(),
             123,
             TxHash::default(),
-            json!({"key": "value"}),
-            None,
-        );
+        )
+        .transaction_match(json!({"key": "value"}))
+        .decoded_call(None)
+        .build();
 
         assert_eq!(monitor_match.monitor_id, 1);
         assert_eq!(monitor_match.monitor_name, "Test Monitor");
@@ -353,16 +372,16 @@ mod tests {
         };
         let tx_details = json!({"from": "0x123"});
 
-        let monitor_match = MonitorMatch::new_log_match(
+        let monitor_match = MonitorMatch::builder(
             monitor_id,
             monitor_name.clone(),
             action_name.clone(),
             block_number,
             TxHash::default(),
-            log_details.clone(),
-            tx_details.clone(),
-            None,
-        );
+        )
+        .log_match(log_details.clone(), tx_details.clone())
+        .decoded_call(None)
+        .build();
 
         assert_eq!(monitor_match.monitor_id, monitor_id);
         assert_eq!(monitor_match.monitor_name, monitor_name);
@@ -381,15 +400,16 @@ mod tests {
 
     #[test]
     fn test_monitor_match_tx_serialization() {
-        let monitor_match = MonitorMatch::new_tx_match(
+        let monitor_match = MonitorMatch::builder(
             1,
             "Test Monitor".to_string(),
             "Test Action".to_string(),
             123,
             TxHash::default(),
-            json!({ "from": "0x4976...", "value": "22545..." }),
-            None,
-        );
+        )
+        .transaction_match(json!({ "from": "0x4976...", "value": "22545..." }))
+        .decoded_call(None)
+        .build();
 
         let expected_json = json!({
             "monitor_id": 1,
@@ -418,16 +438,16 @@ mod tests {
         };
         let tx_details = json!({ "from": "0x4976..." });
 
-        let monitor_match = MonitorMatch::new_log_match(
+        let monitor_match = MonitorMatch::builder(
             2,
             "Log Monitor".to_string(),
             "Log Action".to_string(),
             456,
             TxHash::default(),
-            log_details,
-            tx_details,
-            None,
-        );
+        )
+        .log_match(log_details, tx_details)
+        .decoded_call(None)
+        .build();
 
         let expected_json = json!({
             "monitor_id": 2,

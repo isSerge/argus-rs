@@ -279,19 +279,23 @@ impl RhaiFilteringEngine {
                 name: decoded_log.name.clone(),
                 params: log_match_payload.clone(),
             };
-            context.matches.push(MonitorMatch::new_log_match(
-                monitor.id,
-                monitor.name.clone(),
-                action.clone(),
-                context.item.transaction.block_number().unwrap_or_default(),
-                context.item.transaction.hash(),
-                log_details,
-                tx_details.clone(),
-                context
-                    .decoded_call_cache
-                    .as_ref()
-                    .and_then(|opt| opt.as_ref().map(|call| call.to_json_value())),
-            ));
+            context.matches.push(
+                MonitorMatch::builder(
+                    monitor.id,
+                    monitor.name.clone(),
+                    action.clone(),
+                    context.item.transaction.block_number().unwrap_or_default(),
+                    context.item.transaction.hash(),
+                )
+                .log_match(log_details, tx_details.clone())
+                .decoded_call(
+                    context
+                        .decoded_call_cache
+                        .as_ref()
+                        .and_then(|opt| opt.as_ref().map(|call| call.to_json_value())),
+                )
+                .build(),
+            );
         }
     }
 
@@ -302,18 +306,23 @@ impl RhaiFilteringEngine {
             context.item.receipt.as_ref(),
         );
         for action in &monitor.actions {
-            context.matches.push(MonitorMatch::new_tx_match(
-                monitor.id,
-                monitor.name.clone(),
-                action.clone(),
-                context.item.transaction.block_number().unwrap_or_default(),
-                context.item.transaction.hash(),
-                tx_match_payload.clone(),
-                context
-                    .decoded_call_cache
-                    .as_ref()
-                    .and_then(|opt| opt.as_ref().map(|call| call.to_json_value())),
-            ));
+            context.matches.push(
+                MonitorMatch::builder(
+                    monitor.id,
+                    monitor.name.clone(),
+                    action.clone(),
+                    context.item.transaction.block_number().unwrap_or_default(),
+                    context.item.transaction.hash(),
+                )
+                .transaction_match(tx_match_payload.clone())
+                .decoded_call(
+                    context
+                        .decoded_call_cache
+                        .as_ref()
+                        .and_then(|opt| opt.as_ref().map(|call| call.to_json_value())),
+                )
+                .build(),
+            );
         }
     }
 

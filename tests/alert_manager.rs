@@ -27,15 +27,16 @@ async fn setup_db() -> SqliteStateRepository {
 }
 
 fn create_monitor_match(monitor_name: &str, action_name: &str) -> MonitorMatch {
-    MonitorMatch::new_tx_match(
+    MonitorMatch::builder(
         1,
         monitor_name.to_string(),
         action_name.to_string(),
         123,
         Default::default(),
-        json!({ "key": "value" }),
-        None,
     )
+    .transaction_match(json!({ "key": "value" }))
+    .decoded_call(None)
+    .build()
 }
 
 async fn create_alert_manager(

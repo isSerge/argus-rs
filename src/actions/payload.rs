@@ -66,15 +66,16 @@ mod tests {
 
     #[test]
     fn test_single_payload_context() {
-        let monitor_match = MonitorMatch::new_tx_match(
+        let monitor_match = MonitorMatch::builder(
             1,
             "test-monitor".to_string(),
             "test-action".to_string(),
             123,
             TxHash::default(),
-            serde_json::json!({ "foo": "bar" }),
-            None,
-        );
+        )
+        .transaction_match(serde_json::json!({ "foo": "bar" }))
+        .decoded_call(None)
+        .build();
         let payload = ActionPayload::Single(monitor_match.clone());
         let context = payload.context().unwrap();
         let expected_context = serde_json::to_value(&monitor_match).unwrap();
@@ -83,24 +84,26 @@ mod tests {
 
     #[test]
     fn test_aggregated_payload_context() {
-        let monitor_match1 = MonitorMatch::new_tx_match(
+        let monitor_match1 = MonitorMatch::builder(
             1,
             "test-monitor".to_string(),
             "test-action".to_string(),
             123,
             TxHash::default(),
-            serde_json::json!({ "foo": "bar" }),
-            None,
-        );
-        let monitor_match2 = MonitorMatch::new_tx_match(
+        )
+        .transaction_match(serde_json::json!({ "foo": "bar" }))
+        .decoded_call(None)
+        .build();
+        let monitor_match2 = MonitorMatch::builder(
             2,
             "test-monitor".to_string(),
             "test-action".to_string(),
             124,
             TxHash::default(),
-            serde_json::json!({ "baz": "qux" }),
-            None,
-        );
+        )
+        .transaction_match(serde_json::json!({ "baz": "qux" }))
+        .decoded_call(None)
+        .build();
         let payload = ActionPayload::Aggregated {
             action_name: "test-action".to_string(),
             matches: vec![monitor_match1.clone(), monitor_match2.clone()],
@@ -119,15 +122,16 @@ mod tests {
 
     #[test]
     fn test_action_name() {
-        let monitor_match = MonitorMatch::new_tx_match(
+        let monitor_match = MonitorMatch::builder(
             1,
             "test-monitor".to_string(),
             "test-action".to_string(),
             123,
             TxHash::default(),
-            serde_json::json!({ "foo": "bar" }),
-            None,
-        );
+        )
+        .transaction_match(serde_json::json!({ "foo": "bar" }))
+        .decoded_call(None)
+        .build();
         let single_payload = ActionPayload::Single(monitor_match.clone());
         assert_eq!(single_payload.action_name(), "test-action");
 
@@ -144,15 +148,16 @@ mod tests {
 
     #[test]
     fn test_monitor_name() {
-        let monitor_match = MonitorMatch::new_tx_match(
+        let monitor_match = MonitorMatch::builder(
             1,
             "test-monitor".to_string(),
             "test-action".to_string(),
             123,
             TxHash::default(),
-            serde_json::json!({ "foo": "bar" }),
-            None,
-        );
+        )
+        .transaction_match(serde_json::json!({ "foo": "bar" }))
+        .decoded_call(None)
+        .build();
         let single_payload = ActionPayload::Single(monitor_match.clone());
         assert_eq!(single_payload.monitor_name(), "test-monitor");
 

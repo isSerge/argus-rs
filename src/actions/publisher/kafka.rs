@@ -232,15 +232,16 @@ mod tests {
 
         let action = KafkaEventPublisher::from_config(&config).expect("Failed to create action");
 
-        let monitor_match = MonitorMatch::new_tx_match(
+        let monitor_match = MonitorMatch::builder(
             1,
             "Test Monitor".to_string(),
             "test_kafka".to_string(),
             123,
             Default::default(),
-            serde_json::json!({"value": "100"}),
-            None,
-        );
+        )
+        .transaction_match(serde_json::json!({ "value": "100" }))
+        .decoded_call(None)
+        .build();
         let payload = ActionPayload::Single(monitor_match.clone());
 
         let result = action.execute(payload.clone()).await;
