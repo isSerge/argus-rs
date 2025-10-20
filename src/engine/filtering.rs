@@ -287,6 +287,10 @@ impl RhaiFilteringEngine {
                 context.item.transaction.hash(),
                 log_details,
                 tx_details.clone(),
+                context
+                    .decoded_call_cache
+                    .as_ref()
+                    .and_then(|opt| opt.as_ref().map(|call| call.to_json_value())),
             ));
         }
     }
@@ -305,6 +309,10 @@ impl RhaiFilteringEngine {
                 context.item.transaction.block_number().unwrap_or_default(),
                 context.item.transaction.hash(),
                 tx_match_payload.clone(),
+                context
+                    .decoded_call_cache
+                    .as_ref()
+                    .and_then(|opt| opt.as_ref().map(|call| call.to_json_value())),
             ));
         }
     }

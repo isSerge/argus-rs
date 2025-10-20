@@ -408,6 +408,7 @@ mod tests {
                 },
                 tx_details: json!({}), // Default empty transaction details for test
             }),
+            decoded_call: None,
         }
     }
 
