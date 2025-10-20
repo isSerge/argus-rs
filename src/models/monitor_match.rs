@@ -94,7 +94,10 @@ impl MonitorMatchBuilder {
             action_name: self.action_name,
             block_number: self.block_number,
             transaction_hash: self.transaction_hash,
-            match_data: self.match_data.expect("Match data must be set via transaction_match() or log_match() before calling build()"),
+            match_data: self.match_data.expect(
+                "Match data must be set via transaction_match() or log_match() before calling \
+                 build()",
+            ),
             decoded_call: self.decoded_call,
         }
     }
