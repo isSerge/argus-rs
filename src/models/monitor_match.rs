@@ -477,6 +477,44 @@ mod tests {
     }
 
     #[test]
+    fn test_monitor_match_with_decoded_call_serialization() {
+        let decoded_call_data = json!({
+            "name": "transfer",
+            "params": {
+                "_to": "0x123...",
+                "_value": "1000"
+            }
+        });
+
+        let monitor_match = MonitorMatch::builder(
+            1,
+            "Test Monitor".to_string(),
+            "Test Action".to_string(),
+            123,
+            TxHash::default(),
+        )
+        .transaction_match(json!({ "from": "0x4976...", "value": "22545..." }))
+        .decoded_call(Some(decoded_call_data.clone()))
+        .build();
+
+        let expected_json = json!({
+            "monitor_id": 1,
+            "monitor_name": "Test Monitor",
+            "action_name": "Test Action",
+            "block_number": 123,
+            "transaction_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "tx": {
+                "from": "0x4976...",
+                "value": "22545..."
+            },
+            "decoded_call": decoded_call_data
+        });
+
+        let serialized = serde_json::to_value(&monitor_match).unwrap();
+        assert_eq!(serialized, expected_json);
+    }
+
+    #[test]
     fn test_monitor_match_tx_deserialization() {
         let json_str = r#"{
             "monitor_id": 1,
@@ -497,6 +535,41 @@ mod tests {
 
         assert_eq!(deserialized.monitor_id, 1);
         assert_eq!(deserialized.match_data, expected_match_data);
+    }
+
+    #[test]
+    fn test_monitor_match_with_decoded_call_deserialization() {
+        let json_str = r#"{
+            "monitor_id": 1,
+            "monitor_name": "Test Monitor",
+            "action_name": "Test Action",
+            "block_number": 123,
+            "transaction_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "tx": {
+                "from": "0x4976...",
+                "value": "22545..."
+            },
+            "decoded_call": {
+                "name": "transfer",
+                "params": {
+                    "_to": "0x123...",
+                    "_value": "1000"
+                }
+            }
+        }"#;
+
+        let deserialized: MonitorMatch = serde_json::from_str(json_str).unwrap();
+        let expected_decoded_call = json!({
+            "name": "transfer",
+            "params": {
+                "_to": "0x123...",
+                "_value": "1000"
+            }
+        });
+
+        assert_eq!(deserialized.monitor_id, 1);
+        assert!(deserialized.decoded_call.is_some());
+        assert_eq!(deserialized.decoded_call.unwrap(), expected_decoded_call);
     }
 
     #[test]
