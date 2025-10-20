@@ -29,13 +29,15 @@ pub struct MonitorMatch {
     /// The transaction hash associated with the match.
     pub transaction_hash: TxHash,
 
-    /// The data associated with the match, which can vary based on the type
-    /// (e.g., transaction details, log details).
+    /// The data associated with the match.
     pub match_data: MatchData,
+    /// The decoded call data, if available.
+    pub decoded_call: Option<Value>,
 }
 
 impl MonitorMatch {
-    /// Creates a new `MonitorMatch` instance for a transaction-based match.
+    /// Creates a new transaction match.
+    #[allow(clippy::too_many_arguments)]
     pub fn new_tx_match(
         monitor_id: i64,
         monitor_name: String,
@@ -43,6 +45,7 @@ impl MonitorMatch {
         block_number: u64,
         transaction_hash: TxHash,
         details: Value,
+        decoded_call: Option<Value>,
     ) -> Self {
         Self {
             monitor_id,
@@ -51,10 +54,12 @@ impl MonitorMatch {
             block_number,
             transaction_hash,
             match_data: MatchData::Transaction(TransactionMatchData { details }),
+            decoded_call,
         }
     }
 
-    /// Creates a new `MonitorMatch` instance for a log-based match.
+    /// Creates a new log match.
+    #[allow(clippy::too_many_arguments)]
     pub fn new_log_match(
         monitor_id: i64,
         monitor_name: String,
@@ -63,6 +68,7 @@ impl MonitorMatch {
         transaction_hash: TxHash,
         log_details: LogDetails,
         tx_details: Value,
+        decoded_call: Option<Value>,
     ) -> Self {
         Self {
             monitor_id,
@@ -71,6 +77,7 @@ impl MonitorMatch {
             block_number,
             transaction_hash,
             match_data: MatchData::Log(LogMatchData { log_details, tx_details }),
+            decoded_call,
         }
     }
 }
@@ -132,7 +139,9 @@ impl Serialize for MonitorMatch {
             MatchData::Transaction(_) => 1, // "tx"
             MatchData::Log(_) => 2,         // "tx" + "log"
         };
-        let field_count = base_fields + extra_fields;
+        // Add 1 for decoded_call if it exists
+        let decoded_call_field = if self.decoded_call.is_some() { 1 } else { 0 };
+        let field_count = base_fields + extra_fields + decoded_call_field;
 
         let mut state = serializer.serialize_struct("MonitorMatch", field_count)?;
         state.serialize_field("monitor_id", &self.monitor_id)?;
@@ -140,6 +149,11 @@ impl Serialize for MonitorMatch {
         state.serialize_field("action_name", &self.action_name)?;
         state.serialize_field("block_number", &self.block_number)?;
         state.serialize_field("transaction_hash", &self.transaction_hash)?;
+
+        // Serialize decoded_call if present
+        if let Some(ref decoded_call) = self.decoded_call {
+            state.serialize_field("decoded_call", decoded_call)?;
+        }
 
         match &self.match_data {
             MatchData::Transaction(data) => {
@@ -170,6 +184,7 @@ impl<'de> Deserialize<'de> for MonitorMatch {
             TransactionHash,
             Tx,
             Log,
+            DecodedCall,
         }
 
         struct MonitorMatchVisitor;
@@ -192,6 +207,7 @@ impl<'de> Deserialize<'de> for MonitorMatch {
                 let mut transaction_hash = None;
                 let mut tx = None;
                 let mut log = None;
+                let mut decoded_call = None;
 
                 while let Some(key) = map.next_key()? {
                     match key {
@@ -237,6 +253,12 @@ impl<'de> Deserialize<'de> for MonitorMatch {
                             }
                             log = Some(map.next_value()?);
                         }
+                        Field::DecodedCall => {
+                            if decoded_call.is_some() {
+                                return Err(de::Error::duplicate_field("decoded_call"));
+                            }
+                            decoded_call = Some(map.next_value()?);
+                        }
                     }
                 }
 
@@ -265,6 +287,7 @@ impl<'de> Deserialize<'de> for MonitorMatch {
                     block_number,
                     transaction_hash,
                     match_data,
+                    decoded_call,
                 })
             }
         }
@@ -298,6 +321,7 @@ mod tests {
             123,
             TxHash::default(),
             json!({"key": "value"}),
+            None,
         );
 
         assert_eq!(monitor_match.monitor_id, 1);
@@ -305,7 +329,7 @@ mod tests {
         assert_eq!(monitor_match.action_name, "Test Action");
         assert_eq!(monitor_match.block_number, 123);
         assert_eq!(monitor_match.transaction_hash, TxHash::default());
-
+        assert!(monitor_match.decoded_call.is_none());
         match monitor_match.match_data {
             MatchData::Transaction(data) => {
                 assert_eq!(data.details, json!({"key": "value"}));
@@ -316,6 +340,11 @@ mod tests {
 
     #[test]
     fn test_monitor_match_construction_from_log() {
+        let monitor_name = "Log Monitor".to_string();
+        let action_name = "Log Action".to_string();
+        let monitor_id = 1;
+        let block_number = 456;
+
         let log_details = LogDetails {
             address: Address::default(),
             log_index: 15,
@@ -325,19 +354,20 @@ mod tests {
         let tx_details = json!({"from": "0x123"});
 
         let monitor_match = MonitorMatch::new_log_match(
-            2,
-            "Log Monitor".to_string(),
-            "Log Action".to_string(),
-            456,
+            monitor_id,
+            monitor_name.clone(),
+            action_name.clone(),
+            block_number,
             TxHash::default(),
-            log_details,
+            log_details.clone(),
             tx_details.clone(),
+            None,
         );
 
-        assert_eq!(monitor_match.monitor_id, 2);
-        assert_eq!(monitor_match.monitor_name, "Log Monitor");
-        assert_eq!(monitor_match.action_name, "Log Action");
-        assert_eq!(monitor_match.block_number, 456);
+        assert_eq!(monitor_match.monitor_id, monitor_id);
+        assert_eq!(monitor_match.monitor_name, monitor_name);
+        assert_eq!(monitor_match.action_name, action_name);
+        assert_eq!(monitor_match.block_number, block_number);
 
         match monitor_match.match_data {
             MatchData::Log(data) => {
@@ -358,6 +388,7 @@ mod tests {
             123,
             TxHash::default(),
             json!({ "from": "0x4976...", "value": "22545..." }),
+            None,
         );
 
         let expected_json = json!({
@@ -395,6 +426,7 @@ mod tests {
             TxHash::default(),
             log_details,
             tx_details,
+            None,
         );
 
         let expected_json = json!({
