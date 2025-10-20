@@ -140,7 +140,8 @@ impl Serialize for DecodedCall {
 
         use crate::engine::rhai::conversions::dyn_sol_value_to_json;
 
-        let mut state = serializer.serialize_struct("DecodedCall", 2)?;
+        const FIELD_COUNT: usize = 2; // "name" and "params"
+        let mut state = serializer.serialize_struct("DecodedCall", FIELD_COUNT)?;
         state.serialize_field("name", &self.name)?;
 
         // Convert params to a map using the existing conversion function
