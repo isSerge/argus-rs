@@ -318,6 +318,7 @@ impl<'de> Deserialize<'de> for MonitorMatch {
             "transaction_hash",
             "tx",
             "log",
+            "decoded_call",
         ];
         deserializer.deserialize_struct("MonitorMatch", FIELDS, MonitorMatchVisitor)
     }
