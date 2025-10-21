@@ -8,20 +8,16 @@ use dashmap::DashMap;
 use thiserror::Error;
 
 use crate::{
-    actions::{ActionDispatcher, error::ActionDispatcherError},
-    context::{AppContext, AppContextBuilder, AppContextError},
+    actions::error::ActionDispatcherError,
+    context::{AppContextBuilder, AppContextError},
     engine::{
         alert_manager::{AlertManager, AlertManagerError},
         block_processor::process_blocks_batch,
         filtering::{FilteringEngine, RhaiError, RhaiFilteringEngine},
     },
-    http_client::HttpClientPool,
-    models::{action::ActionConfig, monitor_match::MonitorMatch},
+    models::monitor_match::MonitorMatch,
     monitor::MonitorManager,
-    persistence::{
-        error::PersistenceError,
-        traits::{AppRepository, KeyValueStore},
-    },
+    persistence::{error::PersistenceError, traits::KeyValueStore},
     providers::{
         block_fetcher,
         rpc::{EvmRpcSource, ProviderError},
@@ -108,44 +104,24 @@ pub struct DryRunArgs {
 ///
 /// This function orchestrates the entire dry run process:
 /// 1. Loads the main application configuration.
-/// 2. Initializes all necessary services (data source, block processor,
-///    filtering engine, etc.).
-/// 3. Loads and validates the monitor and action configurations.
-/// 4. Calls `run_dry_run_loop` to execute the core processing logic.
-/// 5. Serializes the results to a pretty JSON string and prints to stdout.
+/// 2. Initializes all necessary services via `AppContextBuilder`.
+/// 3. Calls `run_dry_run_loop` to execute the core processing logic.
+/// 4. Prints a summary report of all matches and dispatched notifications.
 pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let context = AppContextBuilder::new(args.config_dir, None)
         .database_url("sqlite::memory:".to_string())
         .build()
         .await?;
 
-    let AppContext { config, repo, abi_service, script_compiler, provider, .. } = context;
-
-    let monitors = repo.get_monitors(&config.network_id).await?;
-    let monitor_manager = Arc::new(MonitorManager::new(
-        monitors.clone(),
-        script_compiler.clone(),
-        abi_service.clone(),
-    ));
+    // Extract the services we need from the context
+    let config = &context.config;
+    let provider = context.provider.clone();
+    let monitor_manager = context.monitor_manager.clone();
+    let filtering_engine = context.filtering_engine;
+    let alert_manager = context.alert_manager.clone();
 
     // Init EVM data source for fetching blockchain data.
     let evm_source = EvmRpcSource::new(provider, monitor_manager.clone());
-
-    // Init services for notifications and filtering logic.
-    let client_pool = Arc::new(HttpClientPool::new(config.http_base_config.clone()));
-    let actions = repo.get_actions(&config.network_id).await?;
-    let actions: Arc<HashMap<String, ActionConfig>> =
-        Arc::new(actions.into_iter().map(|t| (t.name.clone(), t)).collect());
-    let action_dispatcher = Arc::new(ActionDispatcher::new(actions.clone(), client_pool).await?);
-    let filtering_engine = RhaiFilteringEngine::new(
-        abi_service.clone(),
-        script_compiler,
-        config.rhai.clone(),
-        monitor_manager.clone(),
-    );
-
-    // Init the AlertManager with the in-memory state repository.
-    let alert_manager = Arc::new(AlertManager::new(action_dispatcher, repo, actions));
 
     // Execute the core processing loop.
     let matches = run_dry_run_loop(
@@ -244,10 +220,11 @@ fn print_summary_report(
 /// * `from_block` - The starting block number.
 /// * `to_block` - The ending block number.
 /// * `data_source` - A boxed trait object for fetching blockchain data.
-/// * `block_processor` - The service for decoding raw block data.
 /// * `filtering_engine` - The service for evaluating data against monitor
 ///   scripts.
 /// * `alert_manager` - The service for managing alerts and notifications.
+/// * `monitor_manager` - The monitor manager service.
+/// * `concurrency` - The level of concurrency for block fetching.
 ///
 /// # Returns
 ///
@@ -257,7 +234,7 @@ async fn run_dry_run_loop<T: KeyValueStore>(
     from_block: u64,
     to_block: u64,
     data_source: Box<dyn DataSource>,
-    filtering_engine: RhaiFilteringEngine,
+    filtering_engine: Arc<RhaiFilteringEngine>,
     alert_manager: Arc<AlertManager<T>>,
     monitor_manager: Arc<MonitorManager>,
     concurrency: usize,
@@ -361,7 +338,7 @@ mod tests {
         config::RhaiConfig,
         engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
         http_client::HttpClientPool,
-        models::monitor_match::MatchData,
+        models::{action::ActionConfig, monitor_match::MatchData},
         persistence::sqlite::SqliteStateRepository,
         providers::traits::MockDataSource,
         test_helpers::{ActionBuilder, BlockBuilder, MonitorBuilder, TransactionBuilder},
@@ -418,12 +395,12 @@ mod tests {
             rhai_compiler.clone(),
             abi_service.clone(),
         ));
-        let filtering_engine = RhaiFilteringEngine::new(
+        let filtering_engine = Arc::new(RhaiFilteringEngine::new(
             abi_service.clone(),
             rhai_compiler,
             rhai_config,
             monitor_manager.clone(),
-        );
+        ));
         let actions = HashMap::from([(
             "test-action".to_string(),
             ActionBuilder::new("test-action")
@@ -488,12 +465,12 @@ mod tests {
             rhai_compiler.clone(),
             abi_service.clone(),
         ));
-        let filtering_engine = RhaiFilteringEngine::new(
+        let filtering_engine = Arc::new(RhaiFilteringEngine::new(
             abi_service.clone(),
             rhai_compiler,
             rhai_config,
             monitor_manager.clone(),
-        );
+        ));
         let alert_manager = create_test_alert_manager(Arc::new(HashMap::new())).await;
 
         // Act
@@ -548,12 +525,12 @@ mod tests {
             rhai_compiler.clone(),
             abi_service.clone(),
         ));
-        let filtering_engine = RhaiFilteringEngine::new(
+        let filtering_engine = Arc::new(RhaiFilteringEngine::new(
             abi_service.clone(),
             rhai_compiler,
             rhai_config,
             monitor_manager.clone(),
-        );
+        ));
         let alert_manager = create_test_alert_manager(Arc::new(HashMap::new())).await;
 
         // Act
@@ -601,12 +578,12 @@ mod tests {
             rhai_compiler.clone(),
             abi_service.clone(),
         ));
-        let filtering_engine = RhaiFilteringEngine::new(
+        let filtering_engine = Arc::new(RhaiFilteringEngine::new(
             abi_service.clone(),
             rhai_compiler,
             rhai_config,
             monitor_manager.clone(),
-        );
+        ));
         let alert_manager = create_test_alert_manager(Arc::new(HashMap::new())).await;
 
         // Act
@@ -674,12 +651,12 @@ mod tests {
             rhai_compiler.clone(),
             abi_service.clone(),
         ));
-        let filtering_engine = RhaiFilteringEngine::new(
+        let filtering_engine = Arc::new(RhaiFilteringEngine::new(
             abi_service.clone(),
             rhai_compiler,
             rhai_config,
             monitor_manager.clone(),
-        );
+        ));
         let actions = HashMap::from([(
             "test-action".to_string(),
             ActionBuilder::new("test-action")
@@ -730,12 +707,12 @@ mod tests {
             rhai_compiler.clone(),
             abi_service.clone(),
         ));
-        let filtering_engine = RhaiFilteringEngine::new(
+        let filtering_engine = Arc::new(RhaiFilteringEngine::new(
             abi_service.clone(),
             rhai_compiler,
             rhai_config,
             monitor_manager.clone(),
-        );
+        ));
         let alert_manager = create_test_alert_manager(Arc::new(HashMap::new())).await;
 
         // Act
