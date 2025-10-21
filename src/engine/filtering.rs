@@ -15,7 +15,7 @@ use async_trait::async_trait;
 use futures::future;
 #[cfg(test)]
 use mockall::automock;
-use rhai::{AST, Engine, EvalAltResult, Map, Scope};
+use rhai::{AST, Engine, EvalAltResult, Scope};
 use thiserror::Error;
 use tokio::{sync::mpsc, time::timeout};
 
@@ -95,10 +95,10 @@ pub struct RhaiFilteringEngine {
 }
 
 /// Holds the transient state for evaluating a single `CorrelatedBlockItem`.
-/// This includes caches for decoded data to avoid redundant work.
+/// This includes scope, caches for decoded data to avoid redundant work.
 struct EvaluationContext<'a> {
     item: &'a CorrelatedBlockItem,
-    tx_map: Map,
+    scope: Scope<'a>,
     matches: Vec<MonitorMatch>,
     matched_monitor_ids: HashSet<i64>,
     decoded_logs_cache: HashMap<Log, Arc<DecodedLog>>,
@@ -107,9 +107,13 @@ struct EvaluationContext<'a> {
 
 impl<'a> EvaluationContext<'a> {
     fn new(item: &'a CorrelatedBlockItem) -> Self {
+        let tx_map = build_transaction_map(&item.transaction, item.receipt.as_ref());
+        let mut scope = Scope::new();
+        scope.push_constant("tx", tx_map);
+
         Self {
             item,
-            tx_map: build_transaction_map(&item.transaction, item.receipt.as_ref()),
+            scope,
             matches: Vec::new(),
             matched_monitor_ids: HashSet::new(),
             decoded_logs_cache: HashMap::new(),
@@ -198,8 +202,6 @@ impl RhaiFilteringEngine {
         log: Option<&'a Log>,
     ) -> Result<(bool, Option<Arc<DecodedLog>>), RhaiError> {
         tracing::debug!("Evaluating monitor ID {}: {}", cm.monitor.id, cm.monitor.name);
-        let mut scope = Scope::new();
-        scope.push_constant("tx", context.tx_map.clone());
 
         // --- Handle Log Data (Lazy Decoding) ---
         let mut decoded_log_result = None;
@@ -252,11 +254,16 @@ impl RhaiFilteringEngine {
 
         // --- Push Proxies to Scope ---
         // The proxies handle the `None` case internally, preventing script errors.
-        scope.push("log", LogProxy(decoded_log_result.clone()));
-        scope.push("decoded_call", CallProxy(decoded_call_result));
+        context.scope.push("log", LogProxy(decoded_log_result.clone()));
+        context.scope.push("decoded_call", CallProxy(decoded_call_result));
 
         let ast = self.compiler.get_ast(&cm.monitor.filter_script)?;
-        let is_match = self.eval_ast_bool_secure(&ast, &mut scope).await?;
+        let is_match = self.eval_ast_bool_secure(&ast, &mut context.scope).await?;
+
+        // Pop the values in reverse order of how they were pushed.
+        context.scope.pop(); // pops decoded_call
+        context.scope.pop(); // pops log
+
         Ok((is_match, decoded_log_result))
     }
 
