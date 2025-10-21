@@ -342,7 +342,7 @@ mod tests {
         config::RhaiConfig,
         engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
         http_client::HttpClientPool,
-        models::monitor_match::{MatchData, TransactionMatchData},
+        models::monitor_match::MatchData,
         persistence::sqlite::SqliteStateRepository,
         providers::traits::MockDataSource,
         test_helpers::{ActionBuilder, BlockBuilder, MonitorBuilder, TransactionBuilder},
@@ -432,10 +432,7 @@ mod tests {
         let matches = result.unwrap();
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].block_number, from_block);
-        assert!(matches!(
-            matches[0].match_data,
-            MatchData::Transaction(TransactionMatchData { .. })
-        ));
+        assert!(matches!(matches[0].match_data, MatchData::Transaction { .. }));
     }
 
     #[tokio::test]

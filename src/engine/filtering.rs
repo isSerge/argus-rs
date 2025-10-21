@@ -404,7 +404,7 @@ mod tests {
         abi::AbiService,
         config::RhaiConfig,
         models::{
-            monitor_match::{LogDetails, LogMatchData, MatchData, TransactionMatchData},
+            monitor_match::{LogDetails, MatchData},
             transaction::Transaction,
         },
         test_helpers::{
@@ -589,9 +589,10 @@ mod tests {
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].monitor_id, 1);
         assert_eq!(matches[0].action_name, "action1");
-        assert!(
-            matches!(&matches[0].match_data, MatchData::Log(log_match) if log_match.log_details.name == "Transfer")
-        );
+        assert!(matches!(
+            &matches[0].match_data,
+            MatchData::Log { log_details, .. } if log_details.name == "Transfer"
+        ));
     }
 
     #[tokio::test]
@@ -810,10 +811,7 @@ mod tests {
         assert_eq!(matches.len(), 1, "Should find one match for value > 1.5 ether");
         assert_eq!(matches[0].monitor_id, 1);
         assert_eq!(matches[0].transaction_hash, tx_match.hash());
-        assert!(matches!(
-            matches[0].match_data,
-            MatchData::Transaction(TransactionMatchData { .. })
-        ));
+        assert!(matches!(matches[0].match_data, MatchData::Transaction { .. }));
 
         // Test non-matching case
         let no_matches = engine.evaluate_item(&item_no_match).await.unwrap();
@@ -872,13 +870,15 @@ mod tests {
         assert_eq!(matches[0].monitor_id, 100);
         assert_eq!(matches[1].monitor_id, 100);
         assert_eq!(matches[0].block_number, item.transaction.block_number().unwrap_or_default());
-        assert!(
-            matches!(matches[0].match_data, MatchData::Log(LogMatchData { log_details: LogDetails { address, .. }, .. }) if address == addr1)
-        );
+        assert!(matches!(
+            matches[0].match_data,
+            MatchData::Log { log_details: LogDetails { address, .. }, .. } if address == addr1
+        ));
         assert_eq!(matches[1].block_number, item.transaction.block_number().unwrap_or_default());
-        assert!(
-            matches!(matches[1].match_data, MatchData::Log(LogMatchData { log_details: LogDetails { address, .. }, .. }) if address == addr2)
-        );
+        assert!(matches!(
+            matches[1].match_data,
+            MatchData::Log { log_details: LogDetails { address, .. }, .. } if address == addr2
+        ));
     }
 
     #[tokio::test]
@@ -906,7 +906,7 @@ mod tests {
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert_eq!(matches.len(), 1, "Should match on tx.value even with no logs");
         assert_eq!(matches[0].monitor_id, 1);
-        assert!(matches!(matches[0].match_data, MatchData::Transaction(_)));
+        assert!(matches!(matches[0].match_data, MatchData::Transaction { .. }));
     }
 
     #[tokio::test]
@@ -940,7 +940,7 @@ mod tests {
         let matches = engine.evaluate_item(&item).await.unwrap();
         assert_eq!(matches.len(), 1, "Should match on log.name");
         assert_eq!(matches[0].monitor_id, 1);
-        assert!(matches!(matches[0].match_data, MatchData::Log(_)));
+        assert!(matches!(matches[0].match_data, MatchData::Log { .. }));
     }
 
     #[tokio::test]
@@ -976,7 +976,7 @@ mod tests {
         // LogMatch.
         assert_eq!(matches.len(), 1, "Should only produce one match");
         assert_eq!(matches[0].monitor_id, 1);
-        assert!(matches!(matches[0].match_data, MatchData::Log(_)), "Should prefer LogMatch");
+        assert!(matches!(matches[0].match_data, MatchData::Log { .. }), "Should prefer LogMatch");
     }
 
     #[tokio::test]
@@ -1073,13 +1073,13 @@ mod tests {
         let monitor_match = &context.matches[0];
 
         match &monitor_match.match_data {
-            MatchData::Log(log_match) => {
+            MatchData::Log { log_details, tx_details } => {
                 // Verify log details
-                assert_eq!(log_match.log_details.name, "TestEvent");
-                assert_eq!(log_match.log_details.log_index, 42);
+                assert_eq!(log_details.name, "TestEvent");
+                assert_eq!(log_details.log_index, 42);
 
                 // Verify transaction details
-                let tx_details_map = log_match.tx_details.as_object().unwrap();
+                let tx_details_map = tx_details.as_object().unwrap();
                 assert_eq!(tx_details_map.get("value").unwrap().as_str().unwrap(), "123");
                 assert_eq!(
                     tx_details_map.get("hash").unwrap().as_str().unwrap(),
@@ -1108,8 +1108,8 @@ mod tests {
         let monitor_match = &context.matches[0];
 
         match &monitor_match.match_data {
-            MatchData::Transaction(tx_match) => {
-                let tx_details_map = tx_match.details.as_object().unwrap();
+            MatchData::Transaction { details } => {
+                let tx_details_map = details.as_object().unwrap();
                 assert_eq!(tx_details_map.get("value").unwrap().as_str().unwrap(), "456");
                 assert_eq!(
                     tx_details_map.get("hash").unwrap().as_str().unwrap(),
