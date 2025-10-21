@@ -69,36 +69,12 @@ impl<T: AppRepository + KeyValueStore + 'static> SupervisorBuilder<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        context::AppContextBuilder, models::monitor::MonitorConfig,
-        persistence::sqlite::SqliteStateRepository,
-    };
-
-    async fn setup_test_db() -> SqliteStateRepository {
-        let repo = SqliteStateRepository::new("sqlite::memory:")
-            .await
-            .expect("Failed to connect to in-memory db");
-        repo.run_migrations().await.expect("Failed to run migrations");
-        repo
-    }
+    use crate::{context::AppContextBuilder, persistence::sqlite::SqliteStateRepository};
 
     #[tokio::test]
     async fn build_succeeds_with_valid_monitors() {
-        let state_repo = setup_test_db().await;
-
-        let network_id = "testnet";
-        let monitor = MonitorConfig {
-            name: "Valid Monitor".into(),
-            network: network_id.into(),
-            address: None,
-            abi: None,
-            filter_script: "true".to_string(),
-            actions: vec![],
-        };
-
-        state_repo.add_monitors(network_id, vec![monitor]).await.unwrap();
-
         // Use AppContextBuilder to create a properly initialized context
+        // This handles all initialization including monitors and actions
         let context = AppContextBuilder::new(None, None)
             .database_url("sqlite::memory:".to_string())
             .build()
