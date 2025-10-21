@@ -15,19 +15,27 @@ pub use metrics::{AppMetrics, Metrics};
 
 use crate::{
     abi::{AbiService, repository::AbiRepository},
-    actions::template::TemplateService,
+    actions::{ActionDispatcher, template::TemplateService},
     config::{AppConfig, InitialStartBlock},
-    engine::rhai::{RhaiCompiler, RhaiScriptValidator},
+    engine::{
+        alert_manager::AlertManager,
+        filtering::RhaiFilteringEngine,
+        rhai::{RhaiCompiler, RhaiScriptValidator},
+    },
+    http_client::HttpClientPool,
     loader::load_config,
     models::{action::ActionConfig, monitor::MonitorConfig},
-    monitor::MonitorValidator,
-    persistence::{sqlite::SqliteStateRepository, traits::AppRepository},
+    monitor::{MonitorManager, MonitorValidator},
+    persistence::{
+        sqlite::SqliteStateRepository,
+        traits::{AppRepository, KeyValueStore},
+    },
     providers::rpc::create_provider,
 };
 
 /// The application context, holding configuration, database repository,
 /// ABI service, script compiler, and EVM data provider.
-pub struct AppContext<T: AppRepository> {
+pub struct AppContext<T: AppRepository + KeyValueStore> {
     /// Shared application configuration.
     pub config: AppConfig,
 
@@ -45,6 +53,21 @@ pub struct AppContext<T: AppRepository> {
 
     /// Template service for rendering action templates.
     pub template_service: Arc<TemplateService>,
+
+    /// The monitor manager for managing monitor configurations.
+    pub monitor_manager: Arc<MonitorManager>,
+
+    /// The filtering engine for evaluating blockchain data against monitors.
+    pub filtering_engine: Arc<RhaiFilteringEngine>,
+
+    /// The HTTP client pool for making HTTP requests.
+    pub http_client_pool: Arc<HttpClientPool>,
+
+    /// The action dispatcher for executing actions.
+    pub action_dispatcher: Arc<ActionDispatcher>,
+
+    /// The alert manager for managing alerts and notifications.
+    pub alert_manager: Arc<AlertManager<T>>,
 }
 
 /// A builder for the `AppContext`, allowing configuration overrides
@@ -129,7 +152,64 @@ impl AppContextBuilder {
         .await?;
         Self::load_abis_from_monitors(&config, repo.as_ref(), abi_service.clone()).await?;
 
-        Ok(AppContext { config, repo, abi_service, script_compiler, provider, template_service })
+        // Initialize high-level services
+        tracing::debug!(network_id = %config.network_id, "Loading monitors from database for filtering engine...");
+        let monitors = repo.get_monitors(&config.network_id).await.map_err(|e| {
+            AppContextError::Initialization(InitializationError::MonitorLoad(format!(
+                "Failed to fetch monitors from DB: {e}"
+            )))
+        })?;
+        tracing::info!(count = monitors.len(), network_id = %config.network_id, "Loaded monitors from database for filtering engine.");
+
+        let monitor_manager =
+            Arc::new(MonitorManager::new(monitors, script_compiler.clone(), abi_service.clone()));
+
+        let filtering_engine = Arc::new(RhaiFilteringEngine::new(
+            abi_service.clone(),
+            script_compiler.clone(),
+            config.rhai.clone(),
+            monitor_manager.clone(),
+        ));
+
+        let http_client_pool = Arc::new(HttpClientPool::new(config.http_base_config.clone()));
+
+        tracing::debug!(network_id = %config.network_id, "Loading actions from database for action dispatcher...");
+        let actions = repo.get_actions(&config.network_id).await.map_err(|e| {
+            AppContextError::Initialization(InitializationError::ActionLoad(format!(
+                "Failed to fetch actions from DB: {e}"
+            )))
+        })?;
+        tracing::info!(count = actions.len(), network_id = %config.network_id, "Loaded actions from database for action dispatcher.");
+
+        let actions_map: Arc<std::collections::HashMap<String, ActionConfig>> =
+            Arc::new(actions.into_iter().map(|t| (t.name.clone(), t)).collect());
+
+        let action_dispatcher = Arc::new(
+            ActionDispatcher::new(actions_map.clone(), http_client_pool.clone()).await.map_err(
+                |e| {
+                    AppContextError::Initialization(InitializationError::ActionLoad(format!(
+                        "Failed to initialize action dispatcher: {e}"
+                    )))
+                },
+            )?,
+        );
+
+        let alert_manager =
+            Arc::new(AlertManager::new(action_dispatcher.clone(), repo.clone(), actions_map));
+
+        Ok(AppContext {
+            config,
+            repo,
+            abi_service,
+            script_compiler,
+            provider,
+            template_service,
+            monitor_manager,
+            filtering_engine,
+            http_client_pool,
+            action_dispatcher,
+            alert_manager,
+        })
     }
 
     /// Initializes the block state in the database if not already set.
