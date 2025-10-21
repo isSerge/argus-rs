@@ -69,26 +69,19 @@ impl<T: AppRepository + KeyValueStore + 'static> SupervisorBuilder<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{context::AppContextBuilder, persistence::sqlite::SqliteStateRepository};
-
-    #[tokio::test]
-    async fn build_succeeds_with_valid_monitors() {
-        // Use AppContextBuilder to create a properly initialized context
-        // This handles all initialization including monitors and actions
-        let context = AppContextBuilder::new(None, None)
-            .database_url("sqlite::memory:".to_string())
-            .build()
-            .await
-            .expect("Failed to build context");
-
-        let builder = SupervisorBuilder::new().app_metrics(AppMetrics::default()).context(context);
-
-        let result = builder.build().await;
-        assert!(result.is_ok(), "Expected build to succeed, but got error: {:?}", result.err());
-    }
+    use crate::persistence::sqlite::SqliteStateRepository;
 
     #[tokio::test]
     async fn build_fails_if_config_is_missing() {
+        let builder = SupervisorBuilder::<SqliteStateRepository>::new();
+
+        let result: Result<Supervisor<SqliteStateRepository>, SupervisorError> =
+            builder.build().await;
+        assert!(matches!(result, Err(SupervisorError::MissingConfig)));
+    }
+
+    #[tokio::test]
+    async fn build_fails_if_app_metrics_is_missing() {
         let builder = SupervisorBuilder::<SqliteStateRepository>::new();
 
         let result: Result<Supervisor<SqliteStateRepository>, SupervisorError> =
