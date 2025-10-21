@@ -301,21 +301,10 @@ async fn run_dry_run_loop<T: KeyValueStore>(
         if !block_data_batch.is_empty() {
             tracing::info!(count = block_data_batch.len(), "Processing block batch...");
 
-            // Process the batch of blocks.
-            let processing_futures = block_data_batch
-                .into_iter()
-                .map(|block_data| process_blocks_batch(vec![block_data], monitor_manager.clone()));
+            let decoded_blocks_batch =
+                process_blocks_batch(block_data_batch, monitor_manager.clone()).await?;
 
-            let results = futures::future::join_all(processing_futures).await;
-
-            let decoded_blocks_batch: Vec<_> = results
-                .into_iter()
-                .collect::<Result<Vec<Vec<_>>, _>>()?
-                .into_iter()
-                .flatten()
-                .collect();
-
-            // Evaluate all items from the batch of decoded blocks.
+            // Concurrently evaluate all items from the batch of decoded blocks.
             let evaluation_futures = decoded_blocks_batch
                 .iter()
                 .flat_map(|block| &block.items)
@@ -323,13 +312,11 @@ async fn run_dry_run_loop<T: KeyValueStore>(
 
             let results = futures::future::join_all(evaluation_futures).await;
 
-            // Collect all matches from the results, handling potential evaluation errors.
-            let batch_matches: Vec<MonitorMatch> = results
-                .into_iter()
-                .collect::<Result<Vec<Vec<_>>, _>>()?
-                .into_iter()
-                .flatten()
-                .collect();
+            // Flatten matches while propagating errors early
+            let mut batch_matches = Vec::new();
+            for result in results {
+                batch_matches.extend(result?);
+            }
 
             if !batch_matches.is_empty() {
                 // Process all the matches found in the batch.
