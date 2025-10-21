@@ -300,18 +300,37 @@ async fn run_dry_run_loop<T: KeyValueStore>(
         // Process the entire collected batch in one call.
         if !block_data_batch.is_empty() {
             tracing::info!(count = block_data_batch.len(), "Processing block batch...");
+
             let decoded_blocks_batch =
                 process_blocks_batch(block_data_batch, monitor_manager.clone()).await?;
 
-            // Evaluate each item from the entire batch of decoded blocks.
-            for decoded_block in decoded_blocks_batch {
-                for item in decoded_block.items {
-                    let item_matches = filtering_engine.evaluate_item(&item).await?;
-                    for m in item_matches {
-                        alert_manager.process_match(&m).await?;
-                        matches.push(m.clone());
-                    }
-                }
+            // Concurrently evaluate all items from the batch of decoded blocks.
+            let evaluation_futures = decoded_blocks_batch
+                .iter()
+                .flat_map(|block| &block.items)
+                .map(|item| filtering_engine.evaluate_item(item));
+
+            let results = futures::future::join_all(evaluation_futures).await;
+
+            // Flatten matches while propagating errors early
+            let mut batch_matches = Vec::new();
+            for result in results {
+                batch_matches.extend(result?);
+            }
+
+            if !batch_matches.is_empty() {
+                // Process all the matches found in the batch.
+                let processing_futures =
+                    batch_matches.iter().map(|m| alert_manager.process_match(m));
+
+                // Wait for all processing to complete and check for processing errors.
+                futures::future::join_all(processing_futures)
+                    .await
+                    .into_iter()
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                // Extend the main matches vector with the processed matches.
+                matches.extend(batch_matches);
             }
         }
 
