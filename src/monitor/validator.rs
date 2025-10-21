@@ -2,8 +2,11 @@
 
 use std::sync::Arc;
 
-use alloy::{json_abi::JsonAbi, primitives::Address};
-use serde_json::{Value, json};
+use alloy::{
+    json_abi::JsonAbi,
+    primitives::{Address, TxHash},
+};
+use serde_json::Value;
 use thiserror::Error;
 
 use crate::{
@@ -13,6 +16,7 @@ use crate::{
     models::{
         action::{ActionConfig, ActionPolicy},
         monitor::MonitorConfig,
+        monitor_match::{LogDetails, MonitorMatch},
     },
 };
 
@@ -206,12 +210,7 @@ impl<'a> MonitorValidator<'a> {
         }
 
         // Validate action templates
-        self.template_validator.validate(
-            monitor,
-            &self.action_validator,
-            abi_json.as_deref(),
-            &script_validation_result,
-        )?;
+        self.template_validator.validate(monitor, &self.action_validator)?;
 
         Ok(())
     }
@@ -424,10 +423,48 @@ impl TemplateValidator {
         &self,
         monitor: &MonitorConfig,
         action_validator: &ActionValidator,
-        abi: Option<&JsonAbi>,
-        script_result: &RhaiScriptValidationResult,
     ) -> Result<(), MonitorValidationError> {
-        let context = Self::generate_dummy_context(monitor, abi, script_result);
+        // Generate a dummy context for validating action templates using MonitorMatch
+        // builder
+        let match_builder = MonitorMatch::builder(
+            123,
+            monitor.name.clone(),
+            "Dummy action".to_string(),
+            1234567890,
+            TxHash::default(),
+        );
+
+        let log_details = LogDetails {
+            address: Address::default(),
+            log_index: 0,
+            name: "DummyLog".to_string(),
+            params: serde_json::json!({
+                "from": Address::default(),
+                "to": Address::default(),
+                "value": 1000
+            }),
+        };
+
+        let tx_details = serde_json::json!({
+            "hash": TxHash::default(),
+            "from": Address::default(),
+            "to": Address::default(),
+            "value": 0,
+            "data": serde_json::json!({})
+        });
+
+        let decoded_call = Some(serde_json::json!({
+            "name": "transfer",
+            "params": {
+                "_from": Address::default(),
+                "_to": Address::default(),
+            }
+        }));
+
+        let monitor_match =
+            match_builder.log_match(log_details, tx_details).decoded_call(decoded_call).build();
+
+        let context = serde_json::to_value(&monitor_match).unwrap_or(Value::Null);
 
         for action_name in &monitor.actions {
             self.validate_single_action_template(monitor, action_name, action_validator, &context)?;
@@ -525,160 +562,6 @@ impl TemplateValidator {
     /// This is a simple heuristic that looks for "{{" and "}}" patterns.
     fn is_template_string(s: &str) -> bool {
         s.contains("{{") && s.contains("}}")
-    }
-
-    /// Generates a dummy context for validating action templates.
-    /// This context includes all possible variables that could be available to
-    /// a template, allowing for a "dry run" rendering to catch invalid
-    /// field access.
-    fn generate_dummy_context(
-        monitor: &MonitorConfig,
-        abi: Option<&JsonAbi>,
-        _script_result: &RhaiScriptValidationResult,
-    ) -> serde_json::Value {
-        let mut context = serde_json::Map::new();
-
-        // Always include basic monitor information
-        context.insert("monitor_name".to_string(), json!(monitor.name));
-
-        // Always include transaction data as it's the most basic context
-        let transaction_data = Self::create_dummy_transaction();
-        context.insert("transaction".to_string(), transaction_data.clone());
-
-        // Add tx as an alias for transaction (commonly used)
-        context.insert("tx".to_string(), transaction_data.clone());
-
-        // Add transaction_hash as a convenience field (commonly used)
-        context.insert("transaction_hash".to_string(), json!("0x000..."));
-
-        // Always include log context (some templates may use it regardless of script
-        // analysis)
-        context.insert("log".to_string(), Self::create_dummy_log_context(abi));
-
-        // Always include calldata context (some templates may use it regardless of
-        // script analysis)
-        context.insert("decoded_call".to_string(), Self::create_dummy_calldata_context(abi));
-
-        // Add matches array for aggregation policy templates
-        context.insert("matches".to_string(), Self::create_dummy_matches_array(abi));
-
-        serde_json::Value::Object(context)
-    }
-
-    /// Creates a dummy matches array for aggregation policy templates.
-    fn create_dummy_matches_array(abi: Option<&JsonAbi>) -> serde_json::Value {
-        let dummy_match = json!({
-            "monitor_name": "DummyMonitor",
-            "action_name": "DummyAction",
-            "transaction": Self::create_dummy_transaction(),
-            "log": Self::create_dummy_log_context(abi),
-            "decoded_call": Self::create_dummy_calldata_context(abi),
-            "timestamp": "2023-01-01T00:00:00Z"
-        });
-
-        // Return an array with a few dummy matches for testing filters like length,
-        // sum, avg
-        json!([dummy_match.clone(), dummy_match.clone(), dummy_match])
-    }
-
-    /// Creates a dummy transaction object with all expected fields.
-    fn create_dummy_transaction() -> serde_json::Value {
-        json!({
-            "hash": "0x000...",
-            "index": 0,
-            "from": "0x000...",
-            "to": "0x000...",
-            "value": "0",
-            "input": "0x000...",
-            "nonce": 0,
-            "gas_limit": "0",
-            "gas_price": "0",
-            "max_fee_per_gas": "0",
-            "max_priority_fee_per_gas": "0",
-            "v": "0",
-            "r": "0x000...",
-            "s": "0x000...",
-        })
-    }
-
-    /// Creates a dummy log context with parameters from the ABI events.
-    fn create_dummy_log_context(abi: Option<&JsonAbi>) -> serde_json::Value {
-        let params = match abi {
-            Some(abi) => Self::extract_event_parameters(abi),
-            None => serde_json::Map::new(),
-        };
-
-        json!({
-            "name": "DummyEvent",
-            "address": "0x0000000000000000000000000000000000000000",
-            "params": params,
-        })
-    }
-
-    /// Creates a dummy calldata context with inputs from the ABI functions.
-    fn create_dummy_calldata_context(abi: Option<&JsonAbi>) -> serde_json::Value {
-        let params = match abi {
-            Some(abi) => Self::extract_function_inputs(abi),
-            None => serde_json::Map::new(),
-        };
-
-        json!({
-            "name": "DummyFunction",
-            "params": params,
-        })
-    }
-
-    /// Extracts all unique parameter names from events in the ABI.
-    fn extract_event_parameters(abi: &JsonAbi) -> serde_json::Map<String, serde_json::Value> {
-        let mut params = serde_json::Map::new();
-        for event in abi.events.values().flatten() {
-            for input in &event.inputs {
-                let dummy_value = Self::create_dummy_value_for_type(&input.ty);
-                params.entry(input.name.clone()).or_insert(dummy_value);
-            }
-        }
-        params
-    }
-
-    /// Extracts all unique input parameter names from functions in the ABI.
-    fn extract_function_inputs(abi: &JsonAbi) -> serde_json::Map<String, serde_json::Value> {
-        let mut inputs = serde_json::Map::new();
-        for function in abi.functions.values().flatten() {
-            for input in &function.inputs {
-                let dummy_value = Self::create_dummy_value_for_type(&input.ty);
-                inputs.entry(input.name.clone()).or_insert(dummy_value);
-            }
-        }
-        inputs
-    }
-
-    /// Creates an appropriate dummy value based on the Solidity type.
-    fn create_dummy_value_for_type(solidity_type: &str) -> serde_json::Value {
-        match solidity_type {
-            // Address types
-            "address" => json!("0x0000000000000000000000000000000000000000"),
-
-            // Integer types (uint256, uint8, int256, etc.)
-            t if t.starts_with("uint") || t.starts_with("int") => {
-                // Use a realistic number that works with currency filters
-                json!("1000000000000000000") // 1 ETH in wei, works for most currency filters
-            }
-
-            // Boolean type
-            "bool" => json!(true),
-
-            // Bytes types
-            t if t.starts_with("bytes") => json!("0x000000"),
-
-            // String type
-            "string" => json!("dummy_string"),
-
-            // Array types - simplified to empty array
-            t if t.contains("[") => json!([]),
-
-            // Default fallback for any other types
-            _ => json!("dummy_value"),
-        }
     }
 }
 
@@ -1259,11 +1142,11 @@ mod tests {
         let actions = vec![
             ActionBuilder::new("valid_action")
                 .discord_config("http://localhost")
-                .message("Tx hash: {{ transaction.hash }}")
+                .message("Tx hash: {{ tx.hash }}")
                 .build(),
             ActionBuilder::new("invalid_action")
                 .discord_config("http://localhost")
-                .message("Invalid field: {{ transaction.invalid_field }}")
+                .message("Invalid field: {{ tx.invalid_field }}")
                 .build(),
         ];
         let validator =
