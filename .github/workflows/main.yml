@@ -62,8 +62,6 @@ jobs:
           SQLX_OFFLINE: '1'
         run: cargo test --workspace
 
-
-
   coverage:
     runs-on: ubuntu-latest
     needs: build

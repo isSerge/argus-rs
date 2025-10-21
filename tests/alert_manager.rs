@@ -13,7 +13,7 @@ use argus::{
         monitor_match::MonitorMatch,
     },
     persistence::{sqlite::SqliteStateRepository, traits::KeyValueStore},
-    test_helpers::ActionBuilder,
+    test_helpers::{ActionBuilder, create_test_tx_monitor_match},
 };
 use serde_json::json;
 use tokio::time::sleep;
@@ -27,14 +27,7 @@ async fn setup_db() -> SqliteStateRepository {
 }
 
 fn create_monitor_match(monitor_name: &str, action_name: &str) -> MonitorMatch {
-    MonitorMatch::new_tx_match(
-        1,
-        monitor_name.to_string(),
-        action_name.to_string(),
-        123,
-        Default::default(),
-        json!({ "key": "value" }),
-    )
+    create_test_tx_monitor_match(monitor_name, action_name, json!({ "key": "value" }))
 }
 
 async fn create_alert_manager(

@@ -57,7 +57,6 @@ mod tests {
         test_helpers::ActionBuilder,
     };
 
-    // TODO: use builder
     fn create_mock_monitor_match(action_name: &str) -> MonitorMatch {
         let log_details = LogDetails {
             address: address!("0x1234567890abcdef1234567890abcdef12345678"),
@@ -65,15 +64,16 @@ mod tests {
             name: "TestLog".to_string(),
             params: json!({"param1": "value1", "param2": 42}),
         };
-        MonitorMatch::new_log_match(
+        MonitorMatch::builder(
             1,
             "test monitor".to_string(),
             action_name.to_string(),
             123,
             TxHash::default(),
-            log_details,
-            json!({}),
         )
+        .log_match(log_details, json!({}))
+        .decoded_call(None)
+        .build()
     }
 
     #[tokio::test]

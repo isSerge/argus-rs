@@ -38,14 +38,16 @@ const RABBITMQ_DOCKER_COMPOSE: &str =
 const NATS_DOCKER_COMPOSE: &str = "examples/12_action_with_nats_publisher/docker-compose.yml";
 
 fn create_test_payload() -> ActionPayload {
-    let monitor_match = MonitorMatch::new_tx_match(
+    let monitor_match = MonitorMatch::builder(
         1,
         "test-monitor".to_string(),
         "test-action".to_string(),
         123,
         TxHash::default(),
-        serde_json::json!({ "foo": "bar" }),
-    );
+    )
+    .transaction_match(serde_json::json!({ "foo": "bar" }))
+    .decoded_call(None)
+    .build();
     ActionPayload::Single(monitor_match)
 }
 

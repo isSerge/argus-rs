@@ -382,22 +382,16 @@ mod tests {
         models::{
             NotificationMessage,
             action::{AggregationPolicy, ThrottlePolicy},
-            monitor_match::{LogDetails, LogMatchData, MatchData},
+            monitor_match::LogDetails,
         },
         persistence::traits::MockKeyValueStore,
         test_helpers::ActionBuilder,
     };
 
-    // TODO: replace with builder
     fn create_monitor_match(action_name: String) -> MonitorMatch {
-        MonitorMatch {
-            monitor_id: 0,
-            monitor_name: "Test Monitor".to_string(),
-            action_name,
-            block_number: 123,
-            transaction_hash: TxHash::default(),
-            match_data: MatchData::Log(LogMatchData {
-                log_details: LogDetails {
+        MonitorMatch::builder(1, "Test Monitor".to_string(), action_name, 123, TxHash::default())
+            .log_match(
+                LogDetails {
                     address: Address::default(),
                     log_index: 0,
                     name: "Test Log".to_string(),
@@ -406,9 +400,10 @@ mod tests {
                         "param2": 42,
                     }),
                 },
-                tx_details: json!({}), // Default empty transaction details for test
-            }),
-        }
+                json!({}), // Default empty transaction details for test
+            )
+            .decoded_call(None)
+            .build()
     }
 
     async fn create_alert_manager(

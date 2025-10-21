@@ -12,7 +12,7 @@ use argus::{
         action::{ActionConfig, ActionTypeConfig, DiscordConfig},
         monitor_match::MonitorMatch,
     },
-    test_helpers::ActionBuilder,
+    test_helpers::{ActionBuilder, create_test_monitor_match},
 };
 use lapin::{
     Connection, ConnectionProperties, ExchangeKind,
@@ -65,14 +65,7 @@ async fn test_webhook_action_success() {
         Arc::new(vec![mock_discord_action].into_iter().map(|n| (n.name.clone(), n)).collect());
     let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
 
-    let monitor_match = MonitorMatch::new_tx_match(
-        1,
-        "Test Monitor".to_string(),
-        "test_discord".to_string(),
-        123,
-        Default::default(),
-        json!({"value": "100"}),
-    );
+    let monitor_match = create_test_monitor_match("Test Monitor", "test_discord");
 
     let payload = ActionPayload::Single(monitor_match.clone());
     let result = action_dispatcher.execute(payload).await;
@@ -89,14 +82,7 @@ async fn test_stdout_action_success() {
     let actions = Arc::new(vec![stdout_action].into_iter().map(|n| (n.name.clone(), n)).collect());
     let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
 
-    let monitor_match = MonitorMatch::new_tx_match(
-        1,
-        "Test Monitor".to_string(),
-        "test_stdout".to_string(),
-        123,
-        Default::default(),
-        json!({"value": "100"}),
-    );
+    let monitor_match = create_test_monitor_match("Test Monitor", "test_stdout");
 
     let payload = ActionPayload::Single(monitor_match.clone());
     let result = action_dispatcher.execute(payload).await;
@@ -129,14 +115,16 @@ async fn test_failure_with_retryable_error() {
         Arc::new(vec![mock_discord_action].into_iter().map(|n| (n.name.clone(), n)).collect());
     let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
 
-    let monitor_match = MonitorMatch::new_tx_match(
+    let monitor_match = MonitorMatch::builder(
         2,
         "Test Monitor".to_string(),
         "test_discord_retry".to_string(),
         456,
         Default::default(),
-        json!({}),
-    );
+    )
+    .transaction_match(json!({}))
+    .decoded_call(None)
+    .build();
 
     let payload = ActionPayload::Single(monitor_match.clone());
     let result = action_dispatcher.execute(payload).await;
@@ -172,14 +160,16 @@ async fn test_failure_with_non_retryable_error() {
         Arc::new(vec![mock_discord_action].into_iter().map(|n| (n.name.clone(), n)).collect());
     let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
 
-    let monitor_match = MonitorMatch::new_tx_match(
+    let monitor_match = MonitorMatch::builder(
         3,
         "Test Monitor".to_string(),
         "test_discord_no_retry".to_string(),
         789,
         Default::default(),
-        json!({}),
-    );
+    )
+    .transaction_match(json!({}))
+    .decoded_call(None)
+    .build();
 
     let payload = ActionPayload::Single(monitor_match.clone());
     let result = action_dispatcher.execute(payload).await;
@@ -204,14 +194,16 @@ async fn test_failure_with_invalid_url() {
         Arc::new(vec![mock_discord_action].into_iter().map(|t| (t.name.clone(), t)).collect());
     let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
 
-    let monitor_match = MonitorMatch::new_tx_match(
+    let monitor_match = MonitorMatch::builder(
         4,
         "Test Monitor".to_string(),
         "test_invalid_url".to_string(),
         101,
         Default::default(),
-        json!({}),
-    );
+    )
+    .transaction_match(json!({}))
+    .decoded_call(None)
+    .build();
 
     let payload = ActionPayload::Single(monitor_match.clone());
     let result = action_dispatcher.execute(payload).await;
@@ -247,14 +239,16 @@ async fn test_kafka_action_success() {
     let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
 
     // 5. Create a monitor match and execute the action
-    let monitor_match = MonitorMatch::new_tx_match(
+    let monitor_match = MonitorMatch::builder(
         1,
         "Test Monitor".to_string(),
         "test_kafka".to_string(),
         123,
         Default::default(),
-        json!({"value": "100"}),
-    );
+    )
+    .transaction_match(json!({"value": "100"}))
+    .decoded_call(None)
+    .build();
     let payload = ActionPayload::Single(monitor_match.clone());
     let result = action_dispatcher.execute(payload.clone()).await;
     assert!(result.is_ok(), "Kafka action should succeed, got error: {:?}", result.err());
@@ -282,14 +276,16 @@ async fn test_kafka_action_failure() {
     let actions = Arc::new(vec![kafka_action].into_iter().map(|n| (n.name.clone(), n)).collect());
     let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
 
-    let monitor_match = MonitorMatch::new_tx_match(
+    let monitor_match = MonitorMatch::builder(
         1,
         "Test Monitor".to_string(),
         "test_kafka_failure".to_string(),
         123,
         Default::default(),
-        json!({"value": "100"}),
-    );
+    )
+    .transaction_match(json!({"value": "100"}))
+    .decoded_call(None)
+    .build();
 
     let payload = ActionPayload::Single(monitor_match.clone());
     let result = action_dispatcher.execute(payload).await;
@@ -360,14 +356,16 @@ async fn test_rabbitmq_action_success() {
     let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
 
     // 5. Create a monitor match and execute the action
-    let monitor_match = MonitorMatch::new_tx_match(
+    let monitor_match = MonitorMatch::builder(
         1,
         "Test Monitor".to_string(),
         "test_rabbitmq".to_string(),
         123,
         Default::default(),
-        json!({"value": "100"}),
-    );
+    )
+    .transaction_match(json!({"value": "100"}))
+    .decoded_call(None)
+    .build();
     let payload = ActionPayload::Single(monitor_match.clone());
     let result = action_dispatcher.execute(payload.clone()).await;
     assert!(result.is_ok(), "RabbitMQ action should succeed, got error: {:?}", result.err());
@@ -396,14 +394,16 @@ async fn test_rabbitmq_action_failure() {
         Arc::new(vec![rabbitmq_action].into_iter().map(|n| (n.name.clone(), n)).collect());
     let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
 
-    let monitor_match = MonitorMatch::new_tx_match(
+    let monitor_match = MonitorMatch::builder(
         1,
         "Test Monitor".to_string(),
         "test_rabbitmq_failure".to_string(),
         123,
         Default::default(),
-        json!({"value": "100"}),
-    );
+    )
+    .transaction_match(json!({"value": "100"}))
+    .decoded_call(None)
+    .build();
 
     let payload = ActionPayload::Single(monitor_match.clone());
     let result = action_dispatcher.execute(payload).await;
@@ -433,14 +433,16 @@ async fn test_nats_action_success() {
     let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
 
     // 5. Create a monitor match and execute the action
-    let monitor_match = MonitorMatch::new_tx_match(
+    let monitor_match = MonitorMatch::builder(
         1,
         "Test Monitor".to_string(),
         "test_nats".to_string(),
         123,
         Default::default(),
-        json!({"value": "100"}),
-    );
+    )
+    .transaction_match(json!({"value": "100"}))
+    .decoded_call(None)
+    .build();
     let payload = ActionPayload::Single(monitor_match.clone());
     let result = action_dispatcher.execute(payload.clone()).await;
     assert!(result.is_ok(), "NATS action should succeed, got error: {:?}", result.err());
@@ -466,14 +468,16 @@ async fn test_nats_action_failure() {
     let actions = Arc::new(vec![nats_action].into_iter().map(|n| (n.name.clone(), n)).collect());
     let action_dispatcher = ActionDispatcher::new(actions, http_client_pool).await.unwrap();
 
-    let monitor_match = MonitorMatch::new_tx_match(
+    let monitor_match = MonitorMatch::builder(
         1,
         "Test Monitor".to_string(),
         "test_nats_failure".to_string(),
         123,
         Default::default(),
-        json!({"value": "100"}),
-    );
+    )
+    .transaction_match(json!({"value": "100"}))
+    .decoded_call(None)
+    .build();
 
     let payload = ActionPayload::Single(monitor_match.clone());
     let result = action_dispatcher.execute(payload).await;

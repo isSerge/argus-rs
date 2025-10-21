@@ -43,6 +43,10 @@ Additionally, the following structured objects are always available:
     *   `log.name`: The name of the decoded event (string, e.g., "Transfer").
     *   `log.params`: A map of the event's decoded parameters (e.g., `log.params.from`, `log.params.to`, `log.params.value`).
 
+*   **`decoded_call`**: An object containing details about decoded function call input data. This will be `null` if the transaction doesn't contain decodable function call data or if the monitor doesn't use an ABI.
+    *   `decoded_call.name`: The name of the decoded function (string, e.g., "transfer", "approve").
+    *   `decoded_call.params`: A map of the function's decoded parameters (e.g., `decoded_call.params._to`, `decoded_call.params._value`).
+
 ## Data Types, Conversions, and Custom Filters in Templates
 
 When displaying blockchain data in Jinja2 templates, especially large numerical values, it's essential to use the provided custom filters for proper formatting and mathematical operations.
@@ -120,9 +124,13 @@ actions:
           - **Log Index**: {{ log.log_index }}
           - **Log Name**: {{ log.name }}
           - **Log Params**: {{ log.params }}
+          {% if decoded_call %}
+          - **Function Called**: {{ decoded_call.name }}
+          - **Function Params**: {{ decoded_call.params }}
+          {% endif %}
 ```
 
-In this example, `{{ monitor_name }}`, `{{ block_number }}`, `{{ transaction_hash }}`, `{{ log.address }}`, `{{ log.log_index }}`, `{{ log.name }}`, and `{{ log.params }}` are placeholders that will be replaced with the actual data at the time of notification.
+In this example, `{{ monitor_name }}`, `{{ block_number }}`, `{{ transaction_hash }}`, `{{ log.address }}`, `{{ log.log_index }}`, `{{ log.name }}`, and `{{ log.params }}` are placeholders that will be replaced with the actual data at the time of notification. The `{% if decoded_call %}` block conditionally includes function call information when available.
 
 ## Example: Slack Notification with Aggregation Policy
 
@@ -145,10 +153,13 @@ actions:
             In the last 5 minutes there have been {{ matches | length }} new events
             {% for match in matches %}
             - Tx: {{ match.transaction_hash }} (Block: {{ match.block_number }})
+            {% if match.decoded_call %}
+              Function: {{ match.decoded_call.name }}({{ match.decoded_call.params | tojson }})
+            {% endif %}
             {% endfor %}
 ```
 
-Here, `{{ matches | length }}` is used to get the count of aggregated matches, and a `{% for match in matches %}` loop iterates through each individual match to display its transaction hash and block number.
+Here, `{{ matches | length }}` is used to get the count of aggregated matches, and a `{% for match in matches %}` loop iterates through each individual match to display its transaction hash and block number. The example also shows how to access `decoded_call` data for each match in the aggregation.
 
 Refer to the documentation for specific action types to understand their full templating capabilities and the exact syntax to use.
 

@@ -279,15 +279,18 @@ impl RhaiFilteringEngine {
                 name: decoded_log.name.clone(),
                 params: log_match_payload.clone(),
             };
-            context.matches.push(MonitorMatch::new_log_match(
-                monitor.id,
-                monitor.name.clone(),
-                action.clone(),
-                context.item.transaction.block_number().unwrap_or_default(),
-                context.item.transaction.hash(),
-                log_details,
-                tx_details.clone(),
-            ));
+            context.matches.push(
+                MonitorMatch::builder(
+                    monitor.id,
+                    monitor.name.clone(),
+                    action.clone(),
+                    context.item.transaction.block_number().unwrap_or_default(),
+                    context.item.transaction.hash(),
+                )
+                .log_match(log_details, tx_details.clone())
+                .decoded_call(Self::extract_decoded_call_json(&context.decoded_call_cache))
+                .build(),
+            );
         }
     }
 
@@ -298,15 +301,30 @@ impl RhaiFilteringEngine {
             context.item.receipt.as_ref(),
         );
         for action in &monitor.actions {
-            context.matches.push(MonitorMatch::new_tx_match(
-                monitor.id,
-                monitor.name.clone(),
-                action.clone(),
-                context.item.transaction.block_number().unwrap_or_default(),
-                context.item.transaction.hash(),
-                tx_match_payload.clone(),
-            ));
+            context.matches.push(
+                MonitorMatch::builder(
+                    monitor.id,
+                    monitor.name.clone(),
+                    action.clone(),
+                    context.item.transaction.block_number().unwrap_or_default(),
+                    context.item.transaction.hash(),
+                )
+                .transaction_match(tx_match_payload.clone())
+                .decoded_call(Self::extract_decoded_call_json(&context.decoded_call_cache))
+                .build(),
+            );
         }
+    }
+
+    /// Converts the decoded call cache to a JSON value for use in MonitorMatch.
+    /// Returns None if there's no decoded call available.
+    fn extract_decoded_call_json(
+        decoded_call_cache: &Option<Option<Arc<DecodedCall>>>,
+    ) -> Option<serde_json::Value> {
+        decoded_call_cache.as_ref().and_then(|opt| {
+            opt.as_ref()
+                .map(|call| serde_json::to_value(call.as_ref()).unwrap_or(serde_json::Value::Null))
+        })
     }
 
     /// Executes a pre-compiled AST with security controls including a timeout.

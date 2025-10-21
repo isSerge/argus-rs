@@ -752,30 +752,36 @@ mod tests {
     #[test]
     fn test_group_matches_by_monitor() {
         let matches = vec![
-            MonitorMatch::new_tx_match(
+            MonitorMatch::builder(
                 1,
                 "Monitor A".to_string(),
                 "Action".to_string(),
                 100,
                 Default::default(),
-                json!({}),
-            ),
-            MonitorMatch::new_tx_match(
+            )
+            .transaction_match(json!({}))
+            .decoded_call(None)
+            .build(),
+            MonitorMatch::builder(
                 2,
                 "Monitor B".to_string(),
                 "Action".to_string(),
                 101,
                 Default::default(),
-                json!({}),
-            ),
-            MonitorMatch::new_tx_match(
+            )
+            .transaction_match(json!({}))
+            .decoded_call(None)
+            .build(),
+            MonitorMatch::builder(
                 3,
                 "Monitor A".to_string(),
                 "Action".to_string(),
                 102,
                 Default::default(),
-                json!({}),
-            ),
+            )
+            .transaction_match(json!({}))
+            .decoded_call(None)
+            .build(),
         ];
 
         let grouped = group_matches_by_monitor(&matches);

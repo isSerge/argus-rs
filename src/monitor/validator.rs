@@ -617,14 +617,14 @@ impl TemplateValidator {
 
     /// Creates a dummy calldata context with inputs from the ABI functions.
     fn create_dummy_calldata_context(abi: Option<&JsonAbi>) -> serde_json::Value {
-        let inputs = match abi {
+        let params = match abi {
             Some(abi) => Self::extract_function_inputs(abi),
             None => serde_json::Map::new(),
         };
 
         json!({
             "name": "DummyFunction",
-            "inputs": inputs,
+            "params": params,
         })
     }
 
@@ -1310,11 +1310,11 @@ mod tests {
                 .build(),
             ActionBuilder::new("valid_calldata_action")
                 .discord_config("http://localhost")
-                .message("Call name: {{ decoded_call.name }}, Input: {{ decoded_call.inputs._to }}")
+                .message("Call name: {{ decoded_call.name }}, Input: {{ decoded_call.params._to }}")
                 .build(),
             ActionBuilder::new("invalid_calldata_action")
                 .discord_config("http://localhost")
-                .message("Invalid field: {{ decoded_call.inputs.invalid_input }}")
+                .message("Invalid field: {{ decoded_call.params.invalid_input }}")
                 .build(),
         ];
         let validator =
