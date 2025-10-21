@@ -105,13 +105,13 @@ impl MonitorMatchBuilder {
 pub enum MatchData {
     /// A log/event match.
     Log {
-        /// Details about the transaction that included the log.
-        #[serde(rename = "tx")]
-        tx_details: Value,
-
         /// Details about the log/event.
         #[serde(rename = "log")]
         log_details: LogDetails,
+
+        /// Details about the transaction that included the log.
+        #[serde(rename = "tx")]
+        tx_details: Value,
     },
     /// A transaction match.
     Transaction {
