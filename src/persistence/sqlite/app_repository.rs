@@ -509,4 +509,70 @@ impl AppRepository for SqliteStateRepository {
         tracing::info!(network_id, deleted_count, "actions cleared successfully.");
         Ok(())
     }
+
+    /// Updates an existing action for a specific network.
+    #[tracing::instrument(skip(self, updated_action), level = "debug")]
+    async fn update_action(
+        &self,
+        network_id: &str,
+        action_id: &str,
+        updated_action: ActionConfig,
+    ) -> Result<(), PersistenceError> {
+        tracing::debug!(network_id, action_id, "Updating action.");
+
+        let config = serde_json::to_string(&updated_action)
+            .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
+
+        let action_id_num: i64 = action_id.parse().map_err(|e| {
+            let msg = format!("Invalid action_id '{}': {}", action_id, e);
+            tracing::error!(error = %e, action_id, "Failed to parse action_id.");
+            PersistenceError::InvalidInput(msg)
+        })?;
+
+        self.execute_query_with_error_handling(
+            "update action",
+            sqlx::query!(
+                "UPDATE actions SET name = ?, config = ? WHERE network_id = ? AND action_id = ?",
+                updated_action.name,
+                config,
+                network_id,
+                action_id_num
+            )
+            .execute(&self.pool),
+        )
+        .await?;
+
+        tracing::info!(network_id, action_id, "Action updated successfully.");
+        Ok(())
+    }
+
+    /// Deletes an action by its ID for a specific network.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn delete_action(
+        &self,
+        network_id: &str,
+        action_id: &str,
+    ) -> Result<(), PersistenceError> {
+        tracing::debug!(network_id, action_id, "Deleting action.");
+
+        let action_id_num: i64 = action_id.parse().map_err(|e| {
+            let msg = format!("Invalid action_id '{}': {}", action_id, e);
+            tracing::error!(error = %e, action_id, "Failed to parse action_id.");
+            PersistenceError::InvalidInput(msg)
+        })?;
+
+        self.execute_query_with_error_handling(
+            "delete action",
+            sqlx::query!(
+                "DELETE FROM actions WHERE network_id = ? AND action_id = ?",
+                network_id,
+                action_id_num
+            )
+            .execute(&self.pool),
+        )
+        .await?;
+
+        tracing::info!(network_id, action_id, "Action deleted successfully.");
+        Ok(())
+    }
 }

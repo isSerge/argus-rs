@@ -82,6 +82,21 @@ pub trait AppRepository: Send + Sync {
 
     /// Clears all actions for a specific network.
     async fn clear_actions(&self, network_id: &str) -> Result<(), PersistenceError>;
+
+    /// Updates an existing action for a specific network.
+    async fn update_action(
+        &self,
+        network_id: &str,
+        action_id: &str,
+        updated_action: ActionConfig,
+    ) -> Result<(), PersistenceError>;
+
+    /// Deletes an action by its ID for a specific network.
+    async fn delete_action(
+        &self,
+        network_id: &str,
+        action_id: &str,
+    ) -> Result<(), PersistenceError>;
 }
 
 /// Represents a generic key-value store for JSON-serializable objects.
