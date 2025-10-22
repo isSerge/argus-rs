@@ -15,7 +15,7 @@ pub use metrics::{AppMetrics, Metrics};
 
 use crate::{
     abi::{AbiService, repository::AbiRepository},
-    actions::{ActionDispatcher, template::TemplateService},
+    action_dispatcher::{ActionDispatcher, template::TemplateService},
     config::{AppConfig, InitialStartBlock},
     engine::{
         alert_manager::AlertManager,

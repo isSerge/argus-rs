@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    actions::{
+    action_dispatcher::{
         ActionPayload, error::ActionDispatcherError, template::TemplateService, traits::Action,
     },
     models::action::StdoutConfig,

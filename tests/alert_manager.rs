@@ -3,7 +3,7 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use argus::{
-    actions::ActionDispatcher,
+    action_dispatcher::ActionDispatcher,
     engine::alert_manager::AlertManager,
     http_client::HttpClientPool,
     models::{

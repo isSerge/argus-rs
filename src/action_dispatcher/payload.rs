@@ -1,5 +1,5 @@
 use crate::{
-    actions::error::ActionDispatcherError,
+    action_dispatcher::error::ActionDispatcherError,
     models::{NotificationMessage, monitor_match::MonitorMatch},
 };
 

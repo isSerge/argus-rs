@@ -11,7 +11,7 @@ use thiserror::Error;
 
 use crate::{
     abi::AbiService,
-    actions::template::{TemplateService, TemplateServiceError},
+    action_dispatcher::template::{TemplateService, TemplateServiceError},
     engine::rhai::{
         RhaiScriptValidationError, RhaiScriptValidationResult, RhaiScriptValidator,
         conversions::build_transaction_details_payload,
@@ -664,7 +664,7 @@ mod tests {
     use super::*;
     use crate::{
         abi::{AbiService, repository::AbiRepository},
-        actions::template::TemplateService,
+        action_dispatcher::template::TemplateService,
         config::RhaiConfig,
         engine::rhai::{RhaiCompiler, RhaiScriptValidationError, RhaiScriptValidator},
         models::{action::ActionConfig, monitor::MonitorConfig},

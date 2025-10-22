@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use alloy::primitives::TxHash;
 use argus::{
-    actions::{
+    action_dispatcher::{
         ActionPayload,
         publisher::{
             EventPublisher, KafkaEventPublisher, NatsEventPublisher, RabbitMqEventPublisher,

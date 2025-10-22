@@ -3,7 +3,7 @@
 //! analyze blockchain activity.
 
 pub mod abi;
-pub mod actions;
+pub mod action_dispatcher;
 pub mod cmd;
 pub mod config;
 pub mod context;

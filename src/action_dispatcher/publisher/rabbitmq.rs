@@ -6,7 +6,7 @@ use lapin::{
 };
 
 use crate::{
-    actions::{
+    action_dispatcher::{
         ActionPayload,
         error::ActionDispatcherError,
         publisher::{EventPublisher, PublisherError},
