@@ -151,10 +151,9 @@ impl RhaiFilteringEngine {
                 let (is_match, decoded_log) =
                     self.does_monitor_match(context, cm, Some(log)).await?;
 
-                if is_match
-                    && let Some(decoded) = decoded_log {
-                        self.create_log_matches(context, &cm.monitor, &decoded);
-                    }
+                if is_match && let Some(decoded) = decoded_log {
+                    self.create_log_matches(context, &cm.monitor, &decoded);
+                }
             }
         }
         Ok(())

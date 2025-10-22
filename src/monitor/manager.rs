@@ -90,14 +90,14 @@ impl MonitorManager {
         compiler: Arc<RhaiCompiler>,
         abi_service: Arc<AbiService>,
     ) -> Self {
-        let initial_state = Self::organize_assets(&initial_monitors, &compiler, &abi_service);
+        let initial_state = Self::organize_assets(initial_monitors, &compiler, &abi_service);
         Self { compiler, abi_service, state: ArcSwap::new(Arc::new(initial_state)) }
     }
 
     /// Updates the monitor state with a new set of monitors.
     /// This method atomically swaps the entire monitor state.
     pub fn update(&self, monitors: Vec<Monitor>) {
-        let state = Self::organize_assets(&monitors, &self.compiler, &self.abi_service);
+        let state = Self::organize_assets(monitors, &self.compiler, &self.abi_service);
         self.state.store(Arc::new(state));
     }
 
@@ -109,14 +109,16 @@ impl MonitorManager {
     /// Organizes monitors into the `MonitorAssetState`, categorizing them and
     /// building the interest registry.
     fn organize_assets(
-        monitors: &[Monitor],
+        monitors: Vec<Monitor>,
         compiler: &Arc<RhaiCompiler>,
         abi_service: &Arc<AbiService>,
     ) -> MonitorAssetState {
         tracing::debug!("Organizing assets for {} monitors", monitors.len());
 
-        let (classified, failed): (Vec<_>, Vec<_>) =
-            monitors.iter().map(|m| Self::classify_monitor(compiler, m)).partition(Result::is_ok);
+        let (classified, failed): (Vec<_>, Vec<_>) = monitors
+            .into_iter()
+            .map(|m| Self::classify_monitor(compiler, m))
+            .partition(Result::is_ok);
 
         let classified_monitors =
             classified.into_iter().map(Result::unwrap).collect::<Vec<(ClassifiedMonitor, bool)>>();
@@ -130,19 +132,22 @@ impl MonitorManager {
         }
 
         let requires_receipts = classified_monitors.iter().any(|(_, needs_receipt)| *needs_receipt);
-        let monitors = classified_monitors.iter().map(|(cm, _)| cm.clone()).collect::<Vec<_>>();
 
-        let interest_registry = Self::build_interest_registry(&monitors, abi_service);
+        // Build interest registry by borrowing from classified_monitors
+        let monitors_for_registry: Vec<&ClassifiedMonitor> =
+            classified_monitors.iter().map(|(cm, _)| cm).collect();
+        let interest_registry = Self::build_interest_registry(&monitors_for_registry, abi_service);
+
         let has_transaction_only_monitors =
-            monitors.iter().any(|m| m.caps == MonitorCapabilities::TX);
+            classified_monitors.iter().any(|(cm, _)| cm.caps == MonitorCapabilities::TX);
 
         let mut monitors_by_id = HashMap::new();
         let mut tx_aware_monitors = Vec::new();
         let mut log_aware_monitors = Vec::new();
 
+        // Consume classified_monitors to avoid cloning
         for (cm, _) in classified_monitors {
             let monitor_id = cm.monitor.id;
-            monitors_by_id.insert(monitor_id, cm.clone());
 
             let is_tx_aware = cm.caps.contains(MonitorCapabilities::TX)
                 || cm.caps.contains(MonitorCapabilities::CALL);
@@ -158,11 +163,14 @@ impl MonitorManager {
             if !is_tx_aware && !is_log_aware {
                 tx_aware_monitors.push(monitor_id);
             }
+
+            // Move cm into the HashMap instead of cloning
+            monitors_by_id.insert(monitor_id, cm);
         }
 
         tracing::debug!(
             "Organized monitors: {} total, requires_receipts={}, has_tx_only_monitors={}",
-            monitors.len(),
+            monitors_by_id.len(),
             requires_receipts,
             has_transaction_only_monitors
         );
@@ -183,7 +191,7 @@ impl MonitorManager {
     /// receipts.
     fn classify_monitor(
         compiler: &Arc<RhaiCompiler>,
-        monitor: &Monitor,
+        monitor: Monitor,
     ) -> Result<(ClassifiedMonitor, bool), Box<dyn std::error::Error>> {
         // Analyze the filter script
         let analysis = compiler.analyze_script(&monitor.filter_script)?;
@@ -225,7 +233,7 @@ impl MonitorManager {
             caps = MonitorCapabilities::TX;
         }
 
-        let cm = ClassifiedMonitor { monitor: Arc::new(monitor.clone()), caps, analysis };
+        let cm = ClassifiedMonitor { monitor: Arc::new(monitor), caps, analysis };
 
         Ok((cm, needs_receipt))
     }
@@ -234,13 +242,13 @@ impl MonitorManager {
     /// This method analyzes each monitor's capabilities and ABI to
     /// determine the addresses and event signatures of interest.
     fn build_interest_registry(
-        classified_monitors: &[ClassifiedMonitor],
+        classified_monitors: &[&ClassifiedMonitor],
         abi_service: &Arc<AbiService>,
     ) -> InterestRegistry {
         classified_monitors
             .iter()
             .fold(InterestRegistryBuilder::default(), |mut builder, cm| {
-                builder.add(cm, abi_service);
+                builder.add(*cm, abi_service);
                 builder
             })
             .build()
