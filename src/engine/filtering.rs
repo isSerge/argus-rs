@@ -4,6 +4,66 @@
 //! where the behavior of a monitor (transaction-only, global log-aware, or
 //! address-specific log-aware) is determined by the static analysis of its
 //! `filter_script`.
+//!
+//! # Evaluation Flow
+//!
+//! The filtering engine uses a two-pass evaluation strategy:
+//!
+//! 1. **Log-Aware Pass**: Evaluates monitors that reference log data in their
+//!    scripts
+//!    - Each monitor is evaluated against ALL logs in the transaction
+//!    - A global monitor (no address filter) can match multiple logs
+//!    - Each matching log creates a separate set of action matches
+//!    - Monitors are marked to prevent duplicate evaluation in pass 2
+//!
+//! 2. **Transaction-Only Pass**: Evaluates remaining monitors without log
+//!    context
+//!    - Only runs on monitors that didn't match in pass 1
+//!    - Handles pure transaction monitors (e.g., `tx.value > 100`)
+//!    - Handles hybrid monitors that didn't match any logs
+//!
+//! # Duplicate Match Prevention
+//!
+//! The engine prevents duplicate matches for hybrid monitors (monitors with
+//! scripts like `tx.value > 100 || log.name == "Transfer"`):
+//!
+//! - If the monitor matches a log → creates LogMatch, skips transaction-only
+//!   pass
+//! - If no logs match but tx condition is true → creates TransactionMatch
+//! - If both conditions are true → creates ONLY LogMatch (more specific)
+//!
+//! This ensures each monitor produces at most one type of match per
+//! transaction, while still allowing a monitor to match multiple logs.
+//!
+//! # Example Scenarios
+//!
+//! ## Scenario 1: Global ERC20 Monitor
+//! ```ignore
+//! Monitor script: "log.name == 'Transfer'"
+//! Transaction: Contains 3 Transfer logs from different contracts
+//! Result: 3 LogMatches (one per log) × number of actions
+//! ```
+//!
+//! ## Scenario 2: Hybrid Monitor (Log Match)
+//! ```ignore
+//! Monitor script: "tx.value > ether(1) || log.name == 'Transfer'"
+//! Transaction: value = 0.5 ETH, contains 1 Transfer log
+//! Result: 1 LogMatch (log condition satisfied, tx condition not needed)
+//! ```
+//!
+//! ## Scenario 3: Hybrid Monitor (Tx Match)
+//! ```ignore
+//! Monitor script: "tx.value > ether(1) || log.name == 'Transfer'"
+//! Transaction: value = 2 ETH, no logs
+//! Result: 1 TransactionMatch (no logs to match, falls through to tx-only pass)
+//! ```
+//!
+//! ## Scenario 4: Pure Transaction Monitor
+//! ```ignore
+//! Monitor script: "tx.value > ether(1)"
+//! Transaction: value = 2 ETH, contains logs
+//! Result: 1 TransactionMatch (monitor doesn't reference logs, evaluated in tx-only pass)
+//! ```
 
 use std::{
     collections::{HashMap, HashSet},
@@ -96,10 +156,23 @@ pub struct RhaiFilteringEngine {
 
 /// Holds the transient state for evaluating a single `CorrelatedBlockItem`.
 /// This includes caches for decoded data to avoid redundant work.
+///
+/// # Duplicate Match Prevention
+///
+/// The `matched_monitor_ids` set tracks monitors that have already produced
+/// matches during the log-aware evaluation pass. This prevents the same monitor
+/// from generating duplicate matches in the subsequent transaction-only pass.
+///
+/// **Important**: This does NOT prevent a monitor from matching multiple logs
+/// in the same transaction. A global log-aware monitor (e.g., monitoring all
+/// ERC20 Transfer events) will correctly produce matches for every matching
+/// log.
 struct EvaluationContext<'a> {
     item: &'a CorrelatedBlockItem,
     tx_map: Map,
     matches: Vec<MonitorMatch>,
+    /// Tracks which monitors have already matched to prevent duplicate
+    /// evaluation in the transaction-only pass
     matched_monitor_ids: HashSet<i64>,
     decoded_logs_cache: HashMap<Log, Arc<DecodedLog>>,
     decoded_call_cache: Option<Option<Arc<DecodedCall>>>,
@@ -141,21 +214,36 @@ impl RhaiFilteringEngine {
     }
 
     /// First evaluation pass: checks log-aware monitors against each log.
+    ///
+    /// # Behavior
+    ///
+    /// For each log-aware monitor, this function:
+    /// 1. Iterates through ALL logs in the transaction
+    /// 2. Evaluates the monitor's filter script against each log
+    /// 3. For each matching log, creates matches for ALL actions in the monitor
+    /// 4. Marks the monitor to prevent re-evaluation in the transaction-only
+    ///    pass
+    ///
+    /// # Important Notes
+    ///
+    /// - A monitor can match **multiple logs** in a single transaction (e.g., a
+    ///   global ERC20 monitor will match all Transfer events)
+    /// - Each log match creates a separate set of action matches
+    /// - The monitor is marked as "matched" after the first log to prevent
+    ///   duplicate evaluation in `evaluate_tx_aware_monitors`, but this does
+    ///   NOT stop processing of additional logs
     async fn evaluate_log_aware_monitors(
         &self,
         context: &mut EvaluationContext<'_>,
-        monitors: &[ClassifiedMonitor],
+        monitors: &[&ClassifiedMonitor],
     ) -> Result<(), RhaiError> {
         for cm in monitors {
-            if cm.caps.contains(MonitorCapabilities::LOG) {
-                for log in &context.item.logs {
-                    let (is_match, decoded_log) =
-                        self.does_monitor_match(context, cm, Some(log)).await?;
+            for log in &context.item.logs {
+                let (is_match, decoded_log) =
+                    self.does_monitor_match(context, cm, Some(log)).await?;
 
-                    if is_match && let Some(decoded) = decoded_log {
-                        self.create_log_matches(context, &cm.monitor, &decoded);
-                        context.mark_as_matched(cm.monitor.id);
-                    }
+                if is_match && let Some(decoded) = decoded_log {
+                    self.create_log_matches(context, &cm.monitor, &decoded);
                 }
             }
         }
@@ -164,21 +252,34 @@ impl RhaiFilteringEngine {
 
     /// Second evaluation pass: checks remaining monitors in a transaction-only
     /// context.
+    ///
+    /// # Behavior
+    ///
+    /// This pass runs AFTER `evaluate_log_aware_monitors` and only evaluates
+    /// monitors that haven't already matched during the log evaluation phase.
+    ///
+    /// This prevents duplicate matches for hybrid monitors (monitors with
+    /// scripts like `tx.value > 100 || log.name == "Transfer"`). If such a
+    /// monitor already matched a log, we skip it here to avoid generating
+    /// both a LogMatch and a TransactionMatch for the same monitor.
+    ///
+    /// # Example
+    ///
+    /// Given a hybrid monitor with script: `tx.value > 100 || log.name ==
+    /// "Transfer"`
+    ///
+    /// - If the transaction has a Transfer log → creates LogMatch, skips
+    ///   tx-only pass
+    /// - If the transaction has no logs but value > 100 → creates
+    ///   TransactionMatch
+    /// - If both conditions are true → creates ONLY LogMatch (more specific)
     async fn evaluate_tx_aware_monitors(
         &self,
         context: &mut EvaluationContext<'_>,
-        monitors: &[ClassifiedMonitor],
+        monitors: &[&ClassifiedMonitor],
     ) -> Result<(), RhaiError> {
         for cm in monitors {
             if context.has_matched(cm.monitor.id) {
-                continue;
-            }
-
-            let is_log_only = cm.caps.contains(MonitorCapabilities::LOG)
-                && !cm.caps.contains(MonitorCapabilities::TX)
-                && !cm.caps.contains(MonitorCapabilities::CALL);
-
-            if is_log_only {
                 continue;
             }
 
@@ -191,6 +292,30 @@ impl RhaiFilteringEngine {
     }
 
     /// Core script evaluation logic with lazy decoding and proxy objects.
+    ///
+    /// # Parameters
+    ///
+    /// - `context`: The evaluation context containing transaction data and
+    ///   caches
+    /// - `cm`: The classified monitor to evaluate
+    /// - `log`: Optional log to evaluate against (None for transaction-only
+    ///   evaluation)
+    ///
+    /// # Returns
+    ///
+    /// A tuple of:
+    /// - `bool`: Whether the monitor's filter script evaluated to true
+    /// - `Option<Arc<DecodedLog>>`: The decoded log if one was provided and
+    ///   decoded successfully
+    ///
+    /// # Lazy Decoding
+    ///
+    /// This function implements lazy decoding for both logs and calldata:
+    /// - Logs are only decoded if needed and results are cached
+    /// - Calldata is only decoded if the monitor's script references
+    ///   `decoded_call`
+    /// - All decoding results are cached to avoid redundant work across
+    ///   monitors
     async fn does_monitor_match<'a>(
         &self,
         context: &mut EvaluationContext<'a>,
@@ -261,6 +386,27 @@ impl RhaiFilteringEngine {
     }
 
     /// Creates and stores log-based monitor matches in the context.
+    ///
+    /// # Behavior
+    ///
+    /// For a given decoded log and monitor:
+    /// 1. Creates a `MonitorMatch` for EACH action in the monitor
+    /// 2. Each match includes:
+    ///    - Log details (name, params, address, index)
+    ///    - Transaction details (hash, value, etc.)
+    ///    - Decoded call data (if available)
+    /// 3. Marks the monitor as "matched" to prevent duplicate evaluation in the
+    ///    transaction-only pass
+    ///
+    /// # Important
+    ///
+    /// This function can be called MULTIPLE times for the same monitor if it
+    /// matches multiple logs in a transaction. Each call will:
+    /// - Create a new set of action matches for that specific log
+    /// - Re-mark the monitor (idempotent operation via HashSet)
+    ///
+    /// This is the correct behavior for global monitors that should trigger on
+    /// every matching log.
     fn create_log_matches(
         &self,
         context: &mut EvaluationContext<'_>,
@@ -292,9 +438,30 @@ impl RhaiFilteringEngine {
                 .build(),
             );
         }
+        // Mark the monitor as matched to prevent it from being evaluated again
+        // in the transaction-only pass (prevents duplicate matches).
+        context.mark_as_matched(monitor.id);
     }
 
     /// Creates and stores transaction-based monitor matches in the context.
+    ///
+    /// # Behavior
+    ///
+    /// For a given monitor:
+    /// 1. Creates a `MonitorMatch` for EACH action in the monitor
+    /// 2. Each match includes:
+    ///    - Transaction details (hash, value, gas, etc.)
+    ///    - Decoded call data (if available)
+    ///
+    /// # When This Is Called
+    ///
+    /// This is called during the transaction-only evaluation pass for monitors
+    /// that either:
+    /// - Don't use log data in their filter scripts (pure tx monitors)
+    /// - Use log data but didn't match any logs (hybrid monitors with OR logic)
+    ///
+    /// Monitors that already matched during the log evaluation phase are
+    /// skipped to prevent duplicate matches.
     fn create_tx_matches(&self, context: &mut EvaluationContext<'_>, monitor: &Monitor) {
         let tx_match_payload = build_transaction_details_payload(
             &context.item.transaction,
@@ -377,11 +544,34 @@ impl FilteringEngine for RhaiFilteringEngine {
         let assets = self.monitor_manager.load();
         let mut context = EvaluationContext::new(item);
 
+        // Get the pre-categorized lists of monitors.
+        // These are separated based on static analysis of their filter scripts:
+        // - log_aware: monitors that access `log` or `log.params` in their scripts
+        // - tx_aware: monitors that DON'T access log data (pure transaction monitors)
+        let log_aware_monitors: Vec<_> = assets
+            .log_aware_monitors
+            .iter()
+            .filter_map(|id| assets.monitors_by_id.get(id))
+            .collect();
+        let tx_aware_monitors: Vec<_> = assets
+            .tx_aware_monitors
+            .iter()
+            .filter_map(|id| assets.monitors_by_id.get(id))
+            .collect();
+
         // --- First Pass: Evaluate log-aware monitors ---
-        self.evaluate_log_aware_monitors(&mut context, &assets.monitors).await?;
+        // This includes both address-specific and global log monitors.
+        // Each monitor can match multiple logs, creating separate action matches
+        // for each matching log.
+        if !item.logs.is_empty() {
+            self.evaluate_log_aware_monitors(&mut context, &log_aware_monitors).await?;
+        }
 
         // --- Second Pass: Evaluate transaction-aware monitors ---
-        self.evaluate_tx_aware_monitors(&mut context, &assets.monitors).await?;
+        // Only evaluates monitors that haven't already matched in the log pass.
+        // This prevents duplicate matches for hybrid monitors (e.g., scripts with
+        // `tx.value > 100 || log.name == "Transfer"`).
+        self.evaluate_tx_aware_monitors(&mut context, &tx_aware_monitors).await?;
 
         Ok(context.matches)
     }

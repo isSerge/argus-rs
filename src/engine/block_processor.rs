@@ -296,7 +296,9 @@ mod tests {
     // Tests for the process_block function
     fn empty_monitor_snapshot() -> MonitorAssetState {
         MonitorAssetState {
-            monitors: vec![],
+            monitors_by_id: HashMap::new(),
+            log_aware_monitors: vec![],
+            tx_aware_monitors: vec![],
             requires_receipts: false,
             interest_registry: InterestRegistry::default(),
             has_transaction_only_monitors: false,
