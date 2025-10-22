@@ -661,6 +661,7 @@ mod tests {
     use alloy::primitives::{Address, address};
     use tempfile::tempdir;
 
+    use super::*;
     use crate::{
         abi::{AbiService, repository::AbiRepository},
         actions::template::TemplateService,
@@ -1366,5 +1367,34 @@ mod tests {
         );
         let result = validator.validate(&monitor);
         assert!(result.is_ok(), "Expected decimals filter to work but got error: {:?}", result);
+    }
+
+    #[test]
+    fn test_create_dummy_value_for_type() {
+        // Test primitive types
+        assert_eq!(
+            TemplateValidator::create_dummy_value_for_type("string"),
+            serde_json::json!("dummy_string")
+        );
+        assert_eq!(
+            TemplateValidator::create_dummy_value_for_type("uint64"),
+            serde_json::json!("1000000000000000000")
+        );
+        assert_eq!(
+            TemplateValidator::create_dummy_value_for_type("int64"),
+            serde_json::json!("1000000000000000000")
+        );
+        assert_eq!(TemplateValidator::create_dummy_value_for_type("bool"), serde_json::json!(true));
+
+        assert_eq!(
+            TemplateValidator::create_dummy_value_for_type("bytes"),
+            serde_json::json!("0x000000")
+        );
+
+        // Test unknown type
+        assert_eq!(
+            TemplateValidator::create_dummy_value_for_type("unknown_type"),
+            serde_json::json!("dummy_value")
+        );
     }
 }
