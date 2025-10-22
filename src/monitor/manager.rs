@@ -248,7 +248,7 @@ impl MonitorManager {
         classified_monitors
             .iter()
             .fold(InterestRegistryBuilder::default(), |mut builder, cm| {
-                builder.add(*cm, abi_service);
+                builder.add(cm, abi_service);
                 builder
             })
             .build()
