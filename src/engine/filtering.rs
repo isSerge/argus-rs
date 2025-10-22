@@ -144,17 +144,16 @@ impl RhaiFilteringEngine {
     async fn evaluate_log_aware_monitors(
         &self,
         context: &mut EvaluationContext<'_>,
-        monitors: &[ClassifiedMonitor],
+        monitors: &[&ClassifiedMonitor],
     ) -> Result<(), RhaiError> {
         for cm in monitors {
-            if cm.caps.contains(MonitorCapabilities::LOG) {
-                for log in &context.item.logs {
-                    let (is_match, decoded_log) =
-                        self.does_monitor_match(context, cm, Some(log)).await?;
+            for log in &context.item.logs {
+                let (is_match, decoded_log) =
+                    self.does_monitor_match(context, cm, Some(log)).await?;
 
-                    if is_match && let Some(decoded) = decoded_log {
+                if is_match {
+                    if let Some(decoded) = decoded_log {
                         self.create_log_matches(context, &cm.monitor, &decoded);
-                        context.mark_as_matched(cm.monitor.id);
                     }
                 }
             }
@@ -167,18 +166,10 @@ impl RhaiFilteringEngine {
     async fn evaluate_tx_aware_monitors(
         &self,
         context: &mut EvaluationContext<'_>,
-        monitors: &[ClassifiedMonitor],
+        monitors: &[&ClassifiedMonitor],
     ) -> Result<(), RhaiError> {
         for cm in monitors {
             if context.has_matched(cm.monitor.id) {
-                continue;
-            }
-
-            let is_log_only = cm.caps.contains(MonitorCapabilities::LOG)
-                && !cm.caps.contains(MonitorCapabilities::TX)
-                && !cm.caps.contains(MonitorCapabilities::CALL);
-
-            if is_log_only {
                 continue;
             }
 
@@ -292,6 +283,7 @@ impl RhaiFilteringEngine {
                 .build(),
             );
         }
+        context.mark_as_matched(monitor.id);
     }
 
     /// Creates and stores transaction-based monitor matches in the context.
@@ -377,11 +369,25 @@ impl FilteringEngine for RhaiFilteringEngine {
         let assets = self.monitor_manager.load();
         let mut context = EvaluationContext::new(item);
 
+        // Get the pre-categorized lists of monitors.
+        let log_aware_monitors: Vec<_> = assets
+            .log_aware_monitors
+            .iter()
+            .filter_map(|id| assets.monitors_by_id.get(id))
+            .collect();
+        let tx_aware_monitors: Vec<_> = assets
+            .tx_aware_monitors
+            .iter()
+            .filter_map(|id| assets.monitors_by_id.get(id))
+            .collect();
+
         // --- First Pass: Evaluate log-aware monitors ---
-        self.evaluate_log_aware_monitors(&mut context, &assets.monitors).await?;
+        if !item.logs.is_empty() {
+            self.evaluate_log_aware_monitors(&mut context, &log_aware_monitors).await?;
+        }
 
         // --- Second Pass: Evaluate transaction-aware monitors ---
-        self.evaluate_tx_aware_monitors(&mut context, &assets.monitors).await?;
+        self.evaluate_tx_aware_monitors(&mut context, &tx_aware_monitors).await?;
 
         Ok(context.matches)
     }

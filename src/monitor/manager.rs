@@ -1,7 +1,10 @@
 //! This module is responsible for classifying monitors, analyzing their
 //! scripts, and maintaining the overall state of the monitoring system.
 
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use arc_swap::{ArcSwap, Guard};
 use bitflags::bitflags;
@@ -18,7 +21,7 @@ const TX_STATUS: &str = "tx.status";
 const TX_EFFECTIVE_GAS_PRICE: &str = "tx.effective_gas_price";
 
 /// A monitor along with its capabilities and script analysis.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ClassifiedMonitor {
     /// The original monitor definition.
     pub monitor: Arc<Monitor>,
@@ -45,8 +48,15 @@ bitflags! {
 /// script analysis.
 #[derive(Debug, Default)]
 pub struct MonitorAssetState {
-    /// The full, organized monitor structure for the FilteringEngine.
-    pub monitors: Vec<ClassifiedMonitor>,
+    /// A mapping of monitor IDs to their classified representations.
+    pub monitors_by_id: HashMap<i64, ClassifiedMonitor>,
+
+    /// IDs of all monitors that are transaction-aware (pure tx/call or hybrid).
+    pub tx_aware_monitors: Vec<i64>,
+
+    /// IDs of all monitors that are log-aware (need to be evaluated against
+    /// logs).
+    pub log_aware_monitors: Vec<i64>,
 
     /// An optimized, fast-lookup registry for the BlockProcessor.
     pub interest_registry: InterestRegistry,
@@ -120,11 +130,35 @@ impl MonitorManager {
         }
 
         let requires_receipts = classified_monitors.iter().any(|(_, needs_receipt)| *needs_receipt);
-        let monitors = classified_monitors.into_iter().map(|(cm, _)| cm).collect::<Vec<_>>();
+        let monitors = classified_monitors.iter().map(|(cm, _)| cm.clone()).collect::<Vec<_>>();
 
         let interest_registry = Self::build_interest_registry(&monitors, abi_service);
         let has_transaction_only_monitors =
             monitors.iter().any(|m| m.caps == MonitorCapabilities::TX);
+
+        let mut monitors_by_id = HashMap::new();
+        let mut tx_aware_monitors = Vec::new();
+        let mut log_aware_monitors = Vec::new();
+
+        for (cm, _) in classified_monitors {
+            let monitor_id = cm.monitor.id;
+            monitors_by_id.insert(monitor_id, cm.clone());
+
+            let is_tx_aware = cm.caps.contains(MonitorCapabilities::TX)
+                || cm.caps.contains(MonitorCapabilities::CALL);
+            let is_log_aware = cm.caps.contains(MonitorCapabilities::LOG);
+
+            if is_tx_aware {
+                tx_aware_monitors.push(monitor_id);
+            }
+            if is_log_aware {
+                log_aware_monitors.push(monitor_id);
+            }
+            // Handle monitors like `true` which have empty caps
+            if !is_tx_aware && !is_log_aware {
+                tx_aware_monitors.push(monitor_id);
+            }
+        }
 
         tracing::debug!(
             "Organized monitors: {} total, requires_receipts={}, has_tx_only_monitors={}",
@@ -134,7 +168,9 @@ impl MonitorManager {
         );
 
         MonitorAssetState {
-            monitors,
+            monitors_by_id,
+            tx_aware_monitors,
+            log_aware_monitors,
             requires_receipts,
             interest_registry,
             has_transaction_only_monitors,
@@ -288,9 +324,8 @@ mod tests {
         let manager = MonitorManager::new(monitors, compiler, abi_service);
         let snapshot = manager.load();
 
-        let get_caps = |id: i64| -> MonitorCapabilities {
-            snapshot.monitors.iter().find(|m| m.monitor.id == id).unwrap().caps
-        };
+        let get_caps =
+            |id: i64| -> MonitorCapabilities { snapshot.monitors_by_id.get(&id).unwrap().caps };
 
         assert_eq!(get_caps(1), MonitorCapabilities::TX);
         assert_eq!(get_caps(2), MonitorCapabilities::LOG);
@@ -360,7 +395,7 @@ mod tests {
 
         // Initial state: empty
         let snapshot1 = manager.load();
-        assert!(snapshot1.monitors.is_empty());
+        assert!(snapshot1.monitors_by_id.is_empty());
         drop(snapshot1);
 
         // Update with new monitors
@@ -372,9 +407,11 @@ mod tests {
 
         // Final state: updated
         let snapshot2 = manager.load();
-        assert_eq!(snapshot2.monitors.len(), 2);
-        assert_eq!(snapshot2.monitors[0].monitor.id, 1);
-        assert_eq!(snapshot2.monitors[1].monitor.id, 2);
+        assert_eq!(snapshot2.monitors_by_id.len(), 2);
+        assert!(snapshot2.monitors_by_id.contains_key(&1));
+        assert!(snapshot2.monitors_by_id.contains_key(&2));
+        assert_eq!(snapshot2.monitors_by_id.get(&1).unwrap().monitor.id, 1);
+        assert_eq!(snapshot2.monitors_by_id.get(&2).unwrap().monitor.id, 2);
     }
 
     #[test]
@@ -443,7 +480,7 @@ mod tests {
         let manager = MonitorManager::new(vec![], compiler.clone(), abi_service.clone());
         let snapshot = manager.load();
 
-        assert!(snapshot.monitors.is_empty());
+        assert!(snapshot.monitors_by_id.is_empty());
         assert!(!snapshot.requires_receipts);
         assert!(snapshot.interest_registry.log_interests.is_empty());
         assert!(snapshot.interest_registry.global_event_signatures.is_empty());
@@ -452,7 +489,7 @@ mod tests {
         // Test updating with an empty list
         manager.update(vec![]);
         let updated_snapshot = manager.load();
-        assert!(updated_snapshot.monitors.is_empty());
+        assert!(updated_snapshot.monitors_by_id.is_empty());
         assert!(!updated_snapshot.requires_receipts);
         assert!(updated_snapshot.interest_registry.log_interests.is_empty());
         assert!(updated_snapshot.interest_registry.global_event_signatures.is_empty());
@@ -472,7 +509,7 @@ mod tests {
         let snapshot = manager.load();
 
         // The monitor should be organized as a global log-aware monitor.
-        assert_eq!(snapshot.monitors.len(), 1);
+        assert_eq!(snapshot.monitors_by_id.len(), 1);
 
         // No event signatures should be added because the ABI was not found.
         assert!(snapshot.interest_registry.global_event_signatures.is_empty());
