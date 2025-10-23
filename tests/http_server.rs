@@ -154,24 +154,24 @@ impl TestServer {
         let add_result_1 = repo
             .create_action(
                 &config.network_id,
-                    ActionConfig {
-                        id: None,
-                        name: "Test Action".to_string(),
-                        config: ActionTypeConfig::Stdout(StdoutConfig { message: None }),
-                        policy: None,
-                    },
+                ActionConfig {
+                    id: None,
+                    name: "Test Action".to_string(),
+                    config: ActionTypeConfig::Stdout(StdoutConfig { message: None }),
+                    policy: None,
+                },
             )
             .await;
 
-         let add_result_2 = repo
+        let add_result_2 = repo
             .create_action(
                 &config.network_id,
-                    ActionConfig {
-                        id: None,
-                        name: "Another Action".to_string(),
-                        config: ActionTypeConfig::Stdout(StdoutConfig { message: None }),
-                        policy: None,
-                    },
+                ActionConfig {
+                    id: None,
+                    name: "Another Action".to_string(),
+                    config: ActionTypeConfig::Stdout(StdoutConfig { message: None }),
+                    policy: None,
+                },
             )
             .await;
 
@@ -405,6 +405,156 @@ async fn status_endpoint_returns_status_json() {
     assert!(body["uptime_secs"].as_u64().is_some());
     assert_eq!(body["latest_processed_block"], 0);
     assert_eq!(body["latest_processed_block_timestamp_secs"], 0);
+
+    server.cleanup();
+}
+
+#[tokio::test]
+async fn create_action_endpoint_works() {
+    let repo = create_test_repo().await;
+    let server = TestServer::new(repo).await;
+    let action_json = serde_json::json!({
+        "name": "My New Action",
+        "stdout": {}
+    });
+
+    // 1. Successful creation
+    let resp = server
+        .post("/actions")
+        .await
+        .bearer_auth("test-key")
+        .json(&action_json)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201, "Failed to create action");
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["action"]["id"], 1);
+    assert_eq!(body["action"]["name"], "My New Action");
+
+    // 2. Name conflict
+    let resp = server
+        .post("/actions")
+        .await
+        .bearer_auth("test-key")
+        .json(&action_json)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 409, "Should return conflict for duplicate name");
+
+    // 3. Validation error
+    let invalid_action_json = serde_json::json!({
+        "name": "My Invalid Action",
+        "kafka": { "brokers": "" } // Invalid: empty brokers
+    });
+    let resp = server
+        .post("/actions")
+        .await
+        .bearer_auth("test-key")
+        .json(&invalid_action_json)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 422, "Should return unprocessable entity for invalid config");
+
+    server.cleanup();
+}
+
+#[tokio::test]
+async fn update_action_endpoint_works() {
+    let (server, _repo) = TestServer::new_with_test_actions().await;
+    let updated_action_json = serde_json::json!({
+        "name": "My Updated Action",
+        "stdout": {}
+    });
+
+    // 1. Successful update
+    let resp = server
+        .client
+        .put(&format!("http://{}{}", server.address, "/actions/1"))
+        .bearer_auth("test-key")
+        .json(&updated_action_json)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "Failed to update action");
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["action"]["id"], 1);
+    assert_eq!(body["action"]["name"], "My Updated Action");
+
+    // 2. Update non-existent action
+    let resp = server
+        .client
+        .put(&format!("http://{}{}", server.address, "/actions/999"))
+        .bearer_auth("test-key")
+        .json(&updated_action_json)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 404, "Should return not found for non-existent action");
+
+    server.cleanup();
+}
+
+#[tokio::test]
+async fn delete_action_endpoint_works() {
+    let (server, _repo) = TestServer::new_with_test_actions().await;
+
+    // 1. Successful deletion
+    let resp = server
+        .client
+        .delete(&format!("http://{}{}", server.address, "/actions/1"))
+        .bearer_auth("test-key")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 204, "Failed to delete action");
+
+    // 2. Verify deletion
+    let resp = server.get("/actions/1").await;
+    assert_eq!(resp.status(), 404, "Action should be deleted");
+
+    // 3. Delete non-existent action
+    let resp = server
+        .client
+        .delete(&format!("http://{}{}", server.address, "/actions/999"))
+        .bearer_auth("test-key")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 404, "Should return not found for non-existent action");
+
+    server.cleanup();
+}
+
+#[tokio::test]
+async fn actions_write_endpoints_require_auth() {
+    let (server, _repo) = TestServer::new_with_test_actions().await;
+    let json_body = serde_json::json!({});
+
+    // 1. POST /actions
+    let resp = server.post("/actions").await.json(&json_body).send().await.unwrap();
+    assert_eq!(resp.status(), 401, "POST /actions should require auth");
+
+    // 2. PUT /actions/:id
+    let resp = server
+        .client
+        .put(&format!("http://{}{}", server.address, "/actions/1"))
+        .json(&json_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401, "PUT /actions/:id should require auth");
+
+    // 3. DELETE /actions/:id
+    let resp = server
+        .client
+        .delete(&format!("http://{}{}", server.address, "/actions/1"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401, "DELETE /actions/:id should require auth");
 
     server.cleanup();
 }
