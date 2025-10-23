@@ -70,15 +70,22 @@ pub trait AppRepository: Send + Sync {
     async fn get_action_by_id(
         &self,
         network_id: &str,
-        action_id: &str,
+        action_id: i64,
     ) -> Result<Option<ActionConfig>, PersistenceError>;
 
-    /// Adds multiple actions for a specific network.
-    async fn add_actions(
+    /// Retrieves a specific action by its name for a given network.
+    async fn get_action_by_name(
         &self,
         network_id: &str,
-        actions: Vec<ActionConfig>,
-    ) -> Result<(), PersistenceError>;
+        name: &str,
+    ) -> Result<Option<ActionConfig>, PersistenceError>;
+
+    /// Creates a new action for a specific network.
+    async fn create_action(
+        &self,
+        network_id: &str,
+        action: ActionConfig,
+    ) -> Result<ActionConfig, PersistenceError>;
 
     /// Clears all actions for a specific network.
     async fn clear_actions(&self, network_id: &str) -> Result<(), PersistenceError>;
@@ -87,16 +94,12 @@ pub trait AppRepository: Send + Sync {
     async fn update_action(
         &self,
         network_id: &str,
-        action_id: &str,
-        updated_action: ActionConfig,
-    ) -> Result<(), PersistenceError>;
+        action: ActionConfig,
+    ) -> Result<ActionConfig, PersistenceError>;
 
     /// Deletes an action by its ID for a specific network.
-    async fn delete_action(
-        &self,
-        network_id: &str,
-        action_id: &str,
-    ) -> Result<(), PersistenceError>;
+    async fn delete_action(&self, network_id: &str, action_id: i64)
+    -> Result<(), PersistenceError>;
 }
 
 /// Represents a generic key-value store for JSON-serializable objects.

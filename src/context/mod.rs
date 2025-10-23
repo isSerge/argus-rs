@@ -377,9 +377,13 @@ impl AppContextBuilder {
         repo.clear_actions(network_id).await.map_err(|e| {
             InitializationError::ActionLoad(format!("Failed to clear existing actions in DB: {e}"))
         })?;
-        repo.add_actions(network_id, actions).await.map_err(|e| {
-            InitializationError::ActionLoad(format!("Failed to add actions to DB: {e}"))
-        })?;
+
+        for action in actions {
+            repo.create_action(network_id, action).await.map_err(|e| {
+                InitializationError::ActionLoad(format!("Failed to add action to DB: {e}"))
+            })?;
+        }
+
         tracing::info!(count = count, network_id = %network_id, "actions from file stored in database.");
         Ok(())
     }
@@ -526,7 +530,7 @@ mod tests {
 
         // Add existing action
         let existing_action = ActionBuilder::new("existing").build();
-        repo.add_actions(&config.network_id, vec![existing_action]).await.unwrap();
+        repo.create_action(&config.network_id, existing_action).await.unwrap();
 
         // Should skip loading since actions already exist
         let result = AppContextBuilder::load_actions_from_file(&config, repo.as_ref()).await;

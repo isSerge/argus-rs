@@ -68,7 +68,8 @@ async fn test_action_lifecycle() {
 
     // 2. Add actions
     let actions_to_add = vec![create_test_action("Action 1"), create_test_action("Action 2")];
-    repo.add_actions(network_id, actions_to_add.clone()).await.unwrap();
+    repo.create_action(network_id, actions_to_add[0].clone()).await.unwrap();
+    repo.create_action(network_id, actions_to_add[1].clone()).await.unwrap();
 
     // 3. Get actions and verify they were added
     let stored_actions = repo.get_actions(network_id).await.unwrap();
@@ -115,8 +116,8 @@ async fn test_network_isolation() {
     repo.add_monitors(poly_network, vec![create_test_monitor("Polygon Monitor", poly_network)])
         .await
         .unwrap();
-    repo.add_actions(eth_network, vec![create_test_action("ETH Action")]).await.unwrap();
-    repo.add_actions(poly_network, vec![create_test_action("Polygon Action")]).await.unwrap();
+    repo.create_action(eth_network, create_test_action("ETH Action")).await.unwrap();
+    repo.create_action(poly_network, create_test_action("Polygon Action")).await.unwrap();
 
     // Verify data for Ethereum
     let eth_monitors = repo.get_monitors(eth_network).await.unwrap();

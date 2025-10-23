@@ -130,14 +130,14 @@ impl TestServer {
 
         // Add test actions
         let add_result = repo
-            .add_actions(
+            .create_action(
                 &config.network_id,
-                vec![ActionConfig {
+                ActionConfig {
                     id: None,
                     name: "Test Action".to_string(),
                     config: ActionTypeConfig::Stdout(StdoutConfig { message: None }),
                     policy: None,
-                }],
+                },
             )
             .await;
         assert!(add_result.is_ok(), "Failed to add test action");
@@ -151,26 +151,32 @@ impl TestServer {
         let config = AppConfig::default();
 
         // Add test actions
-        let add_result = repo
-            .add_actions(
+        let add_result_1 = repo
+            .create_action(
                 &config.network_id,
-                vec![
                     ActionConfig {
                         id: None,
                         name: "Test Action".to_string(),
                         config: ActionTypeConfig::Stdout(StdoutConfig { message: None }),
                         policy: None,
                     },
+            )
+            .await;
+
+         let add_result_2 = repo
+            .create_action(
+                &config.network_id,
                     ActionConfig {
                         id: None,
                         name: "Another Action".to_string(),
                         config: ActionTypeConfig::Stdout(StdoutConfig { message: None }),
                         policy: None,
                     },
-                ],
             )
             .await;
-        assert!(add_result.is_ok(), "Failed to add test actions");
+
+        assert!(add_result_1.is_ok(), "Failed to add test actions");
+        assert!(add_result_2.is_ok(), "Failed to add test actions");
 
         let server = Self::new(repo.clone()).await;
         (server, repo)
