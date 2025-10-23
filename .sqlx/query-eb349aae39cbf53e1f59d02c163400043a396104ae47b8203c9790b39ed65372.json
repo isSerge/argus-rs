@@ -1,0 +1,68 @@
+{
+  "db_name": "SQLite",
+  "query": "\n                    SELECT \n                        monitor_id as \"monitor_id!\", \n                        name, \n                        network, \n                        address, \n                        abi, \n                        filter_script, \n                        actions,\n                        created_at as \"created_at!\", \n                        updated_at as \"updated_at!\"\n                    FROM monitors \n                    WHERE network = ? AND actions LIKE ?\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "name": "monitor_id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "name",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "network",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "address",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "abi",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "filter_script",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "actions",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!",
+        "ordinal": 7,
+        "type_info": "Datetime"
+      },
+      {
+        "name": "updated_at!",
+        "ordinal": 8,
+        "type_info": "Datetime"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "eb349aae39cbf53e1f59d02c163400043a396104ae47b8203c9790b39ed65372"
+}
