@@ -263,7 +263,7 @@ The repository is organized to separate application logic, configuration, and do
 The `src` directory contains all the Rust source code, organized into the following modules:
 
 -   `abi`: Handles ABI parsing, decoding, and management.
--   `actions`: Manages sending notifications to services like webhooks, Slack, and message queues like Kafka.
+-   `action_dispatcher`: Manages sending notifications to services like webhooks, Slack, and message queues like Kafka.
 -   `context`: Encapsulates all necessary components for use throughout the application
 -   `cmd`: Contains the definitions for the command-line interface (CLI) commands like `run` and `dry-run`.
 -   `config`: Manages application configuration loading and validation.
