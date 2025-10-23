@@ -623,7 +623,10 @@ impl AppRepository for SqliteStateRepository {
             .ok_or(PersistenceError::NotFound)?
             .name;
 
-        let like_clause = format!("%\"{}\"%", action_name);
+        // Escape LIKE wildcards to prevent incorrect matching.
+        let escaped_action_name = action_name.replace('%', "\\%").replace('_', "\\_");
+        let like_clause = format!("%\"{}\"%", escaped_action_name);
+
         let monitor_rows = self
             .execute_query_with_error_handling("query monitors by action id", async {
                 sqlx::query_as!(
@@ -640,7 +643,7 @@ impl AppRepository for SqliteStateRepository {
                         created_at as "created_at!", 
                         updated_at as "updated_at!"
                     FROM monitors 
-                    WHERE network = ? AND actions LIKE ?
+                    WHERE network = ? AND actions LIKE ? ESCAPE '\'
                     "#,
                     network_id,
                     like_clause
