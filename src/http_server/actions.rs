@@ -71,6 +71,15 @@ pub async fn delete_action(
     State(state): State<ApiState>,
     Path(action_id): Path<i64>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Check if the action is in use by any monitors
+    let monitors =
+        state.repo.get_monitors_by_action_id(&state.config.network_id, action_id).await?;
+
+    if !monitors.is_empty() {
+        let monitor_names = monitors.into_iter().map(|m| m.name).collect();
+        return Err(ApiError::ActionInUse(monitor_names));
+    }
+
     state.repo.delete_action(&state.config.network_id, action_id).await?;
 
     // Notify that the configuration has changed

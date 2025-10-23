@@ -558,3 +558,45 @@ async fn actions_write_endpoints_require_auth() {
 
     server.cleanup();
 }
+
+#[tokio::test]
+async fn delete_action_conflict_when_in_use() {
+    let (server, repo) = TestServer::new_with_multiple_actions().await;
+    let config = AppConfig::default();
+
+    // Create a monitor that uses the first action
+    let monitor = MonitorConfig {
+        name: "My Monitor".to_string(),
+        network: config.network_id.clone(),
+        address: None,
+        abi: None,
+        filter_script: "true".to_string(),
+        actions: vec!["Test Action".to_string()],
+    };
+    repo.add_monitors(&config.network_id, vec![monitor]).await.unwrap();
+
+    // 1. Attempt to delete the action that is in use
+    let resp = server
+        .client
+        .delete(&format!("http://{}{}", server.address, "/actions/1"))
+        .bearer_auth("test-key")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 409, "Should return conflict when action is in use");
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["error"], "Action is in use and cannot be deleted.");
+    assert_eq!(body["monitors"], serde_json::json!(vec!["My Monitor"]));
+
+    // 2. Attempt to delete the action that is not in use
+    let resp = server
+        .client
+        .delete(&format!("http://{}{}", server.address, "/actions/2"))
+        .bearer_auth("test-key")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 204, "Should allow deletion of unused action");
+
+    server.cleanup();
+}

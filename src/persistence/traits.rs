@@ -100,6 +100,13 @@ pub trait AppRepository: Send + Sync {
     /// Deletes an action by its ID for a specific network.
     async fn delete_action(&self, network_id: &str, action_id: i64)
     -> Result<(), PersistenceError>;
+
+    /// Retrieves all monitors that are associated with a specific action.
+    async fn get_monitors_by_action_id(
+        &self,
+        network_id: &str,
+        action_id: i64,
+    ) -> Result<Vec<crate::models::monitor::MonitorConfig>, PersistenceError>;
 }
 
 /// Represents a generic key-value store for JSON-serializable objects.

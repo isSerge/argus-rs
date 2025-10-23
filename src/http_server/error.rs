@@ -22,6 +22,9 @@ pub enum ApiError {
     /// Represents a conflict, e.g., a resource that already exists.
     Conflict(String),
 
+    /// Represents a conflict where an action is in use by monitors.
+    ActionInUse(Vec<String>),
+
     /// Represents a generic internal server error.
     InternalServerError(String),
 }
@@ -58,23 +61,29 @@ impl From<ActionValidationError> for ApiError {
 /// user-facing HTTP responses.
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
-        let (status, error_message) = match self {
-            ApiError::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()),
+        let (status, body) = match self {
+            ApiError::Unauthorized =>
+                (StatusCode::UNAUTHORIZED, json!({ "error": "Unauthorized" })),
             ApiError::InternalServerError(err) => {
-                // Log the detailed error for debugging purposes.
                 tracing::error!("Internal server error: {}", err);
-                // Return a generic error message to the user for security.
-                (StatusCode::INTERNAL_SERVER_ERROR, "An internal server error occurred".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    json!({ "error": "An internal server error occurred" }),
+                )
             }
-            ApiError::NotFound(message) => (StatusCode::NOT_FOUND, message),
-            ApiError::UnprocessableEntity(message) => (StatusCode::UNPROCESSABLE_ENTITY, message),
-            ApiError::Conflict(message) => (StatusCode::CONFLICT, message),
+            ApiError::NotFound(message) => (StatusCode::NOT_FOUND, json!({ "error": message })),
+            ApiError::UnprocessableEntity(message) =>
+                (StatusCode::UNPROCESSABLE_ENTITY, json!({ "error": message })),
+            ApiError::Conflict(message) => (StatusCode::CONFLICT, json!({ "error": message })),
+            ApiError::ActionInUse(monitors) => (
+                StatusCode::CONFLICT,
+                json!({
+                    "error": "Action is in use and cannot be deleted.",
+                    "monitors": monitors,
+                }),
+            ),
         };
 
-        let body = Json(json!({
-            "error": error_message,
-        }));
-
-        (status, body).into_response()
+        (status, Json(body)).into_response()
     }
 }

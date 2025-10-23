@@ -73,10 +73,9 @@ impl ActionValidator {
         // 3. Check for name uniqueness, ignoring the current action's ID.
         if let Some(existing_action) =
             self.repo.get_action_by_name(&self.network_id, &action.name).await?
+            && existing_action.id != action.id
         {
-            if existing_action.id != action.id {
-                return Err(ActionValidationError::NameConflict(action.name.clone()));
-            }
+            return Err(ActionValidationError::NameConflict(action.name.clone()));
         }
 
         Ok(())

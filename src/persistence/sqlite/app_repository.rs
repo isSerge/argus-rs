@@ -607,4 +607,72 @@ impl AppRepository for SqliteStateRepository {
         tracing::info!(network_id, action_id, "Action deleted successfully.");
         Ok(())
     }
+
+    /// Retrieves all monitors that are associated with a specific action.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn get_monitors_by_action_id(
+        &self,
+        network_id: &str,
+        action_id: i64,
+    ) -> Result<Vec<MonitorConfig>, PersistenceError> {
+        tracing::debug!(network_id, action_id, "Querying for monitors by action ID.");
+
+        let action_name = self
+            .get_action_by_id(network_id, action_id)
+            .await?
+            .ok_or(PersistenceError::NotFound)?
+            .name;
+
+        let like_clause = format!("%\"{}\"%", action_name);
+        let monitor_rows = self
+            .execute_query_with_error_handling("query monitors by action id", async {
+                sqlx::query_as!(
+                    MonitorRow,
+                    r#"
+                    SELECT 
+                        monitor_id as "monitor_id!", 
+                        name, 
+                        network, 
+                        address, 
+                        abi, 
+                        filter_script, 
+                        actions,
+                        created_at as "created_at!", 
+                        updated_at as "updated_at!"
+                    FROM monitors 
+                    WHERE network = ? AND actions LIKE ?
+                    "#,
+                    network_id,
+                    like_clause
+                )
+                .fetch_all(&self.pool)
+                .await
+            })
+            .await?;
+
+        let monitors = monitor_rows
+            .into_iter()
+            .map(|row| {
+                let actions: Vec<String> = serde_json::from_str(&row.actions)
+                    .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
+
+                Ok(MonitorConfig {
+                    name: row.name,
+                    network: row.network,
+                    address: row.address,
+                    abi: row.abi,
+                    filter_script: row.filter_script,
+                    actions,
+                })
+            })
+            .collect::<Result<Vec<_>, PersistenceError>>()?;
+
+        tracing::debug!(
+            network_id,
+            action_id,
+            monitor_count = monitors.len(),
+            "Monitors retrieved successfully."
+        );
+        Ok(monitors)
+    }
 }
