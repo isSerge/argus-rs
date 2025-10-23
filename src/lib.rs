@@ -1,8 +1,10 @@
 #![warn(missing_docs)]
-//! Argus is a blockchain monitoring tool designed to help users track and
-//! analyze blockchain activity.
+//! Argus core library.
+//! Contains the main components and modules for the Argus application.
+//! This includes monitoring, alerting, persistence, action dispatching, and more.
 
 pub mod abi;
+pub mod action;
 pub mod action_dispatcher;
 pub mod cmd;
 pub mod config;
