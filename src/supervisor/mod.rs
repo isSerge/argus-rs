@@ -28,7 +28,7 @@ use thiserror::Error;
 use tokio::{signal, sync::mpsc};
 
 use crate::{
-    actions::error::ActionDispatcherError,
+    action_dispatcher::error::ActionDispatcherError,
     config::AppConfig,
     context::AppMetrics,
     engine::{

@@ -3,7 +3,7 @@
 use thiserror::Error;
 
 use crate::{
-    actions::{publisher::PublisherError, template::TemplateServiceError},
+    action_dispatcher::{publisher::PublisherError, template::TemplateServiceError},
     http_client::HttpClientPoolError,
 };
 

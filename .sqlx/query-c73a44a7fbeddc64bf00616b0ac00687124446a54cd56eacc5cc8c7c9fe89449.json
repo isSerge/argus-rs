@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE actions SET name = ?, config = ? WHERE network_id = ? AND action_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "c73a44a7fbeddc64bf00616b0ac00687124446a54cd56eacc5cc8c7c9fe89449"
+}

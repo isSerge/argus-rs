@@ -8,12 +8,12 @@ mod status;
 
 use std::{net::SocketAddr, sync::Arc};
 
-use actions::{action_details, actions};
+use actions::{create_action, delete_action, get_action_details, get_actions, update_action};
 use auth::auth;
 use axum::{
     Router, middleware,
     response::{IntoResponse, Json},
-    routing::{get, post},
+    routing::{delete, get, post, put},
 };
 use error::ApiError;
 use monitors::{monitor_details, monitors, update_monitors};
@@ -59,14 +59,28 @@ pub async fn run_server_from_config(
     let app = Router::new()
         .route("/health", get(health))
         .route("/status", get(status))
+        // Monitors routes
         .route(
             "/monitors",
             post(update_monitors).route_layer(middleware::from_fn_with_state(state.clone(), auth)),
         )
         .route("/monitors", get(monitors))
         .route("/monitors/{id}", get(monitor_details))
-        .route("/actions", get(actions))
-        .route("/actions/{id}", get(action_details))
+        // Actions routes
+        .route("/actions", get(get_actions))
+        .route("/actions/{id}", get(get_action_details))
+        .route(
+            "/actions",
+            post(create_action).route_layer(middleware::from_fn_with_state(state.clone(), auth)),
+        )
+        .route(
+            "/actions/{id}",
+            put(update_action).route_layer(middleware::from_fn_with_state(state.clone(), auth)),
+        )
+        .route(
+            "/actions/{id}",
+            delete(delete_action).route_layer(middleware::from_fn_with_state(state.clone(), auth)),
+        )
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(addr).await.expect("Failed to bind address");

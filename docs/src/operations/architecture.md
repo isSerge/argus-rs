@@ -19,13 +19,12 @@ The `src` directory is organized into several modules, each representing a key c
 
 -   **`providers`**: This component is responsible for fetching block data from the external EVM RPC nodes. It handles connection management, retries, and polling for new blocks.
 
--   **`engine`**: This is the core data processing pipeline. It is divided into two main stages:
+-   **`engine`**: This is the core data processing pipeline. It is divided into several stages:
     -   **`BlockProcessor`**: Receives raw block data from the providers and correlates transactions with their corresponding logs and receipts into a structured format.
     -   **`FilteringEngine`**: Receives correlated block data from the `BlockProcessor`. It executes the appropriate Rhai filter scripts for each monitor, lazily decoding event logs and transaction calldata as needed during script execution. Upon a match, it creates a `MonitorMatch` object.
-
--   **`notification`**: This component is divided into two main parts:
     -   **`AlertManager`**: Receives `MonitorMatch`es from the `FilteringEngine`. It is responsible for managing notification policies (throttling, aggregation) before handing off notifications for dispatch.
-    -   **`NotificationService`**: Receives notification requests from the `AlertManager`. It manages a collection of specific action clients (e.g., Webhook, Stdout) and is responsible for the final dispatch of the alert to the external service.
+
+-   **`action_dispatcher`**: Receives notification requests from the `AlertManager`. It manages a collection of specific action clients (e.g., Webhook, Stdout) and is responsible for the final dispatch of the alert to the external service.
 
 -   **`persistence`**: This module provides an abstraction layer over the database (currently SQLite). It handles all state management, such as storing the last processed block number.
 

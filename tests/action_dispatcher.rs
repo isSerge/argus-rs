@@ -4,7 +4,7 @@ mod docker_compose_guard;
 use std::sync::Arc;
 
 use argus::{
-    actions::{ActionDispatcher, ActionPayload, error::ActionDispatcherError},
+    action_dispatcher::{ActionDispatcher, ActionPayload, error::ActionDispatcherError},
     config::HttpRetryConfig,
     http_client::HttpClientPool,
     models::{

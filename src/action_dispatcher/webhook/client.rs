@@ -16,7 +16,7 @@ use reqwest_middleware::ClientWithMiddleware;
 use sha2::Sha256;
 use url::Url;
 
-use crate::actions::error::ActionDispatcherError;
+use crate::action_dispatcher::error::ActionDispatcherError;
 
 /// HMAC SHA256 type alias
 type HmacSha256 = Hmac<Sha256>;
@@ -201,7 +201,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::actions::webhook::{GenericWebhookPayloadBuilder, WebhookPayloadBuilder};
+    use crate::action_dispatcher::webhook::{GenericWebhookPayloadBuilder, WebhookPayloadBuilder};
 
     fn create_test_http_client() -> Arc<ClientWithMiddleware> {
         Arc::new(reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build())

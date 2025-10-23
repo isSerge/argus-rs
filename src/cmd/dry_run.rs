@@ -8,7 +8,7 @@ use dashmap::DashMap;
 use thiserror::Error;
 
 use crate::{
-    actions::error::ActionDispatcherError,
+    action_dispatcher::error::ActionDispatcherError,
     context::{AppContextBuilder, AppContextError},
     engine::{
         alert_manager::{AlertManager, AlertManagerError},
@@ -334,7 +334,7 @@ mod tests {
     use super::*;
     use crate::{
         abi::{AbiRepository, AbiService},
-        actions::ActionDispatcher,
+        action_dispatcher::ActionDispatcher,
         config::RhaiConfig,
         engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
         http_client::HttpClientPool,

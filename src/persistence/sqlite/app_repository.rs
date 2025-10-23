@@ -28,7 +28,7 @@ struct MonitorRow {
 // Helper struct for mapping from the database row
 #[derive(sqlx::FromRow)]
 struct ActionRow {
-    action_id: i64,
+    action_id: Option<i64>,
     name: String,
     config: String,
 }
@@ -400,7 +400,7 @@ impl AppRepository for SqliteStateRepository {
             .map(|row| {
                 let mut action: ActionConfig = serde_json::from_str(&row.config)
                     .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
-                action.id = Some(row.action_id);
+                action.id = row.action_id;
                 action.name = row.name;
                 Ok(action)
             })
@@ -419,15 +419,9 @@ impl AppRepository for SqliteStateRepository {
     async fn get_action_by_id(
         &self,
         network_id: &str,
-        action_id: &str,
+        action_id: i64,
     ) -> Result<Option<ActionConfig>, PersistenceError> {
         tracing::debug!(network_id, action_id, "Querying for action by ID.");
-
-        let action_id_num: i64 = action_id.parse().map_err(|e| {
-            let msg = format!("Invalid action_id '{}': {}", action_id, e);
-            tracing::error!(error = %e, action_id, "Failed to parse action_id.");
-            PersistenceError::InvalidInput(msg)
-        })?;
 
         let action_row = self
             .execute_query_with_error_handling(
@@ -437,7 +431,7 @@ impl AppRepository for SqliteStateRepository {
                     "SELECT action_id, name, config FROM actions WHERE network_id = ? AND \
                      action_id = ?",
                     network_id,
-                    action_id_num
+                    action_id
                 )
                 .fetch_optional(&self.pool),
             )
@@ -446,7 +440,7 @@ impl AppRepository for SqliteStateRepository {
         if let Some(row) = action_row {
             let mut action: ActionConfig = serde_json::from_str(&row.config)
                 .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
-            action.id = Some(row.action_id);
+            action.id = row.action_id;
             action.name = row.name;
             tracing::debug!(network_id, action_id, "Action found.");
             Ok(Some(action))
@@ -456,40 +450,77 @@ impl AppRepository for SqliteStateRepository {
         }
     }
 
-    /// Adds multiple actions for a specific network.
-    #[tracing::instrument(skip(self, actions), level = "debug")]
-    async fn add_actions(
+    /// Retrieves a specific action by its name for a given network.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn get_action_by_name(
         &self,
         network_id: &str,
-        actions: Vec<ActionConfig>,
-    ) -> Result<(), PersistenceError> {
-        tracing::debug!(network_id, action_count = actions.len(), "Adding actions.");
+        name: &str,
+    ) -> Result<Option<ActionConfig>, PersistenceError> {
+        tracing::debug!(network_id, name, "Querying for action by name.");
 
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| PersistenceError::OperationFailed(e.to_string()))?;
-
-        for action in actions {
-            let config = serde_json::to_string(&action)
-                .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
-
-            sqlx::query!(
-                "INSERT INTO actions (name, network_id, config) VALUES (?, ?, ?)",
-                action.name,
-                network_id,
-                config
+        let action_row = self
+            .execute_query_with_error_handling(
+                "query action by name",
+                sqlx::query_as!(
+                    ActionRow,
+                    "SELECT action_id, name, config FROM actions WHERE network_id = ? AND name = ?",
+                    network_id,
+                    name
+                )
+                .fetch_optional(&self.pool),
             )
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| PersistenceError::OperationFailed(e.to_string()))?;
+            .await?;
+
+        if let Some(row) = action_row {
+            let mut action: ActionConfig = serde_json::from_str(&row.config)
+                .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
+            action.id = row.action_id;
+            action.name = row.name;
+            tracing::debug!(network_id, name, "Action found.");
+            Ok(Some(action))
+        } else {
+            tracing::debug!(network_id, name, "No action found with given name.");
+            Ok(None)
         }
+    }
 
-        tx.commit().await.map_err(|e| PersistenceError::OperationFailed(e.to_string()))?;
+    /// Creates a new action for a specific network.
+    #[tracing::instrument(skip(self, action), level = "debug")]
+    async fn create_action(
+        &self,
+        network_id: &str,
+        action: ActionConfig,
+    ) -> Result<ActionConfig, PersistenceError> {
+        tracing::debug!(network_id, action_name = action.name, "Creating action.");
 
-        tracing::info!(network_id, "actions added successfully.");
-        Ok(())
+        let config = serde_json::to_string(&action)
+            .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
+
+        let result = self
+            .execute_query_with_error_handling(
+                "create action",
+                sqlx::query!(
+                    "INSERT INTO actions (name, network_id, config) VALUES (?, ?, ?)",
+                    action.name,
+                    network_id,
+                    config
+                )
+                .execute(&self.pool),
+            )
+            .await?;
+
+        let new_id = result.last_insert_rowid();
+        let mut new_action = action;
+        new_action.id = Some(new_id);
+
+        tracing::info!(
+            network_id,
+            action_name = new_action.name,
+            action_id = new_id,
+            "Action created successfully."
+        );
+        Ok(new_action)
     }
 
     /// Clears all actions for a specific network.
@@ -508,5 +539,143 @@ impl AppRepository for SqliteStateRepository {
         let deleted_count = result.rows_affected();
         tracing::info!(network_id, deleted_count, "actions cleared successfully.");
         Ok(())
+    }
+
+    /// Updates an existing action for a specific network.
+    #[tracing::instrument(skip(self, action), level = "debug")]
+    async fn update_action(
+        &self,
+        network_id: &str,
+        action: ActionConfig,
+    ) -> Result<ActionConfig, PersistenceError> {
+        let action_id = action.id.ok_or_else(|| {
+            PersistenceError::InvalidInput("Action ID is required for update".to_string())
+        })?;
+        tracing::debug!(network_id, action_id, "Updating action.");
+
+        let config = serde_json::to_string(&action)
+            .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
+
+        let result = self
+            .execute_query_with_error_handling(
+                "update action",
+                sqlx::query!(
+                    "UPDATE actions SET name = ?, config = ? WHERE network_id = ? AND action_id = \
+                     ?",
+                    action.name,
+                    config,
+                    network_id,
+                    action_id
+                )
+                .execute(&self.pool),
+            )
+            .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(PersistenceError::NotFound);
+        }
+
+        tracing::info!(network_id, action_id, "Action updated successfully.");
+        Ok(action)
+    }
+
+    /// Deletes an action by its ID for a specific network.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn delete_action(
+        &self,
+        network_id: &str,
+        action_id: i64,
+    ) -> Result<(), PersistenceError> {
+        tracing::debug!(network_id, action_id, "Deleting action.");
+
+        let result = self
+            .execute_query_with_error_handling(
+                "delete action",
+                sqlx::query!(
+                    "DELETE FROM actions WHERE network_id = ? AND action_id = ?",
+                    network_id,
+                    action_id
+                )
+                .execute(&self.pool),
+            )
+            .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(PersistenceError::NotFound);
+        }
+
+        tracing::info!(network_id, action_id, "Action deleted successfully.");
+        Ok(())
+    }
+
+    /// Retrieves all monitors that are associated with a specific action.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn get_monitors_by_action_id(
+        &self,
+        network_id: &str,
+        action_id: i64,
+    ) -> Result<Vec<MonitorConfig>, PersistenceError> {
+        tracing::debug!(network_id, action_id, "Querying for monitors by action ID.");
+
+        let action_name = self
+            .get_action_by_id(network_id, action_id)
+            .await?
+            .ok_or(PersistenceError::NotFound)?
+            .name;
+
+        // Escape LIKE wildcards to prevent incorrect matching.
+        let escaped_action_name = action_name.replace('%', "\\%").replace('_', "\\_");
+        let like_clause = format!("%\"{}\"%", escaped_action_name);
+
+        let monitor_rows = self
+            .execute_query_with_error_handling("query monitors by action id", async {
+                sqlx::query_as!(
+                    MonitorRow,
+                    r#"
+                    SELECT 
+                        monitor_id as "monitor_id!", 
+                        name, 
+                        network, 
+                        address, 
+                        abi, 
+                        filter_script, 
+                        actions,
+                        created_at as "created_at!", 
+                        updated_at as "updated_at!"
+                    FROM monitors 
+                    WHERE network = ? AND actions LIKE ? ESCAPE '\'
+                    "#,
+                    network_id,
+                    like_clause
+                )
+                .fetch_all(&self.pool)
+                .await
+            })
+            .await?;
+
+        let monitors = monitor_rows
+            .into_iter()
+            .map(|row| {
+                let actions: Vec<String> = serde_json::from_str(&row.actions)
+                    .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
+
+                Ok(MonitorConfig {
+                    name: row.name,
+                    network: row.network,
+                    address: row.address,
+                    abi: row.abi,
+                    filter_script: row.filter_script,
+                    actions,
+                })
+            })
+            .collect::<Result<Vec<_>, PersistenceError>>()?;
+
+        tracing::debug!(
+            network_id,
+            action_id,
+            monitor_count = monitors.len(),
+            "Monitors retrieved successfully."
+        );
+        Ok(monitors)
     }
 }

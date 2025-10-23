@@ -8,12 +8,6 @@
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    actions::{
-        publisher::{KafkaEventPublisher, NatsEventPublisher, RabbitMqEventPublisher},
-        stdout::StdoutAction,
-        traits::Action,
-        webhook::WebhookAction,
-    },
     http_client::HttpClientPool,
     models::{
         action::{ActionConfig, ActionTypeConfig},
@@ -31,10 +25,12 @@ mod webhook;
 
 use error::ActionDispatcherError;
 pub use payload::ActionPayload;
+use publisher::{KafkaEventPublisher, NatsEventPublisher, RabbitMqEventPublisher};
+use stdout::StdoutAction;
+use template::TemplateService;
 use tokio::sync::mpsc;
-use webhook::WebhookComponents;
-
-use self::template::TemplateService;
+use traits::Action;
+use webhook::{WebhookAction, WebhookComponents};
 
 impl ActionTypeConfig {
     /// Transforms the specific action configuration into a generic set of

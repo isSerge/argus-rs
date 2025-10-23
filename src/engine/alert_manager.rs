@@ -7,7 +7,7 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 
 use crate::{
-    actions::{ActionDispatcher, ActionPayload, error::ActionDispatcherError},
+    action_dispatcher::{ActionDispatcher, ActionPayload, error::ActionDispatcherError},
     models::{
         action::{ActionConfig, ActionPolicy},
         alert_manager_state::{AggregationState, ThrottleState},

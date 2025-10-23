@@ -2,7 +2,7 @@ use async_nats::HeaderMap;
 use bytes::Bytes;
 
 use crate::{
-    actions::{
+    action_dispatcher::{
         ActionPayload,
         error::ActionDispatcherError,
         publisher::{EventPublisher, PublisherError},

@@ -6,7 +6,7 @@ use axum::{
 };
 use serde_json::json;
 
-use crate::persistence::error::PersistenceError;
+use crate::{action::validator::ActionValidationError, persistence::error::PersistenceError};
 
 /// A custom error type for the API that can be converted into an HTTP response.
 pub enum ApiError {
@@ -15,6 +15,15 @@ pub enum ApiError {
 
     /// Represents a resource that could not be found.
     NotFound(String),
+
+    /// Represents a validation error for an unprocessable entity.
+    UnprocessableEntity(String),
+
+    /// Represents a conflict, e.g., a resource that already exists.
+    Conflict(String),
+
+    /// Represents a conflict where an action is in use by monitors.
+    ActionInUse(Vec<String>),
 
     /// Represents a generic internal server error.
     InternalServerError(String),
@@ -26,7 +35,23 @@ pub enum ApiError {
 /// on functions that return `Result<_, PersistenceError>`.
 impl From<PersistenceError> for ApiError {
     fn from(err: PersistenceError) -> Self {
-        ApiError::InternalServerError(err.to_string())
+        match err {
+            PersistenceError::NotFound => ApiError::NotFound("Resource not found".to_string()),
+            _ => ApiError::InternalServerError(err.to_string()),
+        }
+    }
+}
+
+impl From<ActionValidationError> for ApiError {
+    fn from(err: ActionValidationError) -> Self {
+        match err {
+            ActionValidationError::Configuration(e) => ApiError::UnprocessableEntity(e.to_string()),
+            ActionValidationError::NameConflict(name) =>
+                ApiError::Conflict(format!("Action with name '{}' already exists.", name)),
+            ActionValidationError::Persistence(PersistenceError::NotFound) =>
+                ApiError::NotFound("Action not found".to_string()),
+            ActionValidationError::Persistence(e) => ApiError::InternalServerError(e.to_string()),
+        }
     }
 }
 
@@ -36,21 +61,29 @@ impl From<PersistenceError> for ApiError {
 /// user-facing HTTP responses.
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
-        let (status, error_message) = match self {
-            ApiError::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()),
+        let (status, body) = match self {
+            ApiError::Unauthorized =>
+                (StatusCode::UNAUTHORIZED, json!({ "error": "Unauthorized" })),
             ApiError::InternalServerError(err) => {
-                // Log the detailed error for debugging purposes.
                 tracing::error!("Internal server error: {}", err);
-                // Return a generic error message to the user for security.
-                (StatusCode::INTERNAL_SERVER_ERROR, "An internal server error occurred".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    json!({ "error": "An internal server error occurred" }),
+                )
             }
-            ApiError::NotFound(message) => (StatusCode::NOT_FOUND, message),
+            ApiError::NotFound(message) => (StatusCode::NOT_FOUND, json!({ "error": message })),
+            ApiError::UnprocessableEntity(message) =>
+                (StatusCode::UNPROCESSABLE_ENTITY, json!({ "error": message })),
+            ApiError::Conflict(message) => (StatusCode::CONFLICT, json!({ "error": message })),
+            ApiError::ActionInUse(monitors) => (
+                StatusCode::CONFLICT,
+                json!({
+                    "error": "Action is in use and cannot be deleted.",
+                    "monitors": monitors,
+                }),
+            ),
         };
 
-        let body = Json(json!({
-            "error": error_message,
-        }));
-
-        (status, body).into_response()
+        (status, Json(body)).into_response()
     }
 }

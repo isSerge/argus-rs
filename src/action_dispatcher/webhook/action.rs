@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use reqwest_middleware::ClientWithMiddleware;
 
-use crate::actions::{
+use crate::action_dispatcher::{
     ActionPayload, WebhookComponents, error::ActionDispatcherError, template::TemplateService,
     traits::Action, webhook::WebhookClient,
 };

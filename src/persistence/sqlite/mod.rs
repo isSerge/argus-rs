@@ -473,10 +473,9 @@ mod tests {
         let action = ActionBuilder::new("Test Slack")
             .slack_config("https://hooks.slack.com/services/123")
             .build();
-        let test_actions = vec![action];
 
-        // Add actions
-        repo.add_actions(network_id, test_actions.clone()).await.unwrap();
+        // Add action to the repository
+        repo.create_action(network_id, action).await.unwrap();
 
         // Retrieve actions and verify
         let stored_actions = repo.get_actions(network_id).await.unwrap();
@@ -501,16 +500,14 @@ mod tests {
         let ethereum_action = ActionBuilder::new("Ethereum Slack")
             .slack_config("https://hooks.slack.com/services/123")
             .build();
-        let ethereum_actions = vec![ethereum_action];
 
         let polygon_action = ActionBuilder::new("Polygon Discord")
             .discord_config("https://discord.com/api/webhooks/poly")
             .build();
-        let polygon_actions = vec![polygon_action];
 
         // Add actions to different networks
-        repo.add_actions(network1, ethereum_actions).await.unwrap();
-        repo.add_actions(network2, polygon_actions).await.unwrap();
+        repo.create_action(network1, ethereum_action).await.unwrap();
+        repo.create_action(network2, polygon_action).await.unwrap();
 
         // Verify network isolation
         let eth_actions = repo.get_actions(network1).await.unwrap();
@@ -557,11 +554,13 @@ mod tests {
         ];
 
         // This should succeed
-        repo.add_actions(network_id, actions1).await.unwrap();
+        // repo.add_actions(network_id, actions1).await.unwrap();
+        repo.create_action(network_id, actions1[0].clone()).await.unwrap();
+        repo.create_action(network_id, actions1[1].clone()).await.unwrap();
         assert_eq!(repo.get_actions(network_id).await.unwrap().len(), 2);
 
         // This should fail due to the duplicate name violating the UNIQUE constraint
-        let result = repo.add_actions(network_id, actions2).await;
+        let result = repo.create_action(network_id, actions2[1].clone()).await;
         assert!(result.is_err());
 
         // Verify no new actions were added (transaction rolled back)
@@ -588,7 +587,7 @@ mod tests {
             .build();
 
         // Add action with policy
-        repo.add_actions(network_id, vec![test_action.clone()]).await.unwrap();
+        repo.create_action(network_id, test_action.clone()).await.unwrap();
 
         // Retrieve and verify
         let stored_actions = repo.get_actions(network_id).await.unwrap();
@@ -610,7 +609,7 @@ mod tests {
             .policy(throttle_policy.clone())
             .build();
 
-        repo.add_actions(network_id, vec![throttled_action.clone()]).await.unwrap();
+        repo.create_action(network_id, throttled_action).await.unwrap();
 
         let stored_actions_after_throttle = repo.get_actions(network_id).await.unwrap();
         assert_eq!(stored_actions_after_throttle.len(), 2);
