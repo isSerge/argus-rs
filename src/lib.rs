@@ -1,7 +1,8 @@
 #![warn(missing_docs)]
 //! Argus core library.
 //! Contains the main components and modules for the Argus application.
-//! This includes monitoring, alerting, persistence, action dispatching, and more.
+//! This includes monitoring, alerting, persistence, action dispatching, and
+//! more.
 
 pub mod abi;
 pub mod action;

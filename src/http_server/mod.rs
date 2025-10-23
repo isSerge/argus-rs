@@ -8,7 +8,7 @@ mod status;
 
 use std::{net::SocketAddr, sync::Arc};
 
-use actions::{action_details, actions, create_action, delete_action, update_action};
+use actions::{create_action, delete_action, get_action_details, get_actions, update_action};
 use auth::auth;
 use axum::{
     Router, middleware,
@@ -67,8 +67,8 @@ pub async fn run_server_from_config(
         .route("/monitors", get(monitors))
         .route("/monitors/{id}", get(monitor_details))
         // Actions routes
-        .route("/actions", get(actions))
-        .route("/actions/{id}", get(action_details))
+        .route("/actions", get(get_actions))
+        .route("/actions/{id}", get(get_action_details))
         .route(
             "/actions",
             post(create_action).route_layer(middleware::from_fn_with_state(state.clone(), auth)),

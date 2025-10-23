@@ -62,7 +62,15 @@ impl ActionValidator {
         // 1. Perform intrinsic validation.
         action.config.validate()?;
 
-        // 2. Check for name uniqueness, ignoring the current action's ID.
+        // 2. Ensure the action exists.
+        let action_id = action.id.ok_or(PersistenceError::InvalidInput(
+            "Action ID is required for update".to_string(),
+        ))?;
+        if self.repo.get_action_by_id(&self.network_id, action_id).await?.is_none() {
+            return Err(ActionValidationError::Persistence(PersistenceError::NotFound));
+        }
+
+        // 3. Check for name uniqueness, ignoring the current action's ID.
         if let Some(existing_action) =
             self.repo.get_action_by_name(&self.network_id, &action.name).await?
         {
