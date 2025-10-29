@@ -27,6 +27,13 @@ struct MonitorRow {
 
 // Helper struct for mapping from the database row
 #[derive(sqlx::FromRow)]
+struct AbiRow {
+    name: String,
+    abi: String,
+}
+
+// Helper struct for mapping from the database row
+#[derive(sqlx::FromRow)]
 struct ActionRow {
     action_id: Option<i64>,
     name: String,
@@ -389,6 +396,81 @@ impl AppRepository for SqliteStateRepository {
         .await?;
 
         tracing::info!(name, "ABI created successfully.");
+        Ok(())
+    }
+
+    /// Retrieves an ABI by its name.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn get_abi(&self, name: &str) -> Result<Option<String>, PersistenceError> {
+        tracing::debug!(name, "Querying for ABI by name.");
+
+        let abi_row = self
+            .execute_query_with_error_handling("query abi by name", async {
+                sqlx::query_as!(AbiRow, "SELECT name, abi FROM abis WHERE name = ?", name)
+                    .fetch_optional(&self.pool)
+                    .await
+            })
+            .await?;
+
+        Ok(abi_row.map(|row| row.abi))
+    }
+
+    /// Lists all available ABI names.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn list_abis(&self) -> Result<Vec<String>, PersistenceError> {
+        tracing::debug!("Querying for all ABI names.");
+
+        let abi_names = self
+            .execute_query_with_error_handling(
+                "list abi names",
+                sqlx::query!("SELECT name FROM abis").fetch_all(&self.pool),
+            )
+            .await?
+            .into_iter()
+            .map(|record| record.name)
+            .collect::<Vec<_>>();
+
+        tracing::debug!(count = abi_names.len(), "ABI names retrieved successfully.");
+        Ok(abi_names)
+    }
+
+    /// Deletes an ABI by its name.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn delete_abi(&self, name: &str) -> Result<(), PersistenceError> {
+        tracing::debug!(name, "Attempting to delete ABI.");
+
+        // Check if any monitors are using this ABI
+        let monitor_count = self
+            .execute_query_with_error_handling(
+                "check monitors using abi",
+                sqlx::query!("SELECT COUNT(*) as count FROM monitors WHERE abi_name = ?", name)
+                    .fetch_one(&self.pool),
+            )
+            .await?
+            .count;
+
+        if monitor_count > 0 {
+            let msg = format!(
+                "Cannot delete ABI '{}' because it is used by {} monitor(s).",
+                name, monitor_count
+            );
+            tracing::warn!(name, monitor_count, "ABI deletion blocked: ABI in use.");
+            return Err(PersistenceError::InvalidInput(msg));
+        }
+
+        let result = self
+            .execute_query_with_error_handling(
+                "delete abi",
+                sqlx::query!("DELETE FROM abis WHERE name = ?", name).execute(&self.pool),
+            )
+            .await?;
+
+        if result.rows_affected() == 0 {
+            tracing::warn!(name, "ABI not found for deletion.");
+            return Err(PersistenceError::NotFound);
+        }
+
+        tracing::info!(name, "ABI deleted successfully.");
         Ok(())
     }
 

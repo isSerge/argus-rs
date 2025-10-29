@@ -66,6 +66,15 @@ pub trait AppRepository: Send + Sync {
     /// Creates a new ABI.
     async fn create_abi(&self, name: &str, abi: &str) -> Result<(), PersistenceError>;
 
+    /// Retrieves an ABI by its name.
+    async fn get_abi(&self, name: &str) -> Result<Option<String>, PersistenceError>;
+
+    /// Lists all available ABI names.
+    async fn list_abis(&self) -> Result<Vec<String>, PersistenceError>;
+
+    /// Deletes an ABI by its name.
+    async fn delete_abi(&self, name: &str) -> Result<(), PersistenceError>;
+
     // Action management operations:
     /// Retrieves all actions for a specific network.
     async fn get_actions(&self, network_id: &str) -> Result<Vec<ActionConfig>, PersistenceError>;

@@ -32,6 +32,7 @@ fn create_test_action(name: &str) -> ActionConfig {
 #[tokio::test]
 async fn test_monitor_lifecycle() {
     let repo = setup_db().await;
+    repo.create_abi("test", "[]").await.unwrap();
     let network_id = "ethereum";
 
     // 1. Initially, no monitors should exist
@@ -106,6 +107,7 @@ async fn test_processed_block_management() {
 #[tokio::test]
 async fn test_network_isolation() {
     let repo = setup_db().await;
+    repo.create_abi("test", "[]").await.unwrap();
     let eth_network = "ethereum";
     let poly_network = "polygon";
 
