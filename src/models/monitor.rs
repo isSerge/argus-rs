@@ -24,7 +24,7 @@ pub struct MonitorConfig {
     /// The name of the ABI for the contract being monitored (e.g., "erc20").
     /// This name corresponds to a JSON file in the `abis/` directory (e.g.,
     /// `abis/erc20.json`). If `None`, the monitor will not decode logs.
-    #[serde(default)]
+    #[serde(default, alias = "abi")]
     pub abi_name: Option<String>,
 
     /// Filter script for the monitor
