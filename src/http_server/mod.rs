@@ -9,7 +9,7 @@ mod status;
 
 use std::{net::SocketAddr, sync::Arc};
 
-use abi::{delete_abi, get_abi_by_name, get_abis, upload_abi};
+use abi::{delete_abi, get_abi_by_name, list_abis, upload_abi};
 use actions::{create_action, delete_action, get_action_details, get_actions, update_action};
 use auth::auth;
 use axum::{
@@ -73,7 +73,7 @@ pub async fn run_server_from_config(
             "/abis",
             post(upload_abi).route_layer(middleware::from_fn_with_state(state.clone(), auth)),
         )
-        .route("/abis", get(get_abis))
+        .route("/abis", get(list_abis))
         .route("/abis/{name}", get(get_abi_by_name))
         .route(
             "/abis/{name}",
