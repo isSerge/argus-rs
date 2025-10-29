@@ -401,3 +401,127 @@ This error occurs when:
       -H "Authorization: Bearer your-secret-api-key-here"
     ```
 
+#### Upload an ABI
+
+-   **`POST /abis`**
+
+    Uploads a new contract ABI. The request body must be a JSON object containing the ABI's `name` and the `abi` content as a string. Requires authentication.
+
+    **Request Body:**
+    ```json
+    {
+      "name": "MyContractABI",
+      "abi": "[{\"type\":\"function\",\"name\":\"transfer\",\"inputs\":[{\"name\":\"to\",\"type\":\"address\"},{\"name\":\"amount\",\"type\":\"uint256\"}]}]"
+    }
+    ```
+
+    **Success Response (`201 Created`)**
+    The newly created ABI object.
+    ```json
+    {
+      "abi": {
+        "name": "MyContractABI",
+        "abi": "[{\"type\":\"function\",\"name\":\"transfer\",\"inputs\":[{\"name\":\"to\",\"type\":\"address\"},{\"name\":\"amount\",\"type\":\"uint256\"}]}]"
+      }
+    }
+    ```
+
+    **Error Responses:**
+    - `400 Bad Request`: If the request body is malformed.
+    - `409 Conflict`: If an ABI with the same name already exists.
+    - `422 Unprocessable Entity`: If the provided `abi` content is not valid JSON.
+
+    **Example Usage:**
+    ```bash
+    curl -X POST http://localhost:8080/abis \
+      -H "Authorization: Bearer your-secret-api-key-here" \
+      -H "Content-Type: application/json" \
+      -d '{"name": "MyContractABI", "abi": "[{\"type\":\"function\",\"name\":\"transfer\",\"inputs\":[{\"name\":\"to\",\"type\":\"address\"},{\"name\":\"amount\",\"type\":\"uint256\"}]}]"}'
+    ```
+
+#### Get an ABI by Name
+
+-   **`GET /abis/{name}`**
+
+    Retrieves the content of a specific ABI by its name.
+
+    **URL Parameters:**
+    - `name` (string, required): The name of the ABI.
+
+    **Success Response (`200 OK`)**
+    The ABI object.
+    ```json
+    {
+      "abi": {
+        "name": "MyContractABI",
+        "abi": "[{\"type\":\"function\",\"name\":\"transfer\",\"inputs\":[{\"name\":\"to\",\"type\":\"address\"},{\"name\":\"amount\",\"type\":\"uint256\"}]}]"
+      }
+    }
+    ```
+
+    **Error Response (`404 Not Found`)**
+    If no ABI with the specified name exists.
+    ```json
+    {
+      "error": "ABI not found"
+    }
+    ```
+
+    **Example Usage:**
+    ```bash
+    curl http://localhost:8080/abis/MyContractABI
+    ```
+
+#### List All ABIs
+
+-   **`GET /abis`**
+
+    Retrieves a list of all available ABI names.
+
+    **Success Response (`200 OK`)**
+    ```json
+    {
+      "abis": [
+        "ERC20",
+        "MyContractABI",
+        "WETH"
+      ]
+    }
+    ```
+
+    **Example Usage:**
+    ```bash
+    curl http://localhost:8080/abis
+    ```
+
+#### Delete an ABI
+
+-   **`DELETE /abis/{name}`**
+
+    Deletes an ABI by its name. Requires authentication.
+
+    **URL Parameters:**
+    - `name` (string, required): The name of the ABI to delete.
+
+    **Success Response (`204 No Content`)**
+    An empty response on successful deletion.
+
+    **Error Responses:**
+    - `404 Not Found`: If no ABI with the specified name exists.
+    - `409 Conflict`: If the ABI is currently in use by one or more monitors and cannot be deleted. The response body will include the names of the monitors using the ABI.
+      ```json
+      {
+        "error": "ABI is in use and cannot be deleted.",
+        "monitors": [
+          "Monitor Name 1",
+          "Monitor Name 2"
+        ]
+      }
+      ```
+
+    **Example Usage:**
+    ```bash
+    curl -X DELETE http://localhost:8080/abis/MyContractABI \
+      -H "Authorization: Bearer your-secret-api-key-here"
+    ```
+
