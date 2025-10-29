@@ -40,6 +40,7 @@ impl From<PersistenceError> for ApiError {
     fn from(err: PersistenceError) -> Self {
         match err {
             PersistenceError::NotFound => ApiError::NotFound("Resource not found".to_string()),
+            PersistenceError::AbiInUse(monitors) => ApiError::AbiInUse(monitors),
             _ => ApiError::InternalServerError(err.to_string()),
         }
     }

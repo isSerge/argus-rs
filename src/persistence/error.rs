@@ -24,4 +24,8 @@ pub enum PersistenceError {
     /// An invalid configuration or input was provided.
     #[error("An invalid configuration or input was provided: {0}")]
     InvalidInput(String),
+
+    /// The ABI is in use by one or more monitors.
+    #[error("ABI is in use by monitors: {0:?}")]
+    AbiInUse(Vec<String>),
 }

@@ -438,23 +438,25 @@ impl AppRepository for SqliteStateRepository {
     async fn delete_abi(&self, name: &str) -> Result<(), PersistenceError> {
         tracing::debug!(name, "Attempting to delete ABI.");
 
-        // Check if any monitors are using this ABI
-        let monitor_count = self
+        // Check if any monitors are using this ABI and get their names
+        let monitors_using_abi = self
             .execute_query_with_error_handling(
                 "check monitors using abi",
-                sqlx::query!("SELECT COUNT(*) as count FROM monitors WHERE abi_name = ?", name)
-                    .fetch_one(&self.pool),
+                sqlx::query!("SELECT name FROM monitors WHERE abi_name = ?", name)
+                    .fetch_all(&self.pool),
             )
             .await?
-            .count;
+            .into_iter()
+            .map(|row| row.name)
+            .collect::<Vec<_>>();
 
-        if monitor_count > 0 {
-            let msg = format!(
-                "Cannot delete ABI '{}' because it is used by {} monitor(s).",
-                name, monitor_count
+        if !monitors_using_abi.is_empty() {
+            tracing::warn!(
+                name,
+                monitors = ?monitors_using_abi,
+                "ABI deletion blocked: ABI in use."
             );
-            tracing::warn!(name, monitor_count, "ABI deletion blocked: ABI in use.");
-            return Err(PersistenceError::InvalidInput(msg));
+            return Err(PersistenceError::AbiInUse(monitors_using_abi));
         }
 
         let result = self
