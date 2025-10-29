@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "\n                SELECT \n                    monitor_id as \"monitor_id!\", \n                    name, \n                    network, \n                    address, \n                    abi, \n                    filter_script, \n                    actions,\n                    created_at as \"created_at!\", \n                    updated_at as \"updated_at!\"\n                FROM monitors \n                WHERE network = ?\n                ",
+  "query": "\n                    SELECT \n                        monitor_id as \"monitor_id!\", \n                        name, \n                        network, \n                        address, \n                        abi_name, \n                        filter_script, \n                        actions,\n                        created_at as \"created_at!\", \n                        updated_at as \"updated_at!\"\n                    FROM monitors \n                    WHERE network = ? AND actions LIKE ? ESCAPE '\\'\n                    ",
   "describe": {
     "columns": [
       {
@@ -24,7 +24,7 @@
         "type_info": "Text"
       },
       {
-        "name": "abi",
+        "name": "abi_name",
         "ordinal": 4,
         "type_info": "Text"
       },
@@ -50,7 +50,7 @@
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 2
     },
     "nullable": [
       true,
@@ -64,5 +64,5 @@
       true
     ]
   },
-  "hash": "50dbb111bacdbfee224f70eca8d13f9e3be7460fe444ec1729fa4f707315a415"
+  "hash": "77caa9242dba61fef6fb330ca56eef4c5b4f6aee2487600947a024ad2a45f6a5"
 }
