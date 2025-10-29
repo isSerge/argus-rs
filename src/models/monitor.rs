@@ -25,7 +25,7 @@ pub struct MonitorConfig {
     /// This name corresponds to a JSON file in the `abis/` directory (e.g.,
     /// `abis/erc20.json`). If `None`, the monitor will not decode logs.
     #[serde(default)]
-    pub abi: Option<String>,
+    pub abi_name: Option<String>,
 
     /// Filter script for the monitor
     pub filter_script: String,
@@ -63,7 +63,7 @@ pub struct Monitor {
     /// The name of the ABI (Application Binary Interface) for the contract
     /// being monitored. This is used to decode event logs and call contract
     /// methods. If `None`, the monitor will not decode logs.
-    pub abi: Option<String>,
+    pub abi_name: Option<String>,
 
     /// The filter script used to determine relevant blockchain events
     pub filter_script: String,
@@ -84,11 +84,11 @@ impl MonitorConfig {
         name: String,
         network: String,
         address: Option<String>,
-        abi: Option<String>,
+        abi_name: Option<String>,
         filter_script: String,
         actions: Vec<String>,
     ) -> Self {
-        Self { name, network, address, abi, filter_script, actions }
+        Self { name, network, address, abi_name, filter_script, actions }
     }
 }
 

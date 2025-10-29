@@ -18,7 +18,7 @@ struct MonitorRow {
     name: String,
     network: String,
     address: Option<String>,
-    abi: Option<String>,
+    abi_name: Option<String>,
     filter_script: String,
     actions: String,
     created_at: NaiveDateTime,
@@ -186,7 +186,7 @@ impl AppRepository for SqliteStateRepository {
                     name, 
                     network, 
                     address, 
-                    abi, 
+                    abi_name, 
                     filter_script, 
                     actions,
                     created_at as "created_at!", 
@@ -215,7 +215,7 @@ impl AppRepository for SqliteStateRepository {
                     name: row.name,
                     network: row.network,
                     address: row.address,
-                    abi: row.abi,
+                    abi_name: row.abi_name,
                     filter_script: row.filter_script,
                     actions,
                     created_at,
@@ -257,7 +257,7 @@ impl AppRepository for SqliteStateRepository {
                     name, 
                     network, 
                     address, 
-                    abi, 
+                    abi_name, 
                     filter_script, 
                     actions,
                     created_at as "created_at!", 
@@ -285,7 +285,7 @@ impl AppRepository for SqliteStateRepository {
                 name: row.name,
                 network: row.network,
                 address: row.address,
-                abi: row.abi,
+                abi_name: row.abi_name,
                 filter_script: row.filter_script,
                 actions,
                 created_at,
@@ -338,12 +338,12 @@ impl AppRepository for SqliteStateRepository {
                 .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
 
             sqlx::query!(
-                "INSERT INTO monitors (name, network, address, abi, filter_script, actions) \
+                "INSERT INTO monitors (name, network, address, abi_name, filter_script, actions) \
                  VALUES (?, ?, ?, ?, ?, ?)",
                 monitor.name,
                 monitor.network,
                 monitor.address,
-                monitor.abi,
+                monitor.abi_name,
                 monitor.filter_script,
                 actions_str,
             )
@@ -637,7 +637,7 @@ impl AppRepository for SqliteStateRepository {
                         name, 
                         network, 
                         address, 
-                        abi, 
+                        abi_name, 
                         filter_script, 
                         actions,
                         created_at as "created_at!", 
@@ -663,7 +663,7 @@ impl AppRepository for SqliteStateRepository {
                     name: row.name,
                     network: row.network,
                     address: row.address,
-                    abi: row.abi,
+                    abi_name: row.abi_name,
                     filter_script: row.filter_script,
                     actions,
                 })

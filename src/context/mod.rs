@@ -402,7 +402,7 @@ impl AppContextBuilder {
         })?;
 
         for monitor in &monitors {
-            if let (Some(address_str), Some(abi_name)) = (&monitor.address, &monitor.abi) {
+            if let (Some(address_str), Some(abi_name)) = (&monitor.address, &monitor.abi_name) {
                 if address_str.eq_ignore_ascii_case("all") {
                     abi_service.add_global_abi(abi_name).map_err(|e| {
                         InitializationError::AbiLoad(format!(
@@ -501,7 +501,7 @@ mod tests {
             name: "existing".to_string(),
             network: config.network_id.clone(),
             address: None,
-            abi: None,
+            abi_name: None,
             filter_script: "true".to_string(),
             actions: vec![],
         };
@@ -593,7 +593,7 @@ mod tests {
             name: "test_monitor".to_string(),
             network: config.network_id.clone(),
             address: Some("0x1234567890123456789012345678901234567890".to_string()),
-            abi: Some("erc20".to_string()),
+            abi_name: Some("erc20".to_string()),
             filter_script: "true".to_string(),
             actions: vec![],
         };
@@ -625,7 +625,7 @@ mod tests {
             name: "global_monitor".to_string(),
             network: config.network_id.clone(),
             address: Some("all".to_string()),
-            abi: Some("usdc".to_string()),
+            abi_name: Some("usdc".to_string()),
             filter_script: "true".to_string(),
             actions: vec![],
         };
@@ -656,7 +656,7 @@ mod tests {
             name: "invalid_monitor".to_string(),
             network: config.network_id.clone(),
             address: Some("invalid_address".to_string()),
-            abi: Some("erc20".to_string()),
+            abi_name: Some("erc20".to_string()),
             filter_script: "true".to_string(),
             actions: vec![],
         };
@@ -689,7 +689,7 @@ mod tests {
             name: "minimal_monitor".to_string(),
             network: config.network_id.clone(),
             address: None,
-            abi: None,
+            abi_name: None,
             filter_script: "true".to_string(),
             actions: vec![],
         };

@@ -250,7 +250,7 @@ impl<'a> MonitorValidator<'a> {
         monitor: &MonitorConfig,
         parsed_address: Option<Address>,
     ) -> Option<Arc<JsonAbi>> {
-        if let Some(abi_name) = &monitor.abi {
+        if let Some(abi_name) = &monitor.abi_name {
             // If an ABI name is provided, always use get_abi_by_name
             // This works for both contract-specific and global monitors
             self.abi_service.get_abi_by_name(abi_name)
@@ -277,7 +277,7 @@ impl<'a> MonitorValidator<'a> {
 
         if is_global_log_monitor {
             // Rules for global log monitors (`address: all`)
-            if monitor.abi.is_none() {
+            if monitor.abi_name.is_none() {
                 return Err(MonitorValidationError::MonitorRequiresAbi {
                     monitor_name: monitor.name.clone(),
                     reason: "ABI is required for global log monitoring (address: all) to decode \
@@ -291,7 +291,7 @@ impl<'a> MonitorValidator<'a> {
                     reason: format!(
                         "ABI '{}' could not be retrieved for global log monitor. Ensure the ABI \
                          is loaded.",
-                        monitor.abi.as_ref().unwrap()
+                        monitor.abi_name.as_ref().unwrap()
                     ),
                 });
             }
@@ -302,7 +302,7 @@ impl<'a> MonitorValidator<'a> {
                     monitor_name: monitor.name.clone(),
                 });
             }
-            if monitor.abi.is_none() {
+            if monitor.abi_name.is_none() {
                 return Err(MonitorValidationError::MonitorRequiresAbi {
                     monitor_name: monitor.name.clone(),
                     reason: "ABI is required for contract-specific log monitoring to decode logs."
@@ -315,7 +315,7 @@ impl<'a> MonitorValidator<'a> {
                     reason: format!(
                         "ABI '{}' could not be retrieved for address '{}'. Ensure the ABI is \
                          loaded and linked.",
-                        monitor.abi.as_ref().unwrap(),
+                        monitor.abi_name.as_ref().unwrap(),
                         monitor.address.as_ref().unwrap() /* Safe unwrap as we checked for None
                                                            * above */
                     ),
@@ -389,7 +389,7 @@ impl CalldataValidator {
     /// Validates the calldata decoding rules for the monitor.
     fn validate(&self, monitor: &MonitorConfig) -> Result<(), MonitorValidationError> {
         // Check if ABI is provided when calldata decoding is enabled.
-        if monitor.abi.is_none() {
+        if monitor.abi_name.is_none() {
             return Err(MonitorValidationError::InvalidCalldataConfig {
                 monitor_name: monitor.name.clone(),
                 reason: "Calldata decoding is enabled, but no ABI is specified. Please provide an \
@@ -1133,7 +1133,7 @@ mod tests {
             name: "Test Monitor 1".into(),
             network: "testnet".into(),
             address: contract_address.to_string().into(),
-            abi: None,                                          // No ABI provided
+            abi_name: None,                                     // No ABI provided
             filter_script: "decoded_call.name == \"A\"".into(), // Accesses decoded_call
             actions: vec![],
         };
@@ -1160,7 +1160,7 @@ mod tests {
             name: "Test Monitor 1".into(),
             network: "testnet".into(),
             address: None, // No address provided
-            abi: Some("erc20".into()),
+            abi_name: Some("erc20".into()),
             filter_script: "decoded_call.name == \"A\"".into(), // Accesses decoded_call
             actions: vec![],
         };
@@ -1187,7 +1187,7 @@ mod tests {
             name: "Test Monitor 1".into(),
             network: "testnet".into(),
             address: Some("all".into()), // Global monitor
-            abi: Some("erc20".into()),
+            abi_name: Some("erc20".into()),
             filter_script: "decoded_call.name == \"A\"".into(),
             actions: vec![],
         };
@@ -1216,7 +1216,7 @@ mod tests {
             name: "Test Monitor 1".into(),
             network: "testnet".into(),
             address: Some(contract_address.to_string()),
-            abi: Some("erc20".into()),
+            abi_name: Some("erc20".into()),
             filter_script: "log.name == \"A\"".into(),
             actions: vec![],
         };

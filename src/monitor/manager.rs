@@ -289,7 +289,7 @@ mod tests {
             MonitorBuilder::new()
                 .id(2)
                 .filter_script("log.name == \"Transfer\"")
-                .abi("erc20")
+                .abi_name("erc20")
                 .address(address.to_string().as_str())
                 .build(),
             // CALL only
@@ -298,7 +298,7 @@ mod tests {
             MonitorBuilder::new()
                 .id(4)
                 .filter_script("tx.value > 100 && log.name == \"Transfer\"")
-                .abi("erc20")
+                .abi_name("erc20")
                 .address(address.to_string().as_str())
                 .build(),
             // TX and CALL
@@ -310,7 +310,7 @@ mod tests {
             MonitorBuilder::new()
                 .id(6)
                 .filter_script("log.name == \"Transfer\" && decoded_call.name == \"approve\"")
-                .abi("erc20")
+                .abi_name("erc20")
                 .address(address.to_string().as_str())
                 .build(),
             // TX, LOG, and CALL
@@ -320,7 +320,7 @@ mod tests {
                     "tx.value > 100 && log.name == \"Transfer\" && decoded_call.name == \
                      \"Transfer\"",
                 )
-                .abi("erc20")
+                .abi_name("erc20")
                 .address(address.to_string().as_str())
                 .build(),
             // No context access (should default to TX)
@@ -382,7 +382,7 @@ mod tests {
         let global_monitor_with_abi = MonitorBuilder::new()
             .id(2)
             .filter_script(r#"log.name == "Transfer""#)
-            .abi("erc20")
+            .abi_name("erc20")
             .build();
 
         let monitors = vec![log_monitor_address, global_monitor_with_abi];
@@ -454,7 +454,7 @@ mod tests {
             MonitorBuilder::new()
                 .id(3)
                 .address("all")
-                .abi("erc20")
+                .abi_name("erc20")
                 .filter_script("log.name == \"Transfer\"")
                 .build(),
         ];
@@ -510,7 +510,7 @@ mod tests {
         let monitor = MonitorBuilder::new()
             .id(1)
             .filter_script(r#"log.name == "Transfer""#)
-            .abi("non_existent_abi")
+            .abi_name("non_existent_abi")
             .build();
 
         let manager = MonitorManager::new(vec![monitor], compiler, abi_service);
@@ -570,14 +570,14 @@ mod tests {
         let global_erc20_monitor = MonitorBuilder::new()
             .id(1)
             .address("all")
-            .abi("erc20")
+            .abi_name("erc20")
             .filter_script("log.name == \"Transfer\"")
             .build();
 
         let global_weth_monitor = MonitorBuilder::new()
             .id(2)
             .address("all")
-            .abi("weth")
+            .abi_name("weth")
             .filter_script("log.name == \"Deposit\"")
             .build();
 

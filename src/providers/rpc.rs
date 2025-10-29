@@ -413,7 +413,7 @@ mod tests {
             name: "Test Monitor".into(),
             network: "testnet".into(),
             address: Some("all".to_string()), // 'all' indicates global event signature monitoring
-            abi: Some("erc20".to_string()),   // ABI with Transfer event
+            abi_name: Some("erc20".to_string()), // ABI with Transfer event
             filter_script: "log.name == \"Transfer\"".to_string(),
             ..Default::default()
         };

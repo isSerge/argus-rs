@@ -10,7 +10,7 @@ pub struct MonitorBuilder {
     name: Option<String>,
     network: Option<String>,
     address: Option<String>,
-    abi: Option<String>,
+    abi_name: Option<String>,
     filter_script: Option<String>,
     actions: Option<Vec<String>>,
     created_at: Option<DateTime<Utc>>,
@@ -31,7 +31,7 @@ impl MonitorBuilder {
             name: None,
             network: None,
             address: None,
-            abi: None,
+            abi_name: None,
             filter_script: None,
             actions: None,
             created_at: None,
@@ -46,8 +46,8 @@ impl MonitorBuilder {
     }
 
     /// Sets the ABI for the monitor.
-    pub fn abi(mut self, abi: &str) -> Self {
-        self.abi = Some(abi.to_string());
+    pub fn abi_name(mut self, abi: &str) -> Self {
+        self.abi_name = Some(abi.to_string());
         self
     }
 
@@ -100,7 +100,7 @@ impl MonitorBuilder {
             name: self.name.unwrap_or("test monitor".to_string()),
             network: self.network.unwrap_or("test network".to_string()),
             address: self.address,
-            abi: self.abi,
+            abi_name: self.abi_name,
             filter_script: self.filter_script.unwrap_or("true".to_string()),
             actions: self.actions.unwrap_or_default(),
             created_at: self.created_at.unwrap_or_default(),

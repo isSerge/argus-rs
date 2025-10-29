@@ -642,7 +642,7 @@ mod tests {
         let monitor = MonitorBuilder::new()
             .id(1)
             .address(&CONTRACT_ADDRESS.to_checksum(None))
-            .abi("erc20")
+            .abi_name("erc20")
             .filter_script("log.name == \"Transfer\" ")
             .actions(vec!["action1".to_string(), "action2".to_string()])
             .build();
@@ -716,7 +716,7 @@ mod tests {
         let log_monitor = MonitorBuilder::new()
             .id(1)
             .address(&CONTRACT_ADDRESS.to_checksum(None))
-            .abi("erc20")
+            .abi_name("erc20")
             .filter_script("log.name == \"Transfer\" ")
             .actions(vec!["log_action".to_string()])
             .build();
@@ -758,7 +758,7 @@ mod tests {
         let monitor = MonitorBuilder::new()
             .id(1)
             .address(&CONTRACT_ADDRESS.to_checksum(None))
-            .abi("erc20")
+            .abi_name("erc20")
             .filter_script("log.name == \"Transfer\" && log.params.value > bigint(\"100\")")
             .actions(vec!["action1".to_string()])
             .build();
@@ -811,7 +811,7 @@ mod tests {
         let monitor = MonitorBuilder::new()
             .id(1)
             .address(&CONTRACT_ADDRESS.to_checksum(None))
-            .abi("erc20")
+            .abi_name("erc20")
             .filter_script(
                 r#"decoded_call.name == "transfer" && decoded_call.params._value > bigint(1000)"#,
             )
@@ -841,7 +841,7 @@ mod tests {
         let monitor = MonitorBuilder::new()
             .id(1)
             .address(&CONTRACT_ADDRESS.to_checksum(None))
-            .abi("erc20")
+            .abi_name("erc20")
             .filter_script(
                 r#"log.name == "Transfer" && decoded_call.name == "transfer" && decoded_call.params._value > bigint(1000)"#,
             )
@@ -1023,7 +1023,7 @@ mod tests {
         // This monitor has no address, so it should run on logs from ANY address.
         let global_monitor = MonitorBuilder::new()
             .id(100)
-            .abi("erc20")
+            .abi_name("erc20")
             .filter_script("log.name == \"Transfer\" ")
             .actions(vec!["global_action".to_string()])
             .build();
@@ -1079,7 +1079,7 @@ mod tests {
         // This monitor should match on high-value transactions OR on "Transfer" logs.
         let monitor = MonitorBuilder::new()
             .id(1)
-            .abi("erc20")
+            .abi_name("erc20")
             .filter_script(
                 r#" 
             tx.value > bigint(100) || log.name == "Transfer"
@@ -1107,7 +1107,7 @@ mod tests {
 
         let monitor = MonitorBuilder::new()
             .id(1)
-            .abi("erc20")
+            .abi_name("erc20")
             .filter_script(
                 r#" 
             tx.value > bigint(100) || log.name == "Transfer"
@@ -1141,7 +1141,7 @@ mod tests {
 
         let monitor = MonitorBuilder::new()
             .id(1)
-            .abi("erc20")
+            .abi_name("erc20")
             .filter_script(
                 r#" 
             tx.value > bigint(100) || log.name == "Transfer"
@@ -1224,7 +1224,7 @@ mod tests {
         let monitor = MonitorBuilder::new()
             .id(1)
             .address(&CONTRACT_ADDRESS.to_checksum(None))
-            .abi("erc20")
+            .abi_name("erc20")
             .filter_script(r#"decoded_call.name == "transfer""#)
             .actions(vec!["test-action".to_string()])
             .build();

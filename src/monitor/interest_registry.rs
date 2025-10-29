@@ -114,7 +114,7 @@ impl InterestRegistryBuilder {
                 return; // Already in broad mode, can't be more specific.
             }
 
-            if let Some(abi_name) = &monitor.abi {
+            if let Some(abi_name) = &monitor.abi_name {
                 if let Some(contract) = abi_service.get_abi(address) {
                     // Ensure the correct ABI is linked.
                     if let Some(repo_abi) = abi_service.get_abi_by_name(abi_name)
@@ -150,7 +150,7 @@ impl InterestRegistryBuilder {
         cm: &ClassifiedMonitor,
         abi_service: &Arc<AbiService>,
     ) {
-        if let Some(abi_name) = &cm.monitor.abi
+        if let Some(abi_name) = &cm.monitor.abi_name
             && let Some(abi) = abi_service.get_abi_by_name(abi_name)
         {
             self.global_event_signatures.extend(Self::get_signatures_for_monitor(cm, abi));
@@ -351,7 +351,7 @@ mod tests {
         let classified_monitor = ClassifiedMonitor {
             monitor: Arc::new(Monitor {
                 address: Some(ADDRESS1.to_checksum(None)),
-                abi: Some("ERC20".into()),
+                abi_name: Some("ERC20".into()),
                 filter_script: "decoded_call.name == \"transfer\" || log.params.value < ether(10)"
                     .into(), // requires CALL and LOG caps
                 ..Default::default()
