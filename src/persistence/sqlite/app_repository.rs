@@ -28,7 +28,6 @@ struct MonitorRow {
 // Helper struct for mapping from the database row
 #[derive(sqlx::FromRow)]
 struct AbiRow {
-    name: String,
     abi: String,
 }
 
@@ -406,7 +405,7 @@ impl AppRepository for SqliteStateRepository {
 
         let abi_row = self
             .execute_query_with_error_handling("query abi by name", async {
-                sqlx::query_as!(AbiRow, "SELECT name, abi FROM abis WHERE name = ?", name)
+                sqlx::query_as!(AbiRow, "SELECT abi FROM abis WHERE name = ?", name)
                     .fetch_optional(&self.pool)
                     .await
             })
