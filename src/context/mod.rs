@@ -587,6 +587,7 @@ mod tests {
     async fn test_load_abis_from_monitors_contract_specific() {
         let config = create_test_config();
         let repo = create_test_repo().await;
+        repo.create_abi("erc20", "[]").await.unwrap();
 
         // Add monitor with contract address and ABI (using existing erc20.json)
         let monitor = MonitorConfig {
@@ -619,6 +620,7 @@ mod tests {
     async fn test_load_abis_from_monitors_global_monitor() {
         let config = create_test_config();
         let repo = create_test_repo().await;
+        repo.create_abi("usdc", "[]").await.unwrap();
 
         // Add global monitor with ABI (using existing usdc.json)
         let monitor = MonitorConfig {
@@ -650,6 +652,7 @@ mod tests {
     async fn test_load_abis_from_monitors_invalid_address() {
         let config = create_test_config();
         let repo = create_test_repo().await;
+        repo.create_abi("erc20", "[]").await.unwrap();
 
         // Add monitor with invalid address
         let monitor = MonitorConfig {

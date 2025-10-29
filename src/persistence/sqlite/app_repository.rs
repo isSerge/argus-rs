@@ -376,6 +376,22 @@ impl AppRepository for SqliteStateRepository {
         Ok(())
     }
 
+    /// Creates a new ABI.
+    #[tracing::instrument(skip(self, abi), level = "debug")]
+    async fn create_abi(&self, name: &str, abi: &str) -> Result<(), PersistenceError> {
+        tracing::debug!(name, "Creating ABI.");
+
+        self.execute_query_with_error_handling(
+            "create abi",
+            sqlx::query!("INSERT INTO abis (name, abi) VALUES (?, ?)", name, abi)
+                .execute(&self.pool),
+        )
+        .await?;
+
+        tracing::info!(name, "ABI created successfully.");
+        Ok(())
+    }
+
     // Action management operations
 
     /// Retrieves all actions for a specific network.
