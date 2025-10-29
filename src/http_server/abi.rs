@@ -34,11 +34,11 @@ pub async fn upload_abi(
         )));
     }
 
-    state.repo.create_abi(&payload.name, &abi_json.to_string()).await?;
+    state.repo.create_abi(&payload.name, &payload.abi).await?;
 
     Ok((
         StatusCode::CREATED,
-        Json(json!({ "abi": { "name": payload.name, "abi": abi_json.to_string() } })),
+        Json(json!({ "abi": { "name": payload.name, "abi": payload.abi } })),
     ))
 }
 
