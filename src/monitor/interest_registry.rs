@@ -341,10 +341,9 @@ mod tests {
         assert!(!registry_with_globals.is_log_interesting(&log_no_topics));
     }
 
-    #[test]
-    fn test_interest_registry_builder() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("ERC20", erc20_abi_json())]);
+    #[tokio::test]
+    async fn test_interest_registry_builder() {
+        let (abi_service, _) = create_test_abi_service(&[("ERC20", erc20_abi_json())]).await;
 
         let mut builder = InterestRegistryBuilder::default();
 

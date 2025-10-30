@@ -587,7 +587,6 @@ mod tests {
         primitives::{Address, B256, Bytes, U256, address, b256},
         sol_types::SolValue,
     };
-    use tempfile::tempdir;
 
     use super::*;
     use crate::{
@@ -634,8 +633,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_item_log_based_match() {
-        let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+        let (abi_service, _) = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
 
         abi_service.link_abi(CONTRACT_ADDRESS, "erc20").unwrap();
 
@@ -667,8 +665,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_item_transaction_based_match() {
-        let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+        let (abi_service, _) = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
         let monitor = MonitorBuilder::new()
             .id(1)
             .filter_script("tx.value > bigint(\"100\")")
@@ -689,8 +686,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_item_no_match_for_tx_monitor() {
-        let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+        let (abi_service, _) = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
 
         let monitor = MonitorBuilder::new()
             .id(1)
@@ -709,8 +705,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_item_mixed_monitors_both_match() {
-        let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+        let (abi_service, _) = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
         abi_service.link_abi(CONTRACT_ADDRESS, "erc20").unwrap();
 
         let log_monitor = MonitorBuilder::new()
@@ -751,8 +746,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_item_filter_by_log_param() {
-        let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+        let (abi_service, _) = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
         abi_service.link_abi(CONTRACT_ADDRESS, "erc20").unwrap();
 
         let monitor = MonitorBuilder::new()
@@ -787,8 +781,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_item_no_decoded_logs_still_triggers_tx_monitor() {
-        let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+        let (abi_service, _) = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
         let monitor = MonitorBuilder::new().id(1).actions(vec!["action1".to_string()]).build();
         let monitors = vec![monitor];
         let engine = setup_engine_with_monitors(monitors, abi_service);
@@ -802,8 +795,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_item_tx_only_monitor_with_decoded_call_match() {
-        let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+        let (abi_service, _) = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
         abi_service.link_abi(CONTRACT_ADDRESS, "erc20").unwrap();
 
         // This monitor is specific to an address and cares about decoded calldata, but
@@ -833,8 +825,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_item_log_aware_monitor_with_decoded_call_match() {
-        let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+        let (abi_service, _) = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
         abi_service.link_abi(CONTRACT_ADDRESS, "erc20").unwrap();
 
         // This monitor cares about both logs and decoded calldata.
@@ -869,8 +860,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_decoded_call_is_null_for_non_matching_selector() {
-        let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+        let (abi_service, _) = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
         abi_service.link_abi(CONTRACT_ADDRESS, "erc20").unwrap();
 
         let monitor = MonitorBuilder::new()
@@ -895,8 +885,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_requires_receipt_data_flag_set_correctly() {
-        let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+        let (abi_service, _) = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
         // --- Scenario 1: A monitor explicitly uses a receipt field ---
         let monitor_no_receipt = MonitorBuilder::new()
             .id(1)
@@ -974,8 +963,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_item_with_evm_wrappers() {
-        let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+        let (abi_service, _) = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
         let monitor = MonitorBuilder::new()
             .id(1)
             .filter_script("tx.value > ether(1.5)")
@@ -1010,8 +998,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_item_global_log_monitor_match() {
-        let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+        let (abi_service, _) = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
 
         let addr1 = address!("1111111111111111111111111111111111111111");
         let addr2 = address!("2222222222222222222222222222222222222222");
@@ -1073,8 +1060,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_item_hybrid_monitor_tx_match_no_logs() {
-        let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[]);
+        let (abi_service, _) = create_test_abi_service(&[]).await;
 
         // This monitor should match on high-value transactions OR on "Transfer" logs.
         let monitor = MonitorBuilder::new()
@@ -1101,8 +1087,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_item_hybrid_monitor_log_match_only() {
-        let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+        let (abi_service, _) = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
         abi_service.link_abi(CONTRACT_ADDRESS, "erc20").unwrap();
 
         let monitor = MonitorBuilder::new()
@@ -1135,8 +1120,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_evaluate_item_hybrid_monitor_prefers_log_match() {
-        let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+        let (abi_service, _) = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
         abi_service.link_abi(CONTRACT_ADDRESS, "erc20").unwrap();
 
         let monitor = MonitorBuilder::new()
@@ -1171,8 +1155,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_safe_null_access_on_decoded_call() {
-        let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[]);
+        let (abi_service, _) = create_test_abi_service(&[]).await;
 
         // This script would fail at runtime if the dot operator on a null
         // `decoded_call` was not handled safely.
@@ -1194,8 +1177,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_safe_null_access_on_log() {
-        let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[]);
+        let (abi_service, _) = create_test_abi_service(&[]).await;
 
         // This script would fail if `log.name` access on a null `log` errored.
         // This is a transaction-only evaluation context.
@@ -1217,8 +1199,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_safe_null_access_on_decoded_call_with_valid_call() {
-        let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+        let (abi_service, _) = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
         abi_service.link_abi(CONTRACT_ADDRESS, "erc20").unwrap();
 
         let monitor = MonitorBuilder::new()
@@ -1244,8 +1225,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_log_matches_payload() {
-        let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[]);
+        let (abi_service, _) = create_test_abi_service(&[]).await;
         let engine = setup_engine_with_monitors(vec![], abi_service);
 
         let tx = TransactionBuilder::new().value(U256::from(123)).build();
@@ -1282,8 +1262,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_tx_matches_payload() {
-        let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[]);
+        let (abi_service, _) = create_test_abi_service(&[]).await;
         let engine = setup_engine_with_monitors(vec![], abi_service);
 
         let tx = TransactionBuilder::new().value(U256::from(456)).build();
