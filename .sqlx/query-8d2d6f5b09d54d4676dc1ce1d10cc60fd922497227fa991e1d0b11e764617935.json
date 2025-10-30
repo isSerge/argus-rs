@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT name FROM abis",
+  "describe": {
+    "columns": [
+      {
+        "name": "name",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8d2d6f5b09d54d4676dc1ce1d10cc60fd922497227fa991e1d0b11e764617935"
+}

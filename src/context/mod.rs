@@ -7,7 +7,11 @@
 mod error;
 mod metrics;
 
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use alloy::providers::Provider;
 pub use error::{AppContextError, InitializationError};
@@ -125,12 +129,20 @@ impl AppContextBuilder {
         repo.run_migrations().await?;
         tracing::info!("Database migrations completed.");
 
-        tracing::debug!("Initializing ABI repository...");
-        let abi_repository = Arc::new(AbiRepository::new(&config.abi_config_path)?);
+        // Sync filesystem ABIs to database before loading monitors
+        // This is necessary because monitors may reference ABIs via foreign key
+        Self::sync_abis_from_filesystem(repo.as_ref(), &config.abi_config_path).await?;
+
+        tracing::debug!("Initializing ABI repository from database...");
+        let abi_repository = Arc::new(AbiRepository::new(repo.clone()).await.map_err(|e| {
+            AppContextError::Initialization(InitializationError::AbiLoad(format!(
+                "Failed to initialize ABI repository from database: {e}"
+            )))
+        })?);
         tracing::info!("ABI repository initialized with {} ABIs.", abi_repository.len());
 
         tracing::debug!("Initializing ABI service");
-        let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
+        let abi_service = Arc::new(AbiService::new(abi_repository));
 
         let template_service = Arc::new(TemplateService::new());
 
@@ -142,6 +154,7 @@ impl AppContextBuilder {
 
         Self::initialize_block_state(&config, repo.as_ref(), provider.as_ref()).await?;
         Self::load_actions_from_file(&config, repo.as_ref()).await?;
+
         Self::load_monitors_from_file(
             &config,
             repo.as_ref(),
@@ -402,7 +415,7 @@ impl AppContextBuilder {
         })?;
 
         for monitor in &monitors {
-            if let (Some(address_str), Some(abi_name)) = (&monitor.address, &monitor.abi) {
+            if let (Some(address_str), Some(abi_name)) = (&monitor.address, &monitor.abi_name) {
                 if address_str.eq_ignore_ascii_case("all") {
                     abi_service.add_global_abi(abi_name).map_err(|e| {
                         InitializationError::AbiLoad(format!(
@@ -430,12 +443,75 @@ impl AppContextBuilder {
         tracing::info!(count = monitors.len(), network_id = %network_id, "ABIs loaded for monitors from database.");
         Ok(())
     }
-}
 
+    /// Syncs ABIs from the filesystem to the database.
+    /// This function scans a directory for ABI files and adds them to the
+    /// database if they don't already exist.
+    async fn sync_abis_from_filesystem(
+        repo: &dyn AppRepository,
+        abi_dir: &Path,
+    ) -> Result<(), InitializationError> {
+        tracing::debug!("Syncing filesystem ABIs to database...");
+
+        if !abi_dir.exists() {
+            tracing::warn!("ABI directory does not exist: {}", abi_dir.display());
+            return Ok(());
+        }
+
+        let entries = fs::read_dir(abi_dir).map_err(|e| {
+            InitializationError::AbiLoad(format!("Failed to scan ABI directory: {e}"))
+        })?;
+
+        for entry in entries {
+            let path = entry
+                .map_err(|e| {
+                    InitializationError::AbiLoad(format!("Failed to read ABI directory entry: {e}"))
+                })?
+                .path();
+
+            if path.is_file() && path.extension().is_some_and(|ext| ext == "json") {
+                let abi_name = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .map(ToOwned::to_owned)
+                    .unwrap_or_else(|| path.file_name().unwrap().to_string_lossy().into_owned());
+
+                match repo.get_abi(&abi_name).await {
+                    Ok(Some(_)) => {
+                        tracing::debug!(abi_name = %abi_name, "ABI already exists in database, skipping");
+                    }
+                    Ok(None) => {
+                        let content = fs::read_to_string(&path).map_err(|e| {
+                            InitializationError::AbiLoad(format!(
+                                "Failed to read ABI file '{}': {}",
+                                path.display(),
+                                e
+                            ))
+                        })?;
+                        repo.create_abi(&abi_name, &content).await.map_err(|e| {
+                            InitializationError::AbiLoad(format!(
+                                "Failed to sync ABI '{}' to database: {}",
+                                abi_name, e
+                            ))
+                        })?;
+                        tracing::debug!(abi_name = %abi_name, "Synced ABI to database");
+                    }
+                    Err(e) => {
+                        return Err(InitializationError::AbiLoad(format!(
+                            "Failed to check if ABI '{}' exists in database: {}",
+                            abi_name, e
+                        )));
+                    }
+                }
+            }
+        }
+
+        tracing::info!("Filesystem ABIs synced to database successfully.");
+        Ok(())
+    }
+}
 #[cfg(test)]
 mod tests {
-    use tempfile::tempdir;
-
     use super::*;
     use crate::{
         config::{AppConfig, RhaiConfig},
@@ -492,7 +568,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_load_monitors_from_file_when_monitors_exist() {
-        let temp_dir = tempdir().unwrap();
         let config = create_test_config();
         let repo = create_test_repo().await;
 
@@ -501,17 +576,19 @@ mod tests {
             name: "existing".to_string(),
             network: config.network_id.clone(),
             address: None,
-            abi: None,
+            abi_name: None,
             filter_script: "true".to_string(),
             actions: vec![],
         };
         repo.add_monitors(&config.network_id, vec![existing_monitor]).await.unwrap();
 
+        let abi_repository = Arc::new(AbiRepository::new(repo.clone()).await.unwrap());
+
         // Should skip loading since monitors already exist
         let result = AppContextBuilder::load_monitors_from_file(
             &config,
             repo.as_ref(),
-            Arc::new(AbiService::new(Arc::new(AbiRepository::new(temp_dir.path()).unwrap()))),
+            Arc::new(AbiService::new(abi_repository)),
             Arc::new(RhaiCompiler::new(RhaiConfig::default())),
             Arc::new(TemplateService::new()),
         )
@@ -560,15 +637,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_load_monitors_from_file_missing_file() {
-        let temp_dir = tempdir().unwrap();
         let config = create_test_config();
         let repo = create_test_repo().await;
+        let abi_repository = Arc::new(AbiRepository::new(repo.clone()).await.unwrap());
 
         // Try to load from non-existent file
         let result = AppContextBuilder::load_monitors_from_file(
             &config,
             repo.as_ref(),
-            Arc::new(AbiService::new(Arc::new(AbiRepository::new(temp_dir.path()).unwrap()))),
+            Arc::new(AbiService::new(abi_repository)),
             Arc::new(RhaiCompiler::new(RhaiConfig::default())),
             Arc::new(TemplateService::new()),
         )
@@ -587,22 +664,22 @@ mod tests {
     async fn test_load_abis_from_monitors_contract_specific() {
         let config = create_test_config();
         let repo = create_test_repo().await;
+        repo.create_abi("erc20", "[]").await.unwrap();
 
         // Add monitor with contract address and ABI (using existing erc20.json)
         let monitor = MonitorConfig {
             name: "test_monitor".to_string(),
             network: config.network_id.clone(),
             address: Some("0x1234567890123456789012345678901234567890".to_string()),
-            abi: Some("erc20".to_string()),
+            abi_name: Some("erc20".to_string()),
             filter_script: "true".to_string(),
             actions: vec![],
         };
         repo.add_monitors(&config.network_id, vec![monitor]).await.unwrap();
 
         // Use the real abis directory
-        let abi_service = Arc::new(AbiService::new(Arc::new(
-            AbiRepository::new(std::path::Path::new("abis")).unwrap(),
-        )));
+        let abi_repository = Arc::new(AbiRepository::new(repo.clone()).await.unwrap());
+        let abi_service = Arc::new(AbiService::new(abi_repository));
 
         let result =
             AppContextBuilder::load_abis_from_monitors(&config, repo.as_ref(), abi_service.clone())
@@ -619,22 +696,22 @@ mod tests {
     async fn test_load_abis_from_monitors_global_monitor() {
         let config = create_test_config();
         let repo = create_test_repo().await;
+        repo.create_abi("usdc", "[]").await.unwrap();
 
         // Add global monitor with ABI (using existing usdc.json)
         let monitor = MonitorConfig {
             name: "global_monitor".to_string(),
             network: config.network_id.clone(),
             address: Some("all".to_string()),
-            abi: Some("usdc".to_string()),
+            abi_name: Some("usdc".to_string()),
             filter_script: "true".to_string(),
             actions: vec![],
         };
         repo.add_monitors(&config.network_id, vec![monitor]).await.unwrap();
 
         // Use the real abis directory
-        let abi_service = Arc::new(AbiService::new(Arc::new(
-            AbiRepository::new(std::path::Path::new("abis")).unwrap(),
-        )));
+        let abi_repository = Arc::new(AbiRepository::new(repo.clone()).await.unwrap());
+        let abi_service = Arc::new(AbiService::new(abi_repository));
 
         let result =
             AppContextBuilder::load_abis_from_monitors(&config, repo.as_ref(), abi_service.clone())
@@ -650,22 +727,22 @@ mod tests {
     async fn test_load_abis_from_monitors_invalid_address() {
         let config = create_test_config();
         let repo = create_test_repo().await;
+        repo.create_abi("erc20", "[]").await.unwrap();
 
         // Add monitor with invalid address
         let monitor = MonitorConfig {
             name: "invalid_monitor".to_string(),
             network: config.network_id.clone(),
             address: Some("invalid_address".to_string()),
-            abi: Some("erc20".to_string()),
+            abi_name: Some("erc20".to_string()),
             filter_script: "true".to_string(),
             actions: vec![],
         };
         repo.add_monitors(&config.network_id, vec![monitor]).await.unwrap();
 
         // Use the real abis directory
-        let abi_service = Arc::new(AbiService::new(Arc::new(
-            AbiRepository::new(std::path::Path::new("abis")).unwrap(),
-        )));
+        let abi_repository = Arc::new(AbiRepository::new(repo.clone()).await.unwrap());
+        let abi_service = Arc::new(AbiService::new(abi_repository));
 
         let result =
             AppContextBuilder::load_abis_from_monitors(&config, repo.as_ref(), abi_service).await;
@@ -689,16 +766,15 @@ mod tests {
             name: "minimal_monitor".to_string(),
             network: config.network_id.clone(),
             address: None,
-            abi: None,
+            abi_name: None,
             filter_script: "true".to_string(),
             actions: vec![],
         };
         repo.add_monitors(&config.network_id, vec![monitor]).await.unwrap();
 
         // Use the real abis directory
-        let abi_service = Arc::new(AbiService::new(Arc::new(
-            AbiRepository::new(std::path::Path::new("abis")).unwrap(),
-        )));
+        let abi_repository = Arc::new(AbiRepository::new(repo.clone()).await.unwrap());
+        let abi_service = Arc::new(AbiService::new(abi_repository));
 
         // Should succeed but do nothing
         let result =

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO abis (name, abi) VALUES (?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "b3f736cfbda7c9b8b17fa401979d9d9621a017b1e7094a0d7a47bf3ec5eed367"
+}

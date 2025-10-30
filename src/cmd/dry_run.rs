@@ -329,7 +329,6 @@ mod tests {
     use alloy::primitives::U256;
     use mockall::predicate::eq;
     use serde_json::json;
-    use tempfile::tempdir;
 
     use super::*;
     use crate::{
@@ -344,18 +343,24 @@ mod tests {
         test_helpers::{ActionBuilder, BlockBuilder, MonitorBuilder, TransactionBuilder},
     };
 
+    // A helper function to create a test state repository
+    async fn create_test_repo() -> Arc<SqliteStateRepository> {
+        let repo = SqliteStateRepository::new("sqlite::memory:")
+            .await
+            .expect("Failed to connect to in-memory db");
+        repo.run_migrations().await.expect("Failed to run migrations");
+        Arc::new(repo)
+    }
+
     // A helper function to create an AlertManager with a mock state repository.
     async fn create_test_alert_manager(
         actions: Arc<HashMap<String, ActionConfig>>,
     ) -> Arc<AlertManager<SqliteStateRepository>> {
-        let state_repo = SqliteStateRepository::new("sqlite::memory:")
-            .await
-            .expect("Failed to connect to in-memory db");
-        state_repo.run_migrations().await.expect("Failed to run migrations");
+        let state_repo = create_test_repo().await;
         let client_pool = Arc::new(HttpClientPool::default());
         let action_dispatcher =
             Arc::new(ActionDispatcher::new(actions.clone(), client_pool).await.unwrap());
-        Arc::new(AlertManager::new(action_dispatcher, Arc::new(state_repo), actions))
+        Arc::new(AlertManager::new(action_dispatcher, state_repo, actions))
     }
 
     const CONCURRENCY: usize = 4;
@@ -384,8 +389,8 @@ mod tests {
             .build();
 
         // Initialize other services
-        let temp_dir = tempdir().unwrap();
-        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
+        let repo = create_test_repo().await;
+        let abi_repo = Arc::new(AbiRepository::new(repo.clone()).await.unwrap());
         let abi_service = Arc::new(AbiService::new(abi_repo));
         let rhai_config = RhaiConfig::default();
         let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));
@@ -454,8 +459,8 @@ mod tests {
         let monitor = MonitorBuilder::new().filter_script(monitor_script).build();
 
         // Initialize other services
-        let temp_dir = tempdir().unwrap();
-        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
+        let repo = create_test_repo().await;
+        let abi_repo = Arc::new(AbiRepository::new(repo.clone()).await.unwrap());
         let abi_service = Arc::new(AbiService::new(abi_repo));
         let rhai_config = RhaiConfig::default();
         let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));
@@ -514,8 +519,8 @@ mod tests {
         let monitor = MonitorBuilder::new().filter_script(monitor_script).build();
 
         // Initialize other services
-        let temp_dir = tempdir().unwrap();
-        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
+        let repo = create_test_repo().await;
+        let abi_repo = Arc::new(AbiRepository::new(repo.clone()).await.unwrap());
         let abi_service = Arc::new(AbiService::new(abi_repo));
         let rhai_config = RhaiConfig::default();
         let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));
@@ -567,8 +572,8 @@ mod tests {
         let monitor = MonitorBuilder::new().filter_script(monitor_script).build();
 
         // Initialize other services
-        let temp_dir = tempdir().unwrap();
-        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
+        let repo = create_test_repo().await;
+        let abi_repo = Arc::new(AbiRepository::new(repo.clone()).await.unwrap());
         let abi_service = Arc::new(AbiService::new(abi_repo));
         let rhai_config = RhaiConfig::default();
         let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));
@@ -640,8 +645,8 @@ mod tests {
             .build();
 
         // Initialize other services
-        let temp_dir = tempdir().unwrap();
-        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
+        let repo = create_test_repo().await;
+        let abi_repo = Arc::new(AbiRepository::new(repo.clone()).await.unwrap());
         let abi_service = Arc::new(AbiService::new(abi_repo));
         let rhai_config = RhaiConfig::default();
         let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));
@@ -696,8 +701,8 @@ mod tests {
         let mock_data_source = MockDataSource::new();
 
         // Initialize other services with minimal setup
-        let temp_dir = tempdir().unwrap();
-        let abi_repo = Arc::new(AbiRepository::new(temp_dir.path()).unwrap());
+        let repo = create_test_repo().await;
+        let abi_repo = Arc::new(AbiRepository::new(repo.clone()).await.unwrap());
         let abi_service = Arc::new(AbiService::new(abi_repo));
         let rhai_config = RhaiConfig::default();
         let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));

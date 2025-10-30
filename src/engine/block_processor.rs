@@ -245,7 +245,7 @@ mod tests {
             Self { config, mock_state_repo: MockAppRepository::new() }
         }
 
-        fn build(
+        async fn build(
             self,
             rx: mpsc::Receiver<BlockData>,
             tx: mpsc::Sender<CorrelatedBlockData>,
@@ -254,7 +254,7 @@ mod tests {
             let monitor =
                 MonitorBuilder::new().network(TEST_NETWORK_ID).filter_script("true").build();
             let monitors = vec![monitor];
-            let monitor_manager = create_test_monitor_manager(monitors);
+            let monitor_manager = create_test_monitor_manager(monitors).await;
             BlockProcessor::new(
                 self.config,
                 Arc::new(self.mock_state_repo),
@@ -278,7 +278,7 @@ mod tests {
 
         let (_, raw_rx) = mpsc::channel(10);
         let (correlated_tx, mut correlated_rx) = mpsc::channel(10);
-        let processor = harness.build(raw_rx, correlated_tx, CancellationToken::new());
+        let processor = harness.build(raw_rx, correlated_tx, CancellationToken::new()).await;
 
         let block_number = 100;
         let block = BlockBuilder::new()

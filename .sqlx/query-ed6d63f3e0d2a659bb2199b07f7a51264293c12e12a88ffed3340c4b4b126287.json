@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT name, abi FROM abis",
+  "describe": {
+    "columns": [
+      {
+        "name": "name",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "abi",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "ed6d63f3e0d2a659bb2199b07f7a51264293c12e12a88ffed3340c4b4b126287"
+}

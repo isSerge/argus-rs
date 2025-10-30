@@ -1,5 +1,6 @@
 //! HTTP server module
 
+mod abi;
 mod actions;
 mod auth;
 mod error;
@@ -8,6 +9,7 @@ mod status;
 
 use std::{net::SocketAddr, sync::Arc};
 
+use abi::{delete_abi, get_abi_by_name, list_abis, upload_abi};
 use actions::{create_action, delete_action, get_action_details, get_actions, update_action};
 use auth::auth;
 use axum::{
@@ -66,6 +68,17 @@ pub async fn run_server_from_config(
         )
         .route("/monitors", get(monitors))
         .route("/monitors/{id}", get(monitor_details))
+        // ABI routes
+        .route(
+            "/abis",
+            post(upload_abi).route_layer(middleware::from_fn_with_state(state.clone(), auth)),
+        )
+        .route("/abis", get(list_abis))
+        .route("/abis/{name}", get(get_abi_by_name))
+        .route(
+            "/abis/{name}",
+            delete(delete_abi).route_layer(middleware::from_fn_with_state(state.clone(), auth)),
+        )
         // Actions routes
         .route("/actions", get(get_actions))
         .route("/actions/{id}", get(get_action_details))

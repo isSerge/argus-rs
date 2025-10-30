@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM abis WHERE name = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "bc0698469deb3403aa5a77d5eff8f652771140ee1919c59b3e8a8aa6dffb29e4"
+}

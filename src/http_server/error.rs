@@ -25,6 +25,9 @@ pub enum ApiError {
     /// Represents a conflict where an action is in use by monitors.
     ActionInUse(Vec<String>),
 
+    /// Represents a conflict where an ABI is in use by monitors.
+    AbiInUse(Vec<String>),
+
     /// Represents a generic internal server error.
     InternalServerError(String),
 }
@@ -37,6 +40,7 @@ impl From<PersistenceError> for ApiError {
     fn from(err: PersistenceError) -> Self {
         match err {
             PersistenceError::NotFound => ApiError::NotFound("Resource not found".to_string()),
+            PersistenceError::AbiInUse(monitors) => ApiError::AbiInUse(monitors),
             _ => ApiError::InternalServerError(err.to_string()),
         }
     }
@@ -79,6 +83,13 @@ impl IntoResponse for ApiError {
                 StatusCode::CONFLICT,
                 json!({
                     "error": "Action is in use and cannot be deleted.",
+                    "monitors": monitors,
+                }),
+            ),
+            ApiError::AbiInUse(monitors) => (
+                StatusCode::CONFLICT,
+                json!({
+                    "error": "ABI is in use and cannot be deleted.",
                     "monitors": monitors,
                 }),
             ),

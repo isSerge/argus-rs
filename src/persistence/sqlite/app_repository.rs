@@ -18,11 +18,17 @@ struct MonitorRow {
     name: String,
     network: String,
     address: Option<String>,
-    abi: Option<String>,
+    abi_name: Option<String>,
     filter_script: String,
     actions: String,
     created_at: NaiveDateTime,
     updated_at: NaiveDateTime,
+}
+
+// Helper struct for mapping from the database row
+#[derive(sqlx::FromRow)]
+struct AbiRow {
+    abi: String,
 }
 
 // Helper struct for mapping from the database row
@@ -186,7 +192,7 @@ impl AppRepository for SqliteStateRepository {
                     name, 
                     network, 
                     address, 
-                    abi, 
+                    abi_name, 
                     filter_script, 
                     actions,
                     created_at as "created_at!", 
@@ -215,7 +221,7 @@ impl AppRepository for SqliteStateRepository {
                     name: row.name,
                     network: row.network,
                     address: row.address,
-                    abi: row.abi,
+                    abi_name: row.abi_name,
                     filter_script: row.filter_script,
                     actions,
                     created_at,
@@ -257,7 +263,7 @@ impl AppRepository for SqliteStateRepository {
                     name, 
                     network, 
                     address, 
-                    abi, 
+                    abi_name, 
                     filter_script, 
                     actions,
                     created_at as "created_at!", 
@@ -285,7 +291,7 @@ impl AppRepository for SqliteStateRepository {
                 name: row.name,
                 network: row.network,
                 address: row.address,
-                abi: row.abi,
+                abi_name: row.abi_name,
                 filter_script: row.filter_script,
                 actions,
                 created_at,
@@ -338,12 +344,12 @@ impl AppRepository for SqliteStateRepository {
                 .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
 
             sqlx::query!(
-                "INSERT INTO monitors (name, network, address, abi, filter_script, actions) \
+                "INSERT INTO monitors (name, network, address, abi_name, filter_script, actions) \
                  VALUES (?, ?, ?, ?, ?, ?)",
                 monitor.name,
                 monitor.network,
                 monitor.address,
-                monitor.abi,
+                monitor.abi_name,
                 monitor.filter_script,
                 actions_str,
             )
@@ -374,6 +380,116 @@ impl AppRepository for SqliteStateRepository {
         let deleted_count = result.rows_affected();
         tracing::info!(network_id, deleted_count, "Monitors cleared successfully.");
         Ok(())
+    }
+
+    /// Creates a new ABI.
+    #[tracing::instrument(skip(self, abi), level = "debug")]
+    async fn create_abi(&self, name: &str, abi: &str) -> Result<(), PersistenceError> {
+        tracing::debug!(name, "Creating ABI.");
+
+        self.execute_query_with_error_handling(
+            "create abi",
+            sqlx::query!("INSERT INTO abis (name, abi) VALUES (?, ?)", name, abi)
+                .execute(&self.pool),
+        )
+        .await?;
+
+        tracing::info!(name, "ABI created successfully.");
+        Ok(())
+    }
+
+    /// Retrieves an ABI by its name.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn get_abi(&self, name: &str) -> Result<Option<String>, PersistenceError> {
+        tracing::debug!(name, "Querying for ABI by name.");
+
+        let abi_row = self
+            .execute_query_with_error_handling("query abi by name", async {
+                sqlx::query_as!(AbiRow, "SELECT abi FROM abis WHERE name = ?", name)
+                    .fetch_optional(&self.pool)
+                    .await
+            })
+            .await?;
+
+        Ok(abi_row.map(|row| row.abi))
+    }
+
+    /// Lists all available ABI names.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn list_abis(&self) -> Result<Vec<String>, PersistenceError> {
+        tracing::debug!("Querying for all ABI names.");
+
+        let abi_names = self
+            .execute_query_with_error_handling(
+                "list abi names",
+                sqlx::query!("SELECT name FROM abis").fetch_all(&self.pool),
+            )
+            .await?
+            .into_iter()
+            .map(|record| record.name)
+            .collect::<Vec<_>>();
+
+        tracing::debug!(count = abi_names.len(), "ABI names retrieved successfully.");
+        Ok(abi_names)
+    }
+
+    /// Deletes an ABI by its name.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn delete_abi(&self, name: &str) -> Result<(), PersistenceError> {
+        tracing::debug!(name, "Attempting to delete ABI.");
+
+        // Check if any monitors are using this ABI and get their names
+        let monitors_using_abi = self
+            .execute_query_with_error_handling(
+                "check monitors using abi",
+                sqlx::query!("SELECT name FROM monitors WHERE abi_name = ?", name)
+                    .fetch_all(&self.pool),
+            )
+            .await?
+            .into_iter()
+            .map(|row| row.name)
+            .collect::<Vec<_>>();
+
+        if !monitors_using_abi.is_empty() {
+            tracing::warn!(
+                name,
+                monitors = ?monitors_using_abi,
+                "ABI deletion blocked: ABI in use."
+            );
+            return Err(PersistenceError::AbiInUse(monitors_using_abi));
+        }
+
+        let result = self
+            .execute_query_with_error_handling(
+                "delete abi",
+                sqlx::query!("DELETE FROM abis WHERE name = ?", name).execute(&self.pool),
+            )
+            .await?;
+
+        if result.rows_affected() == 0 {
+            tracing::warn!(name, "ABI not found for deletion.");
+            return Err(PersistenceError::NotFound);
+        }
+
+        tracing::info!(name, "ABI deleted successfully.");
+        Ok(())
+    }
+
+    /// Retrieves all ABIs as a vector of (name, abi_json_string) tuples.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn get_all_abis(&self) -> Result<Vec<(String, String)>, PersistenceError> {
+        tracing::debug!("Fetching all ABIs from database.");
+        let abis = self
+            .execute_query_with_error_handling(
+                "get all abis",
+                sqlx::query!("SELECT name, abi FROM abis").fetch_all(&self.pool),
+            )
+            .await?
+            .into_iter()
+            .map(|row| (row.name, row.abi))
+            .collect::<Vec<_>>();
+        tracing::info!(count = abis.len(), "Successfully fetched all ABIs.");
+        Ok(abis)
     }
 
     // Action management operations
@@ -637,7 +753,7 @@ impl AppRepository for SqliteStateRepository {
                         name, 
                         network, 
                         address, 
-                        abi, 
+                        abi_name, 
                         filter_script, 
                         actions,
                         created_at as "created_at!", 
@@ -663,7 +779,7 @@ impl AppRepository for SqliteStateRepository {
                     name: row.name,
                     network: row.network,
                     address: row.address,
-                    abi: row.abi,
+                    abi_name: row.abi_name,
                     filter_script: row.filter_script,
                     actions,
                 })

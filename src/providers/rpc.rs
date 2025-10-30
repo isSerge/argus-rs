@@ -267,7 +267,7 @@ mod tests {
             ..Default::default()
         };
 
-        let monitor_manager = create_test_monitor_manager(vec![monitor]);
+        let monitor_manager = create_test_monitor_manager(vec![monitor]).await;
         let source = EvmRpcSource::new(provider, monitor_manager);
 
         let (fetched_block, fetched_logs) = source.fetch_block_core_data(1).await.unwrap();
@@ -283,7 +283,7 @@ mod tests {
         asserter.push_success(&Option::<Block>::None);
         asserter.push_success(&Vec::<Log>::new());
 
-        let monitor_manager = create_test_monitor_manager(vec![]);
+        let monitor_manager = create_test_monitor_manager(vec![]).await;
         let source = EvmRpcSource::new(provider, monitor_manager);
 
         let result = source.fetch_block_core_data(1).await;
@@ -297,7 +297,7 @@ mod tests {
         asserter.push_failure_msg("RPC error");
         asserter.push_success(&Vec::<Log>::new());
 
-        let monitor_manager = create_test_monitor_manager(vec![]);
+        let monitor_manager = create_test_monitor_manager(vec![]).await;
         let source = EvmRpcSource::new(provider, monitor_manager);
 
         let result = source.fetch_block_core_data(1).await;
@@ -311,7 +311,7 @@ mod tests {
         asserter.push_success(&U256::from(1));
 
         let monitor_manager = create_test_monitor_manager(vec![]);
-        let source = EvmRpcSource::new(provider, monitor_manager);
+        let source = EvmRpcSource::new(provider, monitor_manager.await);
 
         let block_number = source.get_current_block_number().await.unwrap();
 
@@ -324,7 +324,7 @@ mod tests {
         asserter.push_failure_msg("RPC error");
 
         let monitor_manager = create_test_monitor_manager(vec![]);
-        let source = EvmRpcSource::new(provider, monitor_manager);
+        let source = EvmRpcSource::new(provider, monitor_manager.await);
 
         let result = source.get_current_block_number().await;
 
@@ -337,7 +337,7 @@ mod tests {
         asserter.push_failure_msg("RPC error");
 
         let monitor_manager = create_test_monitor_manager(vec![]);
-        let source = EvmRpcSource::new(provider, monitor_manager);
+        let source = EvmRpcSource::new(provider, monitor_manager.await);
 
         let tx_hashes = &[B256::default()];
         let result = source.fetch_receipts(tx_hashes).await;
@@ -385,7 +385,7 @@ mod tests {
         };
 
         let monitor_manager = create_test_monitor_manager(vec![monitor]);
-        let data_source = EvmRpcSource::new(provider, monitor_manager);
+        let data_source = EvmRpcSource::new(provider, monitor_manager.await);
         let (fetched_block, fetched_logs) =
             data_source.fetch_block_and_logs(block_number).await.unwrap();
 
@@ -413,13 +413,13 @@ mod tests {
             name: "Test Monitor".into(),
             network: "testnet".into(),
             address: Some("all".to_string()), // 'all' indicates global event signature monitoring
-            abi: Some("erc20".to_string()),   // ABI with Transfer event
+            abi_name: Some("erc20".to_string()), // ABI with Transfer event
             filter_script: "log.name == \"Transfer\"".to_string(),
             ..Default::default()
         };
 
         let monitor_manager = create_test_monitor_manager(vec![monitor]);
-        let data_source = EvmRpcSource::new(provider, monitor_manager);
+        let data_source = EvmRpcSource::new(provider, monitor_manager.await);
         let (fetched_block, fetched_logs) =
             data_source.fetch_block_and_logs(block_number).await.unwrap();
 
@@ -446,7 +446,7 @@ mod tests {
         };
 
         let monitor_manager = create_test_monitor_manager(vec![monitor]);
-        let data_source = EvmRpcSource::new(provider, monitor_manager);
+        let data_source = EvmRpcSource::new(provider, monitor_manager.await);
         let (fetched_block, fetched_logs) =
             data_source.fetch_block_and_logs(block_number).await.unwrap();
 
@@ -468,7 +468,7 @@ mod tests {
         asserter.push_success(&receipt2);
 
         let monitor_manager = create_test_monitor_manager(vec![]);
-        let data_source = EvmRpcSource::new(provider, monitor_manager);
+        let data_source = EvmRpcSource::new(provider, monitor_manager.await);
         let receipts = data_source.fetch_receipts(&[tx_hash1, tx_hash2]).await.unwrap();
 
         assert_eq!(receipts.len(), 2);
@@ -480,7 +480,7 @@ mod tests {
     async fn test_fetch_receipts_empty() {
         let (provider, _) = mock_provider(); // Asserter is not needed as no calls are made.     
         let monitor_manager = create_test_monitor_manager(vec![]);
-        let data_source = EvmRpcSource::new(provider, monitor_manager);
+        let data_source = EvmRpcSource::new(provider, monitor_manager.await);
         let receipts = data_source.fetch_receipts(&[]).await.unwrap();
         assert!(receipts.is_empty());
     }
@@ -493,7 +493,7 @@ mod tests {
         asserter.push_success(&U256::from(current_block));
 
         let monitor_manager = create_test_monitor_manager(vec![]);
-        let data_source = EvmRpcSource::new(provider, monitor_manager);
+        let data_source = EvmRpcSource::new(provider, monitor_manager.await);
         let result = data_source.get_current_block_number().await.unwrap();
 
         assert_eq!(result, current_block);
@@ -510,7 +510,7 @@ mod tests {
         asserter.push_success(&Vec::<Log>::new());
 
         let monitor_manager = create_test_monitor_manager(vec![]);
-        let data_source = EvmRpcSource::new(provider, monitor_manager);
+        let data_source = EvmRpcSource::new(provider, monitor_manager.await);
         let result = data_source.fetch_block_and_logs(block_number).await;
 
         assert!(matches!(result, Err(DataSourceError::BlockNotFound(404))));
@@ -530,7 +530,7 @@ mod tests {
         asserter.push_success(&Option::<TransactionReceipt>::None);
 
         let monitor_manager = create_test_monitor_manager(vec![]);
-        let data_source = EvmRpcSource::new(provider, monitor_manager);
+        let data_source = EvmRpcSource::new(provider, monitor_manager.await);
         let receipts = data_source.fetch_receipts(&[tx_hash1, tx_hash2]).await.unwrap();
 
         assert_eq!(receipts.len(), 1);
@@ -546,7 +546,7 @@ mod tests {
         asserter.push_failure_msg("test provider error");
 
         let monitor_manager = create_test_monitor_manager(vec![]);
-        let data_source = EvmRpcSource::new(provider, monitor_manager);
+        let data_source = EvmRpcSource::new(provider, monitor_manager.await);
         let result = data_source.get_current_block_number().await;
 
         assert!(matches!(result, Err(DataSourceError::Provider(_))));
@@ -575,7 +575,7 @@ mod tests {
         };
 
         let monitor_manager = create_test_monitor_manager(vec![monitor]);
-        let data_source = EvmRpcSource::new(provider, monitor_manager);
+        let data_source = EvmRpcSource::new(provider, monitor_manager.await);
         let (fetched_block, fetched_logs) =
             data_source.fetch_block_and_logs(block_number).await.unwrap();
 
@@ -608,7 +608,7 @@ mod tests {
         };
 
         let monitor_manager = create_test_monitor_manager(vec![monitor]);
-        let data_source = EvmRpcSource::new(provider, monitor_manager);
+        let data_source = EvmRpcSource::new(provider, monitor_manager.await);
         let result = data_source.fetch_block_and_logs(block_number).await;
 
         assert!(matches!(result, Err(DataSourceError::Provider(_))));
@@ -630,7 +630,7 @@ mod tests {
         asserter.push_failure_msg("receipt unavailable");
 
         let monitor_manager = create_test_monitor_manager(vec![]);
-        let data_source = EvmRpcSource::new(provider, monitor_manager);
+        let data_source = EvmRpcSource::new(provider, monitor_manager.await);
         let result = data_source.fetch_receipts(&[tx_hash1, tx_hash2]).await;
 
         assert!(matches!(result, Err(DataSourceError::Provider(_))));

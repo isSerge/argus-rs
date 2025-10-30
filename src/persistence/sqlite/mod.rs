@@ -232,6 +232,10 @@ mod tests {
         let repo = setup_test_db().await;
         let network_id = "ethereum";
 
+        // Create ABIs for testing
+        repo.create_abi("usdc", "[]").await.unwrap();
+        repo.create_abi("test", "[]").await.unwrap();
+
         // Initially, should have no monitors
         let monitors = repo.get_monitors(network_id).await.unwrap();
         assert!(monitors.is_empty());
@@ -307,6 +311,9 @@ mod tests {
         let network1 = "ethereum";
         let network2 = "polygon";
 
+        // Create ABI for testing
+        repo.create_abi("test", "[]").await.unwrap();
+
         // Create monitors for different networks
         let ethereum_monitors = vec![MonitorConfig::from_config(
             "Ethereum Monitor".to_string(),
@@ -353,6 +360,9 @@ mod tests {
     async fn test_monitor_network_validation() {
         let repo = setup_test_db().await;
         let network_id = "ethereum";
+
+        // Create ABI for testing
+        repo.create_abi("test", "[]").await.unwrap();
 
         // Create monitor with wrong network
         let wrong_network_monitors = vec![MonitorConfig::from_config(
@@ -405,6 +415,9 @@ mod tests {
         let repo = setup_test_db().await;
         let network_id = "ethereum";
 
+        // Create ABI for testing
+        repo.create_abi("test", "[]").await.unwrap();
+
         // Create a mix of valid and invalid monitors (invalid due to network mismatch)
         let mixed_monitors = vec![
             MonitorConfig::from_config(
@@ -438,6 +451,9 @@ mod tests {
     async fn test_monitor_large_script_handling() {
         let repo = setup_test_db().await;
         let network_id = "ethereum";
+
+        // Create ABI for testing
+        repo.create_abi("test", "[]").await.unwrap();
 
         // Create monitor with large filter script
         let large_script = "a".repeat(10000); // 10KB script

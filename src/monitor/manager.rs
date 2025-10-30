@@ -258,7 +258,6 @@ impl MonitorManager {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::{address, b256};
-    use tempfile::tempdir;
 
     use super::*;
     use crate::{
@@ -266,20 +265,18 @@ mod tests {
         test_helpers::{MonitorBuilder, create_test_abi_service, erc20_abi_json},
     };
 
-    fn setup() -> (Arc<RhaiCompiler>, Arc<AbiService>) {
+    async fn setup() -> (Arc<RhaiCompiler>, Arc<AbiService>) {
         let config = RhaiConfig::default();
         let compiler = Arc::new(RhaiCompiler::new(config));
-        let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[]);
+        let (abi_service, _) = create_test_abi_service(&[]).await;
         (compiler, abi_service)
     }
 
-    #[test]
-    fn test_organize_monitors_categorization() {
+    #[tokio::test]
+    async fn test_organize_monitors_categorization() {
         let address = address!("0000000000000000000000000000000000000001");
-        let (compiler, _) = setup();
-        let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+        let (compiler, _) = setup().await;
+        let (abi_service, _) = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
         abi_service.link_abi(address, "erc20").unwrap();
 
         let monitors = vec![
@@ -289,7 +286,7 @@ mod tests {
             MonitorBuilder::new()
                 .id(2)
                 .filter_script("log.name == \"Transfer\"")
-                .abi("erc20")
+                .abi_name("erc20")
                 .address(address.to_string().as_str())
                 .build(),
             // CALL only
@@ -298,7 +295,7 @@ mod tests {
             MonitorBuilder::new()
                 .id(4)
                 .filter_script("tx.value > 100 && log.name == \"Transfer\"")
-                .abi("erc20")
+                .abi_name("erc20")
                 .address(address.to_string().as_str())
                 .build(),
             // TX and CALL
@@ -310,7 +307,7 @@ mod tests {
             MonitorBuilder::new()
                 .id(6)
                 .filter_script("log.name == \"Transfer\" && decoded_call.name == \"approve\"")
-                .abi("erc20")
+                .abi_name("erc20")
                 .address(address.to_string().as_str())
                 .build(),
             // TX, LOG, and CALL
@@ -320,7 +317,7 @@ mod tests {
                     "tx.value > 100 && log.name == \"Transfer\" && decoded_call.name == \
                      \"Transfer\"",
                 )
-                .abi("erc20")
+                .abi_name("erc20")
                 .address(address.to_string().as_str())
                 .build(),
             // No context access (should default to TX)
@@ -349,9 +346,9 @@ mod tests {
         assert_eq!(get_caps(9), MonitorCapabilities::CALL);
     }
 
-    #[test]
-    fn test_organize_assets_requires_receipts() {
-        let (compiler, abi_service) = setup();
+    #[tokio::test]
+    async fn test_organize_assets_requires_receipts() {
+        let (compiler, abi_service) = setup().await;
 
         let monitors = vec![
             MonitorBuilder::new().id(1).filter_script("tx.gas_used > 1000").build(), /* requires receipts */
@@ -365,11 +362,10 @@ mod tests {
         assert!(snapshot.requires_receipts);
     }
 
-    #[test]
-    fn test_build_interest_registry() {
-        let (compiler, _) = setup();
-        let temp_dir = tempdir().unwrap();
-        let (abi_service, _) = create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+    #[tokio::test]
+    async fn test_build_interest_registry() {
+        let (compiler, _) = setup().await;
+        let (abi_service, _) = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
 
         let monitored_address = address!("0000000000000000000000000000000000000001");
 
@@ -382,7 +378,7 @@ mod tests {
         let global_monitor_with_abi = MonitorBuilder::new()
             .id(2)
             .filter_script(r#"log.name == "Transfer""#)
-            .abi("erc20")
+            .abi_name("erc20")
             .build();
 
         let monitors = vec![log_monitor_address, global_monitor_with_abi];
@@ -396,9 +392,9 @@ mod tests {
         assert!(snapshot.interest_registry.log_interests.contains_key(&monitored_address));
     }
 
-    #[test]
-    fn test_update_monitors() {
-        let (compiler, abi_service) = setup();
+    #[tokio::test]
+    async fn test_update_monitors() {
+        let (compiler, abi_service) = setup().await;
         let manager = MonitorManager::new(vec![], compiler.clone(), abi_service.clone());
 
         // Initial state: empty
@@ -422,9 +418,9 @@ mod tests {
         assert_eq!(snapshot2.monitors_by_id.get(&2).unwrap().monitor.id, 2);
     }
 
-    #[test]
-    fn test_update_rebuilds_interest_registry_correctly() {
-        let (compiler, abi_service) = setup();
+    #[tokio::test]
+    async fn test_update_rebuilds_interest_registry_correctly() {
+        let (compiler, abi_service) = setup().await;
         let address1 = address!("1111111111111111111111111111111111111111");
         let address2 = address!("2222222222222222222222222222222222222222");
 
@@ -454,14 +450,13 @@ mod tests {
             MonitorBuilder::new()
                 .id(3)
                 .address("all")
-                .abi("erc20")
+                .abi_name("erc20")
                 .filter_script("log.name == \"Transfer\"")
                 .build(),
         ];
 
-        let temp_dir = tempdir().unwrap();
         let (abi_service_with_abi, _) =
-            create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json())]);
+            create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
         let manager = MonitorManager::new(vec![], compiler.clone(), abi_service_with_abi);
 
         manager.update(updated_monitors);
@@ -480,9 +475,9 @@ mod tests {
         assert!(snapshot2.interest_registry.global_event_signatures.contains(&transfer_event_sig));
     }
 
-    #[test]
-    fn test_empty_monitor_list() {
-        let (compiler, abi_service) = setup();
+    #[tokio::test]
+    async fn test_empty_monitor_list() {
+        let (compiler, abi_service) = setup().await;
 
         // Test initialization with an empty list
         let manager = MonitorManager::new(vec![], compiler.clone(), abi_service.clone());
@@ -503,14 +498,14 @@ mod tests {
         assert!(updated_snapshot.interest_registry.global_event_signatures.is_empty());
     }
 
-    #[test]
-    fn test_global_monitor_with_missing_abi() {
-        let (compiler, abi_service) = setup(); // abi_service is empty
+    #[tokio::test]
+    async fn test_global_monitor_with_missing_abi() {
+        let (compiler, abi_service) = setup().await; // abi_service is empty
 
         let monitor = MonitorBuilder::new()
             .id(1)
             .filter_script(r#"log.name == "Transfer""#)
-            .abi("non_existent_abi")
+            .abi_name("non_existent_abi")
             .build();
 
         let manager = MonitorManager::new(vec![monitor], compiler, abi_service);
@@ -523,9 +518,9 @@ mod tests {
         assert!(snapshot.interest_registry.global_event_signatures.is_empty());
     }
 
-    #[test]
-    fn test_organize_assets_calldata_aware() {
-        let (compiler, abi_service) = setup();
+    #[tokio::test]
+    async fn test_organize_assets_calldata_aware() {
+        let (compiler, abi_service) = setup().await;
 
         let calldata_aware_address = address!("0000000000000000000000000000000000000001");
 
@@ -549,10 +544,9 @@ mod tests {
         assert!(snapshot.interest_registry.calldata_addresses.contains(&calldata_aware_address));
     }
 
-    #[test]
-    fn test_build_interest_registry_aggregates_global_signatures() {
-        let (compiler, _) = setup();
-        let temp_dir = tempdir().unwrap();
+    #[tokio::test]
+    async fn test_build_interest_registry_aggregates_global_signatures() {
+        let (compiler, _) = setup().await;
         let weth_abi = r#"[
         {
             "type":"event",
@@ -565,19 +559,19 @@ mod tests {
         }
     ]"#;
         let (abi_service, _) =
-            create_test_abi_service(&temp_dir, &[("erc20", erc20_abi_json()), ("weth", weth_abi)]);
+            create_test_abi_service(&[("erc20", erc20_abi_json()), ("weth", weth_abi)]).await;
 
         let global_erc20_monitor = MonitorBuilder::new()
             .id(1)
             .address("all")
-            .abi("erc20")
+            .abi_name("erc20")
             .filter_script("log.name == \"Transfer\"")
             .build();
 
         let global_weth_monitor = MonitorBuilder::new()
             .id(2)
             .address("all")
-            .abi("weth")
+            .abi_name("weth")
             .filter_script("log.name == \"Deposit\"")
             .build();
 
