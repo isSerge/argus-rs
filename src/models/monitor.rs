@@ -22,7 +22,8 @@ pub struct MonitorConfig {
     pub address: Option<String>,
 
     /// The name of the ABI for the contract being monitored (e.g., "erc20").
-    /// This name references an ABI stored in the database. If `None`, the monitor will not decode logs.
+    /// This name references an ABI stored in the database. If `None`, the
+    /// monitor will not decode logs.
     #[serde(default, alias = "abi")]
     pub abi_name: Option<String>,
 
