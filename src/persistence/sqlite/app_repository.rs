@@ -475,6 +475,23 @@ impl AppRepository for SqliteStateRepository {
         Ok(())
     }
 
+    /// Retrieves all ABIs as a vector of (name, abi_json_string) tuples.
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn get_all_abis(&self) -> Result<Vec<(String, String)>, PersistenceError> {
+        tracing::debug!("Fetching all ABIs from database.");
+        let abis = self
+            .execute_query_with_error_handling(
+                "get all abis",
+                sqlx::query!("SELECT name, abi FROM abis").fetch_all(&self.pool),
+            )
+            .await?
+            .into_iter()
+            .map(|row| (row.name, row.abi))
+            .collect::<Vec<_>>();
+        tracing::info!(count = abis.len(), "Successfully fetched all ABIs.");
+        Ok(abis)
+    }
+
     // Action management operations
 
     /// Retrieves all actions for a specific network.
