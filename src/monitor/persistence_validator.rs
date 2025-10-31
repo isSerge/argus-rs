@@ -30,7 +30,7 @@ pub enum MonitorPersistenceValidationError {
 pub struct MonitorPersistenceValidator<'a> {
     repo: Arc<dyn AppRepository>,
     network_id: String,
-    business_logic_validator: &'a MonitorValidator<'a>,
+    business_logic_validator: &'a MonitorValidator,
 }
 
 impl<'a> MonitorPersistenceValidator<'a> {
@@ -38,7 +38,7 @@ impl<'a> MonitorPersistenceValidator<'a> {
     pub fn new(
         repo: Arc<dyn AppRepository>,
         network_id: &str,
-        business_logic_validator: &'a MonitorValidator<'a>,
+        business_logic_validator: &'a MonitorValidator,
     ) -> Self {
         Self { repo, network_id: network_id.to_string(), business_logic_validator }
     }

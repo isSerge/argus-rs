@@ -13,10 +13,10 @@ use crate::{
 };
 
 /// Creates a test `MonitorValidator` with optional preloaded ABI.
-pub async fn create_monitor_validator<'a>(
-    actions: &'a [ActionConfig],
+pub async fn create_monitor_validator(
+    actions: &[ActionConfig],
     abi_to_preload: Option<(Address, &'static str, &'static str)>,
-) -> MonitorValidator<'a> {
+) -> MonitorValidator {
     let config = RhaiConfig::default();
     let compiler = Arc::new(RhaiCompiler::new(config));
     let script_validator = RhaiScriptValidator::new(compiler);
@@ -39,5 +39,6 @@ pub async fn create_monitor_validator<'a>(
         abi_service.link_abi(address, abi_name).unwrap();
     }
 
-    MonitorValidator::new(script_validator, abi_service, template_service, "testnet", actions)
+    let actions_arc = Arc::new(actions.to_vec());
+    MonitorValidator::new(script_validator, abi_service, template_service, "testnet", actions_arc)
 }

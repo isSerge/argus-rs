@@ -33,8 +33,8 @@ struct TemplateValidator {
 }
 
 /// Validates that actions exist and monitors reference valid actions.
-struct ActionValidator<'a> {
-    actions: &'a [ActionConfig],
+struct ActionValidator {
+    actions: Arc<Vec<ActionConfig>>,
 }
 
 /// Validates calldata configuration rules.
@@ -42,9 +42,9 @@ struct CalldataValidator;
 
 /// A coordinator that orchestrates validation of monitor configurations using
 /// specialized validators.
-pub struct MonitorValidator<'a> {
+pub struct MonitorValidator {
     /// The application network ID.
-    network_id: &'a str,
+    network_id: String,
 
     /// Validates addresses and determines monitor types.
     address_validator: AddressValidator,
@@ -53,7 +53,7 @@ pub struct MonitorValidator<'a> {
     template_validator: TemplateValidator,
 
     /// Validates action references.
-    action_validator: ActionValidator<'a>,
+    action_validator: ActionValidator,
 
     /// Validates calldata configuration.
     calldata_validator: CalldataValidator,
@@ -160,17 +160,17 @@ pub enum MonitorValidationError {
     },
 }
 
-impl<'a> MonitorValidator<'a> {
+impl MonitorValidator {
     /// Creates a new `MonitorValidator` for the specified network ID.
     pub fn new(
         script_validator: RhaiScriptValidator,
         abi_service: Arc<AbiService>,
         template_service: Arc<TemplateService>,
-        network_id: &'a str,
-        actions: &'a [ActionConfig],
+        network_id: impl Into<String>,
+        actions: Arc<Vec<ActionConfig>>,
     ) -> Self {
         MonitorValidator {
-            network_id,
+            network_id: network_id.into(),
             address_validator: AddressValidator,
             template_validator: TemplateValidator { template_service },
             action_validator: ActionValidator { actions },
@@ -350,7 +350,7 @@ impl AddressValidator {
     }
 }
 
-impl<'a> ActionValidator<'a> {
+impl ActionValidator {
     /// Validates that all actions referenced by the monitor exist.
     fn validate(&self, monitor: &MonitorConfig) -> Result<(), MonitorValidationError> {
         if monitor.actions.is_empty() {
