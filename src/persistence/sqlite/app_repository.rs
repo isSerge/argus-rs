@@ -451,7 +451,7 @@ impl AppRepository for SqliteStateRepository {
             tracing::warn!(network_id, monitor_id, "Monitor not found for update.");
             return Err(PersistenceError::NotFound);
         }
-        
+
         Ok(())
     }
 
