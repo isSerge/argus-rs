@@ -18,7 +18,7 @@ use axum::{
     routing::{delete, get, post, put},
 };
 use error::ApiError;
-use monitors::{monitor_details, monitors, update_monitors};
+use monitors::{create_monitor, delete_monitor, get_monitor_details, get_monitors, update_monitor};
 use serde_json::json;
 use status::status;
 use tokio::sync::watch;
@@ -64,10 +64,18 @@ pub async fn run_server_from_config(
         // Monitors routes
         .route(
             "/monitors",
-            post(update_monitors).route_layer(middleware::from_fn_with_state(state.clone(), auth)),
+            post(create_monitor).route_layer(middleware::from_fn_with_state(state.clone(), auth)),
         )
-        .route("/monitors", get(monitors))
-        .route("/monitors/{id}", get(monitor_details))
+        .route("/monitors", get(get_monitors))
+        .route("/monitors/{id}", get(get_monitor_details))
+        .route(
+            "/monitors/{id}",
+            delete(delete_monitor).route_layer(middleware::from_fn_with_state(state.clone(), auth)),
+        )
+        .route(
+            "/monitors/{id}",
+            put(update_monitor).route_layer(middleware::from_fn_with_state(state.clone(), auth)),
+        )
         // ABI routes
         .route(
             "/abis",
