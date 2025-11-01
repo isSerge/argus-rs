@@ -8,16 +8,17 @@ use axum::{
 use serde_json::json;
 
 use super::{ApiError, ApiState};
+use crate::models::monitor::MonitorConfig;
 
 /// Retrieves all monitors from the database and returns them as a JSON
 /// response.
-pub async fn monitors(State(state): State<ApiState>) -> Result<impl IntoResponse, ApiError> {
+pub async fn get_monitors(State(state): State<ApiState>) -> Result<impl IntoResponse, ApiError> {
     let monitors = state.repo.get_monitors(&state.config.network_id).await?;
     Ok((StatusCode::OK, Json(json!({ "monitors": monitors }))))
 }
 
 /// Retrieves details of a specific monitor by its ID.
-pub async fn monitor_details(
+pub async fn get_monitor_details(
     State(state): State<ApiState>,
     Path(monitor_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -30,10 +31,19 @@ pub async fn monitor_details(
     Ok((StatusCode::OK, Json(json!({ "monitor": monitor }))))
 }
 
-/// For now just triggers an update of monitors by notifying configuration
-/// changes. In the future, should accept a payload to add monitors.
-pub async fn update_monitors(State(state): State<ApiState>) -> Result<impl IntoResponse, ApiError> {
-    tracing::debug!("Received request to update monitors");
+/// Updates monitor based on the provided payload.
+pub async fn update_monitor(
+    State(state): State<ApiState>,
+    Path(monitor_id): Path<String>,
+    Json(payload): Json<MonitorConfig>,
+) -> Result<impl IntoResponse, ApiError> {
+    // Validate payload (persistence + business logic) using shared persistence
+    // validator
+    state.monitor_persistence_validator.validate_for_update(&monitor_id, &payload).await?;
+
+    // save updated monitor to the database
+    state.repo.update_monitor(&state.config.network_id, &monitor_id, payload).await?;
+
     // Notify configuration changes
     if state.config_tx.send(()).is_err() {
         tracing::error!("Failed to notify configuration change");
@@ -43,4 +53,46 @@ pub async fn update_monitors(State(state): State<ApiState>) -> Result<impl IntoR
     }
 
     Ok((StatusCode::OK, Json(json!({ "status": "Monitors update triggered" }))))
+}
+
+/// Creates a new monitor based on the provided payload.
+pub async fn create_monitor(
+    State(state): State<ApiState>,
+    Json(payload): Json<MonitorConfig>,
+) -> Result<impl IntoResponse, ApiError> {
+    // Validate payload (persistence + business logic) using shared persistence
+    // validator
+    state.monitor_persistence_validator.validate_for_create(&payload).await?;
+
+    // save new monitor to the database
+    state.repo.add_monitors(&state.config.network_id, vec![payload]).await?;
+
+    // Notify configuration changes
+    if state.config_tx.send(()).is_err() {
+        tracing::error!("Failed to notify configuration change");
+        return Err(ApiError::InternalServerError(
+            "Failed to notify configuration change".to_string(),
+        ));
+    }
+
+    Ok((StatusCode::CREATED, Json(json!({ "status": "Monitor creation triggered" }))))
+}
+
+/// Deletes a monitor by its ID.
+pub async fn delete_monitor(
+    State(state): State<ApiState>,
+    Path(monitor_id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    // delete monitor from the database
+    state.repo.delete_monitor(&state.config.network_id, &monitor_id).await?;
+
+    // Notify configuration changes
+    if state.config_tx.send(()).is_err() {
+        tracing::error!("Failed to notify configuration change");
+        return Err(ApiError::InternalServerError(
+            "Failed to notify configuration change".to_string(),
+        ));
+    }
+
+    Ok((StatusCode::NO_CONTENT, Json(json!({ "status": "Monitor deletion triggered" }))))
 }

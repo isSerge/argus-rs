@@ -61,6 +61,9 @@ pub struct AppContext<T: AppRepository + KeyValueStore> {
     /// The monitor manager for managing monitor configurations.
     pub monitor_manager: Arc<MonitorManager>,
 
+    /// Shared MonitorValidator for validating monitors across the application.
+    pub monitor_validator: Arc<MonitorValidator>,
+
     /// The filtering engine for evaluating blockchain data against monitors.
     pub filtering_engine: Arc<RhaiFilteringEngine>,
 
@@ -194,6 +197,9 @@ impl AppContextBuilder {
         })?;
         tracing::info!(count = actions.len(), network_id = %config.network_id, "Loaded actions from database for action dispatcher.");
 
+        // Keep a copy of the actions Vec for creating the shared MonitorValidator.
+        let actions_for_validator: Arc<Vec<ActionConfig>> = Arc::new(actions.clone());
+
         let actions_map: Arc<std::collections::HashMap<String, ActionConfig>> =
             Arc::new(actions.into_iter().map(|t| (t.name.clone(), t)).collect());
 
@@ -210,6 +216,16 @@ impl AppContextBuilder {
         let alert_manager =
             Arc::new(AlertManager::new(action_dispatcher.clone(), repo.clone(), actions_map));
 
+        // Create a shared MonitorValidator using the populated services and actions.
+        let script_validator = RhaiScriptValidator::new(script_compiler.clone());
+        let monitor_validator = Arc::new(MonitorValidator::new(
+            script_validator,
+            abi_service.clone(),
+            template_service.clone(),
+            config.network_id.clone(),
+            actions_for_validator,
+        ));
+
         Ok(AppContext {
             config,
             repo,
@@ -222,6 +238,7 @@ impl AppContextBuilder {
             http_client_pool,
             action_dispatcher,
             alert_manager,
+            monitor_validator,
         })
     }
 
@@ -325,12 +342,13 @@ impl AppContextBuilder {
         })?;
 
         let script_validator = RhaiScriptValidator::new(script_compiler);
+        let actions_arc = Arc::new(actions);
         let validator = MonitorValidator::new(
             script_validator,
             abi_service,
             template_service,
-            network_id,
-            &actions,
+            network_id.to_string(),
+            actions_arc,
         );
         for monitor in &monitors {
             validator.validate(monitor).map_err(|e| {

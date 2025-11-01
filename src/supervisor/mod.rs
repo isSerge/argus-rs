@@ -37,7 +37,7 @@ use crate::{
     },
     http_server,
     models::{BlockData, CorrelatedBlockData, monitor::Monitor, monitor_match::MonitorMatch},
-    monitor::{MonitorManager, MonitorValidationError},
+    monitor::{MonitorManager, MonitorValidationError, MonitorValidator},
     persistence::{
         error::PersistenceError,
         traits::{AppRepository, KeyValueStore},
@@ -151,6 +151,10 @@ pub struct Supervisor<T: AppRepository + KeyValueStore + 'static> {
 
     /// The manager responsible for handling monitors.
     monitor_manager: Arc<MonitorManager>,
+
+    /// Shared monitor validator for validating monitor configs in HTTP
+    /// handlers.
+    monitor_validator: Arc<MonitorValidator>,
 }
 
 impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
@@ -158,6 +162,7 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
     ///
     /// This is typically called by the `SupervisorBuilder` after it has
     /// assembled all the necessary dependencies.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: AppConfig,
         state: Arc<T>,
@@ -166,6 +171,7 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
         filtering: Arc<dyn FilteringEngine>,
         alert_manager: Arc<AlertManager<T>>,
         monitor_manager: Arc<MonitorManager>,
+        monitor_validator: Arc<MonitorValidator>,
     ) -> Self {
         Self {
             config: Arc::new(config),
@@ -177,6 +183,7 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
             cancellation_token: tokio_util::sync::CancellationToken::new(),
             join_set: tokio::task::JoinSet::new(),
             monitor_manager,
+            monitor_validator,
         }
     }
 
@@ -243,10 +250,11 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
             let server_config_clone = Arc::clone(&self.config);
             let http_cancellation_token = self.cancellation_token.clone();
             let server_repo_clone = Arc::clone(&self.state);
+            let monitor_validator_clone = Arc::clone(&self.monitor_validator);
             let app_metrics_clone = self.app_metrics.clone();
             self.join_set.spawn(async move {
                 tokio::select! {
-                    _ = http_server::run_server_from_config(server_config_clone, server_repo_clone, app_metrics_clone, config_tx) => {},
+                    _ = http_server::run_server_from_config(server_config_clone, server_repo_clone, app_metrics_clone, config_tx, monitor_validator_clone) => {},
                     _ = http_cancellation_token.cancelled() => {
                         tracing::info!("HTTP server received shutdown signal.");
                     }

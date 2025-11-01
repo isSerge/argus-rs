@@ -18,12 +18,17 @@ use axum::{
     routing::{delete, get, post, put},
 };
 use error::ApiError;
-use monitors::{monitor_details, monitors, update_monitors};
+use monitors::{create_monitor, delete_monitor, get_monitor_details, get_monitors, update_monitor};
 use serde_json::json;
 use status::status;
 use tokio::sync::watch;
 
-use crate::{config::AppConfig, context::AppMetrics, persistence::traits::AppRepository};
+use crate::{
+    config::AppConfig,
+    context::AppMetrics,
+    monitor::{MonitorPersistenceValidator, MonitorValidator},
+    persistence::traits::AppRepository,
+};
 
 /// Shared application state for the HTTP server.
 #[derive(Clone)]
@@ -36,6 +41,8 @@ pub struct ApiState {
     app_metrics: AppMetrics,
     /// A channel to notify configuration changes.
     config_tx: watch::Sender<()>,
+    /// Shared persistence validator used by handlers to validate payloads.
+    monitor_persistence_validator: Arc<MonitorPersistenceValidator>,
 }
 
 async fn health() -> impl IntoResponse {
@@ -48,6 +55,7 @@ pub async fn run_server_from_config(
     repo: Arc<dyn AppRepository>,
     app_metrics: AppMetrics,
     config_tx: watch::Sender<()>,
+    monitor_validator: Arc<MonitorValidator>,
 ) {
     let addr: SocketAddr =
         config.server.listen_address.parse().expect("Invalid server.listen_address format");
@@ -56,7 +64,15 @@ pub async fn run_server_from_config(
         panic!("`server.api_key` or `ARGUS_API_KEY` must be set to run the API server");
     }
 
-    let state = ApiState { config, repo, app_metrics, config_tx };
+    // Create a shared persistence validator using the repo and provided business
+    // validator.
+    let monitor_persistence_validator = Arc::new(MonitorPersistenceValidator::new(
+        repo.clone(),
+        &config.network_id,
+        monitor_validator.clone(),
+    ));
+
+    let state = ApiState { config, repo, app_metrics, config_tx, monitor_persistence_validator };
 
     let app = Router::new()
         .route("/health", get(health))
@@ -64,10 +80,18 @@ pub async fn run_server_from_config(
         // Monitors routes
         .route(
             "/monitors",
-            post(update_monitors).route_layer(middleware::from_fn_with_state(state.clone(), auth)),
+            post(create_monitor).route_layer(middleware::from_fn_with_state(state.clone(), auth)),
         )
-        .route("/monitors", get(monitors))
-        .route("/monitors/{id}", get(monitor_details))
+        .route("/monitors", get(get_monitors))
+        .route("/monitors/{id}", get(get_monitor_details))
+        .route(
+            "/monitors/{id}",
+            delete(delete_monitor).route_layer(middleware::from_fn_with_state(state.clone(), auth)),
+        )
+        .route(
+            "/monitors/{id}",
+            put(update_monitor).route_layer(middleware::from_fn_with_state(state.clone(), auth)),
+        )
         // ABI routes
         .route(
             "/abis",

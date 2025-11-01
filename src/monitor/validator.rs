@@ -33,8 +33,8 @@ struct TemplateValidator {
 }
 
 /// Validates that actions exist and monitors reference valid actions.
-struct ActionValidator<'a> {
-    actions: &'a [ActionConfig],
+struct ActionValidator {
+    actions: Arc<Vec<ActionConfig>>,
 }
 
 /// Validates calldata configuration rules.
@@ -42,9 +42,9 @@ struct CalldataValidator;
 
 /// A coordinator that orchestrates validation of monitor configurations using
 /// specialized validators.
-pub struct MonitorValidator<'a> {
+pub struct MonitorValidator {
     /// The application network ID.
-    network_id: &'a str,
+    network_id: String,
 
     /// Validates addresses and determines monitor types.
     address_validator: AddressValidator,
@@ -53,7 +53,7 @@ pub struct MonitorValidator<'a> {
     template_validator: TemplateValidator,
 
     /// Validates action references.
-    action_validator: ActionValidator<'a>,
+    action_validator: ActionValidator,
 
     /// Validates calldata configuration.
     calldata_validator: CalldataValidator,
@@ -160,17 +160,17 @@ pub enum MonitorValidationError {
     },
 }
 
-impl<'a> MonitorValidator<'a> {
+impl MonitorValidator {
     /// Creates a new `MonitorValidator` for the specified network ID.
     pub fn new(
         script_validator: RhaiScriptValidator,
         abi_service: Arc<AbiService>,
         template_service: Arc<TemplateService>,
-        network_id: &'a str,
-        actions: &'a [ActionConfig],
+        network_id: impl Into<String>,
+        actions: Arc<Vec<ActionConfig>>,
     ) -> Self {
         MonitorValidator {
-            network_id,
+            network_id: network_id.into(),
             address_validator: AddressValidator,
             template_validator: TemplateValidator { template_service },
             action_validator: ActionValidator { actions },
@@ -350,7 +350,7 @@ impl AddressValidator {
     }
 }
 
-impl<'a> ActionValidator<'a> {
+impl ActionValidator {
     /// Validates that all actions referenced by the monitor exist.
     fn validate(&self, monitor: &MonitorConfig) -> Result<(), MonitorValidationError> {
         if monitor.actions.is_empty() {
@@ -656,20 +656,14 @@ impl TemplateValidator {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use alloy::primitives::{Address, address};
 
     use super::*;
     use crate::{
-        abi::{AbiService, repository::AbiRepository},
-        action_dispatcher::template::TemplateService,
-        config::RhaiConfig,
-        engine::rhai::{RhaiCompiler, RhaiScriptValidationError, RhaiScriptValidator},
+        engine::rhai::RhaiScriptValidationError,
         models::{action::ActionConfig, monitor::MonitorConfig},
-        monitor::{MonitorValidationError, MonitorValidator},
-        persistence::{SqliteStateRepository, traits::AppRepository},
-        test_helpers::{ActionBuilder, erc20_abi_json},
+        monitor::MonitorValidationError,
+        test_helpers::{ActionBuilder, create_monitor_validator, erc20_abi_json},
     };
 
     fn create_test_monitor(
@@ -691,35 +685,6 @@ mod tests {
 
     fn create_test_action(name: &str) -> ActionConfig {
         ActionBuilder::new(name).discord_config("https://discord.com/api/webhooks/test").build()
-    }
-
-    async fn create_monitor_validator<'a>(
-        actions: &'a [ActionConfig],
-        abi_to_preload: Option<(Address, &'static str, &'static str)>,
-    ) -> MonitorValidator<'a> {
-        let config = RhaiConfig::default();
-        let compiler = Arc::new(RhaiCompiler::new(config));
-        let script_validator = RhaiScriptValidator::new(compiler);
-        let template_service = Arc::new(TemplateService::new());
-
-        let repo = SqliteStateRepository::new("sqlite::memory:")
-            .await
-            .expect("Failed to connect to in-memory db");
-        repo.run_migrations().await.expect("Failed to run migrations");
-
-        // Create and populate AbiRepository
-        if let Some((_, abi_name, abi_json_str)) = &abi_to_preload {
-            repo.create_abi(abi_name, abi_json_str).await.unwrap();
-        }
-        let abi_repository = Arc::new(AbiRepository::new(Arc::new(repo)).await.unwrap());
-
-        // Create AbiService and link ABIs
-        let abi_service = Arc::new(AbiService::new(Arc::clone(&abi_repository)));
-        if let Some((address, abi_name, _)) = abi_to_preload {
-            abi_service.link_abi(address, abi_name).unwrap();
-        }
-
-        MonitorValidator::new(script_validator, abi_service, template_service, "testnet", actions)
     }
 
     #[tokio::test]

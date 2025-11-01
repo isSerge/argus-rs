@@ -62,6 +62,21 @@ pub trait AppRepository: Send + Sync {
     /// Clears all monitors for a specific network.
     async fn clear_monitors(&self, network_id: &str) -> Result<(), PersistenceError>;
 
+    /// Deletes a monitor by its ID for a specific network.
+    async fn delete_monitor(
+        &self,
+        network_id: &str,
+        monitor_id: &str,
+    ) -> Result<(), PersistenceError>;
+
+    /// Updates an existing monitor for a specific network.
+    async fn update_monitor(
+        &self,
+        network_id: &str,
+        monitor_id: &str,
+        monitor: MonitorConfig,
+    ) -> Result<(), PersistenceError>;
+
     // ABI management operations:
     /// Creates a new ABI.
     async fn create_abi(&self, name: &str, abi: &str) -> Result<(), PersistenceError>;

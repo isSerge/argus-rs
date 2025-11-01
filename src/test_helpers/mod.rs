@@ -8,6 +8,7 @@ mod log;
 mod monitor;
 mod monitor_manager;
 mod monitor_match;
+mod monitor_validator;
 mod provider;
 mod receipt;
 mod transaction;
@@ -23,6 +24,7 @@ pub use monitor_match::{
     create_test_log_monitor_match, create_test_monitor_match, create_test_monitor_match_custom,
     create_test_monitor_match_with_call, create_test_tx_monitor_match,
 };
+pub use monitor_validator::create_monitor_validator;
 pub use provider::mock_provider;
 pub use receipt::ReceiptBuilder;
 pub use transaction::TransactionBuilder;

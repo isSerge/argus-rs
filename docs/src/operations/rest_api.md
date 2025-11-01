@@ -24,10 +24,14 @@ Once configured, the API endpoints will be available at the specified `listen_ad
 The API uses **Bearer token authentication** for write operations. Read-only endpoints (like `GET /health`, `GET /status`, `GET /monitors`) do not require authentication.
 
 ### Write Endpoints (Require Authentication)
-- `POST /monitors` - Create or update monitors
+- `POST /monitors` - Create a new monitor
+- `PUT /monitors/{id}` - Update an existing monitor
+- `DELETE /monitors/{id}` - Delete a monitor
 - `POST /actions` - Create a new action
 - `PUT /actions/{id}` - Update an existing action
 - `DELETE /actions/{id}` - Delete an action
+- `POST /abis` - Upload a new ABI
+- `DELETE /abis/{name}` - Delete an ABI
 
 ### Authentication Header
 
@@ -112,7 +116,7 @@ This error occurs when:
           "name": "Large ETH Transfers",
           "network": "ethereum",
           "address": null,
-          "abi": null,
+          "abi_name": null,
           "filter_script": "tx.value > ether(10)",
           "actions": [
             "my-webhook"
@@ -125,7 +129,7 @@ This error occurs when:
           "name": "Large USDC Transfers",
           "network": "ethereum",
           "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
-          "abi": "usdc",
+          "abi_name": "usdc",
           "filter_script": "log.name == \"Transfer\" && log.params.value > usdc(1000000)",
           "actions": [
             "slack-notifications"
@@ -159,7 +163,7 @@ This error occurs when:
         "name": "Large ETH Transfers",
         "network": "ethereum",
         "address": null,
-        "abi": null,
+        "abi_name": null,
         "filter_script": "tx.value > ether(10)",
         "actions": [
           "my-webhook"
@@ -181,6 +185,130 @@ This error occurs when:
     **Example Usage:**
     ```bash
     curl http://localhost:8080/monitors/1
+    ```
+
+### Create a Monitor
+
+-   **`POST /monitors`**
+
+    Creates a new monitor. The request body must be a JSON object representing the monitor configuration. Requires authentication.
+
+    **Request Body:**
+    ```json
+    {
+      "name": "my-new-monitor",
+      "network": "ethereum",
+      "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+      "abi_name": "erc20",
+      "filter_script": "log.name == \"Transfer\"",
+      "actions": [
+        "my-webhook"
+      ]
+    }
+    ```
+
+    **Note:** For transaction-level monitors (not contract-specific), set both `address` and `abi_name` to `null`.
+
+    **Success Response (`201 Created`)**
+    ```json
+    {
+      "status": "Monitor creation triggered"
+    }
+    ```
+
+    **Error Responses:**
+    - `400 Bad Request`: If the request body is malformed.
+    - `409 Conflict`: If a monitor with the same name already exists on this network.
+    - `422 Unprocessable Entity`: If the monitor configuration is invalid (e.g., invalid filter script syntax, missing required fields, nonexistent ABI or actions).
+
+    **Example Usage:**
+    ```bash
+    curl -X POST http://localhost:8080/monitors \
+      -H "Authorization: Bearer your-secret-api-key-here" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "my-new-monitor",
+        "network": "ethereum",
+        "address": null,
+        "abi_name": null,
+        "filter_script": "tx.value > ether(10)",
+        "actions": ["my-webhook"]
+      }'
+    ```
+
+### Update a Monitor
+
+-   **`PUT /monitors/{id}`**
+
+    Updates an existing monitor by its ID. The request body must be a complete JSON object for the monitor. Requires authentication.
+
+    **URL Parameters:**
+    - `id` (integer, required): The unique ID of the monitor to update.
+
+    **Request Body:**
+    ```json
+    {
+      "name": "my-updated-monitor",
+      "network": "ethereum",
+      "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+      "abi_name": "erc20",
+      "filter_script": "log.name == \"Transfer\" && log.params.value > usdc(100000)",
+      "actions": [
+        "updated-webhook"
+      ]
+    }
+    ```
+
+    **Success Response (`200 OK`)**
+    ```json
+    {
+      "status": "Monitors update triggered"
+    }
+    ```
+
+    **Error Responses:**
+    - `404 Not Found`: If no monitor with the specified ID exists.
+    - `409 Conflict`: If the new name conflicts with another existing monitor on this network.
+    - `422 Unprocessable Entity`: If the updated monitor configuration is invalid (e.g., invalid filter script, nonexistent ABI or actions).
+
+    **Example Usage:**
+    ```bash
+    curl -X PUT http://localhost:8080/monitors/1 \
+      -H "Authorization: Bearer your-secret-api-key-here" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "my-updated-monitor",
+        "network": "ethereum",
+        "address": null,
+        "abi_name": null,
+        "filter_script": "tx.value > ether(100)",
+        "actions": ["my-webhook"]
+      }'
+    ```
+
+### Delete a Monitor
+
+-   **`DELETE /monitors/{id}`**
+
+    Deletes a monitor by its unique ID. Requires authentication.
+
+    **URL Parameters:**
+    - `id` (integer, required): The unique ID of the monitor to delete.
+
+    **Success Response (`204 No Content`)**
+    ```json
+    {
+      "status": "Monitor deletion triggered"
+    }
+    ```
+
+    **Error Response:**
+    - `404 Not Found`: If no monitor with the specified ID exists.
+
+    **Example Usage:**
+    ```bash
+    curl -X DELETE http://localhost:8080/monitors/1 \
+      -H "Authorization: Bearer your-secret-api-key-here"
     ```
 
 ### List All Actions

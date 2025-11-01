@@ -382,6 +382,79 @@ impl AppRepository for SqliteStateRepository {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn delete_monitor(
+        &self,
+        network_id: &str,
+        monitor_id: &str,
+    ) -> Result<(), PersistenceError> {
+        tracing::debug!(network_id, monitor_id, "Deleting monitor.");
+
+        let result = self
+            .execute_query_with_error_handling(
+                "delete monitor",
+                sqlx::query!(
+                    "DELETE FROM monitors WHERE network = ? AND monitor_id = ?",
+                    network_id,
+                    monitor_id
+                )
+                .execute(&self.pool),
+            )
+            .await?;
+
+        if result.rows_affected() == 0 {
+            tracing::warn!(network_id, monitor_id, "Monitor not found for deletion.");
+            return Err(PersistenceError::NotFound);
+        }
+
+        tracing::info!(network_id, monitor_id, "Monitor deleted successfully.");
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self, monitor), level = "debug")]
+    async fn update_monitor(
+        &self,
+        network_id: &str,
+        monitor_id: &str,
+        monitor: MonitorConfig,
+    ) -> Result<(), PersistenceError> {
+        tracing::debug!(network_id, monitor_name = %monitor.name, "Updating monitor.");
+
+        let actions_json = serde_json::to_string(&monitor.actions)
+            .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
+
+        let result = self
+            .execute_query_with_error_handling(
+                "update monitor",
+                sqlx::query!(
+                    r#"
+                UPDATE monitors 
+                SET 
+                    address = ?, 
+                    abi_name = ?, 
+                    filter_script = ?, 
+                    actions = ?
+                WHERE network = ? AND monitor_id = ?
+                "#,
+                    monitor.address,
+                    monitor.abi_name,
+                    monitor.filter_script,
+                    actions_json,
+                    network_id,
+                    monitor_id,
+                )
+                .execute(&self.pool),
+            )
+            .await?;
+
+        if result.rows_affected() == 0 {
+            tracing::warn!(network_id, monitor_id, "Monitor not found for update.");
+            return Err(PersistenceError::NotFound);
+        }
+
+        Ok(())
+    }
+
     /// Creates a new ABI.
     #[tracing::instrument(skip(self, abi), level = "debug")]
     async fn create_abi(&self, name: &str, abi: &str) -> Result<(), PersistenceError> {
