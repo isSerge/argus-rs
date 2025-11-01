@@ -6,7 +6,10 @@ use axum::{
 };
 use serde_json::json;
 
-use crate::{action::validator::ActionValidationError, persistence::error::PersistenceError};
+use crate::{
+    action::validator::ActionValidationError, monitor::MonitorPersistenceValidationError,
+    persistence::error::PersistenceError,
+};
 
 /// A custom error type for the API that can be converted into an HTTP response.
 pub enum ApiError {
@@ -55,6 +58,18 @@ impl From<ActionValidationError> for ApiError {
             ActionValidationError::Persistence(PersistenceError::NotFound) =>
                 ApiError::NotFound("Action not found".to_string()),
             ActionValidationError::Persistence(e) => ApiError::InternalServerError(e.to_string()),
+        }
+    }
+}
+
+impl From<MonitorPersistenceValidationError> for ApiError {
+    fn from(err: MonitorPersistenceValidationError) -> Self {
+        match err {
+            MonitorPersistenceValidationError::BusinessLogic(e) =>
+                ApiError::UnprocessableEntity(e.to_string()),
+            MonitorPersistenceValidationError::Persistence(p) => ApiError::from(p),
+            MonitorPersistenceValidationError::NameConflict(name) =>
+                ApiError::Conflict(format!("Monitor with name '{}' already exists.", name)),
         }
     }
 }

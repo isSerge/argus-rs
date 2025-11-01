@@ -162,6 +162,7 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
     ///
     /// This is typically called by the `SupervisorBuilder` after it has
     /// assembled all the necessary dependencies.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: AppConfig,
         state: Arc<T>,
@@ -170,7 +171,7 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
         filtering: Arc<dyn FilteringEngine>,
         alert_manager: Arc<AlertManager<T>>,
         monitor_manager: Arc<MonitorManager>,
-        monitor_validator: Arc<crate::monitor::MonitorValidator>,
+        monitor_validator: Arc<MonitorValidator>,
     ) -> Self {
         Self {
             config: Arc::new(config),

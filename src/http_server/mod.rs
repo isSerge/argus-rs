@@ -24,7 +24,9 @@ use status::status;
 use tokio::sync::watch;
 
 use crate::{
-    config::AppConfig, context::AppMetrics, monitor::MonitorValidator,
+    config::AppConfig,
+    context::AppMetrics,
+    monitor::{MonitorPersistenceValidator, MonitorValidator},
     persistence::traits::AppRepository,
 };
 
@@ -39,9 +41,8 @@ pub struct ApiState {
     app_metrics: AppMetrics,
     /// A channel to notify configuration changes.
     config_tx: watch::Sender<()>,
-    /// Monitor validator to validate business logic in monitor endpoint
-    /// handlers.
-    monitor_validator: Arc<MonitorValidator>,
+    /// Shared persistence validator used by handlers to validate payloads.
+    monitor_persistence_validator: Arc<MonitorPersistenceValidator>,
 }
 
 async fn health() -> impl IntoResponse {
@@ -63,7 +64,15 @@ pub async fn run_server_from_config(
         panic!("`server.api_key` or `ARGUS_API_KEY` must be set to run the API server");
     }
 
-    let state = ApiState { config, repo, app_metrics, config_tx, monitor_validator };
+    // Create a shared persistence validator using the repo and provided business
+    // validator.
+    let monitor_persistence_validator = Arc::new(MonitorPersistenceValidator::new(
+        repo.clone(),
+        &config.network_id,
+        monitor_validator.clone(),
+    ));
+
+    let state = ApiState { config, repo, app_metrics, config_tx, monitor_persistence_validator };
 
     let app = Router::new()
         .route("/health", get(health))

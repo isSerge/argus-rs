@@ -27,18 +27,18 @@ pub enum MonitorPersistenceValidationError {
 }
 
 /// A validator for monitor persistence operations.
-pub struct MonitorPersistenceValidator<'a> {
+pub struct MonitorPersistenceValidator {
     repo: Arc<dyn AppRepository>,
     network_id: String,
-    business_logic_validator: &'a MonitorValidator,
+    business_logic_validator: Arc<MonitorValidator>,
 }
 
-impl<'a> MonitorPersistenceValidator<'a> {
+impl MonitorPersistenceValidator {
     /// Creates a new `MonitorPersistenceValidator`.
     pub fn new(
         repo: Arc<dyn AppRepository>,
         network_id: &str,
-        business_logic_validator: &'a MonitorValidator,
+        business_logic_validator: Arc<MonitorValidator>,
     ) -> Self {
         Self { repo, network_id: network_id.to_string(), business_logic_validator }
     }
@@ -132,8 +132,11 @@ mod tests {
 
         let business_logic_validator = create_monitor_validator(&[], None).await;
 
-        let validator =
-            MonitorPersistenceValidator::new(Arc::new(repo), NETWORK_ID, &business_logic_validator);
+        let validator = MonitorPersistenceValidator::new(
+            Arc::new(repo),
+            NETWORK_ID,
+            Arc::new(business_logic_validator),
+        );
 
         let monitor = MonitorConfig {
             name: "Test Monitor".into(),
@@ -164,8 +167,11 @@ mod tests {
 
         let business_logic_validator = create_monitor_validator(&[], None).await;
 
-        let validator =
-            MonitorPersistenceValidator::new(Arc::new(repo), NETWORK_ID, &business_logic_validator);
+        let validator = MonitorPersistenceValidator::new(
+            Arc::new(repo),
+            NETWORK_ID,
+            Arc::new(business_logic_validator),
+        );
 
         let monitor = MonitorConfig {
             name: "Test Monitor".into(),
@@ -201,8 +207,11 @@ mod tests {
 
         let business_logic_validator = create_monitor_validator(&[], None).await;
 
-        let validator =
-            MonitorPersistenceValidator::new(Arc::new(repo), NETWORK_ID, &business_logic_validator);
+        let validator = MonitorPersistenceValidator::new(
+            Arc::new(repo),
+            NETWORK_ID,
+            Arc::new(business_logic_validator),
+        );
 
         let monitor = MonitorConfig {
             name: MONITOR_NAME.into(),
@@ -233,8 +242,11 @@ mod tests {
             .returning(move |_| Ok(vec![existing.clone()]));
 
         let business_logic_validator = create_monitor_validator(&[], None).await;
-        let validator =
-            MonitorPersistenceValidator::new(Arc::new(repo), NETWORK_ID, &business_logic_validator);
+        let validator = MonitorPersistenceValidator::new(
+            Arc::new(repo),
+            NETWORK_ID,
+            Arc::new(business_logic_validator),
+        );
 
         let monitor_id = "1".to_string();
         let monitor = MonitorConfig {
@@ -262,8 +274,11 @@ mod tests {
             .returning(move |_| Ok(vec![existing.clone()]));
 
         let business_logic_validator = create_monitor_validator(&[], None).await;
-        let validator =
-            MonitorPersistenceValidator::new(Arc::new(repo), NETWORK_ID, &business_logic_validator);
+        let validator = MonitorPersistenceValidator::new(
+            Arc::new(repo),
+            NETWORK_ID,
+            Arc::new(business_logic_validator),
+        );
 
         let monitor_id = "1".to_string();
         let monitor = MonitorConfig {
@@ -292,8 +307,11 @@ mod tests {
             .returning(move |_| Ok(vec![m1.clone(), m2.clone()]));
 
         let business_logic_validator = create_monitor_validator(&[], None).await;
-        let validator =
-            MonitorPersistenceValidator::new(Arc::new(repo), NETWORK_ID, &business_logic_validator);
+        let validator = MonitorPersistenceValidator::new(
+            Arc::new(repo),
+            NETWORK_ID,
+            Arc::new(business_logic_validator),
+        );
 
         let monitor1_id = "1".to_string();
         let updated = MonitorConfig {
@@ -321,8 +339,11 @@ mod tests {
             .returning(move |_| Ok(vec![existing.clone()]));
 
         let business_logic_validator = create_monitor_validator(&[], None).await;
-        let validator =
-            MonitorPersistenceValidator::new(Arc::new(repo), NETWORK_ID, &business_logic_validator);
+        let validator = MonitorPersistenceValidator::new(
+            Arc::new(repo),
+            NETWORK_ID,
+            Arc::new(business_logic_validator),
+        );
 
         let monitor_id = "1".to_string();
         let updated = MonitorConfig {
@@ -354,8 +375,11 @@ mod tests {
             .returning(move |_| Ok(vec![]));
 
         let business_logic_validator = create_monitor_validator(&[], None).await;
-        let validator =
-            MonitorPersistenceValidator::new(Arc::new(repo), NETWORK_ID, &business_logic_validator);
+        let validator = MonitorPersistenceValidator::new(
+            Arc::new(repo),
+            NETWORK_ID,
+            Arc::new(business_logic_validator),
+        );
 
         let monitor = MonitorConfig {
             name: "monitor".into(),

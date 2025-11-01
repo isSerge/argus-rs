@@ -37,7 +37,9 @@ pub async fn update_monitor(
     Path(monitor_id): Path<String>,
     Json(payload): Json<MonitorConfig>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // TODO: validate payload
+    // Validate payload (persistence + business logic) using shared persistence
+    // validator
+    state.monitor_persistence_validator.validate_for_update(&monitor_id, &payload).await?;
 
     // save updated monitor to the database
     state.repo.update_monitor(&state.config.network_id, &monitor_id, payload).await?;
@@ -58,7 +60,9 @@ pub async fn create_monitor(
     State(state): State<ApiState>,
     Json(payload): Json<MonitorConfig>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // TODO: validate payload
+    // Validate payload (persistence + business logic) using shared persistence
+    // validator
+    state.monitor_persistence_validator.validate_for_create(&payload).await?;
 
     // save new monitor to the database
     state.repo.add_monitors(&state.config.network_id, vec![payload]).await?;
