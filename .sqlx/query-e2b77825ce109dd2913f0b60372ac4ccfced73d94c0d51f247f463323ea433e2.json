@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM monitors WHERE network = ? AND monitor_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "e2b77825ce109dd2913f0b60372ac4ccfced73d94c0d51f247f463323ea433e2"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n                UPDATE monitors \n                SET \n                    address = ?, \n                    abi_name = ?, \n                    filter_script = ?, \n                    actions = ?\n                WHERE network = ? AND monitor_id = ?\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "c76405d308ec6171e189a14d406910a1ea833f92551788a34a030fe8e6762f73"
+}
