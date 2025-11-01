@@ -9,6 +9,7 @@ use argus::{
         monitor::MonitorConfig,
     },
     persistence::{sqlite::SqliteStateRepository, traits::AppRepository},
+    test_helpers::create_monitor_validator,
 };
 use reqwest::Client;
 use tokio::{sync::watch, task};
@@ -55,9 +56,20 @@ impl TestServer {
         let metrics = AppMetrics::default();
         let (config_tx, config_rx) = watch::channel(());
 
+        // Create a basic MonitorValidator for tests
+        let actions = repo.get_actions(&config.network_id).await.unwrap_or_default();
+        let monitor_validator = Arc::new(create_monitor_validator(&actions, None).await);
+
         // Spawn the actual app server
         let server_handle = task::spawn(async move {
-            http_server::run_server_from_config(config, repo, metrics, config_tx).await;
+            http_server::run_server_from_config(
+                config,
+                repo,
+                metrics,
+                config_tx,
+                monitor_validator,
+            )
+            .await;
         });
 
         // Wait for server to start

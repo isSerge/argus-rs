@@ -62,6 +62,7 @@ impl<T: AppRepository + KeyValueStore + 'static> SupervisorBuilder<T> {
             context.filtering_engine,
             context.alert_manager,
             context.monitor_manager,
+            context.monitor_validator,
         ))
     }
 }

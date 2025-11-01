@@ -23,7 +23,10 @@ use serde_json::json;
 use status::status;
 use tokio::sync::watch;
 
-use crate::{config::AppConfig, context::AppMetrics, persistence::traits::AppRepository};
+use crate::{
+    config::AppConfig, context::AppMetrics, monitor::MonitorValidator,
+    persistence::traits::AppRepository,
+};
 
 /// Shared application state for the HTTP server.
 #[derive(Clone)]
@@ -36,6 +39,9 @@ pub struct ApiState {
     app_metrics: AppMetrics,
     /// A channel to notify configuration changes.
     config_tx: watch::Sender<()>,
+    /// Monitor validator to validate business logic in monitor endpoint
+    /// handlers.
+    monitor_validator: Arc<MonitorValidator>,
 }
 
 async fn health() -> impl IntoResponse {
@@ -48,6 +54,7 @@ pub async fn run_server_from_config(
     repo: Arc<dyn AppRepository>,
     app_metrics: AppMetrics,
     config_tx: watch::Sender<()>,
+    monitor_validator: Arc<MonitorValidator>,
 ) {
     let addr: SocketAddr =
         config.server.listen_address.parse().expect("Invalid server.listen_address format");
@@ -56,7 +63,7 @@ pub async fn run_server_from_config(
         panic!("`server.api_key` or `ARGUS_API_KEY` must be set to run the API server");
     }
 
-    let state = ApiState { config, repo, app_metrics, config_tx };
+    let state = ApiState { config, repo, app_metrics, config_tx, monitor_validator };
 
     let app = Router::new()
         .route("/health", get(health))
