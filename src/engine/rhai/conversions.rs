@@ -542,9 +542,7 @@ mod tests {
     #[test]
     fn test_build_decoded_call_map() {
         let to_address = address!("2222222222222222222222222222222222222222");
-        let tx = TransactionBuilder::new().build(); // Dummy transaction
         let call = DecodedCall {
-            tx,
             name: "transfer".to_string(),
             params: vec![
                 ("to".to_string(), DynSolValue::Address(to_address)),

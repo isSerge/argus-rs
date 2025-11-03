@@ -82,13 +82,23 @@ pub enum AbiError {
 
     /// Returned when an event signature (topic hash) is not found in the
     /// contract ABI
-    #[error("Event signature not found in ABI: {0}")]
-    EventNotFound(B256),
+    #[error("Event signature not found in ABI for contract {address}: {signature}")]
+    EventNotFound {
+        /// The event signature (topic hash)
+        signature: B256,
+        /// The contract address
+        address: Address,
+    },
 
     /// Returned when a function selector (4-byte) is not found in the contract
     /// ABI
-    #[error("Function selector not found in ABI: {0:?}")]
-    FunctionNotFound([u8; 4]),
+    #[error("Function selector not found in ABI for contract {address}: {selector:?}")]
+    FunctionNotFound {
+        /// The function selector (4-byte)
+        selector: [u8; 4],
+        /// The contract address
+        address: Address,
+    },
 
     /// Returned when trying to decode a function call from a contract creation
     /// transaction
@@ -96,17 +106,31 @@ pub enum AbiError {
     ContractCreation,
 
     /// Returned when the input data is too short to contain a function selector
-    #[error("Input data too short to contain a function selector")]
-    InputTooShort,
+    #[error("Input data too short to contain a function selector (length: {length})")]
+    InputTooShort {
+        /// The length of the input data
+        length: usize,
+    },
 
     /// Returned when a log has no topics and thus cannot be identified as an
     /// event
-    #[error("Log has no topics, cannot identify event")]
-    LogHasNoTopics,
+    #[error("Log has no topics, cannot identify event (contract: {address})")]
+    LogHasNoTopics {
+        /// The contract address
+        address: Address,
+    },
 
     /// Wrapper for decoding errors from the underlying ABI decoding library
-    #[error("Failed to decode data: {0}")]
-    DecodingError(#[from] dyn_abi::Error),
+    #[error("Failed to decode {item_type} for contract {address}: {source}")]
+    DecodingError {
+        /// The contract address
+        address: Address,
+        /// The type of item being decoded: "event" or "function"
+        item_type: String,
+        /// The underlying decoding error
+        #[source]
+        source: dyn_abi::Error,
+    },
 }
 
 /// Represents a decoded event log.
@@ -127,8 +151,6 @@ pub struct DecodedCall {
     pub name: String,
     /// The decoded parameters of the function call.
     pub params: Vec<(String, DynSolValue)>,
-    /// The original transaction
-    pub tx: Transaction,
 }
 
 impl Serialize for DecodedCall {
@@ -225,7 +247,8 @@ impl AbiService {
 
     /// Decodes an event log using proper Alloy APIs.
     pub fn decode_log(&self, log: &Log) -> Result<DecodedLog, AbiError> {
-        let event_signature = log.topics().first().ok_or(AbiError::LogHasNoTopics)?;
+        let event_signature =
+            log.topics().first().ok_or(AbiError::LogHasNoTopics { address: log.address() })?;
 
         // Prioritize address-specific ABIs.
         if let Some(contract) = self.address_specific_cache.get(&log.address())
@@ -241,7 +264,7 @@ impl AbiService {
             }
         }
 
-        Err(AbiError::EventNotFound(*event_signature))
+        Err(AbiError::EventNotFound { signature: *event_signature, address: log.address() })
     }
 
     /// Decodes an event log using a specific cached contract ABI.
@@ -251,12 +274,17 @@ impl AbiService {
         contract: &Arc<CachedContract>,
         event_signature: &B256,
     ) -> Result<DecodedLog, AbiError> {
-        let event = contract
-            .events
-            .get(event_signature)
-            .ok_or_else(|| AbiError::EventNotFound(*event_signature))?;
+        let event = contract.events.get(event_signature).ok_or_else(|| {
+            AbiError::EventNotFound { signature: *event_signature, address: log.address() }
+        })?;
 
-        let decoded = event.decode_log_parts(log.topics().iter().copied(), log.data().as_ref())?;
+        let decoded = event
+            .decode_log_parts(log.topics().iter().copied(), log.data().as_ref())
+            .map_err(|e| AbiError::DecodingError {
+                address: log.address(),
+                item_type: "event".into(),
+                source: e,
+            })?;
 
         let params: Vec<(String, DynSolValue)> = event
             .inputs
@@ -288,7 +316,7 @@ impl AbiService {
         // The input data must be at least 4 bytes (the function selector)
         if input.len() < 4 {
             tracing::debug!("Transaction input too short: {} bytes", input.len());
-            return Err(AbiError::InputTooShort);
+            return Err(AbiError::InputTooShort { length: input.len() });
         }
 
         // Extract the function selector (first 4 bytes)
@@ -308,7 +336,7 @@ impl AbiService {
             }
         }
 
-        Err(AbiError::FunctionNotFound(selector))
+        Err(AbiError::FunctionNotFound { selector, address: to })
     }
 
     fn decode_function_input_with_contract(
@@ -317,24 +345,38 @@ impl AbiService {
         contract: &Arc<CachedContract>,
         selector: [u8; 4],
     ) -> Result<DecodedCall, AbiError> {
-        let function = contract
-            .functions
-            .get(&selector)
-            .ok_or_else(|| AbiError::FunctionNotFound(selector))?;
+        let function = contract.functions.get(&selector).ok_or_else(|| {
+            AbiError::FunctionNotFound { selector, address: tx.to().unwrap_or_default() }
+        })?;
 
         let input_types: Vec<dyn_abi::DynSolType> =
-            function.inputs.iter().map(|p| p.ty.parse()).collect::<Result<Vec<_>, _>>()?;
+            function.inputs.iter().map(|p| p.ty.parse()).collect::<Result<Vec<_>, _>>().map_err(
+                |e| AbiError::DecodingError {
+                    address: tx.to().unwrap_or_default(),
+                    item_type: "function".into(),
+                    source: e,
+                },
+            )?;
 
         let tuple_type = dyn_abi::DynSolType::Tuple(input_types);
-        let decoded_value = tuple_type.abi_decode(&tx.input()[4..])?;
+        let decoded_value =
+            tuple_type.abi_decode(&tx.input()[4..]).map_err(|e| AbiError::DecodingError {
+                address: tx.to().unwrap_or_default(),
+                item_type: "function".into(),
+                source: e,
+            })?;
 
         let decoded_tokens = if let DynSolValue::Tuple(tokens) = decoded_value {
             tokens
         } else {
-            return Err(AbiError::DecodingError(dyn_abi::Error::TypeMismatch {
-                expected: tuple_type.to_string(),
-                actual: format!("{decoded_value:?}"),
-            }));
+            return Err(AbiError::DecodingError {
+                address: tx.to().unwrap_or_default(),
+                item_type: "function".into(),
+                source: dyn_abi::Error::TypeMismatch {
+                    expected: tuple_type.to_string(),
+                    actual: format!("{decoded_value:?}"),
+                },
+            });
         };
 
         let params: Vec<(String, DynSolValue)> = function
@@ -350,7 +392,7 @@ impl AbiService {
             params.len()
         );
 
-        Ok(DecodedCall { name: function.name.clone(), params, tx: tx.clone() })
+        Ok(DecodedCall { name: function.name.clone(), params })
     }
 
     /// Retrieves the cached ABI for a given contract address, if it exists.
@@ -513,7 +555,7 @@ mod tests {
             .build();
         let log: Log = log.into();
         let err = service.decode_log(&log).unwrap_err();
-        assert!(matches!(err, AbiError::EventNotFound(_)));
+        assert!(matches!(err, AbiError::EventNotFound { .. }));
     }
 
     #[tokio::test]
@@ -545,7 +587,7 @@ mod tests {
             .to(Some(Address::default()))
             .build();
         let err = service.decode_function_input(&tx).unwrap_err();
-        assert!(matches!(err, AbiError::FunctionNotFound(_)));
+        assert!(matches!(err, AbiError::FunctionNotFound { .. }));
     }
 
     #[tokio::test]
@@ -559,7 +601,7 @@ mod tests {
             .build();
 
         let err = service.decode_function_input(&tx).unwrap_err();
-        assert!(matches!(err, AbiError::FunctionNotFound(_)));
+        assert!(matches!(err, AbiError::FunctionNotFound { .. }));
     }
 
     #[tokio::test]
@@ -571,7 +613,7 @@ mod tests {
         let tx = TransactionBuilder::new().to(Some(contract_address)).build();
 
         let err = service.decode_function_input(&tx).unwrap_err();
-        assert!(matches!(err, AbiError::InputTooShort));
+        assert!(matches!(err, AbiError::InputTooShort { length: 0 }));
     }
 
     #[tokio::test]
@@ -584,7 +626,7 @@ mod tests {
             .topic(b256!("0000000000000000000000000000000000000000000000000000000000000001"))
             .build();
         let err = service.decode_log(&log).unwrap_err();
-        assert!(matches!(err, AbiError::EventNotFound(_)));
+        assert!(matches!(err, AbiError::EventNotFound { .. }));
     }
 
     #[tokio::test]
@@ -593,7 +635,7 @@ mod tests {
             setup_abi_service_with_abi("erc20", erc20_abi_json()).await;
         let log = LogBuilder::new().address(contract_address).build();
         let err = service.decode_log(&log).unwrap_err();
-        assert!(matches!(err, AbiError::LogHasNoTopics));
+        assert!(matches!(err, AbiError::LogHasNoTopics { .. }));
     }
 
     #[tokio::test]
@@ -621,7 +663,7 @@ mod tests {
             .build();
 
         let err = service.decode_function_input(&tx).unwrap_err();
-        assert!(matches!(err, AbiError::DecodingError(_)));
+        assert!(matches!(err, AbiError::DecodingError { .. }));
     }
 
     #[tokio::test]
@@ -641,7 +683,7 @@ mod tests {
             .build();
 
         let err = service.decode_log(&log).unwrap_err();
-        assert!(matches!(err, AbiError::DecodingError(_)));
+        assert!(matches!(err, AbiError::DecodingError { .. }));
     }
 
     #[tokio::test]
@@ -729,7 +771,7 @@ mod tests {
             .build();
 
         let err = service.decode_log(&log).unwrap_err();
-        assert!(matches!(err, AbiError::DecodingError(_)));
+        assert!(matches!(err, AbiError::DecodingError { .. }));
     }
 
     #[tokio::test]
