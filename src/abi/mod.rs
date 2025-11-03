@@ -186,8 +186,13 @@ impl Serialize for DecodedCall {
 pub struct AbiService {
     /// Cache for pre-processed contract ABIs, mapped by contract address.
     address_specific_cache: DashMap<Address, Arc<CachedContract>>,
+
     /// A set of global ABIs used for decoding logs from any address.
     global_cache: RwLock<HashSet<Arc<CachedContract>>>,
+
+    /// Lookup index for global events by their signature.
+    global_event_index: DashMap<B256, Vec<Arc<CachedContract>>>,
+
     /// Repository for loading raw ABI definitions by name.
     abi_repository: Arc<AbiRepository>,
 }
@@ -198,6 +203,7 @@ impl AbiService {
         Self {
             address_specific_cache: DashMap::new(),
             global_cache: RwLock::new(HashSet::new()),
+            global_event_index: DashMap::new(),
             abi_repository,
         }
     }
@@ -210,7 +216,18 @@ impl AbiService {
             .ok_or_else(|| AbiError::AbiNotFoundInRepository(abi_name.to_string()))?;
 
         let cached_contract = Arc::new(CachedContract::from(abi));
-        self.global_cache.write().insert(cached_contract);
+
+        // Insert into the global cache
+        self.global_cache.write().insert(cached_contract.clone());
+
+        // Index events for fast lookup
+        for event_signature in cached_contract.events.keys() {
+            self.global_event_index
+                .entry(*event_signature)
+                .or_default()
+                .push(Arc::clone(&cached_contract));
+        }
+
         Ok(())
     }
 
@@ -257,10 +274,13 @@ impl AbiService {
             return self.decode_log_with_contract(log, &contract, event_signature);
         }
 
-        // Fallback to global ABIs if no address-specific match is found.
-        for contract in self.global_cache.read().iter() {
-            if contract.events.contains_key(event_signature) {
-                return self.decode_log_with_contract(log, contract, event_signature);
+        // Fallback to global ABIs using the event index for fast lookup.
+        if let Some(contracts) = self.global_event_index.get(event_signature) {
+            // Try decoding with each contract that has this event
+            for contract in contracts.iter() {
+                if let Ok(decoded) = self.decode_log_with_contract(log, contract, event_signature) {
+                    return Ok(decoded);
+                }
             }
         }
 
