@@ -87,7 +87,8 @@ pub struct Monitor {
 }
 
 /// Represents the status of a monitor.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "TEXT")]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]
 pub enum MonitorStatus {
@@ -97,7 +98,6 @@ pub enum MonitorStatus {
     /// The monitor is paused and not tracking events.
     Paused,
 }
-
 
 impl From<String> for MonitorStatus {
     fn from(s: String) -> Self {

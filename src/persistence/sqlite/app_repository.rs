@@ -460,6 +460,42 @@ impl AppRepository for SqliteStateRepository {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn update_monitor_status(
+        &self,
+        network_id: &str,
+        monitor_id: &str,
+        status: MonitorStatus,
+    ) -> Result<(), PersistenceError> {
+        tracing::debug!(network_id, monitor_id, ?status, "Updating monitor status.");
+
+        let result = self
+            .execute_query_with_error_handling(
+                "update monitor status",
+                sqlx::query!(
+                    r#"
+                UPDATE monitors 
+                SET 
+                    status = ?
+                WHERE network = ? AND monitor_id = ?
+                "#,
+                    status,
+                    network_id,
+                    monitor_id,
+                )
+                .execute(&self.pool),
+            )
+            .await?;
+
+        if result.rows_affected() == 0 {
+            tracing::warn!(network_id, monitor_id, "Monitor not found for status update.");
+            return Err(PersistenceError::NotFound);
+        }
+
+        tracing::info!(network_id, monitor_id, ?status, "Monitor status updated successfully.");
+        Ok(())
+    }
+
     /// Creates a new ABI.
     #[tracing::instrument(skip(self, abi), level = "debug")]
     async fn create_abi(&self, name: &str, abi: &str) -> Result<(), PersistenceError> {
