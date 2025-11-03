@@ -87,7 +87,7 @@ pub struct Monitor {
 }
 
 /// Represents the status of a monitor.
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, PartialEq)]
 #[sqlx(type_name = "TEXT")]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]

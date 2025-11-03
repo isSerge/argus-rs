@@ -13,7 +13,7 @@ use super::{InterestRegistry, InterestRegistryBuilder};
 use crate::{
     abi::AbiService,
     engine::rhai::{RhaiCompiler, ScriptAnalysis},
-    models::monitor::Monitor,
+    models::monitor::{Monitor, MonitorStatus},
 };
 
 const TX_GAS_USED: &str = "tx.gas_used";
@@ -115,7 +115,13 @@ impl MonitorManager {
     ) -> MonitorAssetState {
         tracing::debug!("Organizing assets for {} monitors", monitors.len());
 
-        let (classified, failed): (Vec<_>, Vec<_>) = monitors
+        // Filter out paused monitors before organizing them
+        let active_monitors: Vec<Monitor> =
+            monitors.into_iter().filter(|m| m.status == MonitorStatus::Active).collect();
+
+        tracing::debug!("Found {} active monitors", active_monitors.len());
+
+        let (classified, failed): (Vec<_>, Vec<_>) = active_monitors
             .into_iter()
             .map(|m| Self::classify_monitor(compiler, m))
             .partition(Result::is_ok);
