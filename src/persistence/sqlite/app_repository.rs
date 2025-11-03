@@ -6,7 +6,7 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use crate::{
     models::{
         action::ActionConfig,
-        monitor::{Monitor, MonitorConfig},
+        monitor::{Monitor, MonitorConfig, MonitorStatus},
     },
     persistence::{error::PersistenceError, sqlite::SqliteStateRepository, traits::AppRepository},
 };
@@ -23,6 +23,7 @@ struct MonitorRow {
     actions: String,
     created_at: NaiveDateTime,
     updated_at: NaiveDateTime,
+    status: MonitorStatus,
 }
 
 // Helper struct for mapping from the database row
@@ -196,7 +197,8 @@ impl AppRepository for SqliteStateRepository {
                     filter_script, 
                     actions,
                     created_at as "created_at!", 
-                    updated_at as "updated_at!"
+                    updated_at as "updated_at!",
+                    status as "status!"
                 FROM monitors 
                 WHERE network = ?
                 "#,
@@ -226,6 +228,7 @@ impl AppRepository for SqliteStateRepository {
                     actions,
                     created_at,
                     updated_at,
+                    status: row.status,
                 })
             })
             .collect::<Result<Vec<_>, PersistenceError>>()?;
@@ -267,7 +270,8 @@ impl AppRepository for SqliteStateRepository {
                     filter_script, 
                     actions,
                     created_at as "created_at!", 
-                    updated_at as "updated_at!"
+                    updated_at as "updated_at!",
+                    status as "status!"
                 FROM monitors 
                 WHERE network = ? AND monitor_id = ?
                 "#,
@@ -296,6 +300,7 @@ impl AppRepository for SqliteStateRepository {
                 actions,
                 created_at,
                 updated_at,
+                status: row.status,
             };
 
             tracing::debug!(network_id, monitor_id, "Monitor found.");
@@ -830,7 +835,8 @@ impl AppRepository for SqliteStateRepository {
                         filter_script, 
                         actions,
                         created_at as "created_at!", 
-                        updated_at as "updated_at!"
+                        updated_at as "updated_at!",
+                        status as "status!"
                     FROM monitors 
                     WHERE network = ? AND actions LIKE ? ESCAPE '\'
                     "#,
@@ -855,6 +861,7 @@ impl AppRepository for SqliteStateRepository {
                     abi_name: row.abi_name,
                     filter_script: row.filter_script,
                     actions,
+                    status: row.status,
                 })
             })
             .collect::<Result<Vec<_>, PersistenceError>>()?;

@@ -117,6 +117,7 @@ mod tests {
 
     use super::*;
     use crate::{
+        models::monitor::MonitorStatus,
         persistence::traits::MockAppRepository,
         test_helpers::{MonitorBuilder, create_monitor_validator},
     };
@@ -145,6 +146,7 @@ mod tests {
             abi_name: Some("erc20".to_string()),
             filter_script: "true".to_string(),
             actions: vec![],
+            status: MonitorStatus::default(),
         };
 
         let result = validator.validate_for_create(&monitor).await;
@@ -180,6 +182,7 @@ mod tests {
             abi_name: Some("erc20".to_string()),
             filter_script: "true".to_string(),
             actions: vec![],
+            status: MonitorStatus::default(),
         };
 
         let result = validator.validate_for_create(&monitor).await;
@@ -220,6 +223,7 @@ mod tests {
             abi_name: Some("erc20".to_string()),
             filter_script: "true".to_string(),
             actions: vec![],
+            status: MonitorStatus::default(),
         };
 
         let result = validator.validate_for_create(&monitor).await;
@@ -256,6 +260,7 @@ mod tests {
             abi_name: None,
             filter_script: "true".to_string(),
             actions: vec![],
+            status: MonitorStatus::default(),
         };
 
         let result = validator.validate_for_update(&monitor_id, &monitor).await;
@@ -288,6 +293,7 @@ mod tests {
             abi_name: None,
             filter_script: "true".to_string(),
             actions: vec![],
+            status: MonitorStatus::default(),
         };
 
         let result = validator.validate_for_update(&monitor_id, &monitor).await;
@@ -321,6 +327,7 @@ mod tests {
             abi_name: None,
             filter_script: "true".to_string(),
             actions: vec![],
+            status: MonitorStatus::default(),
         };
 
         let result = validator.validate_for_update(&monitor1_id, &updated).await;
@@ -353,6 +360,7 @@ mod tests {
             abi_name: None,
             filter_script: "true".to_string(),
             actions: vec![],
+            status: MonitorStatus::default(),
         };
 
         let result = validator.validate_for_update(&monitor_id, &updated).await;
@@ -388,6 +396,7 @@ mod tests {
             abi_name: None,
             filter_script: "true".to_string(),
             actions: vec![],
+            status: MonitorStatus::default(),
         };
 
         // Validator should not check for existence

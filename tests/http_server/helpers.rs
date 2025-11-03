@@ -6,7 +6,7 @@ use argus::{
     http_server,
     models::{
         action::{ActionConfig, ActionTypeConfig, StdoutConfig},
-        monitor::MonitorConfig,
+        monitor::{MonitorConfig, MonitorStatus},
     },
     persistence::{sqlite::SqliteStateRepository, traits::AppRepository},
     test_helpers::create_monitor_validator,
@@ -94,6 +94,7 @@ impl TestServer {
                     abi_name: None,
                     filter_script: "true".to_string(),
                     actions: vec![],
+                    status: MonitorStatus::default(),
                 }],
             )
             .await;
@@ -119,6 +120,7 @@ impl TestServer {
                         abi_name: None,
                         filter_script: "true".to_string(),
                         actions: vec![],
+                        status: MonitorStatus::default(),
                     },
                     MonitorConfig {
                         name: "Another Monitor".to_string(),
@@ -127,6 +129,7 @@ impl TestServer {
                         abi_name: None,
                         filter_script: "false".to_string(),
                         actions: vec![],
+                        status: MonitorStatus::default(),
                     },
                 ],
             )

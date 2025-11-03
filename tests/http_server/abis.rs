@@ -1,4 +1,7 @@
-use argus::{models::monitor::MonitorConfig, persistence::traits::AppRepository};
+use argus::{
+    models::monitor::{MonitorConfig, MonitorStatus},
+    persistence::traits::AppRepository,
+};
 
 use crate::helpers::*;
 
@@ -190,6 +193,7 @@ async fn delete_abi_conflict_when_in_use() {
         abi_name: Some("ERC20".to_string()),
         filter_script: "true".to_string(),
         actions: vec![],
+        status: MonitorStatus::default(),
     };
     repo.add_monitors(&network_id, vec![monitor]).await.unwrap();
 

@@ -33,6 +33,10 @@ pub struct MonitorConfig {
     /// actions for the monitor (optional)
     #[serde(default)]
     pub actions: Vec<String>,
+
+    /// Current status of the monitor
+    #[serde(default)]
+    pub status: MonitorStatus,
 }
 
 impl Loadable for MonitorConfig {
@@ -76,6 +80,32 @@ pub struct Monitor {
 
     /// Timestamp when the monitor was last updated
     pub updated_at: DateTime<Utc>,
+
+    /// Current status of the monitor
+    #[serde(default)]
+    pub status: MonitorStatus,
+}
+
+/// Represents the status of a monitor.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+#[derive(Default)]
+pub enum MonitorStatus {
+    /// The monitor is actively tracking events.
+    #[default]
+    Active,
+    /// The monitor is paused and not tracking events.
+    Paused,
+}
+
+
+impl From<String> for MonitorStatus {
+    fn from(s: String) -> Self {
+        match s.as_str() {
+            "paused" => MonitorStatus::Paused,
+            _ => MonitorStatus::Active,
+        }
+    }
 }
 
 impl MonitorConfig {
@@ -88,7 +118,15 @@ impl MonitorConfig {
         filter_script: String,
         actions: Vec<String>,
     ) -> Self {
-        Self { name, network, address, abi_name, filter_script, actions }
+        Self {
+            name,
+            network,
+            address,
+            abi_name,
+            filter_script,
+            actions,
+            status: MonitorStatus::default(),
+        }
     }
 }
 

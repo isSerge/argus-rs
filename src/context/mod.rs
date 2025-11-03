@@ -533,6 +533,7 @@ mod tests {
     use super::*;
     use crate::{
         config::{AppConfig, RhaiConfig},
+        models::monitor::MonitorStatus,
         test_helpers::ActionBuilder,
     };
 
@@ -597,6 +598,7 @@ mod tests {
             abi_name: None,
             filter_script: "true".to_string(),
             actions: vec![],
+            status: MonitorStatus::default(),
         };
         repo.add_monitors(&config.network_id, vec![existing_monitor]).await.unwrap();
 
@@ -692,6 +694,7 @@ mod tests {
             abi_name: Some("erc20".to_string()),
             filter_script: "true".to_string(),
             actions: vec![],
+            status: MonitorStatus::default(),
         };
         repo.add_monitors(&config.network_id, vec![monitor]).await.unwrap();
 
@@ -724,6 +727,7 @@ mod tests {
             abi_name: Some("usdc".to_string()),
             filter_script: "true".to_string(),
             actions: vec![],
+            status: MonitorStatus::default(),
         };
         repo.add_monitors(&config.network_id, vec![monitor]).await.unwrap();
 
@@ -755,6 +759,7 @@ mod tests {
             abi_name: Some("erc20".to_string()),
             filter_script: "true".to_string(),
             actions: vec![],
+            status: MonitorStatus::default(),
         };
         repo.add_monitors(&config.network_id, vec![monitor]).await.unwrap();
 
@@ -787,6 +792,7 @@ mod tests {
             abi_name: None,
             filter_script: "true".to_string(),
             actions: vec![],
+            status: MonitorStatus::default(),
         };
         repo.add_monitors(&config.network_id, vec![monitor]).await.unwrap();
 
