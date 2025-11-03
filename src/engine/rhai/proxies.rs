@@ -104,7 +104,7 @@ pub fn register_proxies(engine: &mut rhai::Engine) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::{LogBuilder, TransactionBuilder};
+    use crate::test_helpers::LogBuilder;
 
     #[test]
     fn test_params_proxy_indexing() {
@@ -140,11 +140,7 @@ mod tests {
 
     #[test]
     fn test_call_proxy_methods() {
-        let call = DecodedCall {
-            name: "approve".to_string(),
-            params: vec![],
-            tx: TransactionBuilder::new().build(),
-        };
+        let call = DecodedCall { name: "approve".to_string(), params: vec![] };
         let mut proxy = CallProxy(Some(Arc::new(call)));
 
         assert_eq!(proxy.get_name(), "approve");

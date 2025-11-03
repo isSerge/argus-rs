@@ -151,8 +151,6 @@ pub struct DecodedCall {
     pub name: String,
     /// The decoded parameters of the function call.
     pub params: Vec<(String, DynSolValue)>,
-    /// The original transaction
-    pub tx: Transaction,
 }
 
 impl Serialize for DecodedCall {
@@ -394,7 +392,7 @@ impl AbiService {
             params.len()
         );
 
-        Ok(DecodedCall { name: function.name.clone(), params, tx: tx.clone() })
+        Ok(DecodedCall { name: function.name.clone(), params })
     }
 
     /// Retrieves the cached ABI for a given contract address, if it exists.
