@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "\n                SELECT \n                    monitor_id as \"monitor_id!\", \n                    name, \n                    network, \n                    address, \n                    abi_name, \n                    filter_script, \n                    actions,\n                    created_at as \"created_at!\", \n                    updated_at as \"updated_at!\"\n                FROM monitors \n                WHERE network = ?\n                ",
+  "query": "\n                SELECT \n                    monitor_id as \"monitor_id!\", \n                    name, \n                    network, \n                    address, \n                    abi_name, \n                    filter_script, \n                    actions,\n                    created_at as \"created_at!\", \n                    updated_at as \"updated_at!\",\n                    status as \"status!\"\n                FROM monitors \n                WHERE network = ?\n                ",
   "describe": {
     "columns": [
       {
@@ -47,6 +47,11 @@
         "name": "updated_at!",
         "ordinal": 8,
         "type_info": "Datetime"
+      },
+      {
+        "name": "status!",
+        "ordinal": 9,
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -61,8 +66,9 @@
       false,
       false,
       true,
-      true
+      true,
+      false
     ]
   },
-  "hash": "acc7b7ed688b85de7ee6713ff7f7038c173afa4f2242b32e440f42b1eacc6950"
+  "hash": "76e88211ad72b448d092c8b78c9b375e147531dde080f454a5f469a0767d6813"
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "\n                SELECT \n                    monitor_id as \"monitor_id!\", \n                    name, \n                    network, \n                    address, \n                    abi_name, \n                    filter_script, \n                    actions,\n                    created_at as \"created_at!\", \n                    updated_at as \"updated_at!\"\n                FROM monitors \n                WHERE network = ? AND monitor_id = ?\n                ",
+  "query": "\n                    SELECT \n                        monitor_id as \"monitor_id!\", \n                        name, \n                        network, \n                        address, \n                        abi_name, \n                        filter_script, \n                        actions,\n                        created_at as \"created_at!\", \n                        updated_at as \"updated_at!\",\n                        status as \"status!\"\n                    FROM monitors \n                    WHERE network = ? AND actions LIKE ? ESCAPE '\\'\n                    ",
   "describe": {
     "columns": [
       {
@@ -47,22 +47,28 @@
         "name": "updated_at!",
         "ordinal": 8,
         "type_info": "Datetime"
+      },
+      {
+        "name": "status!",
+        "ordinal": 9,
+        "type_info": "Text"
       }
     ],
     "parameters": {
       "Right": 2
     },
     "nullable": [
-      false,
-      false,
-      false,
-      true,
       true,
       false,
       false,
       true,
-      true
+      true,
+      false,
+      false,
+      true,
+      true,
+      false
     ]
   },
-  "hash": "a1baee8abde540bdd958281c3629c3b789f7d171dcb0345110c68cfa446715bb"
+  "hash": "d7a2475de442081cc68a85bbf6f94002985467895e0be4ee19ae3623f08a9ea8"
 }
