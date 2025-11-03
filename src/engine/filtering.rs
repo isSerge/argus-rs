@@ -71,6 +71,7 @@ use std::{
     time::Duration,
 };
 
+use alloy::primitives::B256;
 use async_trait::async_trait;
 use futures::future;
 #[cfg(test)]
@@ -174,8 +175,26 @@ struct EvaluationContext<'a> {
     /// Tracks which monitors have already matched to prevent duplicate
     /// evaluation in the transaction-only pass
     matched_monitor_ids: HashSet<i64>,
-    decoded_logs_cache: HashMap<Log, Arc<DecodedLog>>,
+    decoded_logs_cache: HashMap<LogCacheKey, Arc<DecodedLog>>,
     decoded_call_cache: Option<Option<Arc<DecodedCall>>>,
+}
+
+/// A unique key for caching decoded logs based on transaction hash and log
+/// index.
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+struct LogCacheKey {
+    tx_hash: B256,
+    log_index: u64,
+}
+
+impl LogCacheKey {
+    fn from_log(log: &Log) -> Option<Self> {
+        if let (Some(tx_hash), Some(log_index)) = (log.transaction_hash(), log.log_index()) {
+            Some(Self { tx_hash, log_index })
+        } else {
+            None
+        }
+    }
 }
 
 impl<'a> EvaluationContext<'a> {
@@ -198,6 +217,30 @@ impl<'a> EvaluationContext<'a> {
     /// Marks a monitor as having produced a match.
     fn mark_as_matched(&mut self, monitor_id: i64) {
         self.matched_monitor_ids.insert(monitor_id);
+    }
+
+    /// Gets a decoded log from the cache or decodes it if not present.
+    fn get_or_decode_log(
+        &mut self,
+        abi_service: &AbiService,
+        raw_log: &'a Log,
+    ) -> Option<Arc<DecodedLog>> {
+        // Create a cache key
+        let key = LogCacheKey::from_log(raw_log)?;
+
+        // Check cache
+        if let Some(cached) = self.decoded_logs_cache.get(&key) {
+            return Some(cached.clone());
+        }
+
+        // Decode log
+        let decoded = abi_service.decode_log(raw_log).ok()?;
+        let decoded_arc = Arc::new(decoded);
+
+        // Store in cache
+        self.decoded_logs_cache.insert(key, decoded_arc.clone());
+
+        Some(decoded_arc)
     }
 }
 
@@ -327,39 +370,8 @@ impl RhaiFilteringEngine {
         scope.push_constant("tx", context.tx_map.clone());
 
         // --- Handle Log Data (Lazy Decoding) ---
-        let mut decoded_log_result = None;
-        if let Some(raw_log) = log {
-            if let Some(cached) = context.decoded_logs_cache.get(raw_log) {
-                tracing::debug!(
-                    "Using cached decoded log for monitor ID {}: {}",
-                    cm.monitor.id,
-                    cm.monitor.name
-                );
-                decoded_log_result = Some(cached.clone());
-            } else {
-                match self.abi_service.decode_log(raw_log) {
-                    Ok(decoded) => {
-                        tracing::debug!(
-                            "Decoded log for monitor ID {}: {}",
-                            cm.monitor.id,
-                            cm.monitor.name
-                        );
-                        let arc_decoded = Arc::new(decoded);
-                        context.decoded_logs_cache.insert(raw_log.clone(), arc_decoded.clone());
-                        decoded_log_result = Some(arc_decoded);
-                    }
-                    Err(e) => {
-                        tracing::debug!(
-                            "Log decoding failed for monitor ID {}: {} - Error: {}",
-                            cm.monitor.id,
-                            cm.monitor.name,
-                            e
-                        );
-                        // Log decoding failed, continue
-                    }
-                }
-            }
-        }
+        let decoded_log_result =
+            log.and_then(|raw_log| context.get_or_decode_log(&self.abi_service, raw_log));
 
         // --- Handle Calldata (Lazy Decoding) ---
         let mut decoded_call_result = None;
