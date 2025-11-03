@@ -15,10 +15,13 @@ use auth::auth;
 use axum::{
     Router, middleware,
     response::{IntoResponse, Json},
-    routing::{delete, get, post, put},
+    routing::{delete, get, patch, post, put},
 };
 use error::ApiError;
-use monitors::{create_monitor, delete_monitor, get_monitor_details, get_monitors, update_monitor};
+use monitors::{
+    create_monitor, delete_monitor, get_monitor_details, get_monitors, update_monitor,
+    update_monitor_status,
+};
 use serde_json::json;
 use status::status;
 use tokio::sync::watch;
@@ -91,6 +94,11 @@ pub async fn run_server_from_config(
         .route(
             "/monitors/{id}",
             put(update_monitor).route_layer(middleware::from_fn_with_state(state.clone(), auth)),
+        )
+        .route(
+            "/monitors/{id}/status",
+            patch(update_monitor_status)
+                .route_layer(middleware::from_fn_with_state(state.clone(), auth)),
         )
         // ABI routes
         .route(

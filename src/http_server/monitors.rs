@@ -5,10 +5,17 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Json},
 };
+use serde::Deserialize;
 use serde_json::json;
 
 use super::{ApiError, ApiState};
-use crate::models::monitor::MonitorConfig;
+use crate::models::monitor::{MonitorConfig, MonitorStatus};
+
+/// Represents the request payload for updating a monitor's status.
+#[derive(Debug, Deserialize)]
+pub struct UpdateStatusRequest {
+    pub status: MonitorStatus,
+}
 
 /// Retrieves all monitors from the database and returns them as a JSON
 /// response.
@@ -95,4 +102,24 @@ pub async fn delete_monitor(
     }
 
     Ok((StatusCode::NO_CONTENT, Json(json!({ "status": "Monitor deletion triggered" }))))
+}
+
+/// Updates the status of a monitor by its ID.
+pub async fn update_monitor_status(
+    State(state): State<ApiState>,
+    Path(monitor_id): Path<String>,
+    Json(payload): Json<UpdateStatusRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    // update monitor status in the database
+    state.repo.update_monitor_status(&state.config.network_id, &monitor_id, payload.status).await?;
+
+    // Notify configuration changes
+    if state.config_tx.send(()).is_err() {
+        tracing::error!("Failed to notify configuration change");
+        return Err(ApiError::InternalServerError(
+            "Failed to notify configuration change".to_string(),
+        ));
+    }
+
+    Ok((StatusCode::OK, Json(json!({ "status": "Monitor status update triggered" }))))
 }
