@@ -311,6 +311,47 @@ This error occurs when:
       -H "Authorization: Bearer your-secret-api-key-here"
     ```
 
+### Update Monitor Status
+
+-   **`PATCH /monitors/{id}/status`**
+
+    Updates the status of an existing monitor by its ID. Requires authentication.
+
+    **URL Parameters:**
+    - `id` (integer, required): The unique ID of the monitor to update.
+
+    **Request Body:**
+    ```json
+    {
+      "status": "paused" 
+    }
+    ```
+    or
+    ```json
+    {
+      "status": "active" 
+    }
+    ```
+
+    **Success Response (`200 OK`)**
+    ```json
+    {
+      "status": "Monitor status update triggered"
+    }
+    ```
+
+    **Error Responses:**
+    - `404 Not Found`: If no monitor with the specified ID exists.
+    - `400 Bad Request`: If the request body is malformed or the status is invalid.
+
+    **Example Usage:**
+    ```bash
+    curl -X PATCH http://localhost:8080/monitors/1/status \
+      -H "Authorization: Bearer your-secret-api-key-here" \
+      -H "Content-Type: application/json" \
+      -d '{"status": "paused"}'
+    ```
+
 ### List All Actions
 
 -   **`GET /actions`**

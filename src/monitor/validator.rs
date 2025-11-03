@@ -661,7 +661,10 @@ mod tests {
     use super::*;
     use crate::{
         engine::rhai::RhaiScriptValidationError,
-        models::{action::ActionConfig, monitor::MonitorConfig},
+        models::{
+            action::ActionConfig,
+            monitor::{MonitorConfig, MonitorStatus},
+        },
         monitor::MonitorValidationError,
         test_helpers::{ActionBuilder, create_monitor_validator, erc20_abi_json},
     };
@@ -1115,6 +1118,7 @@ mod tests {
             abi_name: None,                                     // No ABI provided
             filter_script: "decoded_call.name == \"A\"".into(), // Accesses decoded_call
             actions: vec![],
+            status: MonitorStatus::default(),
         };
         let result = validator.validate(&invalid_monitor);
 
@@ -1142,6 +1146,7 @@ mod tests {
             abi_name: Some("erc20".into()),
             filter_script: "decoded_call.name == \"A\"".into(), // Accesses decoded_call
             actions: vec![],
+            status: MonitorStatus::default(),
         };
         let result = validator.validate(&invalid_monitor);
 
@@ -1169,6 +1174,7 @@ mod tests {
             abi_name: Some("erc20".into()),
             filter_script: "decoded_call.name == \"A\"".into(),
             actions: vec![],
+            status: MonitorStatus::default(),
         };
         let result = validator.validate(&invalid_monitor);
 
@@ -1199,6 +1205,7 @@ mod tests {
             abi_name: Some("erc20".into()),
             filter_script: "log.name == \"A\"".into(),
             actions: vec![],
+            status: MonitorStatus::default(),
         };
 
         let result = validator.validate(&invalid_monitor);

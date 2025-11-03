@@ -6,7 +6,7 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use crate::{
     models::{
         action::ActionConfig,
-        monitor::{Monitor, MonitorConfig},
+        monitor::{Monitor, MonitorConfig, MonitorStatus},
     },
     persistence::{error::PersistenceError, sqlite::SqliteStateRepository, traits::AppRepository},
 };
@@ -23,6 +23,7 @@ struct MonitorRow {
     actions: String,
     created_at: NaiveDateTime,
     updated_at: NaiveDateTime,
+    status: MonitorStatus,
 }
 
 // Helper struct for mapping from the database row
@@ -196,7 +197,8 @@ impl AppRepository for SqliteStateRepository {
                     filter_script, 
                     actions,
                     created_at as "created_at!", 
-                    updated_at as "updated_at!"
+                    updated_at as "updated_at!",
+                    status as "status!"
                 FROM monitors 
                 WHERE network = ?
                 "#,
@@ -226,6 +228,7 @@ impl AppRepository for SqliteStateRepository {
                     actions,
                     created_at,
                     updated_at,
+                    status: row.status,
                 })
             })
             .collect::<Result<Vec<_>, PersistenceError>>()?;
@@ -267,7 +270,8 @@ impl AppRepository for SqliteStateRepository {
                     filter_script, 
                     actions,
                     created_at as "created_at!", 
-                    updated_at as "updated_at!"
+                    updated_at as "updated_at!",
+                    status as "status!"
                 FROM monitors 
                 WHERE network = ? AND monitor_id = ?
                 "#,
@@ -296,6 +300,7 @@ impl AppRepository for SqliteStateRepository {
                 actions,
                 created_at,
                 updated_at,
+                status: row.status,
             };
 
             tracing::debug!(network_id, monitor_id, "Monitor found.");
@@ -342,16 +347,18 @@ impl AppRepository for SqliteStateRepository {
         for monitor in monitors {
             let actions_str = serde_json::to_string(&monitor.actions)
                 .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
+            let status = monitor.status;
 
             sqlx::query!(
-                "INSERT INTO monitors (name, network, address, abi_name, filter_script, actions) \
-                 VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO monitors (name, network, address, abi_name, filter_script, actions, \
+                 status) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 monitor.name,
                 monitor.network,
                 monitor.address,
                 monitor.abi_name,
                 monitor.filter_script,
                 actions_str,
+                status,
             )
             .execute(&mut *tx)
             .await
@@ -452,6 +459,42 @@ impl AppRepository for SqliteStateRepository {
             return Err(PersistenceError::NotFound);
         }
 
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn update_monitor_status(
+        &self,
+        network_id: &str,
+        monitor_id: &str,
+        status: MonitorStatus,
+    ) -> Result<(), PersistenceError> {
+        tracing::debug!(network_id, monitor_id, ?status, "Updating monitor status.");
+
+        let result = self
+            .execute_query_with_error_handling(
+                "update monitor status",
+                sqlx::query!(
+                    r#"
+                UPDATE monitors 
+                SET 
+                    status = ?
+                WHERE network = ? AND monitor_id = ?
+                "#,
+                    status,
+                    network_id,
+                    monitor_id,
+                )
+                .execute(&self.pool),
+            )
+            .await?;
+
+        if result.rows_affected() == 0 {
+            tracing::warn!(network_id, monitor_id, "Monitor not found for status update.");
+            return Err(PersistenceError::NotFound);
+        }
+
+        tracing::info!(network_id, monitor_id, ?status, "Monitor status updated successfully.");
         Ok(())
     }
 
@@ -830,7 +873,8 @@ impl AppRepository for SqliteStateRepository {
                         filter_script, 
                         actions,
                         created_at as "created_at!", 
-                        updated_at as "updated_at!"
+                        updated_at as "updated_at!",
+                        status as "status!"
                     FROM monitors 
                     WHERE network = ? AND actions LIKE ? ESCAPE '\'
                     "#,
@@ -855,6 +899,7 @@ impl AppRepository for SqliteStateRepository {
                     abi_name: row.abi_name,
                     filter_script: row.filter_script,
                     actions,
+                    status: row.status,
                 })
             })
             .collect::<Result<Vec<_>, PersistenceError>>()?;

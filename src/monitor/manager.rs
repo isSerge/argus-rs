@@ -13,7 +13,7 @@ use super::{InterestRegistry, InterestRegistryBuilder};
 use crate::{
     abi::AbiService,
     engine::rhai::{RhaiCompiler, ScriptAnalysis},
-    models::monitor::Monitor,
+    models::monitor::{Monitor, MonitorStatus},
 };
 
 const TX_GAS_USED: &str = "tx.gas_used";
@@ -115,7 +115,13 @@ impl MonitorManager {
     ) -> MonitorAssetState {
         tracing::debug!("Organizing assets for {} monitors", monitors.len());
 
-        let (classified, failed): (Vec<_>, Vec<_>) = monitors
+        // Filter out paused monitors before organizing them
+        let active_monitors: Vec<Monitor> =
+            monitors.into_iter().filter(|m| m.status == MonitorStatus::Active).collect();
+
+        tracing::debug!("Found {} active monitors", active_monitors.len());
+
+        let (classified, failed): (Vec<_>, Vec<_>) = active_monitors
             .into_iter()
             .map(|m| Self::classify_monitor(compiler, m))
             .partition(Result::is_ok);
@@ -594,5 +600,24 @@ mod tests {
 
         assert!(registry.global_event_signatures.contains(&transfer_sig));
         assert!(registry.global_event_signatures.contains(&deposit_sig));
+    }
+
+    #[tokio::test]
+    async fn test_organize_assets_filters_paused_monitors() {
+        let (compiler, abi_service) = setup().await;
+
+        let monitors = vec![
+            MonitorBuilder::new().id(1).status(MonitorStatus::Active).build(),
+            MonitorBuilder::new().id(2).status(MonitorStatus::Paused).build(),
+            MonitorBuilder::new().id(3).status(MonitorStatus::Active).build(),
+        ];
+
+        let manager = MonitorManager::new(monitors, compiler, abi_service);
+        let snapshot = manager.load();
+
+        assert_eq!(snapshot.monitors_by_id.len(), 2);
+        assert!(snapshot.monitors_by_id.contains_key(&1));
+        assert!(!snapshot.monitors_by_id.contains_key(&2));
+        assert!(snapshot.monitors_by_id.contains_key(&3));
     }
 }

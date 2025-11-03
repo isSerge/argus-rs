@@ -1,7 +1,7 @@
 use argus::{
     cmd::{DryRunArgs, dry_run},
     config::InitialStartBlock,
-    context::AppContextBuilder,
+    context::{AppContextBuilder, AppMetrics},
     persistence::SqliteStateRepository,
     supervisor::Supervisor,
 };
@@ -65,9 +65,13 @@ async fn run_supervisor(
     from_block_override: Option<InitialStartBlock>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let context = AppContextBuilder::new(config_dir, from_block_override).build().await?;
+    let app_metrics = AppMetrics::default();
 
-    let supervisor =
-        Supervisor::<SqliteStateRepository>::builder().context(context).build().await?;
+    let supervisor = Supervisor::<SqliteStateRepository>::builder()
+        .context(context)
+        .app_metrics(app_metrics)
+        .build()
+        .await?;
 
     tracing::info!("Supervisor initialized, starting monitoring...");
 

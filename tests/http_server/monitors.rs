@@ -1,3 +1,5 @@
+use argus::{models::monitor::MonitorStatus, persistence::traits::AppRepository};
+
 use crate::helpers::*;
 
 #[tokio::test]
@@ -342,6 +344,45 @@ async fn delete_monitor_endpoint_returns_404_for_nonexistent() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 404, "Should return not found for non-existent monitor");
+
+    server.cleanup();
+}
+
+#[tokio::test]
+async fn update_monitor_status_endpoint_works() {
+    let (server, repo) = TestServer::new_with_test_monitors().await;
+
+    // 1. Pause the monitor
+    let status_update_json = serde_json::json!({ "status": "paused" });
+    let resp = server
+        .patch("/monitors/1/status")
+        .await
+        .bearer_auth("test-key")
+        .json(&status_update_json)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "Failed to pause monitor");
+
+    // Verify the status is updated in the database
+    let monitor = repo.get_monitor_by_id("testnet", "1").await.unwrap().unwrap();
+    assert_eq!(monitor.status, MonitorStatus::Paused);
+
+    // 2. Activate the monitor
+    let status_update_json = serde_json::json!({ "status": "active" });
+    let resp = server
+        .patch("/monitors/1/status")
+        .await
+        .bearer_auth("test-key")
+        .json(&status_update_json)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "Failed to activate monitor");
+
+    // Verify the status is updated in the database
+    let monitor = repo.get_monitor_by_id("testnet", "1").await.unwrap().unwrap();
+    assert_eq!(monitor.status, MonitorStatus::Active);
 
     server.cleanup();
 }

@@ -8,7 +8,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use super::error::PersistenceError;
 use crate::models::{
     action::ActionConfig,
-    monitor::{Monitor, MonitorConfig},
+    monitor::{Monitor, MonitorConfig, MonitorStatus},
 };
 
 /// Represents the application's persistence layer interface.
@@ -75,6 +75,14 @@ pub trait AppRepository: Send + Sync {
         network_id: &str,
         monitor_id: &str,
         monitor: MonitorConfig,
+    ) -> Result<(), PersistenceError>;
+
+    /// Updates the status of a monitor for a specific network.
+    async fn update_monitor_status(
+        &self,
+        network_id: &str,
+        monitor_id: &str,
+        status: MonitorStatus,
     ) -> Result<(), PersistenceError>;
 
     // ABI management operations:

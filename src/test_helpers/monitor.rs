@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Utc};
 
-use crate::models::monitor::Monitor;
+use crate::models::monitor::{Monitor, MonitorStatus};
 
 /// A builder for creating `Monitor` instances in tests.
 pub struct MonitorBuilder {
@@ -15,6 +15,7 @@ pub struct MonitorBuilder {
     actions: Option<Vec<String>>,
     created_at: Option<DateTime<Utc>>,
     updated_at: Option<DateTime<Utc>>,
+    status: Option<MonitorStatus>,
 }
 
 impl Default for MonitorBuilder {
@@ -36,6 +37,7 @@ impl MonitorBuilder {
             actions: None,
             created_at: None,
             updated_at: None,
+            status: None,
         }
     }
 
@@ -93,6 +95,12 @@ impl MonitorBuilder {
         self
     }
 
+    /// Sets the status for the monitor.
+    pub fn status(mut self, status: MonitorStatus) -> Self {
+        self.status = Some(status);
+        self
+    }
+
     /// Builds the `Monitor` instance.
     pub fn build(self) -> Monitor {
         Monitor {
@@ -105,6 +113,7 @@ impl MonitorBuilder {
             actions: self.actions.unwrap_or_default(),
             created_at: self.created_at.unwrap_or_default(),
             updated_at: self.updated_at.unwrap_or_default(),
+            status: self.status.unwrap_or_default(),
         }
     }
 }
