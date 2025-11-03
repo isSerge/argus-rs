@@ -87,10 +87,9 @@ pub struct Monitor {
 }
 
 /// Represents the status of a monitor.
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, PartialEq)]
-#[sqlx(type_name = "TEXT")]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, PartialEq, Default)]
+#[sqlx(type_name = "TEXT", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
-#[derive(Default)]
 pub enum MonitorStatus {
     /// The monitor is actively tracking events.
     #[default]

@@ -601,4 +601,23 @@ mod tests {
         assert!(registry.global_event_signatures.contains(&transfer_sig));
         assert!(registry.global_event_signatures.contains(&deposit_sig));
     }
+
+    #[tokio::test]
+    async fn test_organize_assets_filters_paused_monitors() {
+        let (compiler, abi_service) = setup().await;
+
+        let monitors = vec![
+            MonitorBuilder::new().id(1).status(MonitorStatus::Active).build(),
+            MonitorBuilder::new().id(2).status(MonitorStatus::Paused).build(),
+            MonitorBuilder::new().id(3).status(MonitorStatus::Active).build(),
+        ];
+
+        let manager = MonitorManager::new(monitors, compiler, abi_service);
+        let snapshot = manager.load();
+
+        assert_eq!(snapshot.monitors_by_id.len(), 2);
+        assert!(snapshot.monitors_by_id.contains_key(&1));
+        assert!(!snapshot.monitors_by_id.contains_key(&2));
+        assert!(snapshot.monitors_by_id.contains_key(&3));
+    }
 }

@@ -347,16 +347,18 @@ impl AppRepository for SqliteStateRepository {
         for monitor in monitors {
             let actions_str = serde_json::to_string(&monitor.actions)
                 .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
+            let status = monitor.status;
 
             sqlx::query!(
-                "INSERT INTO monitors (name, network, address, abi_name, filter_script, actions) \
-                 VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO monitors (name, network, address, abi_name, filter_script, actions, \
+                 status) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 monitor.name,
                 monitor.network,
                 monitor.address,
                 monitor.abi_name,
                 monitor.filter_script,
                 actions_str,
+                status,
             )
             .execute(&mut *tx)
             .await

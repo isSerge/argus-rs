@@ -236,6 +236,11 @@ impl TestServer {
         self.client.post(&url)
     }
 
+    pub async fn patch(&self, path: &str) -> reqwest::RequestBuilder {
+        let url = format!("http://{}{}", self.address, path);
+        self.client.patch(&url)
+    }
+
     pub fn cleanup(self) {
         self.server_handle.abort();
     }
