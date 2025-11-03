@@ -276,11 +276,16 @@ impl AbiService {
 
         // Fallback to global ABIs using the event index for fast lookup.
         if let Some(contracts) = self.global_event_index.get(event_signature) {
+            let mut last_error = None;
             // Try decoding with each contract that has this event
             for contract in contracts.iter() {
-                if let Ok(decoded) = self.decode_log_with_contract(log, contract, event_signature) {
-                    return Ok(decoded);
+                match self.decode_log_with_contract(log, contract, event_signature) {
+                    Ok(decoded) => return Ok(decoded),
+                    Err(e) => last_error = Some(e),
                 }
+            }
+            if let Some(err) = last_error {
+                return Err(err);
             }
         }
 

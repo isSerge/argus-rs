@@ -220,27 +220,34 @@ impl<'a> EvaluationContext<'a> {
     }
 
     /// Gets a decoded log from the cache or decodes it if not present.
+    /// The result is cached for subsequent calls if a stable cache key can be
+    /// generated.
     fn get_or_decode_log(
         &mut self,
         abi_service: &AbiService,
         raw_log: &'a Log,
     ) -> Option<Arc<DecodedLog>> {
-        // Create a cache key
-        let key = LogCacheKey::from_log(raw_log)?;
+        // Attempt to create a cache key. This might fail for pending logs.
+        let cache_key = LogCacheKey::from_log(raw_log);
 
-        // Check cache
-        if let Some(cached) = self.decoded_logs_cache.get(&key) {
-            return Some(cached.clone());
+        // If we have a key, try to use the cache.
+        if let Some(key) = cache_key
+            && let Some(cached_log) = self.decoded_logs_cache.get(&key)
+        {
+            return Some(cached_log.clone());
         }
 
-        // Decode log
-        let decoded = abi_service.decode_log(raw_log).ok()?;
-        let decoded_arc = Arc::new(decoded);
+        // If not in cache or no key, decode the log. If decoding fails, return None.
+        let decoded_log = abi_service.decode_log(raw_log).ok()?;
+        let arc_decoded = Arc::new(decoded_log);
 
-        // Store in cache
-        self.decoded_logs_cache.insert(key, decoded_arc.clone());
+        // If we have a key, insert the newly decoded log into the cache.
+        if let Some(key) = cache_key {
+            self.decoded_logs_cache.insert(key, arc_decoded.clone());
+        }
 
-        Some(decoded_arc)
+        // Return the decoded log.
+        Some(arc_decoded)
     }
 }
 
