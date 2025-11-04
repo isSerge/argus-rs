@@ -31,9 +31,9 @@ use crate::models::{Log, transaction::Transaction};
 #[derive(Debug, Clone)]
 pub struct CachedContract {
     /// A map from a function's 4-byte selector to its `Function` definition.
-    pub functions: HashMap<[u8; 4], Function>,
+    pub functions: HashMap<[u8; 4], Arc<Function>>,
     /// A map from an event's 32-byte topic hash to its `Event` definition.
-    pub events: HashMap<B256, Event>,
+    pub events: HashMap<B256, Arc<Event>>,
     /// The original parsed ABI, shared via `Arc`.
     pub abi: Arc<JsonAbi>,
 }
@@ -44,13 +44,13 @@ impl From<Arc<JsonAbi>> for CachedContract {
         // for O(1) lookups.
         let functions = abi
             .functions()
-            .map(|func| (func.selector().into(), func.clone()))
-            .collect::<HashMap<[u8; 4], Function>>();
+            .map(|func| (func.selector().into(), Arc::new(func.clone())))
+            .collect::<HashMap<[u8; 4], Arc<Function>>>();
 
         let events = abi
             .events()
-            .map(|event| (event.selector(), event.clone()))
-            .collect::<HashMap<B256, Event>>();
+            .map(|event| (event.selector(), Arc::new(event.clone())))
+            .collect::<HashMap<B256, Arc<Event>>>();
 
         Self { functions, events, abi }
     }
@@ -327,7 +327,7 @@ impl AbiService {
     }
 
     /// Decodes an event log using a specific `Event` definition.
-    fn decode_log_direct(&self, log: &Log, event: &Event) -> Result<DecodedLog, AbiError> {
+    fn decode_log_direct(&self, log: &Log, event: &Arc<Event>) -> Result<DecodedLog, AbiError> {
         let decoded = event
             .decode_log_parts(log.topics().iter().copied(), log.data().as_ref())
             .map_err(|e| AbiError::DecodingError {
@@ -401,7 +401,7 @@ impl AbiService {
     fn decode_function_direct(
         &self,
         tx: &Transaction,
-        function: &Function,
+        function: &Arc<Function>,
     ) -> Result<DecodedCall, AbiError> {
         let input_types: Vec<dyn_abi::DynSolType> =
             function.inputs.iter().map(|p| p.ty.parse()).collect::<Result<Vec<_>, _>>().map_err(
