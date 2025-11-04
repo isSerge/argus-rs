@@ -32,6 +32,8 @@ pub struct CachedContract {
     pub events: HashMap<B256, Arc<Event>>,
     /// The original parsed ABI, shared via `Arc`.
     pub abi: Arc<JsonAbi>,
+    /// Pre-parsed input types for each function selector for faster decoding.
+    pub function_input_types: HashMap<[u8; 4], Vec<dyn_abi::DynSolType>>,
 }
 
 impl From<Arc<JsonAbi>> for CachedContract {
@@ -48,7 +50,21 @@ impl From<Arc<JsonAbi>> for CachedContract {
             .map(|event| (event.selector(), Arc::new(event.clone())))
             .collect::<HashMap<B256, Arc<Event>>>();
 
-        Self { functions, events, abi }
+        // Pre-parse input types for each function for faster decoding later.
+        let function_input_types = abi
+            .functions()
+            .map(|func| {
+                let input_types = func
+                    .inputs
+                    .iter()
+                    .map(|p| p.ty.parse())
+                    .collect::<Result<Vec<_>, _>>()
+                    .expect("Failed to parse function input types");
+                (func.selector().into(), input_types)
+            })
+            .collect::<HashMap<[u8; 4], Vec<dyn_abi::DynSolType>>>();
+
+        Self { functions, events, abi, function_input_types }
     }
 }
 
@@ -380,10 +396,11 @@ impl AbiService {
         selector: &[u8; 4],
     ) -> Option<Result<DecodedCall, AbiError>> {
         self.address_specific_cache.get(&to).and_then(|contract| {
+            let input_types = contract.function_input_types.get(selector)?.clone();
             contract
                 .functions
                 .get(selector)
-                .map(|function| self.decode_function_direct(tx, function))
+                .map(|function| self.decode_function_direct(tx, function, input_types))
         })
     }
 
@@ -396,9 +413,10 @@ impl AbiService {
         self.global_function_index.get(selector).and_then(|contracts| {
             for contract in contracts.iter() {
                 if let Some(function) = contract.functions.get(selector) {
+                    let input_types = contract.function_input_types.get(selector)?.clone();
                     // We can return on the first successful decoding.
                     // Unlike logs, a function call can only match one ABI.
-                    return Some(self.decode_function_direct(tx, function));
+                    return Some(self.decode_function_direct(tx, function, input_types));
                 }
             }
             None
@@ -409,16 +427,8 @@ impl AbiService {
         &self,
         tx: &Transaction,
         function: &Arc<Function>,
+        input_types: Vec<dyn_abi::DynSolType>,
     ) -> Result<DecodedCall, AbiError> {
-        let input_types: Vec<dyn_abi::DynSolType> =
-            function.inputs.iter().map(|p| p.ty.parse()).collect::<Result<Vec<_>, _>>().map_err(
-                |e| AbiError::DecodingError {
-                    address: tx.to().unwrap_or_default(),
-                    item_type: format!("function {}", function.name),
-                    source: e,
-                },
-            )?;
-
         let tuple_type = dyn_abi::DynSolType::Tuple(input_types);
         let decoded_value =
             tuple_type.abi_decode(&tx.input()[4..]).map_err(|e| AbiError::DecodingError {
