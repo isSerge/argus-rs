@@ -6,10 +6,7 @@
 //! ABI.
 pub mod repository;
 
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use alloy::{
     dyn_abi::{self, DynSolValue, EventExt},
@@ -17,7 +14,6 @@ use alloy::{
     primitives::{Address, B256},
 };
 use dashmap::DashMap;
-use parking_lot::RwLock;
 use serde::Serialize;
 use thiserror::Error;
 
@@ -31,9 +27,9 @@ use crate::models::{Log, transaction::Transaction};
 #[derive(Debug, Clone)]
 pub struct CachedContract {
     /// A map from a function's 4-byte selector to its `Function` definition.
-    pub functions: HashMap<[u8; 4], Function>,
+    pub functions: HashMap<[u8; 4], Arc<Function>>,
     /// A map from an event's 32-byte topic hash to its `Event` definition.
-    pub events: HashMap<B256, Event>,
+    pub events: HashMap<B256, Arc<Event>>,
     /// The original parsed ABI, shared via `Arc`.
     pub abi: Arc<JsonAbi>,
 }
@@ -44,13 +40,13 @@ impl From<Arc<JsonAbi>> for CachedContract {
         // for O(1) lookups.
         let functions = abi
             .functions()
-            .map(|func| (func.selector().into(), func.clone()))
-            .collect::<HashMap<[u8; 4], Function>>();
+            .map(|func| (func.selector().into(), Arc::new(func.clone())))
+            .collect::<HashMap<[u8; 4], Arc<Function>>>();
 
         let events = abi
             .events()
-            .map(|event| (event.selector(), event.clone()))
-            .collect::<HashMap<B256, Event>>();
+            .map(|event| (event.selector(), Arc::new(event.clone())))
+            .collect::<HashMap<B256, Arc<Event>>>();
 
         Self { functions, events, abi }
     }
@@ -177,6 +173,21 @@ impl Serialize for DecodedCall {
     }
 }
 
+/// Extracts the target address and function selector from a transaction.
+#[inline]
+fn extract_address_and_selector(tx: &Transaction) -> Result<(Address, [u8; 4]), AbiError> {
+    let to = tx.to().ok_or(AbiError::ContractCreation)?;
+    let input = tx.input();
+
+    if input.len() < 4 {
+        return Err(AbiError::InputTooShort { length: input.len() });
+    }
+
+    // Optimized selector extraction.
+    let selector = [input[0], input[1], input[2], input[3]];
+    Ok((to, selector))
+}
+
 /// A service for managing and using contract ABIs.
 ///
 /// This service caches parsed ABIs and provides methods for decoding
@@ -186,8 +197,16 @@ impl Serialize for DecodedCall {
 pub struct AbiService {
     /// Cache for pre-processed contract ABIs, mapped by contract address.
     address_specific_cache: DashMap<Address, Arc<CachedContract>>,
-    /// A set of global ABIs used for decoding logs from any address.
-    global_cache: RwLock<HashSet<Arc<CachedContract>>>,
+
+    /// A map of global ABIs, keyed by their name.
+    global_contracts: DashMap<String, Arc<CachedContract>>,
+
+    /// Lookup index for global events by their signature.
+    global_event_index: DashMap<B256, Vec<Arc<CachedContract>>>,
+
+    /// Lookup index for global functions by their selector.
+    global_function_index: DashMap<[u8; 4], Vec<Arc<CachedContract>>>,
+
     /// Repository for loading raw ABI definitions by name.
     abi_repository: Arc<AbiRepository>,
 }
@@ -197,7 +216,9 @@ impl AbiService {
     pub fn new(abi_repository: Arc<AbiRepository>) -> Self {
         Self {
             address_specific_cache: DashMap::new(),
-            global_cache: RwLock::new(HashSet::new()),
+            global_contracts: DashMap::new(),
+            global_event_index: DashMap::new(),
+            global_function_index: DashMap::new(),
             abi_repository,
         }
     }
@@ -210,7 +231,26 @@ impl AbiService {
             .ok_or_else(|| AbiError::AbiNotFoundInRepository(abi_name.to_string()))?;
 
         let cached_contract = Arc::new(CachedContract::from(abi));
-        self.global_cache.write().insert(cached_contract);
+
+        // Insert into the global contracts map
+        self.global_contracts.insert(abi_name.to_string(), cached_contract.clone());
+
+        // Index events for fast lookup
+        for event_signature in cached_contract.events.keys() {
+            self.global_event_index
+                .entry(*event_signature)
+                .or_default()
+                .push(Arc::clone(&cached_contract));
+        }
+
+        // Index functions for fast lookup
+        for function_selector in cached_contract.functions.keys() {
+            self.global_function_index
+                .entry(*function_selector)
+                .or_default()
+                .push(Arc::clone(&cached_contract));
+        }
+
         Ok(())
     }
 
@@ -245,44 +285,62 @@ impl AbiService {
         self.address_specific_cache.len()
     }
 
-    /// Decodes an event log using proper Alloy APIs.
+    /// Decodes an event log by first trying address-specific ABIs, then falling
+    /// back to global ABIs.
     pub fn decode_log(&self, log: &Log) -> Result<DecodedLog, AbiError> {
         let event_signature =
             log.topics().first().ok_or(AbiError::LogHasNoTopics { address: log.address() })?;
 
-        // Prioritize address-specific ABIs.
-        if let Some(contract) = self.address_specific_cache.get(&log.address())
-            && contract.events.contains_key(event_signature)
-        {
-            return self.decode_log_with_contract(log, &contract, event_signature);
-        }
+        let result = self
+            .try_decode_log_from_address(log, event_signature)
+            .or_else(|| self.try_decode_log_from_global(log, event_signature));
 
-        // Fallback to global ABIs if no address-specific match is found.
-        for contract in self.global_cache.read().iter() {
-            if contract.events.contains_key(event_signature) {
-                return self.decode_log_with_contract(log, contract, event_signature);
-            }
+        match result {
+            Some(Ok(decoded_log)) => Ok(decoded_log),
+            Some(Err(e)) => Err(e),
+            None =>
+                Err(AbiError::EventNotFound { signature: *event_signature, address: log.address() }),
         }
-
-        Err(AbiError::EventNotFound { signature: *event_signature, address: log.address() })
     }
 
-    /// Decodes an event log using a specific cached contract ABI.
-    fn decode_log_with_contract(
+    /// Attempts to decode a log using an address-specific ABI.
+    fn try_decode_log_from_address(
         &self,
         log: &Log,
-        contract: &Arc<CachedContract>,
         event_signature: &B256,
-    ) -> Result<DecodedLog, AbiError> {
-        let event = contract.events.get(event_signature).ok_or_else(|| {
-            AbiError::EventNotFound { signature: *event_signature, address: log.address() }
-        })?;
+    ) -> Option<Result<DecodedLog, AbiError>> {
+        self.address_specific_cache.get(&log.address()).and_then(|contract| {
+            contract.events.get(event_signature).map(|event| self.decode_log_direct(log, event))
+        })
+    }
 
+    /// Attempts to decode a log using the global ABI cache.
+    fn try_decode_log_from_global(
+        &self,
+        log: &Log,
+        event_signature: &B256,
+    ) -> Option<Result<DecodedLog, AbiError>> {
+        self.global_event_index.get(event_signature).and_then(|contracts| {
+            let mut last_error = None;
+            for contract in contracts.iter() {
+                if let Some(event) = contract.events.get(event_signature) {
+                    match self.decode_log_direct(log, event) {
+                        Ok(decoded) => return Some(Ok(decoded)),
+                        Err(e) => last_error = Some(e),
+                    }
+                }
+            }
+            last_error.map(Err)
+        })
+    }
+
+    /// Decodes an event log using a specific `Event` definition.
+    fn decode_log_direct(&self, log: &Log, event: &Arc<Event>) -> Result<DecodedLog, AbiError> {
         let decoded = event
             .decode_log_parts(log.topics().iter().copied(), log.data().as_ref())
             .map_err(|e| AbiError::DecodingError {
                 address: log.address(),
-                item_type: "event".into(),
+                item_type: format!("event {}", event.name),
                 source: e,
             })?;
 
@@ -298,62 +356,65 @@ impl AbiService {
         Ok(DecodedLog { name: event.name.clone(), params, log: log.clone() })
     }
 
-    /// Decodes a function call from transaction input data.
-    ///
-    /// This method extracts the function selector from the transaction input
-    /// data, looks up the corresponding function definition, and decodes
-    /// the parameters.
+    /// Decodes a function call by first trying address-specific ABIs, then
+    /// falling back to global ABIs.
     pub fn decode_function_input(&self, tx: &Transaction) -> Result<DecodedCall, AbiError> {
-        // Get the target contract address from the transaction
-        let to = tx.to().ok_or_else(|| {
-            tracing::debug!("Cannot decode function call from contract creation transaction");
-            AbiError::ContractCreation
-        })?;
+        let (to, selector) = extract_address_and_selector(tx)?;
 
-        // Get the input data from the transaction
-        let input = tx.input();
+        let result = self
+            .try_decode_function_from_address(tx, to, &selector)
+            .or_else(|| self.try_decode_function_from_global(tx, &selector));
 
-        // The input data must be at least 4 bytes (the function selector)
-        if input.len() < 4 {
-            tracing::debug!("Transaction input too short: {} bytes", input.len());
-            return Err(AbiError::InputTooShort { length: input.len() });
+        match result {
+            Some(Ok(decoded_call)) => Ok(decoded_call),
+            Some(Err(e)) => Err(e),
+            None => Err(AbiError::FunctionNotFound { selector, address: to }),
         }
-
-        // Extract the function selector (first 4 bytes)
-        let selector: [u8; 4] = input[0..4].try_into().unwrap();
-
-        // Prioritize address-specific ABIs.
-        if let Some(contract) = self.address_specific_cache.get(&to)
-            && contract.functions.contains_key(&selector)
-        {
-            return self.decode_function_input_with_contract(tx, &contract, selector);
-        }
-
-        // Fallback to global ABIs if no address-specific match is found.
-        for contract in self.global_cache.read().iter() {
-            if contract.functions.contains_key(&selector) {
-                return self.decode_function_input_with_contract(tx, contract, selector);
-            }
-        }
-
-        Err(AbiError::FunctionNotFound { selector, address: to })
     }
 
-    fn decode_function_input_with_contract(
+    /// Attempts to decode a function's input using an address-specific ABI.
+    fn try_decode_function_from_address(
         &self,
         tx: &Transaction,
-        contract: &Arc<CachedContract>,
-        selector: [u8; 4],
-    ) -> Result<DecodedCall, AbiError> {
-        let function = contract.functions.get(&selector).ok_or_else(|| {
-            AbiError::FunctionNotFound { selector, address: tx.to().unwrap_or_default() }
-        })?;
+        to: Address,
+        selector: &[u8; 4],
+    ) -> Option<Result<DecodedCall, AbiError>> {
+        self.address_specific_cache.get(&to).and_then(|contract| {
+            contract
+                .functions
+                .get(selector)
+                .map(|function| self.decode_function_direct(tx, function))
+        })
+    }
 
+    /// Attempts to decode a function's input using the global ABI cache.
+    fn try_decode_function_from_global(
+        &self,
+        tx: &Transaction,
+        selector: &[u8; 4],
+    ) -> Option<Result<DecodedCall, AbiError>> {
+        self.global_function_index.get(selector).and_then(|contracts| {
+            for contract in contracts.iter() {
+                if let Some(function) = contract.functions.get(selector) {
+                    // We can return on the first successful decoding.
+                    // Unlike logs, a function call can only match one ABI.
+                    return Some(self.decode_function_direct(tx, function));
+                }
+            }
+            None
+        })
+    }
+
+    fn decode_function_direct(
+        &self,
+        tx: &Transaction,
+        function: &Arc<Function>,
+    ) -> Result<DecodedCall, AbiError> {
         let input_types: Vec<dyn_abi::DynSolType> =
             function.inputs.iter().map(|p| p.ty.parse()).collect::<Result<Vec<_>, _>>().map_err(
                 |e| AbiError::DecodingError {
                     address: tx.to().unwrap_or_default(),
-                    item_type: "function".into(),
+                    item_type: format!("function {}", function.name),
                     source: e,
                 },
             )?;
@@ -362,7 +423,7 @@ impl AbiService {
         let decoded_value =
             tuple_type.abi_decode(&tx.input()[4..]).map_err(|e| AbiError::DecodingError {
                 address: tx.to().unwrap_or_default(),
-                item_type: "function".into(),
+                item_type: format!("function {}", function.name),
                 source: e,
             })?;
 
@@ -371,7 +432,7 @@ impl AbiService {
         } else {
             return Err(AbiError::DecodingError {
                 address: tx.to().unwrap_or_default(),
-                item_type: "function".into(),
+                item_type: format!("function {}", function.name),
                 source: dyn_abi::Error::TypeMismatch {
                     expected: tuple_type.to_string(),
                     actual: format!("{decoded_value:?}"),
@@ -410,17 +471,14 @@ impl AbiService {
     /// Checks if a global ABI with the given name has been added to the
     /// service.
     pub fn has_global_abi(&self, abi_name: &str) -> bool {
-        let global_cache = self.global_cache.read();
-        global_cache.iter().any(|cached_contract| {
-            self.abi_repository
-                .get_abi(abi_name)
-                .is_some_and(|repo_abi| Arc::ptr_eq(&repo_abi, &cached_contract.abi))
-        })
+        self.global_contracts.contains_key(abi_name)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use alloy::primitives::{Address, Bytes, U256, address, b256, bytes};
 
     use super::*;
