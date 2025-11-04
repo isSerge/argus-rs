@@ -340,7 +340,7 @@ impl AbiService {
             .decode_log_parts(log.topics().iter().copied(), log.data().as_ref())
             .map_err(|e| AbiError::DecodingError {
                 address: log.address(),
-                item_type: "event".into(),
+                item_type: format!("event {}", event.name),
                 source: e,
             })?;
 
@@ -356,11 +356,6 @@ impl AbiService {
         Ok(DecodedLog { name: event.name.clone(), params, log: log.clone() })
     }
 
-    /// Decodes a function call from transaction input data.
-    ///
-    /// This method extracts the function selector from the transaction input
-    /// data, looks up the corresponding function definition, and decodes
-    /// the parameters.
     /// Decodes a function call by first trying address-specific ABIs, then
     /// falling back to global ABIs.
     pub fn decode_function_input(&self, tx: &Transaction) -> Result<DecodedCall, AbiError> {
@@ -419,7 +414,7 @@ impl AbiService {
             function.inputs.iter().map(|p| p.ty.parse()).collect::<Result<Vec<_>, _>>().map_err(
                 |e| AbiError::DecodingError {
                     address: tx.to().unwrap_or_default(),
-                    item_type: "function".into(),
+                    item_type: format!("function {}", function.name),
                     source: e,
                 },
             )?;
@@ -428,7 +423,7 @@ impl AbiService {
         let decoded_value =
             tuple_type.abi_decode(&tx.input()[4..]).map_err(|e| AbiError::DecodingError {
                 address: tx.to().unwrap_or_default(),
-                item_type: "function".into(),
+                item_type: format!("function {}", function.name),
                 source: e,
             })?;
 
@@ -437,7 +432,7 @@ impl AbiService {
         } else {
             return Err(AbiError::DecodingError {
                 address: tx.to().unwrap_or_default(),
-                item_type: "function".into(),
+                item_type: format!("function {}", function.name),
                 source: dyn_abi::Error::TypeMismatch {
                     expected: tuple_type.to_string(),
                     actual: format!("{decoded_value:?}"),
