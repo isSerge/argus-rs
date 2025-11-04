@@ -6,10 +6,7 @@
 //! ABI.
 pub mod repository;
 
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use alloy::{
     dyn_abi::{self, DynSolValue, EventExt},
@@ -17,7 +14,6 @@ use alloy::{
     primitives::{Address, B256},
 };
 use dashmap::DashMap;
-use parking_lot::RwLock;
 use serde::Serialize;
 use thiserror::Error;
 
@@ -202,11 +198,14 @@ pub struct AbiService {
     /// Cache for pre-processed contract ABIs, mapped by contract address.
     address_specific_cache: DashMap<Address, Arc<CachedContract>>,
 
-    /// A set of global ABIs used for decoding logs from any address.
-    global_cache: RwLock<HashSet<Arc<CachedContract>>>,
+    /// A map of global ABIs, keyed by their name.
+    global_contracts: DashMap<String, Arc<CachedContract>>,
 
     /// Lookup index for global events by their signature.
     global_event_index: DashMap<B256, Vec<Arc<CachedContract>>>,
+
+    /// Lookup index for global functions by their selector.
+    global_function_index: DashMap<[u8; 4], Vec<Arc<CachedContract>>>,
 
     /// Repository for loading raw ABI definitions by name.
     abi_repository: Arc<AbiRepository>,
@@ -217,8 +216,9 @@ impl AbiService {
     pub fn new(abi_repository: Arc<AbiRepository>) -> Self {
         Self {
             address_specific_cache: DashMap::new(),
-            global_cache: RwLock::new(HashSet::new()),
+            global_contracts: DashMap::new(),
             global_event_index: DashMap::new(),
+            global_function_index: DashMap::new(),
             abi_repository,
         }
     }
@@ -232,13 +232,21 @@ impl AbiService {
 
         let cached_contract = Arc::new(CachedContract::from(abi));
 
-        // Insert into the global cache
-        self.global_cache.write().insert(cached_contract.clone());
+        // Insert into the global contracts map
+        self.global_contracts.insert(abi_name.to_string(), cached_contract.clone());
 
         // Index events for fast lookup
         for event_signature in cached_contract.events.keys() {
             self.global_event_index
                 .entry(*event_signature)
+                .or_default()
+                .push(Arc::clone(&cached_contract));
+        }
+
+        // Index functions for fast lookup
+        for function_selector in cached_contract.functions.keys() {
+            self.global_function_index
+                .entry(*function_selector)
                 .or_default()
                 .push(Arc::clone(&cached_contract));
         }
@@ -390,12 +398,16 @@ impl AbiService {
         tx: &Transaction,
         selector: &[u8; 4],
     ) -> Option<Result<DecodedCall, AbiError>> {
-        for contract in self.global_cache.read().iter() {
-            if let Some(function) = contract.functions.get(selector) {
-                return Some(self.decode_function_direct(tx, function));
+        self.global_function_index.get(selector).and_then(|contracts| {
+            for contract in contracts.iter() {
+                if let Some(function) = contract.functions.get(selector) {
+                    // We can return on the first successful decoding.
+                    // Unlike logs, a function call can only match one ABI.
+                    return Some(self.decode_function_direct(tx, function));
+                }
             }
-        }
-        None
+            None
+        })
     }
 
     fn decode_function_direct(
@@ -464,17 +476,14 @@ impl AbiService {
     /// Checks if a global ABI with the given name has been added to the
     /// service.
     pub fn has_global_abi(&self, abi_name: &str) -> bool {
-        let global_cache = self.global_cache.read();
-        global_cache.iter().any(|cached_contract| {
-            self.abi_repository
-                .get_abi(abi_name)
-                .is_some_and(|repo_abi| Arc::ptr_eq(&repo_abi, &cached_contract.abi))
-        })
+        self.global_contracts.contains_key(abi_name)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use alloy::primitives::{Address, Bytes, U256, address, b256, bytes};
 
     use super::*;
