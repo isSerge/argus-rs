@@ -1,5 +1,6 @@
 //! ABI management HTTP handlers
 
+use alloy::json_abi::JsonAbi;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -25,7 +26,10 @@ pub async fn upload_abi(
 ) -> Result<impl IntoResponse, ApiError> {
     // Validate ABI JSON
     let abi_json = serde_json::from_str::<serde_json::Value>(&payload.abi)
-        .map_err(|e| ApiError::UnprocessableEntity(format!("Invalid ABI JSON: {}", e)))?;
+        .map_err(|e| ApiError::UnprocessableEntity(format!("Invalid JSON: {}", e)))?;
+
+    let _validate_abi_json: JsonAbi = serde_json::from_str(&payload.abi)
+        .map_err(|e| ApiError::BadRequest(format!("Invalid ABI: {}", e)))?;
 
     // Check if ABI already exists
     if state.repo.get_abi(&payload.name).await?.is_some() {
