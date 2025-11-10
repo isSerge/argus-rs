@@ -47,6 +47,10 @@ pub enum ActionTypeConfigError {
     #[error("Webhook title cannot be empty.")]
     EmptyTitle,
 
+    /// Error for invalid HTTP/HTTPS URL in a webhook message.
+    #[error("Webhook URL must be valid HTTP or HTTPS")]
+    InvalidWebhookURL,
+
     /// Error for empty Telegram token.
     #[error("Telegram token cannot be empty.")]
     EmptyTelegramToken,
@@ -71,9 +75,17 @@ pub enum ActionTypeConfigError {
     #[error("Event publisher brokers cannot be empty.")]
     EmptyKafkaBrokers,
 
+    /// Error for invalid Kafka publisher broker host:port pairs.
+    #[error("Event publisher brokers cannot be empty.")]
+    InvalidKafkaBrokerConfig,
+
     /// Error for empty RabbitMQ URI.
     #[error("RabbitMQ URI cannot be empty.")]
     EmptyRabbitMqUri,
+
+    /// Error for invalid RabbitMQ URI.
+    #[error("Invalid RabbitMQ URI: must be a valid AMQP or AMQPS URI.")]
+    InvalidRabbitMqUri,
 
     /// Error for empty RabbitMQ exchange.
     #[error("RabbitMQ exchange cannot be empty.")]
@@ -82,6 +94,10 @@ pub enum ActionTypeConfigError {
     /// Error for empty NATS server URLs.
     #[error("NATS server URLs cannot be empty.")]
     EmptyNatsUrls,
+
+    /// Error for invalid NATS server URLs.
+    #[error("NATS server URLs must be valid.")]
+    InvalidNatsUrls,
 
     /// Error for empty NATS subject.
     #[error("NATS subject cannot be empty.")]
@@ -99,6 +115,9 @@ impl ActionTypeConfig {
             ActionTypeConfig::Webhook(config) => {
                 if config.message.title.is_empty() {
                     return Err(ActionTypeConfigError::EmptyTitle);
+                }
+                if config.url.scheme() != "http" && config.url.scheme() != "https" {
+                    return Err(ActionTypeConfigError::InvalidWebhookURL);
                 }
                 Ok(())
             }
@@ -136,6 +155,26 @@ impl ActionTypeConfig {
                     return Err(ActionTypeConfigError::EmptyKafkaBrokers);
                 }
 
+                // Each broker should be a valid host:port pair
+                for broker in config.brokers.split(',').map(|s| s.trim()).filter(|s| !s.is_empty())
+                {
+                    let mut parts = broker.split(':');
+                    let host = parts.next();
+                    let port = parts.next();
+                    // There should be exactly one ':'
+                    if host.is_none() || port.is_none() || parts.next().is_some() {
+                        return Err(ActionTypeConfigError::InvalidKafkaBrokerConfig);
+                    }
+                    // Optionally, validate host (non-empty) and port (parse as u16)
+                    if host.unwrap().is_empty() {
+                        return Err(ActionTypeConfigError::InvalidKafkaBrokerConfig);
+                    }
+                    let port_str = port.unwrap();
+                    if port_str.parse::<u16>().is_err() {
+                        return Err(ActionTypeConfigError::InvalidKafkaBrokerConfig);
+                    }
+                }
+
                 Ok(())
             }
 
@@ -143,6 +182,11 @@ impl ActionTypeConfig {
             ActionTypeConfig::RabbitMq(config) => {
                 if config.uri.is_empty() {
                     return Err(ActionTypeConfigError::EmptyRabbitMqUri);
+                }
+                // Validate that it's a valid URI with amqp:// or amqps:// scheme
+                if !matches!(url::Url::parse(&config.uri), Ok(uri) if uri.scheme() == "amqp" || uri.scheme() == "amqps")
+                {
+                    return Err(ActionTypeConfigError::InvalidRabbitMqUri);
                 }
 
                 if config.exchange.is_empty() {
@@ -156,6 +200,15 @@ impl ActionTypeConfig {
             ActionTypeConfig::Nats(config) => {
                 if config.urls.is_empty() {
                     return Err(ActionTypeConfigError::EmptyNatsUrls);
+                }
+                for url_str in config.urls.split(",") {
+                    let url_str = url_str.trim();
+                    if url_str.is_empty() {
+                        return Err(ActionTypeConfigError::EmptyNatsUrls);
+                    }
+                    if !matches!(url::Url::parse(url_str), Ok(uri) if uri.scheme() == "nats") {
+                        return Err(ActionTypeConfigError::InvalidNatsUrls);
+                    }
                 }
 
                 if config.subject.is_empty() {
@@ -255,6 +308,20 @@ mod tests {
         let result = config.validate();
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), ActionTypeConfigError::EmptyTitle));
+    }
+    #[test]
+    fn test_validate_webhook_invalid_url_scheme() {
+        let config = ActionTypeConfig::Webhook(GenericWebhookConfig {
+            url: Url::parse("ftp://localhost/webhook").unwrap(),
+            message: notification_message(),
+            method: None,
+            secret: None,
+            headers: None,
+            retry_policy: HttpRetryConfig::default(),
+        });
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ActionTypeConfigError::InvalidWebhookURL));
     }
 
     #[test]
@@ -402,6 +469,17 @@ mod tests {
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), ActionTypeConfigError::EmptyRabbitMqUri));
     }
+    #[test]
+    fn test_validate_rabbitmq_invalid_uri_scheme() {
+        let config = ActionTypeConfig::RabbitMq(RabbitMqConfig {
+            uri: "http://localhost:5672".to_string(),
+            exchange: "test_exchange".to_string(),
+            ..Default::default()
+        });
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ActionTypeConfigError::InvalidRabbitMqUri));
+    }
 
     #[test]
     fn test_validate_rabbitmq_empty_exchange() {
@@ -435,6 +513,18 @@ mod tests {
         let result = config.validate();
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), ActionTypeConfigError::EmptyNatsUrls));
+    }
+
+    #[test]
+    fn test_validate_nats_invalid_url_scheme() {
+        let config = ActionTypeConfig::Nats(NatsConfig {
+            urls: "amqp://localhost:4222".to_string(),
+            subject: "test_subject".to_string(),
+            ..Default::default()
+        });
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ActionTypeConfigError::InvalidNatsUrls));
     }
 
     #[test]
