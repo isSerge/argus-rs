@@ -69,7 +69,7 @@ async fn upload_abi_endpoint_works() {
     let server = TestServer::new(repo).await;
     let abi_json = serde_json::json!({
         "name": "TestABI",
-        "abi": r#"[{"type":"function","name":"transfer","inputs":[{"name":"to","type":"address"},{"name":"amount","type":"uint256"}]}]"#
+        "abi": r#"[{"type":"function","name":"transfer","inputs":[{"name":"to","type":"address"},{"name":"amount","type":"uint256"}],"outputs":[]}]"#
     });
 
     // 1. Successful creation
@@ -100,6 +100,34 @@ async fn upload_abi_endpoint_works() {
         .unwrap();
     assert_eq!(resp.status(), 422, "Should return unprocessable entity for invalid JSON");
 
+    server.cleanup();
+}
+
+#[tokio::test]
+async fn upload_abi_endpoint_catches_invalid_abi() {
+    let repo = create_test_repo().await;
+    let server = TestServer::new(repo).await;
+    // 3. Invalid JSON
+    let invalid_abi_json = serde_json::json!({
+        "name": "InvalidABI",
+        "abi": r#"[{"type":"function","inputs":[],"outputs":[]}]"#  // Missing required "name" field
+    });
+    let resp = server
+        .post("/abis")
+        .await
+        .bearer_auth("test-key")
+        .json(&invalid_abi_json)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400, "Should return bad request for invalid ABI");
+    let body: serde_json::Value = resp.json().await.unwrap();
+    // Checks for both "Invalid ABI" and missing "name" field in the error message
+    let error_msg = body["error"].as_str().unwrap();
+    assert!(
+        error_msg.contains("Invalid ABI") || error_msg.contains("missing field") || error_msg.contains("name"),
+        "Error message should indicate invalid ABI or missing 'name' field, got: {error_msg}"
+    );
     server.cleanup();
 }
 
