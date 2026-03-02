@@ -4,3 +4,4 @@ data/
 configs/monitors.yaml
 configs/actions.yaml
 /docs/book/
+.DS_Store
