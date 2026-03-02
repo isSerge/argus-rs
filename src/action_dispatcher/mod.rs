@@ -15,6 +15,7 @@ use crate::{
     },
 };
 
+mod action_type;
 pub mod error;
 mod payload;
 pub mod publisher;
@@ -23,6 +24,7 @@ pub mod template;
 mod traits;
 mod webhook;
 
+use action_type::ActionType;
 use error::ActionDispatcherError;
 pub use payload::ActionPayload;
 use publisher::{KafkaEventPublisher, NatsEventPublisher, RabbitMqEventPublisher};
@@ -54,7 +56,7 @@ impl ActionTypeConfig {
 /// action configurations (webhook notifiers, publishers, etc.)
 pub struct ActionDispatcher {
     /// A map of action names to their corresponding action implementations.
-    actions: HashMap<String, Box<dyn Action>>,
+    actions: HashMap<String, ActionType>,
 }
 
 impl ActionDispatcher {
@@ -70,10 +72,10 @@ impl ActionDispatcher {
         client_pool: Arc<HttpClientPool>,
     ) -> Result<Self, ActionDispatcherError> {
         let template_service = Arc::new(TemplateService::new());
-        let mut actions: HashMap<String, Box<dyn Action>> = HashMap::new();
+        let mut actions: HashMap<String, ActionType> = HashMap::new();
 
         for (name, config) in action_configs.iter() {
-            let action: Box<dyn Action> = match &config.config {
+            let action: ActionType = match &config.config {
                 // Kafka publisher action
                 ActionTypeConfig::Kafka(c) => {
                     let publisher = match KafkaEventPublisher::from_config(c) {
@@ -88,7 +90,7 @@ impl ActionDispatcher {
                         }
                     };
 
-                    Box::new(publisher)
+                    ActionType::Kafka(publisher)
                 }
 
                 // RabbitMQ publisher action
@@ -105,7 +107,7 @@ impl ActionDispatcher {
                         }
                     };
 
-                    Box::new(publisher)
+                    ActionType::RabbitMq(publisher)
                 }
 
                 // NATS publisher action
@@ -122,12 +124,12 @@ impl ActionDispatcher {
                         }
                     };
 
-                    Box::new(publisher)
+                    ActionType::Nats(publisher)
                 }
 
                 // Standard output action
                 ActionTypeConfig::Stdout(c) =>
-                    Box::new(StdoutAction::new(c.clone(), template_service.clone())),
+                    ActionType::Stdout(StdoutAction::new(c.clone(), template_service.clone())),
 
                 // All webhook-based actions are constructed here
                 ActionTypeConfig::Webhook(_)
@@ -137,7 +139,11 @@ impl ActionDispatcher {
                     // This unwrap is safe because we've already filtered non-webhook types
                     let components = config.config.as_webhook_components().unwrap();
                     let http_client = client_pool.get_or_create(&components.retry_policy).await?;
-                    Box::new(WebhookAction::new(components, http_client, template_service.clone()))
+                    ActionType::Webhook(WebhookAction::new(
+                        components,
+                        http_client,
+                        template_service.clone(),
+                    ))
                 }
             };
             actions.insert(name.clone(), action);
