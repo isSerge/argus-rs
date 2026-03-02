@@ -34,7 +34,6 @@ macro_rules! dispatch_action {
 }
 
 /// Implement the Action trait for the Enum itself.
-/// This encapsulates the dispatch logic, keeping the call sites clean.
 #[async_trait::async_trait]
 impl Action for ActionType {
     async fn execute(&self, payload: ActionPayload) -> Result<(), ActionDispatcherError> {
