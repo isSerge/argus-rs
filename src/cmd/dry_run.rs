@@ -17,7 +17,10 @@ use crate::{
     },
     models::monitor_match::MonitorMatch,
     monitor::MonitorManager,
-    persistence::{error::PersistenceError, traits::KeyValueStore},
+    persistence::{
+        error::PersistenceError,
+        traits::{AppRepository, KeyValueStore},
+    },
     providers::{
         block_fetcher,
         rpc::{EvmRpcSource, ProviderError},
@@ -213,6 +216,7 @@ fn print_summary_report(
     }
 }
 
+// TODO: should use outbox processor for dispatching notifications
 /// The core processing logic for the dry run.
 ///
 /// # Arguments
@@ -230,7 +234,7 @@ fn print_summary_report(
 ///
 /// A `Result` containing a vector of all `MonitorMatch`es found during the run,
 /// or a `DryRunError`.
-async fn run_dry_run_loop<T: KeyValueStore>(
+async fn run_dry_run_loop<T: KeyValueStore + AppRepository>(
     from_block: u64,
     to_block: u64,
     data_source: Box<dyn DataSource>,
@@ -333,10 +337,8 @@ mod tests {
     use super::*;
     use crate::{
         abi::{AbiRepository, AbiService},
-        action_dispatcher::ActionDispatcher,
         config::RhaiConfig,
         engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
-        http_client::HttpClientPool,
         models::{action::ActionConfig, monitor_match::MatchData},
         persistence::sqlite::SqliteStateRepository,
         providers::traits::MockDataSource,
@@ -357,10 +359,7 @@ mod tests {
         actions: Arc<HashMap<String, ActionConfig>>,
     ) -> Arc<AlertManager<SqliteStateRepository>> {
         let state_repo = create_test_repo().await;
-        let client_pool = Arc::new(HttpClientPool::default());
-        let action_dispatcher =
-            Arc::new(ActionDispatcher::new(actions.clone(), client_pool).await.unwrap());
-        Arc::new(AlertManager::new(action_dispatcher, state_repo, actions))
+        Arc::new(AlertManager::new(state_repo, actions))
     }
 
     const CONCURRENCY: usize = 4;
