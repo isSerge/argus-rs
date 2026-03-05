@@ -70,7 +70,8 @@ impl ActionPayload {
             ActionPayload::Single(m) => m.id.clone(),
             ActionPayload::Aggregated { matches, .. } => {
                 // Determine a unique ID for this specific bundle of events.
-                // Sort match IDs to ensure the idempotency key is independent of iteration order.
+                // Sort match IDs to ensure the idempotency key is independent of iteration
+                // order.
                 let mut ids: Vec<&str> = matches.iter().map(|m| m.id.as_str()).collect();
                 ids.sort_unstable();
 
