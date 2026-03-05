@@ -975,7 +975,7 @@ impl AppRepository for SqliteStateRepository {
                 payload as "payload!", 
                 retries as "retries!"
             FROM outbox 
-            ORDER BY created_at ASC 
+            ORDER BY id ASC 
             LIMIT ?
             "#,
                 limit
