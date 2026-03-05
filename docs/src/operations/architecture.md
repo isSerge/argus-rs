@@ -22,9 +22,13 @@ The `src` directory is organized into several modules, each representing a key c
 -   **`engine`**: This is the core data processing pipeline. It is divided into several stages:
     -   **`BlockProcessor`**: Receives raw block data from the providers and correlates transactions with their corresponding logs and receipts into a structured format.
     -   **`FilteringEngine`**: Receives correlated block data from the `BlockProcessor`. It executes the appropriate Rhai filter scripts for each monitor, lazily decoding event logs and transaction calldata as needed during script execution. Upon a match, it creates a `MonitorMatch` object.
-    -   **`AlertManager`**: Receives `MonitorMatch`es from the `FilteringEngine`. It is responsible for managing notification policies (throttling, aggregation) before handing off notifications for dispatch.
+    -   **`AlertManager`**: Receives `MonitorMatch`es from the `FilteringEngine`. It is responsible for managing notification policies (throttling, aggregation) before enqueueing alerts to the `Outbox`.
 
--   **`action_dispatcher`**: Receives notification requests from the `AlertManager`. It manages a collection of specific action clients (e.g., Webhook, Stdout) and is responsible for the final dispatch of the alert to the external service.
+-   **`Outbox`**: A durable queue that persists alerts to the database. It decouples the `AlertManager` from the action dispatcher, allowing for asynchronous processing and guaranteed delivery.
+
+-   **`OutboxProcessor`**: Processes alerts from the `Outbox` and forwards them to the `action_dispatcher` for execution. It handles retries and manages the outbox lifecycle.
+
+-   **`action_dispatcher`**: Receives alert requests from the `OutboxProcessor`. It manages a collection of specific action clients (e.g., Webhook, Stdout) and is responsible for executing the alert with the external service.
 
 -   **`persistence`**: This module provides an abstraction layer over the database (currently SQLite). It handles all state management, such as storing the last processed block number.
 

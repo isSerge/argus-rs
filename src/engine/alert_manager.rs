@@ -91,7 +91,7 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
                 }
             },
             None => {
-                // No policy, send immediately
+                // No policy, enqueue immediately
                 tracing::debug!("No policy for action {}, enqueuing immediately.", action_name);
                 if let Err(e) =
                     self.dispatch_payload(ActionPayload::Single(monitor_match.clone())).await
@@ -171,10 +171,10 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
             throttle_state.window_start_time = current_time;
         }
 
-        // Check if the notification should be sent
+        // Check if the notification should be enqueued
         if throttle_state.count < policy.max_count {
             tracing::info!(
-                "Sending throttled notification for {}. Count: {}/{}",
+                "Enqueueing throttled notification for {}. Count: {}/{}",
                 action_name,
                 throttle_state.count + 1,
                 policy.max_count
@@ -188,7 +188,7 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
                     e
                 );
             } else {
-                // Increment dispatch counter on successful notification
+                // Increment generated alerts counter on successful enqueueing
                 *self.generated_alerts.entry(monitor_match.action_name.clone()).or_insert(0) += 1;
             }
             throttle_state.count += 1;
@@ -242,7 +242,7 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
     }
 
     /// Scans the state repository for expired aggregation windows and
-    /// dispatches them.
+    /// enqueues them to the Outbox.
     async fn check_and_dispatch_expired_windows(
         &self,
         force: bool,
@@ -331,7 +331,7 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
         Ok(())
     }
 
-    /// Runs a background task to dispatch expired aggregation windows.
+    /// Runs a background task to enqueue expired aggregation windows to the Outbox.
     /// This should be spawned as a long-running task by the Supervisor.
     pub async fn run_aggregation_dispatcher(&self, check_interval: Duration) {
         let mut interval = tokio::time::interval(check_interval);
