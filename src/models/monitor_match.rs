@@ -8,7 +8,7 @@ use serde_json::Value;
 /// about the trigger.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MonitorMatch {
-    /// Idepmotent identifier for the match, tx hash + log index for log
+    /// Idempotent identifier for the match, tx hash + log index for log
     /// matches, tx hash alone for transaction matches.
     pub id: String,
 
