@@ -121,6 +121,7 @@ impl WebhookClient {
     pub async fn notify_json(
         &self,
         payload: &serde_json::Value,
+        idempotency_key: Option<&str>,
     ) -> Result<(), ActionDispatcherError> {
         let mut url = self.url.clone();
 
@@ -175,6 +176,13 @@ impl WebhookClient {
                 })?;
                 headers.insert(header_name, header_value);
             }
+        }
+
+        // Add the Idempotency Key
+        if let Some(key) = idempotency_key
+            && let Ok(header_val) = HeaderValue::from_str(key)
+        {
+            headers.insert("Idempotency-Key", header_val);
         }
 
         // Send request with custom payload
@@ -273,7 +281,7 @@ mod tests {
     async fn test_notify_failure() {
         let action = create_test_action("https://webhook.example.com", None, None);
         let payload = create_test_payload();
-        let result = action.notify_json(&payload).await;
+        let result = action.notify_json(&payload, None).await;
         assert!(result.is_err());
     }
 
@@ -296,7 +304,7 @@ mod tests {
         );
 
         let payload = create_test_payload();
-        let result = action.notify_json(&payload).await;
+        let result = action.notify_json(&payload, None).await;
 
         assert!(result.is_ok());
 
@@ -315,7 +323,7 @@ mod tests {
 
         let action = create_test_action(server.url().as_str(), None, Some(invalid_headers));
         let payload = create_test_payload();
-        let result = action.notify_json(&payload).await;
+        let result = action.notify_json(&payload, None).await;
         let err = result.unwrap_err();
         assert!(err.to_string().contains("Invalid header name"));
     }
@@ -329,7 +337,7 @@ mod tests {
         let action = create_test_action(server.url().as_str(), None, Some(invalid_headers));
 
         let payload = create_test_payload();
-        let result = action.notify_json(&payload).await;
+        let result = action.notify_json(&payload, None).await;
         let err = result.unwrap_err();
         assert!(err.to_string().contains("Invalid header value"));
     }
@@ -353,7 +361,7 @@ mod tests {
         let action = create_test_action(server.url().as_str(), None, Some(valid_headers));
 
         let payload = create_test_payload();
-        let result = action.notify_json(&payload).await;
+        let result = action.notify_json(&payload, None).await;
         assert!(result.is_ok());
         mock.assert();
     }
@@ -373,7 +381,7 @@ mod tests {
         let action = create_test_action(server.url().as_str(), Some("test-secret"), None);
 
         let payload = create_test_payload();
-        let result = action.notify_json(&payload).await;
+        let result = action.notify_json(&payload, None).await;
         assert!(result.is_ok());
         mock.assert();
     }

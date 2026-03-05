@@ -30,6 +30,7 @@ impl WebhookAction {
 impl Action for WebhookAction {
     async fn execute(&self, payload: ActionPayload) -> Result<(), ActionDispatcherError> {
         let context = payload.context()?;
+        let idempotency_key = payload.idempotency_key();
 
         // Determine title and body based on payload type
         let (title, body) = if let ActionPayload::Aggregated { template, .. } = &payload {
@@ -43,7 +44,7 @@ impl Action for WebhookAction {
 
         let json_payload = self.components.builder.build_payload(&rendered_title, &rendered_body);
         let client = WebhookClient::new(self.components.config.clone(), self.http_client.clone())?;
-        client.notify_json(&json_payload).await?;
+        client.notify_json(&json_payload, Some(&idempotency_key)).await?;
 
         Ok(())
     }
