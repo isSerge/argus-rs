@@ -241,7 +241,6 @@ fn print_summary_report(
     println!("- Total Successfully Sent: {}", total_sent);
 }
 
-// TODO: should use outbox processor for dispatching notifications
 /// The core processing logic for the dry run.
 ///
 /// # Arguments
