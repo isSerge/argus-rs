@@ -32,8 +32,8 @@ pub struct AlertManager<T: KeyValueStore> {
     /// A map of action names to their locks to prevent race conditions.
     action_locks: DashMap<String, Arc<Mutex<()>>>,
 
-    /// Track dispatched notifications for dry-run reporting
-    dispatched_notifications: DashMap<String, usize>,
+    /// Track generated alerts for dry-run reporting
+    generated_alerts: DashMap<String, usize>,
 }
 
 /// Errors that can occur within the AlertManager
@@ -55,7 +55,7 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
             state_repository,
             actions,
             action_locks: DashMap::new(),
-            dispatched_notifications: DashMap::new(),
+            generated_alerts: DashMap::new(),
         }
     }
 
@@ -102,8 +102,8 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
                         e
                     );
                 } else {
-                    // Increment dispatch counter on successful notification
-                    *self.dispatched_notifications.entry(action_name.clone()).or_insert(0) += 1;
+                    // Increment generated alerts counter on successful notification
+                    *self.generated_alerts.entry(action_name.clone()).or_insert(0) += 1;
                 }
             }
         }
@@ -119,7 +119,7 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
         self.state_repository.enqueue_outbox(&action_name, &payload).await?;
 
         // Update stats for dry-run visibility
-        *self.dispatched_notifications.entry(action_name).or_insert(0) += 1;
+        *self.generated_alerts.entry(action_name).or_insert(0) += 1;
 
         Ok(())
     }
@@ -189,10 +189,7 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
                 );
             } else {
                 // Increment dispatch counter on successful notification
-                *self
-                    .dispatched_notifications
-                    .entry(monitor_match.action_name.clone())
-                    .or_insert(0) += 1;
+                *self.generated_alerts.entry(monitor_match.action_name.clone()).or_insert(0) += 1;
             }
             throttle_state.count += 1;
         } else {
@@ -313,11 +310,8 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
                         e
                     );
                 } else {
-                    // Increment dispatch counter on successful notification
-                    *self
-                        .dispatched_notifications
-                        .entry(action_config.name.clone())
-                        .or_insert(0) += 1;
+                    // Increment generated alerts counter on successful notification
+                    *self.generated_alerts.entry(action_config.name.clone()).or_insert(0) += 1;
                 }
 
                 // And finally, clear the state.
@@ -353,9 +347,9 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
         }
     }
 
-    /// Gets the count of dispatched notifications by action name.
-    pub fn get_dispatched_notifications(&self) -> &DashMap<String, usize> {
-        &self.dispatched_notifications
+    /// Gets the count of generated alerts by action name.
+    pub fn get_generated_alerts(&self) -> &DashMap<String, usize> {
+        &self.generated_alerts
     }
 
     /// Flushes any pending aggregated notifications to the Outbox.

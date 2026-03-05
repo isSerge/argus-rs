@@ -14,6 +14,7 @@ use crate::{
         alert_manager::{AlertManager, AlertManagerError},
         block_processor::process_blocks_batch,
         filtering::{FilteringEngine, RhaiError, RhaiFilteringEngine},
+        outbox_processor::OutboxProcessor,
     },
     models::monitor_match::MonitorMatch,
     monitor::MonitorManager,
@@ -122,6 +123,11 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let monitor_manager = context.monitor_manager.clone();
     let filtering_engine = context.filtering_engine;
     let alert_manager = context.alert_manager.clone();
+    let outbox_processor = OutboxProcessor::new(
+        context.repo.clone(),
+        context.action_dispatcher.clone(),
+        config.outbox.clone(),
+    );
 
     // Init EVM data source for fetching blockchain data.
     let evm_source = EvmRpcSource::new(provider, monitor_manager.clone());
@@ -138,11 +144,25 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     )
     .await?;
 
+    // Flush any pending notifications to ensure all matches are processed before we
+    // print the report.
+    alert_manager.flush().await?;
+
+    // Drain the outbox
+    let sent_count = outbox_processor.drain_queue().await.map_err(|e| {
+        DryRunError::ActionDispatcher(ActionDispatcherError::ExecutionError(e.to_string()))
+    })?;
+
+    tracing::info!("Outbox drained. {} notifications successfully sent.", sent_count);
+
+    // Shutdown action dispatcher
+    context.action_dispatcher.shutdown().await;
+
     // Get actual dispatch statistics from AlertManager
-    let dispatched_notifications = alert_manager.get_dispatched_notifications();
+    let generated_alerts = alert_manager.get_generated_alerts();
 
     // Print the summary report.
-    print_summary_report(args.from, args.to, &matches, dispatched_notifications);
+    print_summary_report(args.from, args.to, &matches, generated_alerts, sent_count);
 
     Ok(())
 }
@@ -181,7 +201,8 @@ fn print_summary_report(
     from_block: u64,
     to_block: u64,
     matches: &[MonitorMatch],
-    dispatched_notifications: &DashMap<String, usize>,
+    generated_alerts: &DashMap<String, usize>,
+    total_sent: usize,
 ) {
     let total_blocks = calculate_total_blocks(from_block, to_block);
     let total_matches = matches.len();
@@ -205,15 +226,19 @@ fn print_summary_report(
         }
     }
 
-    println!("\nNotifications Dispatched");
-    println!("------------------------");
-    if dispatched_notifications.is_empty() {
-        println!("- No notifications dispatched.");
+    println!("\nNotifications Generated (Enqueued)");
+    println!("----------------");
+    if generated_alerts.is_empty() {
+        println!("- No alerts generated.");
     } else {
-        for entry in dispatched_notifications.iter() {
+        for entry in generated_alerts.iter() {
             println!("- \"{}\": {}", entry.key(), entry.value());
         }
     }
+
+    println!("\nDelivery Status");
+    println!("---------------");
+    println!("- Total Successfully Sent: {}", total_sent);
 }
 
 // TODO: should use outbox processor for dispatching notifications

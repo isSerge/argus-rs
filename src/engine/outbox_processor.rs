@@ -7,7 +7,9 @@ use futures::{StreamExt, stream};
 use tokio::time::sleep;
 
 use crate::{
-    action_dispatcher::ActionDispatcher, config::OutboxConfig, persistence::traits::AppRepository,
+    action_dispatcher::ActionDispatcher,
+    config::OutboxConfig,
+    persistence::traits::{AppRepository, OutboxItem},
 };
 
 /// Service responsible for processing the persistent action queue.
@@ -34,17 +36,39 @@ impl<S: AppRepository + ?Sized + Send + Sync + 'static> OutboxProcessor<S> {
         }
     }
 
-    /// Processes a batch of pending outbox items.
-    async fn process_batch(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Fetch a batch of pending items (e.g., 50 at a time)
-        let items = self.state.get_pending_outbox(50).await?;
+    /// Drains the outbox queue by processing all pending items until the queue
+    /// is empty. Used for shutdown and dry-run modes to ensure all pending
+    /// actions are attempted before exiting.
+    pub async fn drain_queue(&self) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
+        let mut total_processed = 0;
 
-        if items.is_empty() {
-            return Ok(());
+        loop {
+            let items = self.state.get_pending_outbox(self.config.batch_size).await?;
+
+            if items.is_empty() {
+                break;
+            }
+
+            let count = items.len();
+
+            self.process_batch_items(items).await?;
+            total_processed += count;
         }
 
-        tracing::debug!("Processing {} outbox items...", items.len());
+        tracing::info!("Outbox drained. Total items processed: {}", total_processed);
 
+        Ok(total_processed)
+    }
+
+    /// Processes a batch of outbox items concurrently, handling success and
+    /// failure cases. On success, the item is deleted from the outbox. On
+    /// failure, the retry count is incremented. This method is used by both
+    /// the regular processing loop and the drain_queue method to ensure
+    /// consistent handling of outbox items.
+    async fn process_batch_items(
+        &self,
+        items: Vec<OutboxItem>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Create a stream of async tasks for processing each item concurrently
         let tasks = stream::iter(items).map(|item| {
             let dispatcher = self.dispatcher.clone();
@@ -77,5 +101,17 @@ impl<S: AppRepository + ?Sized + Send + Sync + 'static> OutboxProcessor<S> {
         }
 
         Ok(())
+    }
+
+    /// Processes a batch of pending outbox items.
+    pub async fn process_batch(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Fetch a batch of pending items (e.g., 50 at a time)
+        let items = self.state.get_pending_outbox(self.config.batch_size).await?;
+
+        if items.is_empty() {
+            return Ok(()); // No items to process
+        }
+
+        self.process_batch_items(items).await
     }
 }
