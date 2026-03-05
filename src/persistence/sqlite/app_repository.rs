@@ -4,11 +4,16 @@ use async_trait::async_trait;
 use chrono::{DateTime, NaiveDateTime, Utc};
 
 use crate::{
+    action_dispatcher::ActionPayload,
     models::{
         action::ActionConfig,
         monitor::{Monitor, MonitorConfig, MonitorStatus},
     },
-    persistence::{error::PersistenceError, sqlite::SqliteStateRepository, traits::AppRepository},
+    persistence::{
+        error::PersistenceError,
+        sqlite::SqliteStateRepository,
+        traits::{AppRepository, OutboxItem},
+    },
 };
 
 // Helper struct for mapping from the database row
@@ -38,6 +43,27 @@ struct ActionRow {
     action_id: Option<i64>,
     name: String,
     config: String,
+}
+
+// Helper struct for mapping from the database row
+#[derive(sqlx::FromRow)]
+struct OutboxRow {
+    id: i64,
+    action_name: String,
+    payload: String,
+    retries: i64,
+}
+
+impl TryFrom<OutboxRow> for OutboxItem {
+    type Error = PersistenceError;
+
+    fn try_from(row: OutboxRow) -> Result<Self, Self::Error> {
+        let payload = serde_json::from_str(&row.payload).map_err(|e| {
+            PersistenceError::SerializationError(format!("Corrupt outbox item {}: {}", row.id, e))
+        })?;
+
+        Ok(Self { id: row.id, action_name: row.action_name, payload, retries: row.retries as i32 })
+    }
 }
 
 #[async_trait]
@@ -911,5 +937,77 @@ impl AppRepository for SqliteStateRepository {
             "Monitors retrieved successfully."
         );
         Ok(monitors)
+    }
+
+    async fn enqueue_outbox(
+        &self,
+        action_name: &str,
+        payload: &ActionPayload,
+    ) -> Result<(), PersistenceError> {
+        tracing::debug!(action_name, "Enqueuing outbox item.");
+
+        let payload_str = serde_json::to_string(payload)
+            .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
+
+        self.execute_query_with_error_handling(
+            "enqueue outbox",
+            sqlx::query!(
+                "INSERT INTO outbox (action_name, payload) VALUES (?, ?)",
+                action_name,
+                payload_str
+            )
+            .execute(&self.pool),
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    async fn get_pending_outbox(&self, limit: i64) -> Result<Vec<OutboxItem>, PersistenceError> {
+        self.execute_query_with_error_handling(
+            "fetch pending outbox",
+            sqlx::query_as!(
+                OutboxRow,
+                r#"
+            SELECT 
+                id as "id!", 
+                action_name as "action_name!", 
+                payload as "payload!", 
+                retries as "retries!"
+            FROM outbox 
+            ORDER BY created_at ASC 
+            LIMIT ?
+            "#,
+                limit
+            )
+            .fetch_all(&self.pool),
+        )
+        .await?
+        .into_iter()
+        .map(OutboxItem::try_from)
+        .collect()
+    }
+
+    async fn delete_outbox_item(&self, id: i64) -> Result<(), PersistenceError> {
+        self.execute_query_with_error_handling(
+            "delete outbox item",
+            sqlx::query!("DELETE FROM outbox WHERE id = ?", id).execute(&self.pool),
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn increment_outbox_retries(&self, id: i64) -> Result<(), PersistenceError> {
+        self.execute_query_with_error_handling(
+            "increment outbox retry",
+            sqlx::query!(
+                "UPDATE outbox SET retries = retries + 1, last_attempt = CURRENT_TIMESTAMP WHERE \
+                 id = ?",
+                id
+            )
+            .execute(&self.pool),
+        )
+        .await?;
+        Ok(())
     }
 }

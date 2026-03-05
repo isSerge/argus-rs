@@ -1,10 +1,12 @@
+use serde::{Deserialize, Serialize};
+
 use crate::{
     action_dispatcher::error::ActionDispatcherError,
     models::{NotificationMessage, monitor_match::MonitorMatch},
 };
 
 /// An enum representing the different types of action payloads.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum ActionPayload {
     /// A single monitor match.
     Single(MonitorMatch),
