@@ -28,7 +28,7 @@ use thiserror::Error;
 use tokio::{signal, sync::mpsc};
 
 use crate::{
-    action_dispatcher::error::ActionDispatcherError,
+    action_dispatcher::{ActionDispatcher, error::ActionDispatcherError},
     config::AppConfig,
     context::AppMetrics,
     engine::{
@@ -155,6 +155,10 @@ pub struct Supervisor<T: AppRepository + KeyValueStore + 'static> {
     /// Shared monitor validator for validating monitor configs in HTTP
     /// handlers.
     monitor_validator: Arc<MonitorValidator>,
+
+    /// The action dispatcher responsible for executing actions based on monitor
+    /// matches.
+    action_dispatcher: Arc<ActionDispatcher>,
 }
 
 impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
@@ -172,6 +176,7 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
         alert_manager: Arc<AlertManager<T>>,
         monitor_manager: Arc<MonitorManager>,
         monitor_validator: Arc<MonitorValidator>,
+        action_dispatcher: Arc<ActionDispatcher>,
     ) -> Self {
         Self {
             config: Arc::new(config),
@@ -184,6 +189,7 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
             join_set: tokio::task::JoinSet::new(),
             monitor_manager,
             monitor_validator,
+            action_dispatcher,
         }
     }
 
@@ -320,6 +326,17 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
             dispatcher_alert_manager.run_aggregation_dispatcher(aggregation_check_interval).await;
         });
 
+        // Spawn the OutboxProcessor service
+        let outbox_processor = crate::engine::outbox_processor::OutboxProcessor::new(
+            self.state.clone(),
+            self.action_dispatcher.clone(),
+            self.config.outbox.clone(),
+        );
+
+        self.join_set.spawn(async move {
+            outbox_processor.run().await;
+        });
+
         // --- Main Supervisor Loop ---
         // This loop is now only responsible for monitoring task health and shutdown
         // signals.
@@ -374,6 +391,9 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
         let cleanup_logic = async {
             // Shutdown the alert manager to flush any pending notifications.
             self.alert_manager.shutdown().await;
+
+            // Flush/Close Network Connections (Kafka, NATS, etc.)
+            self.action_dispatcher.shutdown().await;
 
             if let Err(e) = self.state.flush().await {
                 tracing::error!(error = %e, "Failed to flush pending writes, but continuing cleanup.");
