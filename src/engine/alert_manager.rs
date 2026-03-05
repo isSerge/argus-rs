@@ -331,8 +331,9 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
         Ok(())
     }
 
-    /// Runs a background task to enqueue expired aggregation windows to the Outbox.
-    /// This should be spawned as a long-running task by the Supervisor.
+    /// Runs a background task to enqueue expired aggregation windows to the
+    /// Outbox. This should be spawned as a long-running task by the
+    /// Supervisor.
     pub async fn run_aggregation_dispatcher(&self, check_interval: Duration) {
         let mut interval = tokio::time::interval(check_interval);
 

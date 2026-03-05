@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT \n                id as \"id!\", \n                action_name as \"action_name!\", \n                payload as \"payload!\", \n                retries as \"retries!\"\n            FROM outbox \n            ORDER BY created_at ASC \n            LIMIT ?\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "action_name!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "payload!",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "retries!",
+        "ordinal": 3,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "75ef909545feec07c5faf88efd9a12f21ec5d94297979e7fa60b7a75ef3a18d8"
+}
