@@ -81,7 +81,8 @@ impl<S: AppRepository + ?Sized + Send + Sync + 'static> OutboxProcessor<S> {
         });
 
         // Execute concurrently with a limit (e.g., 10 parallel requests)
-        let mut results = tasks.buffer_unordered(self.config.concurrency);
+        let concurrency = self.config.concurrency.max(1);
+        let mut results = tasks.buffer_unordered(concurrency);
 
         // Handle results and update state accordingly
         while let Some((id, result)) = results.next().await {
