@@ -62,7 +62,14 @@ impl TryFrom<OutboxRow> for OutboxItem {
             PersistenceError::SerializationError(format!("Corrupt outbox item {}: {}", row.id, e))
         })?;
 
-        Ok(Self { id: row.id, action_name: row.action_name, payload, retries: row.retries as i32 })
+        let retries = i32::try_from(row.retries).map_err(|_| {
+            PersistenceError::OperationFailed(format!(
+                "Outbox item {} has invalid retries value {} (out of range for i32)",
+                row.id, row.retries
+            ))
+        })?;
+
+        Ok(Self { id: row.id, action_name: row.action_name, payload, retries })
     }
 }
 
