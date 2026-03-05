@@ -362,6 +362,15 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
     pub async fn flush(&self) -> Result<(), AlertManagerError> {
         self.check_and_dispatch_expired_windows(true).await
     }
+
+    /// Gracefully shuts down the AlertManager, ensuring all pending
+    /// notifications are flushed.
+    pub async fn shutdown(&self) {
+        tracing::info!("Shutting down alert manager...");
+        if let Err(e) = self.flush().await {
+            tracing::error!("Failed to flush pending notifications: {}", e);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -990,5 +999,27 @@ mod tests {
 
         // Different action names should return different lock instances.
         assert!(!Arc::ptr_eq(&lock1_instance1, &lock2_instance1));
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_actions() {
+        let publisher_action =
+            ActionBuilder::new("Test Action").kafka_config("kafka:9092", "test_topic").build();
+        let mut kv_mock = MockKeyValueStore::new();
+        let repo_mock = MockAppRepository::new();
+
+        kv_mock
+            .expect_get_all_json_states_by_prefix::<AggregationState>()
+            .with(eq("aggregation_state:".to_string()))
+            .times(1)
+            .returning(|_| Ok(vec![])); // No pending states
+
+        let mut actions = HashMap::new();
+
+        actions.insert(publisher_action.name.clone(), publisher_action);
+
+        let alert_manager = create_alert_manager(actions, kv_mock, repo_mock).await;
+
+        alert_manager.shutdown().await;
     }
 }
