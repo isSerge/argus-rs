@@ -69,10 +69,14 @@ impl ActionPayload {
         match self {
             ActionPayload::Single(m) => m.id.clone(),
             ActionPayload::Aggregated { matches, .. } => {
-                // Determine a unique ID for this specific bundle of events
+                // Determine a unique ID for this specific bundle of events.
+                // Sort match IDs to ensure the idempotency key is independent of iteration order.
+                let mut ids: Vec<&str> = matches.iter().map(|m| m.id.as_str()).collect();
+                ids.sort_unstable();
+
                 let mut hasher = DefaultHasher::new();
-                for m in matches {
-                    m.id.hash(&mut hasher);
+                for id in ids {
+                    id.hash(&mut hasher);
                 }
                 format!("agg-{:x}", hasher.finish())
             }
