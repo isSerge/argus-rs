@@ -179,9 +179,10 @@ impl WebhookClient {
         }
 
         // Add the Idempotency Key
-        if let Some(key) = idempotency_key
-            && let Ok(header_val) = HeaderValue::from_str(key)
-        {
+        if let Some(key) = idempotency_key {
+            let header_val = HeaderValue::from_str(key).map_err(|e| {
+                ActionDispatcherError::NotifyFailed(format!("Invalid idempotency key value: {e}"))
+            })?;
             headers.insert("Idempotency-Key", header_val);
         }
 
