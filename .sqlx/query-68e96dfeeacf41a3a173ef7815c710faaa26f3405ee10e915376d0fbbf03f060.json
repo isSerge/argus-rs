@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "\n            SELECT \n                id as \"id!\", \n                action_name as \"action_name!\", \n                payload as \"payload!\", \n                retries as \"retries!\"\n            FROM outbox \n            ORDER BY created_at ASC \n            LIMIT ?\n            ",
+  "query": "\n            SELECT \n                id as \"id!\", \n                action_name as \"action_name!\", \n                payload as \"payload!\", \n                retries as \"retries!\"\n            FROM outbox \n            ORDER BY id ASC \n            LIMIT ?\n            ",
   "describe": {
     "columns": [
       {
@@ -28,11 +28,11 @@
       "Right": 1
     },
     "nullable": [
-      true,
+      false,
       false,
       false,
       true
     ]
   },
-  "hash": "75ef909545feec07c5faf88efd9a12f21ec5d94297979e7fa60b7a75ef3a18d8"
+  "hash": "68e96dfeeacf41a3a173ef7815c710faaa26f3405ee10e915376d0fbbf03f060"
 }
