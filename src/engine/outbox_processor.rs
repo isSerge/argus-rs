@@ -38,9 +38,10 @@ impl<S: AppRepository + ?Sized + Send + Sync + 'static> OutboxProcessor<S> {
 
     /// Drains the outbox queue by processing all pending items until the queue
     /// is empty. Used for shutdown and dry-run modes to ensure all pending
-    /// actions are attempted before exiting.
+    /// actions are attempted before exiting. Returns the count of items
+    /// successfully delivered (removed from outbox).
     pub async fn drain_queue(&self) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
-        let mut total_processed = 0;
+        let mut total_successful = 0;
 
         loop {
             let items = self.state.get_pending_outbox(self.config.batch_size).await?;
@@ -49,26 +50,25 @@ impl<S: AppRepository + ?Sized + Send + Sync + 'static> OutboxProcessor<S> {
                 break;
             }
 
-            let count = items.len();
-
-            self.process_batch_items(items).await?;
-            total_processed += count;
+            let successful_count = self.process_batch_items(items).await?;
+            total_successful += successful_count;
         }
 
-        tracing::info!("Outbox drained. Total items processed: {}", total_processed);
+        tracing::info!("Outbox drained. {} items successfully delivered.", total_successful);
 
-        Ok(total_processed)
+        Ok(total_successful)
     }
 
     /// Processes a batch of outbox items concurrently, handling success and
     /// failure cases. On success, the item is deleted from the outbox. On
-    /// failure, the retry count is incremented. This method is used by both
-    /// the regular processing loop and the drain_queue method to ensure
-    /// consistent handling of outbox items.
+    /// failure, the retry count is incremented. Returns the count of items
+    /// successfully deleted. This method is used by both the regular processing
+    /// loop and the drain_queue method to ensure consistent handling of outbox
+    /// items.
     async fn process_batch_items(
         &self,
         items: Vec<OutboxItem>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
         // Create a stream of async tasks for processing each item concurrently
         let tasks = stream::iter(items).map(|item| {
             let dispatcher = self.dispatcher.clone();
@@ -84,6 +84,8 @@ impl<S: AppRepository + ?Sized + Send + Sync + 'static> OutboxProcessor<S> {
         let concurrency = self.config.concurrency.max(1);
         let mut results = tasks.buffer_unordered(concurrency);
 
+        let mut successful_count = 0;
+
         // Handle results and update state accordingly
         while let Some((id, result)) = results.next().await {
             match result {
@@ -91,6 +93,8 @@ impl<S: AppRepository + ?Sized + Send + Sync + 'static> OutboxProcessor<S> {
                     // Success: Delete the item
                     if let Err(e) = self.state.delete_outbox_item(id).await {
                         tracing::error!("Failed to delete outbox item {} after success: {}", id, e);
+                    } else {
+                        successful_count += 1;
                     }
                 }
                 Err(e) => {
@@ -101,7 +105,7 @@ impl<S: AppRepository + ?Sized + Send + Sync + 'static> OutboxProcessor<S> {
             }
         }
 
-        Ok(())
+        Ok(successful_count)
     }
 
     /// Processes a batch of pending outbox items.
@@ -113,6 +117,7 @@ impl<S: AppRepository + ?Sized + Send + Sync + 'static> OutboxProcessor<S> {
             return Ok(()); // No items to process
         }
 
-        self.process_batch_items(items).await
+        let _ = self.process_batch_items(items).await?; // Discard count, not needed in the loop
+        Ok(())
     }
 }
