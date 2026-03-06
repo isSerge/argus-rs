@@ -8,7 +8,7 @@ use serde::Deserialize;
 use url::Url;
 
 use super::{
-    BaseHttpClientConfig, HttpRetryConfig, RhaiConfig, RpcRetryConfig, ServerConfig,
+    BaseHttpClientConfig, HttpRetryConfig, OutboxConfig, RhaiConfig, RpcRetryConfig, ServerConfig,
     deserialize_duration_from_ms, deserialize_duration_from_seconds, deserialize_urls,
     initial_start_block::InitialStartBlock,
 };
@@ -118,6 +118,10 @@ pub struct AppConfig {
     /// Server configuration
     #[serde(default)]
     pub server: ServerConfig,
+
+    /// Outbox processor configuration
+    #[serde(default)]
+    pub outbox: OutboxConfig,
 }
 
 impl AppConfig {

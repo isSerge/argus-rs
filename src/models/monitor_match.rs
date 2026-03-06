@@ -8,6 +8,12 @@ use serde_json::Value;
 /// about the trigger.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MonitorMatch {
+    /// Unique idempotent identifier for the match. Includes monitor_id,
+    /// action_name, transaction hash, and log index (for logs), ensuring
+    /// uniqueness across different monitors and actions matching the same
+    /// blockchain event.
+    pub id: String,
+
     /// Unique identifier for the monitor that found the match.
     pub monitor_id: i64,
 
@@ -84,7 +90,18 @@ impl MonitorMatchBuilder {
 
     /// Builds the `MonitorMatch` instance.
     pub fn build(self) -> MonitorMatch {
+        let id = match &self.match_data {
+            Some(MatchData::Transaction { details: _ }) =>
+                format!("{}-{}-{}", self.monitor_id, self.action_name, self.transaction_hash),
+            Some(MatchData::Log { log_details, .. }) => format!(
+                "{}-{}-{}-{}",
+                self.monitor_id, self.action_name, self.transaction_hash, log_details.log_index
+            ),
+            None => panic!("Match data must be set before calling build()"),
+        };
+
         MonitorMatch {
+            id,
             monitor_id: self.monitor_id,
             monitor_name: self.monitor_name,
             action_name: self.action_name,
@@ -223,7 +240,10 @@ mod tests {
         .decoded_call(None)
         .build();
 
+        let id = format!("{}-{}-{}", 1, "Test Action", TxHash::default());
+
         let expected_json_no_call = json!({
+            "id": id,
             "monitor_id": 1,
             "monitor_name": "Test Monitor",
             "action_name": "Test Action",
@@ -257,6 +277,7 @@ mod tests {
         .build();
 
         let expected_json_with_call = json!({
+            "id": id,
             "monitor_id": 1,
             "monitor_name": "Test Monitor",
             "action_name": "Test Action",
@@ -297,7 +318,11 @@ mod tests {
         .decoded_call(None)
         .build();
 
+        let log_index = 15;
+        let id = format!("{}-{}-{}-{}", 2, "Log Action", TxHash::default(), log_index);
+
         let expected_json = json!({
+            "id": id,
             "monitor_id": 2,
             "monitor_name": "Log Monitor",
             "action_name": "Log Action",
@@ -308,7 +333,7 @@ mod tests {
             },
             "log": {
                 "address": contract_address.to_checksum(None),
-                "log_index": 15,
+                "log_index": log_index,
                 "name": "Transfer",
                 "params": {
                     "value": "22545..."
@@ -326,10 +351,13 @@ mod tests {
     fn test_monitor_match_log_deserialization_missing_tx_field() {
         let contract_address_str = "0x0000000000000000000000000000000000000011";
         let contract_address = contract_address_str.parse::<Address>().unwrap();
+        let log_index = 15;
+        let id = format!("{}-{}-{}-{}", 2, "Log Action", TxHash::default(), log_index);
 
         // Simulate a JSON string where 'tx' is missing for a log-based match
         let json_str = format!(
             r#"{{
+            "id": "{}",
             "monitor_id": 2,
             "monitor_name": "Log Monitor",
             "action_name": "Log Action",
@@ -337,14 +365,16 @@ mod tests {
             "transaction_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
             "log": {{
                 "address": "{}",
-                "log_index": 15,
+                "log_index": {},
                 "name": "Transfer",
                 "params": {{
                     "value": "22545..."
                 }}
             }}
         }}"#,
-            contract_address.to_checksum(None)
+            id,
+            contract_address.to_checksum(None),
+            log_index
         );
 
         let deserialized: Result<MonitorMatch, _> = serde_json::from_str(&json_str);

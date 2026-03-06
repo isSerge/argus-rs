@@ -6,9 +6,12 @@ use mockall::automock;
 use serde::{Serialize, de::DeserializeOwned};
 
 use super::error::PersistenceError;
-use crate::models::{
-    action::ActionConfig,
-    monitor::{Monitor, MonitorConfig, MonitorStatus},
+use crate::{
+    action_dispatcher::ActionPayload,
+    models::{
+        action::ActionConfig,
+        monitor::{Monitor, MonitorConfig, MonitorStatus},
+    },
 };
 
 /// Represents the application's persistence layer interface.
@@ -42,6 +45,7 @@ pub trait AppRepository: Send + Sync {
     ) -> Result<(), PersistenceError>;
 
     // Monitor management operations:
+
     /// Retrieves all monitors for a specific network.
     async fn get_monitors(&self, network_id: &str) -> Result<Vec<Monitor>, PersistenceError>;
 
@@ -86,6 +90,7 @@ pub trait AppRepository: Send + Sync {
     ) -> Result<(), PersistenceError>;
 
     // ABI management operations:
+
     /// Creates a new ABI.
     async fn create_abi(&self, name: &str, abi: &str) -> Result<(), PersistenceError>;
 
@@ -102,6 +107,7 @@ pub trait AppRepository: Send + Sync {
     async fn get_all_abis(&self) -> Result<Vec<(String, String)>, PersistenceError>;
 
     // Action management operations:
+
     /// Retrieves all actions for a specific network.
     async fn get_actions(&self, network_id: &str) -> Result<Vec<ActionConfig>, PersistenceError>;
 
@@ -146,6 +152,37 @@ pub trait AppRepository: Send + Sync {
         network_id: &str,
         action_id: i64,
     ) -> Result<Vec<crate::models::monitor::MonitorConfig>, PersistenceError>;
+
+    // Outbox management operations:
+
+    /// Enqueues an action to be executed later by adding it to the outbox.
+    async fn enqueue_outbox(
+        &self,
+        action_name: &str,
+        payload: &ActionPayload,
+    ) -> Result<(), PersistenceError>;
+
+    /// Retrieves pending outbox items up to a specified limit.
+    async fn get_pending_outbox(&self, limit: i64) -> Result<Vec<OutboxItem>, PersistenceError>;
+
+    /// Deletes an outbox item by its ID.
+    async fn delete_outbox_item(&self, id: i64) -> Result<(), PersistenceError>;
+
+    /// Increments the retry count for an outbox item by its ID.
+    async fn increment_outbox_retries(&self, id: i64) -> Result<(), PersistenceError>;
+}
+
+// TODO: probably move elsewhere
+/// Represents an item in the outbox.
+pub struct OutboxItem {
+    /// Unique identifier for the outbox item.
+    pub id: i64, // TODO: double check if i64 is the right type for this ID
+    /// Name of the action to be executed.
+    pub action_name: String,
+    /// JSON-serializable payload for the action.
+    pub payload: ActionPayload,
+    /// Number of times this outbox item has been retried.
+    pub retries: i32,
 }
 
 /// Represents a generic key-value store for JSON-serializable objects.

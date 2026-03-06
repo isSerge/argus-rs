@@ -216,7 +216,7 @@ The `throttle` policy limits the number of notifications sent within a specified
 
 ### Aggregation Policy
 
-The `aggregation` policy collects all matches that occur within a time window and sends a single, consolidated notification. This is ideal for summarizing events. When using an aggregation policy, you can leverage custom filters like `map`, `sum`, and `avg` on the `matches` array to perform calculations.
+The `aggregation` policy collects all matches that occur within a time window and enqueues a single, consolidated notification. This is ideal for summarizing events. When using an aggregation policy, you can leverage custom filters like `map`, `sum`, and `avg` on the `matches` array to perform calculations.
 
 ```yaml
 - name: "slack-with-aggregation"

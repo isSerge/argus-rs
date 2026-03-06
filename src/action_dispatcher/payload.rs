@@ -1,10 +1,14 @@
+use std::hash::{DefaultHasher, Hash, Hasher};
+
+use serde::{Deserialize, Serialize};
+
 use crate::{
     action_dispatcher::error::ActionDispatcherError,
     models::{NotificationMessage, monitor_match::MonitorMatch},
 };
 
 /// An enum representing the different types of action payloads.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum ActionPayload {
     /// A single monitor match.
     Single(MonitorMatch),
@@ -54,6 +58,29 @@ impl ActionPayload {
             ActionPayload::Single(monitor_match) => monitor_match.monitor_name.clone(),
             ActionPayload::Aggregated { matches, .. } =>
                 matches.first().map(|m| m.monitor_name.clone()).unwrap_or_default(),
+        }
+    }
+
+    /// Returns the deterministic idempotency key for this payload.
+    ///
+    /// - For Single matches: Returns the `MonitorMatch.id`.
+    /// - For Aggregated matches: Returns a hash of all contained match IDs.
+    pub fn idempotency_key(&self) -> String {
+        match self {
+            ActionPayload::Single(m) => m.id.clone(),
+            ActionPayload::Aggregated { matches, .. } => {
+                // Determine a unique ID for this specific bundle of events.
+                // Sort match IDs to ensure the idempotency key is independent of iteration
+                // order.
+                let mut ids: Vec<&str> = matches.iter().map(|m| m.id.as_str()).collect();
+                ids.sort_unstable();
+
+                let mut hasher = DefaultHasher::new();
+                for id in ids {
+                    id.hash(&mut hasher);
+                }
+                format!("agg-{:x}", hasher.finish())
+            }
         }
     }
 }

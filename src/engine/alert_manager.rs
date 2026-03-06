@@ -7,23 +7,22 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 
 use crate::{
-    action_dispatcher::{ActionDispatcher, ActionPayload, error::ActionDispatcherError},
+    action_dispatcher::{ActionPayload, error::ActionDispatcherError},
     models::{
         action::{ActionConfig, ActionPolicy},
         alert_manager_state::{AggregationState, ThrottleState},
         monitor_match::MonitorMatch,
     },
-    persistence::{error::PersistenceError, traits::KeyValueStore},
+    persistence::{
+        error::PersistenceError,
+        traits::{AppRepository, KeyValueStore},
+    },
 };
 
 /// The AlertManager is responsible for processing monitor matches, applying
-/// notification policies (throttling, aggregation, etc.) and submitting
-/// notifications to ActionDispatcher
+/// notification policies (throttling, aggregation, etc.) and enqueuing
+/// notifications to the Outbox for delivery by the OutboxProcessor
 pub struct AlertManager<T: KeyValueStore> {
-    /// The action dispatcher used to dispatch actions (webhook notifications,
-    /// publishers, etc.)
-    action_dispatcher: Arc<ActionDispatcher>,
-
     /// The state repository for storing alert states
     state_repository: Arc<T>,
 
@@ -33,8 +32,8 @@ pub struct AlertManager<T: KeyValueStore> {
     /// A map of action names to their locks to prevent race conditions.
     action_locks: DashMap<String, Arc<Mutex<()>>>,
 
-    /// Track dispatched notifications for dry-run reporting
-    dispatched_notifications: DashMap<String, usize>,
+    /// Track generated alerts for dry-run reporting
+    generated_alerts: DashMap<String, usize>,
 }
 
 /// Errors that can occur within the AlertManager
@@ -49,19 +48,14 @@ pub enum AlertManagerError {
     StateRepositoryError(#[from] PersistenceError),
 }
 
-impl<T: KeyValueStore> AlertManager<T> {
+impl<T: KeyValueStore + AppRepository> AlertManager<T> {
     /// Creates a new AlertManager instance
-    pub fn new(
-        action_dispatcher: Arc<ActionDispatcher>,
-        state_repository: Arc<T>,
-        actions: Arc<HashMap<String, ActionConfig>>,
-    ) -> Self {
+    pub fn new(state_repository: Arc<T>, actions: Arc<HashMap<String, ActionConfig>>) -> Self {
         Self {
-            action_dispatcher,
             state_repository,
             actions,
             action_locks: DashMap::new(),
-            dispatched_notifications: DashMap::new(),
+            generated_alerts: DashMap::new(),
         }
     }
 
@@ -97,24 +91,32 @@ impl<T: KeyValueStore> AlertManager<T> {
                 }
             },
             None => {
-                // No policy, send immediately
-                tracing::debug!("No policy for action {}, sending immediately.", action_name);
-                if let Err(e) = self
-                    .action_dispatcher
-                    .execute(ActionPayload::Single(monitor_match.clone()))
-                    .await
+                // No policy, enqueue immediately
+                tracing::debug!("No policy for action {}, enqueuing immediately.", action_name);
+                if let Err(e) =
+                    self.dispatch_payload(ActionPayload::Single(monitor_match.clone())).await
                 {
                     tracing::error!(
-                        "Failed to execute notification for action '{}': {}",
+                        "Failed to enqueue notification for action '{}': {}",
                         action_name,
                         e
                     );
-                } else {
-                    // Increment dispatch counter on successful notification
-                    *self.dispatched_notifications.entry(action_name.clone()).or_insert(0) += 1;
                 }
             }
         }
+
+        Ok(())
+    }
+
+    /// Internal helper to enqueue payload to the Outbox
+    async fn dispatch_payload(&self, payload: ActionPayload) -> Result<(), AlertManagerError> {
+        let action_name = payload.action_name();
+
+        // Enqueue the payload to be processed by the OutboxProcessor
+        self.state_repository.enqueue_outbox(&action_name, &payload).await?;
+
+        // Update stats for dry-run visibility
+        *self.generated_alerts.entry(action_name).or_insert(0) += 1;
 
         Ok(())
     }
@@ -166,28 +168,22 @@ impl<T: KeyValueStore> AlertManager<T> {
             throttle_state.window_start_time = current_time;
         }
 
-        // Check if the notification should be sent
+        // Check if the notification should be enqueued
         if throttle_state.count < policy.max_count {
             tracing::info!(
-                "Sending throttled notification for {}. Count: {}/{}",
+                "Enqueueing throttled notification for {}. Count: {}/{}",
                 action_name,
                 throttle_state.count + 1,
                 policy.max_count
             );
             if let Err(e) =
-                self.action_dispatcher.execute(ActionPayload::Single(monitor_match.clone())).await
+                self.dispatch_payload(ActionPayload::Single(monitor_match.clone())).await
             {
                 tracing::error!(
-                    "Failed to execute notification for throttled action '{}': {}",
+                    "Failed to enqueue notification for throttled action '{}': {}",
                     action_name,
                     e
                 );
-            } else {
-                // Increment dispatch counter on successful notification
-                *self
-                    .dispatched_notifications
-                    .entry(monitor_match.action_name.clone())
-                    .or_insert(0) += 1;
             }
             throttle_state.count += 1;
         } else {
@@ -240,7 +236,7 @@ impl<T: KeyValueStore> AlertManager<T> {
     }
 
     /// Scans the state repository for expired aggregation windows and
-    /// dispatches them.
+    /// enqueues them to the Outbox.
     async fn check_and_dispatch_expired_windows(
         &self,
         force: bool,
@@ -290,7 +286,7 @@ impl<T: KeyValueStore> AlertManager<T> {
             // Now we use the policy's window_secs to check for expiration.
             if force || chrono::Utc::now() > state.window_start_time + policy.window_secs {
                 tracing::info!(
-                    "Aggregation window for key '{}' expired. Dispatching summary.",
+                    "Aggregation window for key '{}' expired. Enqueueing summary.",
                     state_key
                 );
 
@@ -301,18 +297,12 @@ impl<T: KeyValueStore> AlertManager<T> {
                     template: policy.template.clone(),
                 };
 
-                if let Err(e) = self.action_dispatcher.execute(payload).await {
+                if let Err(e) = self.dispatch_payload(payload).await {
                     tracing::error!(
-                        "Failed to send aggregated notification for key '{}': {}",
+                        "Failed to enqueue aggregated notification for key '{}': {}",
                         state_key,
                         e
                     );
-                } else {
-                    // Increment dispatch counter on successful notification
-                    *self
-                        .dispatched_notifications
-                        .entry(action_config.name.clone())
-                        .or_insert(0) += 1;
                 }
 
                 // And finally, clear the state.
@@ -332,8 +322,9 @@ impl<T: KeyValueStore> AlertManager<T> {
         Ok(())
     }
 
-    /// Runs a background task to dispatch expired aggregation windows.
-    /// This should be spawned as a long-running task by the Supervisor.
+    /// Runs a background task to enqueue expired aggregation windows to the
+    /// Outbox. This should be spawned as a long-running task by the
+    /// Supervisor.
     pub async fn run_aggregation_dispatcher(&self, check_interval: Duration) {
         let mut interval = tokio::time::interval(check_interval);
 
@@ -348,24 +339,23 @@ impl<T: KeyValueStore> AlertManager<T> {
         }
     }
 
-    /// Gets the count of dispatched notifications by action name.
-    pub fn get_dispatched_notifications(&self) -> &DashMap<String, usize> {
-        &self.dispatched_notifications
+    /// Gets the count of generated alerts by action name.
+    pub fn get_generated_alerts(&self) -> &DashMap<String, usize> {
+        &self.generated_alerts
     }
 
-    /// Flushes any pending aggregated notifications.
+    /// Flushes any pending aggregated notifications to the Outbox.
     pub async fn flush(&self) -> Result<(), AlertManagerError> {
         self.check_and_dispatch_expired_windows(true).await
     }
 
-    /// Shuts down the alert manager, flushing any pending notifications and
-    /// shutting down the action dispatcher.
+    /// Gracefully shuts down the AlertManager, ensuring all pending
+    /// notifications are flushed.
     pub async fn shutdown(&self) {
         tracing::info!("Shutting down alert manager...");
         if let Err(e) = self.flush().await {
             tracing::error!("Failed to flush pending notifications: {}", e);
         }
-        self.action_dispatcher.shutdown().await;
     }
 }
 
@@ -378,15 +368,237 @@ mod tests {
 
     use super::*;
     use crate::{
-        http_client::HttpClientPool,
         models::{
             NotificationMessage,
             action::{AggregationPolicy, ThrottlePolicy},
             monitor_match::LogDetails,
         },
-        persistence::traits::MockKeyValueStore,
+        persistence::traits::{AppRepository, MockAppRepository, MockKeyValueStore},
         test_helpers::ActionBuilder,
     };
+
+    /// Combined mock implementing both KeyValueStore and AppRepository
+    struct CombinedMock {
+        kv_mock: MockKeyValueStore,
+        repo_mock: MockAppRepository,
+    }
+
+    #[async_trait::async_trait]
+    impl KeyValueStore for CombinedMock {
+        async fn get_json_state<T: serde::de::DeserializeOwned + Send + Sync + 'static>(
+            &self,
+            key: &str,
+        ) -> Result<Option<T>, PersistenceError> {
+            self.kv_mock.get_json_state(key).await
+        }
+
+        async fn set_json_state<T: serde::Serialize + Send + Sync + 'static>(
+            &self,
+            key: &str,
+            value: &T,
+        ) -> Result<(), PersistenceError> {
+            self.kv_mock.set_json_state(key, value).await
+        }
+
+        async fn get_all_json_states_by_prefix<
+            T: serde::de::DeserializeOwned + Send + Sync + 'static,
+        >(
+            &self,
+            prefix: &str,
+        ) -> Result<Vec<(String, T)>, PersistenceError> {
+            self.kv_mock.get_all_json_states_by_prefix(prefix).await
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl AppRepository for CombinedMock {
+        async fn get_last_processed_block(
+            &self,
+            network_id: &str,
+        ) -> Result<Option<u64>, PersistenceError> {
+            self.repo_mock.get_last_processed_block(network_id).await
+        }
+
+        async fn set_last_processed_block(
+            &self,
+            network_id: &str,
+            block_number: u64,
+        ) -> Result<(), PersistenceError> {
+            self.repo_mock.set_last_processed_block(network_id, block_number).await
+        }
+
+        async fn cleanup(&self) -> Result<(), PersistenceError> {
+            self.repo_mock.cleanup().await
+        }
+
+        async fn flush(&self) -> Result<(), PersistenceError> {
+            self.repo_mock.flush().await
+        }
+
+        async fn save_emergency_state(
+            &self,
+            network_id: &str,
+            block_number: u64,
+            note: &str,
+        ) -> Result<(), PersistenceError> {
+            self.repo_mock.save_emergency_state(network_id, block_number, note).await
+        }
+
+        async fn get_monitors(
+            &self,
+            network_id: &str,
+        ) -> Result<Vec<crate::models::monitor::Monitor>, PersistenceError> {
+            self.repo_mock.get_monitors(network_id).await
+        }
+
+        async fn get_monitor_by_id(
+            &self,
+            network_id: &str,
+            monitor_id: &str,
+        ) -> Result<Option<crate::models::monitor::Monitor>, PersistenceError> {
+            self.repo_mock.get_monitor_by_id(network_id, monitor_id).await
+        }
+
+        async fn add_monitors(
+            &self,
+            network_id: &str,
+            monitors: Vec<crate::models::monitor::MonitorConfig>,
+        ) -> Result<(), PersistenceError> {
+            self.repo_mock.add_monitors(network_id, monitors).await
+        }
+
+        async fn clear_monitors(&self, network_id: &str) -> Result<(), PersistenceError> {
+            self.repo_mock.clear_monitors(network_id).await
+        }
+
+        async fn delete_monitor(
+            &self,
+            network_id: &str,
+            monitor_id: &str,
+        ) -> Result<(), PersistenceError> {
+            self.repo_mock.delete_monitor(network_id, monitor_id).await
+        }
+
+        async fn update_monitor(
+            &self,
+            network_id: &str,
+            monitor_id: &str,
+            monitor: crate::models::monitor::MonitorConfig,
+        ) -> Result<(), PersistenceError> {
+            self.repo_mock.update_monitor(network_id, monitor_id, monitor).await
+        }
+
+        async fn update_monitor_status(
+            &self,
+            network_id: &str,
+            monitor_id: &str,
+            status: crate::models::monitor::MonitorStatus,
+        ) -> Result<(), PersistenceError> {
+            self.repo_mock.update_monitor_status(network_id, monitor_id, status).await
+        }
+
+        async fn create_abi(&self, name: &str, abi: &str) -> Result<(), PersistenceError> {
+            self.repo_mock.create_abi(name, abi).await
+        }
+
+        async fn get_abi(&self, name: &str) -> Result<Option<String>, PersistenceError> {
+            self.repo_mock.get_abi(name).await
+        }
+
+        async fn list_abis(&self) -> Result<Vec<String>, PersistenceError> {
+            self.repo_mock.list_abis().await
+        }
+
+        async fn delete_abi(&self, name: &str) -> Result<(), PersistenceError> {
+            self.repo_mock.delete_abi(name).await
+        }
+
+        async fn get_all_abis(&self) -> Result<Vec<(String, String)>, PersistenceError> {
+            self.repo_mock.get_all_abis().await
+        }
+
+        async fn get_actions(
+            &self,
+            network_id: &str,
+        ) -> Result<Vec<ActionConfig>, PersistenceError> {
+            self.repo_mock.get_actions(network_id).await
+        }
+
+        async fn get_action_by_id(
+            &self,
+            network_id: &str,
+            action_id: i64,
+        ) -> Result<Option<ActionConfig>, PersistenceError> {
+            self.repo_mock.get_action_by_id(network_id, action_id).await
+        }
+
+        async fn get_action_by_name(
+            &self,
+            network_id: &str,
+            name: &str,
+        ) -> Result<Option<ActionConfig>, PersistenceError> {
+            self.repo_mock.get_action_by_name(network_id, name).await
+        }
+
+        async fn create_action(
+            &self,
+            network_id: &str,
+            action: ActionConfig,
+        ) -> Result<ActionConfig, PersistenceError> {
+            self.repo_mock.create_action(network_id, action).await
+        }
+
+        async fn clear_actions(&self, network_id: &str) -> Result<(), PersistenceError> {
+            self.repo_mock.clear_actions(network_id).await
+        }
+
+        async fn update_action(
+            &self,
+            network_id: &str,
+            action: ActionConfig,
+        ) -> Result<ActionConfig, PersistenceError> {
+            self.repo_mock.update_action(network_id, action).await
+        }
+
+        async fn delete_action(
+            &self,
+            network_id: &str,
+            action_id: i64,
+        ) -> Result<(), PersistenceError> {
+            self.repo_mock.delete_action(network_id, action_id).await
+        }
+
+        async fn get_monitors_by_action_id(
+            &self,
+            network_id: &str,
+            action_id: i64,
+        ) -> Result<Vec<crate::models::monitor::MonitorConfig>, PersistenceError> {
+            self.repo_mock.get_monitors_by_action_id(network_id, action_id).await
+        }
+
+        async fn enqueue_outbox(
+            &self,
+            action_name: &str,
+            payload: &ActionPayload,
+        ) -> Result<(), PersistenceError> {
+            self.repo_mock.enqueue_outbox(action_name, payload).await
+        }
+
+        async fn get_pending_outbox(
+            &self,
+            limit: i64,
+        ) -> Result<Vec<crate::persistence::traits::OutboxItem>, PersistenceError> {
+            self.repo_mock.get_pending_outbox(limit).await
+        }
+
+        async fn delete_outbox_item(&self, id: i64) -> Result<(), PersistenceError> {
+            self.repo_mock.delete_outbox_item(id).await
+        }
+
+        async fn increment_outbox_retries(&self, id: i64) -> Result<(), PersistenceError> {
+            self.repo_mock.increment_outbox_retries(id).await
+        }
+    }
 
     fn create_monitor_match(action_name: String) -> MonitorMatch {
         MonitorMatch::builder(1, "Test Monitor".to_string(), action_name, 123, TxHash::default())
@@ -408,24 +620,21 @@ mod tests {
 
     async fn create_alert_manager(
         actions: HashMap<String, ActionConfig>,
-        state_repo: MockKeyValueStore,
-    ) -> AlertManager<MockKeyValueStore> {
-        let state_repo = Arc::new(state_repo);
+        kv_mock: MockKeyValueStore,
+        repo_mock: MockAppRepository,
+    ) -> AlertManager<CombinedMock> {
+        let combined_state_mock = Arc::new(CombinedMock { kv_mock, repo_mock });
         let actions_arc = Arc::new(actions);
-        let action_dispatcher = Arc::new(
-            ActionDispatcher::new(actions_arc.clone(), Arc::new(HttpClientPool::default()))
-                .await
-                .unwrap(),
-        );
-        AlertManager::new(action_dispatcher, state_repo, actions_arc)
+        AlertManager::new(combined_state_mock, actions_arc)
     }
 
     #[tokio::test]
     async fn test_process_match_action_config_missing() {
         // Arrange
         let actions = HashMap::new(); // Empty actions map
-        let state_repo = MockKeyValueStore::new();
-        let alert_manager = create_alert_manager(actions, state_repo).await;
+        let kv_mock = MockKeyValueStore::new();
+        let repo_mock = MockAppRepository::new();
+        let alert_manager = create_alert_manager(actions, kv_mock, repo_mock).await;
         let monitor_match = create_monitor_match("NonExistentAction".to_string());
 
         // Act
@@ -445,8 +654,13 @@ mod tests {
             ActionBuilder::new(&action_name).discord_config("http://example.com").build();
         let mut actions = HashMap::new();
         actions.insert(action_name.to_string(), action_config);
-        let state_repo = MockKeyValueStore::new();
-        let alert_manager = create_alert_manager(actions, state_repo).await;
+        let kv_mock = MockKeyValueStore::new();
+        let mut repo_mock = MockAppRepository::new();
+
+        // Expect enqueue_outbox to be called
+        repo_mock.expect_enqueue_outbox().times(1).returning(|_, _| Ok(()));
+
+        let alert_manager = create_alert_manager(actions, kv_mock, repo_mock).await;
         let monitor_match = create_monitor_match(action_name);
 
         // Act
@@ -454,7 +668,7 @@ mod tests {
 
         // Assert
         assert!(result.is_ok());
-        // Note: Actual notification is tested in integration tests
+        // Note: Actual outbox enqueueing is tested in integration tests
     }
 
     #[tokio::test]
@@ -471,10 +685,11 @@ mod tests {
         let mut actions = HashMap::new();
         actions.insert(action_name.to_string(), action_config);
 
-        let mut state_repo = MockKeyValueStore::new();
+        let mut kv_mock = MockKeyValueStore::new();
+        let mut repo_mock = MockAppRepository::new();
 
         // Should attempt to get existing state and find none
-        state_repo
+        kv_mock
             .expect_get_json_state::<ThrottleState>()
             .with(eq(format!("throttle_state:{}", action_name.clone())))
             .times(1)
@@ -482,7 +697,7 @@ mod tests {
 
         // Should attempt to save new throttle state with count = 1
         let action_name_for_withf = action_name.clone();
-        state_repo
+        kv_mock
             .expect_set_json_state::<ThrottleState>()
             .withf(move |key, state| {
                 key == &format!("throttle_state:{}", action_name_for_withf) && state.count == 1
@@ -490,7 +705,10 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(())); // Simulate successful state save
 
-        let alert_manager = create_alert_manager(actions, state_repo).await;
+        // Expect enqueue_outbox to be called
+        repo_mock.expect_enqueue_outbox().times(1).returning(|_, _| Ok(()));
+
+        let alert_manager = create_alert_manager(actions, kv_mock, repo_mock).await;
         let monitor_match = create_monitor_match(action_name);
 
         let result = alert_manager.process_match(&monitor_match).await;
@@ -512,10 +730,11 @@ mod tests {
         let mut actions = HashMap::new();
         actions.insert(action_name.to_string(), action_config);
 
-        let mut state_repo = MockKeyValueStore::new();
+        let mut kv_mock = MockKeyValueStore::new();
+        let mut repo_mock = MockAppRepository::new();
 
         // Get state for existing throttle
-        state_repo
+        kv_mock
             .expect_get_json_state::<ThrottleState>()
             .with(eq(format!("throttle_state:{}", action_name.clone())))
             .times(1)
@@ -525,7 +744,7 @@ mod tests {
 
         // Should attempt to save new throttle state with count = 2
         let action_name_for_withf = action_name.clone();
-        state_repo
+        kv_mock
             .expect_set_json_state::<ThrottleState>()
             .withf(move |key, state| {
                 key == &format!("throttle_state:{}", action_name_for_withf) && state.count == 2
@@ -533,7 +752,10 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(())); // Simulate successful state save
 
-        let alert_manager = create_alert_manager(actions, state_repo).await;
+        // Expect enqueue_outbox to be called
+        repo_mock.expect_enqueue_outbox().times(1).returning(|_, _| Ok(()));
+
+        let alert_manager = create_alert_manager(actions, kv_mock, repo_mock).await;
         let monitor_match = create_monitor_match(action_name);
 
         let result = alert_manager.process_match(&monitor_match).await;
@@ -554,10 +776,11 @@ mod tests {
         let mut actions = HashMap::new();
         actions.insert(action_name.to_string(), action_config);
 
-        let mut state_repo = MockKeyValueStore::new();
+        let mut kv_mock = MockKeyValueStore::new();
+        let mut repo_mock = MockAppRepository::new();
 
         // Fails to retrieve state
-        state_repo
+        kv_mock
             .expect_get_json_state::<ThrottleState>()
             .with(eq(format!("throttle_state:{}", action_name.clone())))
             .times(1)
@@ -565,7 +788,7 @@ mod tests {
 
         // Should attempt to save new throttle state with count = 1
         let action_name_for_withf = action_name.clone();
-        state_repo
+        kv_mock
             .expect_set_json_state::<ThrottleState>()
             .withf(move |key, state| {
                 key == &format!("throttle_state:{}", action_name_for_withf) && state.count == 1
@@ -573,7 +796,10 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(())); // Simulate successful state save
 
-        let alert_manager = create_alert_manager(actions, state_repo).await;
+        // Expect enqueue_outbox to be called
+        repo_mock.expect_enqueue_outbox().times(1).returning(|_, _| Ok(()));
+
+        let alert_manager = create_alert_manager(actions, kv_mock, repo_mock).await;
         let monitor_match = create_monitor_match(action_name);
 
         let result = alert_manager.process_match(&monitor_match).await;
@@ -600,31 +826,33 @@ mod tests {
         let mut actions = HashMap::new();
         actions.insert(action_name.to_string(), action_config);
 
-        let mut state_repo = MockKeyValueStore::new();
+        let mut kv_mock = MockKeyValueStore::new();
+        let repo_mock = MockAppRepository::new();
         let monitor_match = create_monitor_match(action_name.clone());
         let aggregation_key = &monitor_match.action_name;
         let state_key = format!("aggregation_state:{}", aggregation_key);
 
         // Expect a call to get the current state, returning None.
-        state_repo
+        kv_mock
             .expect_get_json_state::<AggregationState>()
             .with(eq(state_key.clone()))
             .times(1)
             .returning(|_| Ok(None));
 
         // Expect a call to save the new state with one match.
-        state_repo
+        kv_mock
             .expect_set_json_state::<AggregationState>()
             .withf(move |key, state| key == state_key && state.matches.len() == 1)
             .times(1)
             .returning(|_, _| Ok(()));
 
-        let alert_manager = create_alert_manager(actions, state_repo).await;
+        let alert_manager = create_alert_manager(actions, kv_mock, repo_mock).await;
 
         let result = alert_manager.process_match(&monitor_match).await;
         assert!(result.is_ok());
 
-        // Note: The spawned task's behavior is tested by integration tests
+        // Note: The background dispatcher task's behavior is tested by
+        // integration tests
     }
 
     #[tokio::test]
@@ -646,14 +874,15 @@ mod tests {
         let mut actions = HashMap::new();
         actions.insert(action_name.to_string(), action_config);
 
-        let mut state_repo = MockKeyValueStore::new();
+        let mut kv_mock = MockKeyValueStore::new();
+        let repo_mock = MockAppRepository::new();
         let monitor_match = create_monitor_match(action_name.clone());
         let aggregation_key = &monitor_match.action_name;
         let state_key = format!("aggregation_state:{}", aggregation_key);
 
         // Expect a call to get the current state, returning an existing state.
         let existing_match = create_monitor_match(action_name.clone());
-        state_repo
+        kv_mock
             .expect_get_json_state::<AggregationState>()
             .with(eq(state_key.clone()))
             .times(1)
@@ -665,13 +894,13 @@ mod tests {
             });
 
         // Expect a call to save the updated state with two matches.
-        state_repo
+        kv_mock
             .expect_set_json_state::<AggregationState>()
             .withf(move |key, state| key == state_key && state.matches.len() == 2)
             .times(1)
             .returning(|_, _| Ok(()));
 
-        let alert_manager = create_alert_manager(actions, state_repo).await;
+        let alert_manager = create_alert_manager(actions, kv_mock, repo_mock).await;
 
         let result = alert_manager.process_match(&monitor_match).await;
         assert!(result.is_ok());
@@ -696,7 +925,8 @@ mod tests {
         let mut actions = HashMap::new();
         actions.insert(action_name.to_string(), action_config.clone());
 
-        let mut state_repo = MockKeyValueStore::new();
+        let mut kv_mock = MockKeyValueStore::new();
+        let mut repo_mock = MockAppRepository::new();
         let monitor_match1 = create_monitor_match(action_name.clone());
         let monitor_match2 = create_monitor_match(action_name.clone());
         let aggregation_key = &monitor_match1.monitor_name;
@@ -710,20 +940,23 @@ mod tests {
         };
 
         let state_key_clone = state_key.clone();
-        state_repo
+        kv_mock
             .expect_get_all_json_states_by_prefix::<AggregationState>()
             .with(eq("aggregation_state:".to_string()))
             .times(1)
             .returning(move |_| Ok(vec![(state_key_clone.clone(), expired_state.clone())]));
 
         // Expect the state to be cleared after dispatch.
-        state_repo
+        kv_mock
             .expect_set_json_state::<AggregationState>()
             .with(eq(state_key.clone()), eq(AggregationState::default()))
             .times(1)
             .returning(|_, _| Ok(()));
 
-        let alert_manager = create_alert_manager(actions, state_repo).await;
+        // Expect enqueue_outbox to be called for the aggregated payload
+        repo_mock.expect_enqueue_outbox().times(1).returning(|_, _| Ok(()));
+
+        let alert_manager = create_alert_manager(actions, kv_mock, repo_mock).await;
 
         // Act
         let result = alert_manager.check_and_dispatch_expired_windows(false).await;
@@ -735,8 +968,9 @@ mod tests {
     #[tokio::test]
     async fn test_get_action_lock_is_shared_and_distinct() {
         // Arrange
-        let state_repo = MockKeyValueStore::new();
-        let alert_manager = create_alert_manager(HashMap::new(), state_repo).await;
+        let kv_mock = MockKeyValueStore::new();
+        let repo_mock = MockAppRepository::new();
+        let alert_manager = create_alert_manager(HashMap::new(), kv_mock, repo_mock).await;
         let action1_name = "action1";
         let action2_name = "action2";
 
@@ -757,9 +991,10 @@ mod tests {
     async fn test_shutdown_actions() {
         let publisher_action =
             ActionBuilder::new("Test Action").kafka_config("kafka:9092", "test_topic").build();
-        let mut state_repo = MockKeyValueStore::new();
+        let mut kv_mock = MockKeyValueStore::new();
+        let repo_mock = MockAppRepository::new();
 
-        state_repo
+        kv_mock
             .expect_get_all_json_states_by_prefix::<AggregationState>()
             .with(eq("aggregation_state:".to_string()))
             .times(1)
@@ -769,7 +1004,7 @@ mod tests {
 
         actions.insert(publisher_action.name.clone(), publisher_action);
 
-        let alert_manager = create_alert_manager(actions, state_repo).await;
+        let alert_manager = create_alert_manager(actions, kv_mock, repo_mock).await;
 
         alert_manager.shutdown().await;
     }

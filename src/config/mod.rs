@@ -5,6 +5,7 @@ mod helpers;
 mod http_base;
 mod http_retry;
 mod initial_start_block;
+mod outbox;
 mod rhai;
 mod rpc_retry;
 mod server;
@@ -17,6 +18,7 @@ pub use helpers::{
 pub use http_base::BaseHttpClientConfig;
 pub use http_retry::{HttpRetryConfig, JitterSetting};
 pub use initial_start_block::InitialStartBlock;
+pub use outbox::OutboxConfig;
 pub use rhai::RhaiConfig;
 pub use rpc_retry::RpcRetryConfig;
 pub use server::ServerConfig;

@@ -1,10 +1,11 @@
-//! Integration tests for the AlertManager service
+//! Integration tests for the AlertManager service + Outbox Processor
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use argus::{
     action_dispatcher::ActionDispatcher,
-    engine::alert_manager::AlertManager,
+    config::OutboxConfig,
+    engine::{alert_manager::AlertManager, outbox_processor::OutboxProcessor},
     http_client::HttpClientPool,
     models::{
         NotificationMessage,
@@ -17,6 +18,7 @@ use argus::{
 };
 use serde_json::json;
 use tokio::time::sleep;
+use tokio_util::sync::CancellationToken;
 
 async fn setup_db() -> SqliteStateRepository {
     let repo = SqliteStateRepository::new("sqlite::memory:")
@@ -30,17 +32,35 @@ fn create_monitor_match(monitor_name: &str, action_name: &str) -> MonitorMatch {
     create_test_tx_monitor_match(monitor_name, action_name, json!({ "key": "value" }))
 }
 
+// Helper to build the dispatcher
+async fn create_dispatcher(actions: HashMap<String, ActionConfig>) -> Arc<ActionDispatcher> {
+    let actions_arc = Arc::new(actions);
+    Arc::new(ActionDispatcher::new(actions_arc, Arc::new(HttpClientPool::default())).await.unwrap())
+}
+
+// Helper to build the AlertManager
 async fn create_alert_manager(
     actions: HashMap<String, ActionConfig>,
     state_repo: Arc<SqliteStateRepository>,
 ) -> AlertManager<SqliteStateRepository> {
     let actions_arc = Arc::new(actions);
-    let action_dispatcher = Arc::new(
-        ActionDispatcher::new(actions_arc.clone(), Arc::new(HttpClientPool::default()))
-            .await
-            .unwrap(),
-    );
-    AlertManager::new(action_dispatcher, state_repo, actions_arc)
+    AlertManager::new(state_repo, actions_arc)
+}
+
+// Helper to run the outbox processor in background
+fn spawn_outbox_processor(repo: Arc<SqliteStateRepository>, dispatcher: Arc<ActionDispatcher>) {
+    // Fast config for tests
+    let config = OutboxConfig {
+        batch_size: 10,
+        concurrency: 1,
+        poll_interval_ms: 50, // Fast polling
+    };
+
+    let processor = OutboxProcessor::new(repo, dispatcher, config);
+    let cancellation_token = CancellationToken::new();
+    tokio::spawn(async move {
+        processor.run(cancellation_token).await;
+    });
 }
 
 #[tokio::test]
@@ -66,10 +86,15 @@ async fn test_aggregation_policy_dispatches_summary_after_window() {
     let mut actions = HashMap::new();
     actions.insert(action_name.clone(), action_config);
 
+    // 1. Setup
     let state_repo = Arc::new(setup_db().await);
+    let dispatcher = create_dispatcher(actions.clone()).await;
     let alert_manager = create_alert_manager(actions, state_repo.clone()).await;
 
-    // Mock the aggregated notification
+    // 2. Start Outbox Processor (Consumer)
+    spawn_outbox_processor(state_repo.clone(), dispatcher);
+
+    // 3. Mock
     let mock = server
         .mock("POST", "/")
         .with_status(200)
@@ -78,24 +103,26 @@ async fn test_aggregation_policy_dispatches_summary_after_window() {
             r#"{{"content":"*Aggregated Alert: {}*\n\nDetected 2 events."}}"#,
             monitor_name
         ))
-        .expect(1) // Expect only one aggregated notification
+        .expect(1)
         .create_async()
         .await;
 
-    // Send two matches within the aggregation window
+    // 4. Generate Matches (Producer)
     let match1 = create_monitor_match(&monitor_name, &action_name);
     let match2 = create_monitor_match(&monitor_name, &action_name);
 
     alert_manager.process_match(&match1).await.unwrap();
     alert_manager.process_match(&match2).await.unwrap();
 
-    // Spawn the aggregation dispatcher in the background
+    // 5. Start Aggregation Dispatcher (Internal AlertManager timer)
     let dispatcher_alert_manager = Arc::new(alert_manager);
     tokio::spawn(async move {
         dispatcher_alert_manager.run_aggregation_dispatcher(Duration::from_millis(100)).await;
     });
 
-    // Wait for the aggregation window to pass and dispatcher to run
+    // 6. Wait
+    // Need enough time for: Window Expiry -> DB Write -> Outbox Poll -> HTTP
+    // Request
     sleep(Duration::from_secs(aggregation_window_secs + 1)).await;
 
     // Assert that the aggregated notification was sent
@@ -128,7 +155,9 @@ async fn test_throttle_policy_limits_notifications() {
     actions.insert(action_name.clone(), action_config);
 
     let state_repo = Arc::new(setup_db().await);
+    let dispatcher = create_dispatcher(actions.clone()).await;
     let alert_manager = create_alert_manager(actions, state_repo.clone()).await;
+    spawn_outbox_processor(state_repo.clone(), dispatcher);
 
     // Mock the throttled notification
     let mock = server
@@ -146,8 +175,8 @@ async fn test_throttle_policy_limits_notifications() {
         alert_manager.process_match(&monitor_match).await.unwrap();
     }
 
-    // Wait for a short period to ensure all process_match calls complete
-    sleep(Duration::from_millis(100)).await;
+    // Wait for async processing
+    sleep(Duration::from_millis(500)).await;
 
     // Assert that only `max_count` notifications were sent
     mock.assert();
@@ -158,8 +187,7 @@ async fn test_throttle_policy_limits_notifications() {
         state_repo.get_json_state::<ThrottleState>(&state_key).await.unwrap().unwrap();
     assert_eq!(throttle_state.count, max_count);
 
-    // Wait for the throttle window to expire
-    sleep(Duration::from_secs(time_window_secs + 1)).await;
+    // --- Part 2: Window Reset ---
 
     // Wait for the throttle window to expire
     sleep(Duration::from_secs(time_window_secs + 1)).await;
@@ -178,8 +206,7 @@ async fn test_throttle_policy_limits_notifications() {
     let monitor_match = create_monitor_match(&monitor_name, &action_name);
     alert_manager.process_match(&monitor_match).await.unwrap();
 
-    // Assert that another notification is sent after the window reset
-    sleep(Duration::from_millis(100)).await;
+    sleep(Duration::from_millis(500)).await;
     mock_after_reset.assert();
 
     let throttle_state_after_reset =
@@ -200,7 +227,9 @@ async fn test_no_policy_sends_notification_per_match() {
     actions.insert(action_name.clone(), action_config);
 
     let state_repo = Arc::new(setup_db().await);
+    let dispatcher = create_dispatcher(actions.clone()).await;
     let alert_manager = create_alert_manager(actions, state_repo.clone()).await;
+    spawn_outbox_processor(state_repo.clone(), dispatcher);
 
     // Mock the notification endpoint
     let mock = server
@@ -219,8 +248,8 @@ async fn test_no_policy_sends_notification_per_match() {
     alert_manager.process_match(&match1).await.unwrap();
     alert_manager.process_match(&match2).await.unwrap();
 
-    // Wait for a short period to ensure notifications are sent
-    sleep(Duration::from_millis(100)).await;
+    // Wait
+    sleep(Duration::from_millis(500)).await;
 
     // Assert that both notifications were sent
     mock.assert();
@@ -247,7 +276,9 @@ async fn test_throttle_policy_shared_across_monitors() {
     actions.insert(action_name.clone(), action_config);
 
     let state_repo = Arc::new(setup_db().await);
+    let dispatcher = create_dispatcher(actions.clone()).await;
     let alert_manager = create_alert_manager(actions, state_repo.clone()).await;
+    spawn_outbox_processor(state_repo.clone(), dispatcher);
 
     let mock = server
         .mock("POST", "/")
@@ -257,7 +288,8 @@ async fn test_throttle_policy_shared_across_monitors() {
         .create_async()
         .await;
 
-    // Send matches from two different monitors, exceeding the throttle limit
+    // Trigger: Send matches from two different monitors, exceeding the throttle
+    // limit total
     let match1 = create_monitor_match(&monitor_name1, &action_name);
     let match2 = create_monitor_match(&monitor_name2, &action_name);
     let match3 = create_monitor_match(&monitor_name1, &action_name);
@@ -266,9 +298,10 @@ async fn test_throttle_policy_shared_across_monitors() {
     alert_manager.process_match(&match1).await.unwrap();
     alert_manager.process_match(&match2).await.unwrap();
     alert_manager.process_match(&match3).await.unwrap();
-    alert_manager.process_match(&match4).await.unwrap();
+    alert_manager.process_match(&match4).await.unwrap(); // This one should be throttled (dropped)
 
-    sleep(Duration::from_millis(200)).await;
+    // Wait for Outbox Processing
+    sleep(Duration::from_millis(500)).await;
 
     // Assert that only `max_count` notifications were sent
     mock.assert();
@@ -277,11 +310,21 @@ async fn test_throttle_policy_shared_across_monitors() {
     let state_key = format!("throttle_state:{}", action_name);
     let throttle_state =
         state_repo.get_json_state::<ThrottleState>(&state_key).await.unwrap().unwrap();
+
+    // The state tracks how many we ATTEMPTED to send, even if throttled
+    // Logic:
+    // 1. Count = 0 -> Send -> Count = 1
+    // 2. Count = 1 -> Send -> Count = 2
+    // 3. Count = 2 -> Send -> Count = 3
+    // 4. Count = 3 -> Drop -> Count = 3 (The count stops incrementing once we hit
+    //    limit in current impl)
     assert_eq!(throttle_state.count, max_count);
 }
 
 #[tokio::test]
 async fn test_aggregation_state_persistence_on_restart() {
+    // Here we verify that a new instance picks up pending state.
+
     let mut server = mockito::Server::new_async().await;
     let action_name = "persistent_aggregator".to_string();
     let monitor_name = "Persistent Monitor".to_string();
@@ -302,13 +345,13 @@ async fn test_aggregation_state_persistence_on_restart() {
 
     let mut actions = HashMap::new();
     actions.insert(action_name.clone(), action_config);
-    let actions_arc = Arc::new(actions);
 
     let state_repo = Arc::new(setup_db().await);
 
-    // --- First run: process matches and store state ---
-    let alert_manager1 =
-        create_alert_manager(actions_arc.as_ref().clone(), state_repo.clone()).await;
+    // --- Instance 1 ---
+    let alert_manager1 = create_alert_manager(actions.clone(), state_repo.clone()).await;
+
+    // Process matches
     let match1 = create_monitor_match(&monitor_name, &action_name);
     let match2 = create_monitor_match(&monitor_name, &action_name);
     alert_manager1.process_match(&match1).await.unwrap();
@@ -320,9 +363,13 @@ async fn test_aggregation_state_persistence_on_restart() {
         state_repo.get_json_state::<AggregationState>(&state_key).await.unwrap().unwrap();
     assert_eq!(saved_state.matches.len(), 2);
 
-    // --- Simulate restart: create a new AlertManager with the same state ---
-    let alert_manager2 =
-        create_alert_manager(actions_arc.as_ref().clone(), state_repo.clone()).await;
+    // --- Instance 2 (Restart) ---
+    // Simulate the restart by creating a new AlertManager on the same DB.
+    let alert_manager2 = create_alert_manager(actions.clone(), state_repo.clone()).await;
+    let dispatcher = create_dispatcher(actions.clone()).await;
+
+    // Start Outbox
+    spawn_outbox_processor(state_repo.clone(), dispatcher);
 
     let mock = server
         .mock("POST", "/")

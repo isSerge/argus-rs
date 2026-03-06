@@ -213,8 +213,7 @@ impl AppContextBuilder {
             )?,
         );
 
-        let alert_manager =
-            Arc::new(AlertManager::new(action_dispatcher.clone(), repo.clone(), actions_map));
+        let alert_manager = Arc::new(AlertManager::new(repo.clone(), actions_map));
 
         // Create a shared MonitorValidator using the populated services and actions.
         let script_validator = RhaiScriptValidator::new(script_compiler.clone());
