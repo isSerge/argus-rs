@@ -8,8 +8,10 @@ use serde_json::Value;
 /// about the trigger.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MonitorMatch {
-    /// Idempotent identifier for the match, tx hash + log index for log
-    /// matches, tx hash alone for transaction matches.
+    /// Unique idempotent identifier for the match. Includes monitor_id,
+    /// action_name, transaction hash, and log index (for logs), ensuring
+    /// uniqueness across different monitors and actions matching the same
+    /// blockchain event.
     pub id: String,
 
     /// Unique identifier for the monitor that found the match.
@@ -89,9 +91,12 @@ impl MonitorMatchBuilder {
     /// Builds the `MonitorMatch` instance.
     pub fn build(self) -> MonitorMatch {
         let id = match &self.match_data {
-            Some(MatchData::Transaction { details: _ }) => self.transaction_hash.to_string(),
-            Some(MatchData::Log { log_details, .. }) =>
-                format!("{}-{}", self.transaction_hash, log_details.log_index),
+            Some(MatchData::Transaction { details: _ }) =>
+                format!("{}-{}-{}", self.monitor_id, self.action_name, self.transaction_hash),
+            Some(MatchData::Log { log_details, .. }) => format!(
+                "{}-{}-{}-{}",
+                self.monitor_id, self.action_name, self.transaction_hash, log_details.log_index
+            ),
             None => panic!("Match data must be set before calling build()"),
         };
 
@@ -235,7 +240,7 @@ mod tests {
         .decoded_call(None)
         .build();
 
-        let id = TxHash::default().to_string();
+        let id = format!("{}-{}-{}", 1, "Test Action", TxHash::default());
 
         let expected_json_no_call = json!({
             "id": id,
@@ -314,7 +319,7 @@ mod tests {
         .build();
 
         let log_index = 15;
-        let id = format!("{}-{}", TxHash::default(), log_index);
+        let id = format!("{}-{}-{}-{}", 2, "Log Action", TxHash::default(), log_index);
 
         let expected_json = json!({
             "id": id,
@@ -347,7 +352,7 @@ mod tests {
         let contract_address_str = "0x0000000000000000000000000000000000000011";
         let contract_address = contract_address_str.parse::<Address>().unwrap();
         let log_index = 15;
-        let id = format!("{}-{}", TxHash::default(), log_index);
+        let id = format!("{}-{}-{}-{}", 2, "Log Action", TxHash::default(), log_index);
 
         // Simulate a JSON string where 'tx' is missing for a log-based match
         let json_str = format!(
