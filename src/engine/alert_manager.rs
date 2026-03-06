@@ -101,9 +101,6 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
                         action_name,
                         e
                     );
-                } else {
-                    // Increment generated alerts counter on successful notification
-                    *self.generated_alerts.entry(action_name.clone()).or_insert(0) += 1;
                 }
             }
         }
@@ -187,9 +184,6 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
                     action_name,
                     e
                 );
-            } else {
-                // Increment generated alerts counter on successful enqueueing
-                *self.generated_alerts.entry(monitor_match.action_name.clone()).or_insert(0) += 1;
             }
             throttle_state.count += 1;
         } else {
@@ -309,9 +303,6 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
                         state_key,
                         e
                     );
-                } else {
-                    // Increment generated alerts counter on successful notification
-                    *self.generated_alerts.entry(action_config.name.clone()).or_insert(0) += 1;
                 }
 
                 // And finally, clear the state.
