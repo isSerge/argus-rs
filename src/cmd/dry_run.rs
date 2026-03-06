@@ -149,11 +149,14 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     alert_manager.flush().await?;
 
     // Drain the outbox
-    let sent_count = outbox_processor.drain_queue().await.map_err(|e| {
+    let processed_count = outbox_processor.drain_queue().await.map_err(|e| {
         DryRunError::ActionDispatcher(ActionDispatcherError::ExecutionError(e.to_string()))
     })?;
 
-    tracing::info!("Outbox drained. {} notifications successfully sent.", sent_count);
+    tracing::info!(
+        "Outbox drained. {} notifications attempted (delivery status may vary).",
+        processed_count
+    );
 
     // Shutdown action dispatcher
     context.action_dispatcher.shutdown().await;
@@ -162,7 +165,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     let generated_alerts = alert_manager.get_generated_alerts();
 
     // Print the summary report.
-    print_summary_report(args.from, args.to, &matches, generated_alerts, sent_count);
+    print_summary_report(args.from, args.to, &matches, generated_alerts, processed_count);
 
     Ok(())
 }
@@ -202,7 +205,7 @@ fn print_summary_report(
     to_block: u64,
     matches: &[MonitorMatch],
     generated_alerts: &DashMap<String, usize>,
-    total_sent: usize,
+    processed_count: usize,
 ) {
     let total_blocks = calculate_total_blocks(from_block, to_block);
     let total_matches = matches.len();
@@ -238,7 +241,7 @@ fn print_summary_report(
 
     println!("\nDelivery Status");
     println!("---------------");
-    println!("- Total Successfully Sent: {}", total_sent);
+    println!("- Total Attempted Deliveries: {}", processed_count);
 }
 
 /// The core processing logic for the dry run.
