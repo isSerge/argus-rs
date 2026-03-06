@@ -18,6 +18,7 @@ use argus::{
 };
 use serde_json::json;
 use tokio::time::sleep;
+use tokio_util::sync::CancellationToken;
 
 async fn setup_db() -> SqliteStateRepository {
     let repo = SqliteStateRepository::new("sqlite::memory:")
@@ -56,8 +57,9 @@ fn spawn_outbox_processor(repo: Arc<SqliteStateRepository>, dispatcher: Arc<Acti
     };
 
     let processor = OutboxProcessor::new(repo, dispatcher, config);
+    let cancellation_token = CancellationToken::new();
     tokio::spawn(async move {
-        processor.run().await;
+        processor.run(cancellation_token).await;
     });
 }
 

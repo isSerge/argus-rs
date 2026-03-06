@@ -4,7 +4,7 @@
 use std::{sync::Arc, time::Duration};
 
 use futures::{StreamExt, stream};
-use tokio::time::sleep;
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     action_dispatcher::ActionDispatcher,
@@ -26,14 +26,30 @@ impl<S: AppRepository + ?Sized + Send + Sync + 'static> OutboxProcessor<S> {
     }
 
     /// Starts the outbox processing loop.
-    pub async fn run(self) {
+    pub async fn run(&self, cancellation_token: CancellationToken) {
         tracing::info!("OutboxProcessor started.");
+
         loop {
-            if let Err(e) = self.process_batch().await {
-                tracing::error!("Error in outbox processing loop: {}", e);
+            // Calculate delay for next poll
+            let delay = tokio::time::sleep(Duration::from_millis(self.config.poll_interval_ms));
+
+            tokio::select! {
+                // 1. Check for shutdown signal
+                _ = cancellation_token.cancelled() => {
+                    tracing::info!("OutboxProcessor received shutdown signal. Stopping loop.");
+                    break;
+                }
+
+                // 2. Wait for poll interval
+                _ = delay => {
+                    if let Err(e) = self.process_batch().await {
+                        tracing::error!("Error in outbox processing loop: {}", e);
+                    }
+                }
             }
-            sleep(Duration::from_millis(self.config.poll_interval_ms)).await;
         }
+
+        tracing::info!("OutboxProcessor has shut down.");
     }
 
     /// Drains the outbox queue by processing all pending items until the queue

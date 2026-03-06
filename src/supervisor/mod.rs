@@ -34,6 +34,7 @@ use crate::{
     engine::{
         alert_manager::AlertManager, block_ingestor::BlockIngestor,
         block_processor::BlockProcessor, filtering::FilteringEngine,
+        outbox_processor::OutboxProcessor,
     },
     http_server,
     models::{BlockData, CorrelatedBlockData, monitor::Monitor, monitor_match::MonitorMatch},
@@ -327,14 +328,17 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
         });
 
         // Spawn the OutboxProcessor service
-        let outbox_processor = crate::engine::outbox_processor::OutboxProcessor::new(
+        let outbox_processor = Arc::new(OutboxProcessor::new(
             self.state.clone(),
             self.action_dispatcher.clone(),
             self.config.outbox.clone(),
-        );
+        ));
+
+        let op_clone = outbox_processor.clone();
+        let op_token = self.cancellation_token.clone();
 
         self.join_set.spawn(async move {
-            outbox_processor.run().await;
+            op_clone.run(op_token).await;
         });
 
         // --- Main Supervisor Loop ---
@@ -391,6 +395,14 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
         let cleanup_logic = async {
             // Shutdown the alert manager to flush any pending notifications.
             self.alert_manager.shutdown().await;
+
+            // Drain the outbox to attempt delivery of any pending notifications before
+            // exit.
+            tracing::info!("Performing final outbox drain...");
+            match outbox_processor.drain_queue().await {
+                Ok(count) => tracing::info!("Final drain complete. Sent {} notifications.", count),
+                Err(e) => tracing::error!("Failed to perform final outbox drain: {}", e),
+            }
 
             // Flush/Close Network Connections (Kafka, NATS, etc.)
             self.action_dispatcher.shutdown().await;
