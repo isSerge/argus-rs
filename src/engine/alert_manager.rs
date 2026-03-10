@@ -258,6 +258,10 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
                 let action_config = match self.actions.get(&action_name) {
                     Some(config) => config,
                     None => {
+                        tracing::warn!(
+                            action = %action_name,
+                            "Action configuration not found for aggregation dispatch."
+                        );
                         state.matches.clear();
                         continue;
                     }
