@@ -44,7 +44,7 @@ async fn create_alert_manager(
     state_repo: Arc<SqliteStateRepository>,
 ) -> AlertManager<SqliteStateRepository> {
     let actions_arc = Arc::new(actions);
-    AlertManager::new(state_repo, actions_arc)
+    AlertManager::new(state_repo, actions_arc).await.unwrap()
 }
 
 // Helper to run the outbox processor in background
@@ -181,6 +181,9 @@ async fn test_throttle_policy_limits_notifications() {
     // Assert that only `max_count` notifications were sent
     mock.assert();
 
+    // Force memory sync to DB to verify state persistence
+    alert_manager.sync_states_to_db().await.unwrap();
+
     // Verify that the throttle state is correctly updated in the repository
     let state_key = format!("throttle_state:{}", action_name);
     let throttle_state =
@@ -208,6 +211,9 @@ async fn test_throttle_policy_limits_notifications() {
 
     sleep(Duration::from_millis(500)).await;
     mock_after_reset.assert();
+
+    // Force memory sync to DB
+    alert_manager.sync_states_to_db().await.unwrap();
 
     let throttle_state_after_reset =
         state_repo.get_json_state::<ThrottleState>(&state_key).await.unwrap().unwrap();
@@ -306,6 +312,9 @@ async fn test_throttle_policy_shared_across_monitors() {
     // Assert that only `max_count` notifications were sent
     mock.assert();
 
+    // Force memory sync to DB to verify state persistence
+    alert_manager.sync_states_to_db().await.unwrap();
+
     // Verify the throttle state
     let state_key = format!("throttle_state:{}", action_name);
     let throttle_state =
@@ -356,6 +365,9 @@ async fn test_aggregation_state_persistence_on_restart() {
     let match2 = create_monitor_match(&monitor_name, &action_name);
     alert_manager1.process_match(&match1).await.unwrap();
     alert_manager1.process_match(&match2).await.unwrap();
+
+    // Force memory sync to DB to ensure state (graceful shutdown scenario)
+    alert_manager1.sync_states_to_db().await.unwrap();
 
     // Verify state is persisted
     let state_key = format!("aggregation_state:{}", action_name);
