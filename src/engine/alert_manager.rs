@@ -22,6 +22,7 @@ use crate::{
 /// The AlertManager is responsible for processing monitor matches, applying
 /// notification policies (throttling, aggregation, etc.) and enqueuing
 /// notifications to the Outbox for delivery by the OutboxProcessor
+#[derive(Debug)]
 pub struct AlertManager<T: KeyValueStore> {
     /// The state repository for storing alert states
     state_repository: Arc<T>,
@@ -34,6 +35,12 @@ pub struct AlertManager<T: KeyValueStore> {
 
     /// Track generated alerts for dry-run reporting
     generated_alerts: DashMap<String, usize>,
+
+    /// In-memory caches for throttle and aggregation states
+    throttle_states: DashMap<String, ThrottleState>,
+
+    /// In-memory cache for aggregation states
+    aggregation_states: DashMap<String, AggregationState>,
 }
 
 /// Errors that can occur within the AlertManager
@@ -50,13 +57,41 @@ pub enum AlertManagerError {
 
 impl<T: KeyValueStore + AppRepository> AlertManager<T> {
     /// Creates a new AlertManager instance
-    pub fn new(state_repository: Arc<T>, actions: Arc<HashMap<String, ActionConfig>>) -> Self {
-        Self {
+    pub async fn new(
+        state_repository: Arc<T>,
+        actions: Arc<HashMap<String, ActionConfig>>,
+    ) -> Result<Self, AlertManagerError> {
+        let throttle_states = DashMap::new();
+        let aggregation_states = DashMap::new();
+
+        // 1. Load Throttle states from SQLite
+        let saved_throttles = state_repository
+            .get_all_json_states_by_prefix::<ThrottleState>("throttle_state:")
+            .await?;
+
+        for (key, state) in saved_throttles {
+            let action_name = key.replace("throttle_state:", "");
+            throttle_states.insert(action_name, state);
+        }
+
+        // 2. Load Aggregation states from SQLite
+        let saved_aggs = state_repository
+            .get_all_json_states_by_prefix::<AggregationState>("aggregation_state:")
+            .await?;
+
+        for (key, state) in saved_aggs {
+            let action_name = key.replace("aggregation_state:", "");
+            aggregation_states.insert(action_name, state);
+        }
+
+        Ok(Self {
             state_repository,
             actions,
             action_locks: DashMap::new(),
             generated_alerts: DashMap::new(),
-        }
+            throttle_states,
+            aggregation_states,
+        })
     }
 
     /// Processes a monitor match
@@ -139,43 +174,31 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
         let action_name = &monitor_match.action_name;
         let lock = self.get_action_lock(action_name);
         let _guard = lock.lock().await;
-        let throttle_state_key = format!("throttle_state:{}", action_name);
         let current_time = chrono::Utc::now();
 
-        // Retrieve existing throttle state or initialize a new one
-        let mut throttle_state = match self
-            .state_repository
-            .get_json_state::<ThrottleState>(&throttle_state_key)
-            .await
-        {
-            Ok(Some(state)) => state,
-            Ok(None) => {
-                // No state found, initialize new state
-                ThrottleState { count: 0, window_start_time: current_time }
+        // Check if we have existing throttle state for this action
+        let should_dispatch = {
+            let mut throttle_state = self
+                .throttle_states
+                .entry(action_name.clone())
+                .or_insert_with(|| ThrottleState { count: 0, window_start_time: current_time });
+
+            if current_time > throttle_state.window_start_time + policy.time_window_secs {
+                throttle_state.count = 0;
+                throttle_state.window_start_time = current_time;
             }
-            Err(e) => {
-                // If there's an error retrieving state, log it and proceed with a new state.
-                // This prevents a single state retrieval error from halting throttling.
-                tracing::error!("Failed to retrieve throttle state for {}: {}", action_name, e);
-                ThrottleState { count: 0, window_start_time: current_time }
+
+            if throttle_state.count < policy.max_count {
+                throttle_state.count += 1;
+                true
+            } else {
+                false
             }
         };
 
-        // Check if the throttling window has expired
-        if current_time > throttle_state.window_start_time + policy.time_window_secs {
-            // Reset the window
-            throttle_state.count = 0;
-            throttle_state.window_start_time = current_time;
-        }
-
-        // Check if the notification should be enqueued
-        if throttle_state.count < policy.max_count {
-            tracing::info!(
-                "Enqueueing throttled notification for {}. Count: {}/{}",
-                action_name,
-                throttle_state.count + 1,
-                policy.max_count
-            );
+        // If we are within limits, dispatch the notification. Otherwise, we simply skip
+        // it.
+        if should_dispatch {
             if let Err(e) =
                 self.dispatch_payload(ActionPayload::Single(monitor_match.clone())).await
             {
@@ -185,23 +208,10 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
                     e
                 );
             }
-            throttle_state.count += 1;
         } else {
-            tracing::debug!(
-                "Throttling notification for {}. Limit {}/{}",
-                action_name,
-                throttle_state.count,
-                policy.max_count
-            );
-            // Silently drop the notification
+            tracing::debug!("Throttling notification for {}. Limit reached.", action_name);
         }
 
-        // Save the updated throttle state
-        if let Err(e) =
-            self.state_repository.set_json_state(&throttle_state_key, &throttle_state).await
-        {
-            tracing::error!("Failed to save throttle state for {}: {}", action_name, e);
-        }
         Ok(())
     }
 
@@ -210,27 +220,21 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
         &self,
         monitor_match: &MonitorMatch,
     ) -> Result<(), AlertManagerError> {
-        let aggregation_key = &monitor_match.action_name;
-        let lock = self.get_action_lock(aggregation_key);
+        let action_name = &monitor_match.action_name;
+        let lock = self.get_action_lock(action_name);
         let _guard = lock.lock().await;
 
-        let state_key = format!("aggregation_state:{}", aggregation_key);
-
-        let mut state = self
-            .state_repository
-            .get_json_state::<AggregationState>(&state_key)
-            .await
-            .map_err(AlertManagerError::from)?
-            .unwrap_or_default();
+        let mut aggregation_state = self
+            .aggregation_states
+            .entry(action_name.clone())
+            .or_insert_with(AggregationState::default);
 
         // If this is the first match for a new window, set the start time.
-        if state.matches.is_empty() {
-            state.window_start_time = chrono::Utc::now();
+        if aggregation_state.matches.is_empty() {
+            aggregation_state.window_start_time = chrono::Utc::now();
         }
 
-        state.matches.push(monitor_match.clone());
-
-        self.state_repository.set_json_state(&state_key, &state).await?;
+        aggregation_state.matches.push(monitor_match.clone());
 
         Ok(())
     }
@@ -241,83 +245,66 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
         &self,
         force: bool,
     ) -> Result<(), AlertManagerError> {
-        const AGGREGATION_PREFIX: &str = "aggregation_state:";
-        let pending_states = self
-            .state_repository
-            .get_all_json_states_by_prefix::<AggregationState>(AGGREGATION_PREFIX)
-            .await?;
+        let current_time = chrono::Utc::now();
+        let mut payloads_to_dispatch = Vec::new();
 
-        for (state_key, state) in pending_states {
-            if state.matches.is_empty() {
-                continue;
-            }
+        {
+            // Scope the DashMap iterator
+            for mut ref_mut in self.aggregation_states.iter_mut() {
+                let action_name = ref_mut.key().clone();
+                let state = ref_mut.value_mut();
 
-            // We need to find the action and its policy to check the window duration.
-            let first_match = &state.matches[0];
-            let action_config = match self.actions.get(&first_match.action_name) {
-                Some(config) => config,
-                None => {
-                    tracing::warn!(
-                        "Action configuration not found for aggregation key '{}'. Clearing state.",
-                        state_key
-                    );
-                    self.state_repository
-                        .set_json_state(&state_key, &AggregationState::default())
-                        .await?;
+                if state.matches.is_empty() {
                     continue;
                 }
-            };
 
-            // This is the crucial part: getting the policy to check against.
-            let policy = match &action_config.policy {
-                Some(ActionPolicy::Aggregation(agg_policy)) => agg_policy,
-                _ => {
-                    tracing::warn!(
-                        "Aggregation policy not found for action '{}'. Clearing state.",
-                        action_config.name
-                    );
-                    self.state_repository
-                        .set_json_state(&state_key, &AggregationState::default())
-                        .await?;
-                    continue;
-                }
-            };
-
-            // Now we use the policy's window_secs to check for expiration.
-            if force || chrono::Utc::now() > state.window_start_time + policy.window_secs {
-                tracing::info!(
-                    "Aggregation window for key '{}' expired. Enqueueing summary.",
-                    state_key
-                );
-
-                // And we use the policy's template to build the payload.
-                let payload = ActionPayload::Aggregated {
-                    action_name: action_config.name.clone(),
-                    matches: state.matches,
-                    template: policy.template.clone(),
+                let action_config = match self.actions.get(&action_name) {
+                    Some(config) => config,
+                    None => {
+                        state.matches.clear();
+                        continue;
+                    }
                 };
 
-                if let Err(e) = self.dispatch_payload(payload).await {
-                    tracing::error!(
-                        "Failed to enqueue aggregated notification for key '{}': {}",
-                        state_key,
-                        e
-                    );
-                }
+                if let Some(ActionPolicy::Aggregation(policy)) = &action_config.policy {
+                    if force || current_time > state.window_start_time + policy.window_secs {
+                        let payload = ActionPayload::Aggregated {
+                            action_name: action_name.clone(),
+                            matches: std::mem::take(&mut state.matches), // Drain matches safely
+                            template: policy.template.clone(),
+                        };
+                        payloads_to_dispatch.push(payload);
 
-                // And finally, clear the state.
-                if let Err(e) = self
-                    .state_repository
-                    .set_json_state(&state_key, &AggregationState::default())
-                    .await
-                {
-                    tracing::error!(
-                        "Failed to clear aggregation state for key '{}': {}",
-                        state_key,
-                        e
-                    );
+                        // We drained the matches, so the state is implicitly
+                        // "cleared" for the next
+                        // aggregation window.
+                    }
                 }
             }
+        } // End of DashMap scope
+
+        // Dispatch all expired windows
+        for payload in payloads_to_dispatch {
+            if let Err(e) = self.dispatch_payload(payload).await {
+                tracing::error!("Failed to send aggregated notification: {}", e);
+            }
+        }
+
+        // Periodically sync all memory states to SQLite
+        self.sync_states_to_db().await?;
+
+        Ok(())
+    }
+
+    /// Explicitly sync memory to DB
+    pub async fn sync_states_to_db(&self) -> Result<(), AlertManagerError> {
+        for entry in self.throttle_states.iter() {
+            let key = format!("throttle_state:{}", entry.key());
+            self.state_repository.set_json_state(&key, entry.value()).await?;
+        }
+        for entry in self.aggregation_states.iter() {
+            let key = format!("aggregation_state:{}", entry.key());
+            self.state_repository.set_json_state(&key, entry.value()).await?;
         }
         Ok(())
     }
@@ -378,6 +365,7 @@ mod tests {
     };
 
     /// Combined mock implementing both KeyValueStore and AppRepository
+    #[derive(Debug)]
     struct CombinedMock {
         kv_mock: MockKeyValueStore,
         repo_mock: MockAppRepository,
@@ -618,6 +606,20 @@ mod tests {
             .build()
     }
 
+    /// Helper to mock standard DB responses for AlertManager::new (empty
+    /// states)
+    fn setup_default_kv_mock(kv_mock: &mut MockKeyValueStore) {
+        kv_mock
+            .expect_get_all_json_states_by_prefix::<ThrottleState>()
+            .with(eq("throttle_state:"))
+            .returning(|_| Ok(vec![]));
+
+        kv_mock
+            .expect_get_all_json_states_by_prefix::<AggregationState>()
+            .with(eq("aggregation_state:"))
+            .returning(|_| Ok(vec![]));
+    }
+
     async fn create_alert_manager(
         actions: HashMap<String, ActionConfig>,
         kv_mock: MockKeyValueStore,
@@ -625,14 +627,15 @@ mod tests {
     ) -> AlertManager<CombinedMock> {
         let combined_state_mock = Arc::new(CombinedMock { kv_mock, repo_mock });
         let actions_arc = Arc::new(actions);
-        AlertManager::new(combined_state_mock, actions_arc)
+        AlertManager::new(combined_state_mock, actions_arc).await.unwrap()
     }
 
     #[tokio::test]
     async fn test_process_match_action_config_missing() {
         // Arrange
         let actions = HashMap::new(); // Empty actions map
-        let kv_mock = MockKeyValueStore::new();
+        let mut kv_mock = MockKeyValueStore::new();
+        setup_default_kv_mock(&mut kv_mock);
         let repo_mock = MockAppRepository::new();
         let alert_manager = create_alert_manager(actions, kv_mock, repo_mock).await;
         let monitor_match = create_monitor_match("NonExistentAction".to_string());
@@ -654,7 +657,8 @@ mod tests {
             ActionBuilder::new(&action_name).discord_config("http://example.com").build();
         let mut actions = HashMap::new();
         actions.insert(action_name.to_string(), action_config);
-        let kv_mock = MockKeyValueStore::new();
+        let mut kv_mock = MockKeyValueStore::new();
+        setup_default_kv_mock(&mut kv_mock);
         let mut repo_mock = MockAppRepository::new();
 
         // Expect enqueue_outbox to be called
@@ -668,7 +672,6 @@ mod tests {
 
         // Assert
         assert!(result.is_ok());
-        // Note: Actual outbox enqueueing is tested in integration tests
     }
 
     #[tokio::test]
@@ -686,24 +689,8 @@ mod tests {
         actions.insert(action_name.to_string(), action_config);
 
         let mut kv_mock = MockKeyValueStore::new();
+        setup_default_kv_mock(&mut kv_mock);
         let mut repo_mock = MockAppRepository::new();
-
-        // Should attempt to get existing state and find none
-        kv_mock
-            .expect_get_json_state::<ThrottleState>()
-            .with(eq(format!("throttle_state:{}", action_name.clone())))
-            .times(1)
-            .returning(|_| Ok(None)); // Simulate no existing state
-
-        // Should attempt to save new throttle state with count = 1
-        let action_name_for_withf = action_name.clone();
-        kv_mock
-            .expect_set_json_state::<ThrottleState>()
-            .withf(move |key, state| {
-                key == &format!("throttle_state:{}", action_name_for_withf) && state.count == 1
-            })
-            .times(1)
-            .returning(|_, _| Ok(())); // Simulate successful state save
 
         // Expect enqueue_outbox to be called
         repo_mock.expect_enqueue_outbox().times(1).returning(|_, _| Ok(()));
@@ -714,6 +701,8 @@ mod tests {
         let result = alert_manager.process_match(&monitor_match).await;
 
         assert!(result.is_ok());
+        // Assert memory state was updated
+        assert_eq!(alert_manager.throttle_states.get("Throttle Action").unwrap().count, 1);
     }
 
     #[tokio::test]
@@ -731,28 +720,26 @@ mod tests {
         actions.insert(action_name.to_string(), action_config);
 
         let mut kv_mock = MockKeyValueStore::new();
+        let action_name_clone = action_name.clone();
+
+        // 1. Return an existing ThrottleState during initialization
+        kv_mock
+            .expect_get_all_json_states_by_prefix::<ThrottleState>()
+            .with(eq("throttle_state:"))
+            .times(1)
+            .returning(move |_| {
+                Ok(vec![(
+                    format!("throttle_state:{}", action_name_clone),
+                    ThrottleState { count: 1, window_start_time: chrono::Utc::now() },
+                )])
+            });
+
+        kv_mock
+            .expect_get_all_json_states_by_prefix::<AggregationState>()
+            .with(eq("aggregation_state:"))
+            .returning(|_| Ok(vec![]));
+
         let mut repo_mock = MockAppRepository::new();
-
-        // Get state for existing throttle
-        kv_mock
-            .expect_get_json_state::<ThrottleState>()
-            .with(eq(format!("throttle_state:{}", action_name.clone())))
-            .times(1)
-            .returning(|_| {
-                Ok(Some(ThrottleState { count: 1, window_start_time: chrono::Utc::now() }))
-            }); // Simulate existing state
-
-        // Should attempt to save new throttle state with count = 2
-        let action_name_for_withf = action_name.clone();
-        kv_mock
-            .expect_set_json_state::<ThrottleState>()
-            .withf(move |key, state| {
-                key == &format!("throttle_state:{}", action_name_for_withf) && state.count == 2
-            })
-            .times(1)
-            .returning(|_, _| Ok(())); // Simulate successful state save
-
-        // Expect enqueue_outbox to be called
         repo_mock.expect_enqueue_outbox().times(1).returning(|_, _| Ok(()));
 
         let alert_manager = create_alert_manager(actions, kv_mock, repo_mock).await;
@@ -761,50 +748,30 @@ mod tests {
         let result = alert_manager.process_match(&monitor_match).await;
 
         assert!(result.is_ok());
+        // Assert count was correctly incremented from the loaded 1 to 2
+        assert_eq!(alert_manager.throttle_states.get("Throttle Action").unwrap().count, 2);
     }
 
     #[tokio::test]
-    async fn test_process_match_action_throttle_failed_to_retrieve_state() {
-        let action_name = "Throttle Action".to_string();
-        let throttle_policy =
-            ThrottlePolicy { max_count: 5, time_window_secs: Duration::from_secs(60) };
-
-        let action_config = ActionBuilder::new(&action_name)
-            .discord_config("http://example.com")
-            .policy(ActionPolicy::Throttle(throttle_policy))
-            .build();
-        let mut actions = HashMap::new();
-        actions.insert(action_name.to_string(), action_config);
-
+    async fn test_alert_manager_new_failed_to_retrieve_state() {
+        // If the database fails during initialization, AlertManager should propagate
+        // the error
         let mut kv_mock = MockKeyValueStore::new();
-        let mut repo_mock = MockAppRepository::new();
+        let repo_mock = MockAppRepository::new();
 
-        // Fails to retrieve state
         kv_mock
-            .expect_get_json_state::<ThrottleState>()
-            .with(eq(format!("throttle_state:{}", action_name.clone())))
+            .expect_get_all_json_states_by_prefix::<ThrottleState>()
+            .with(eq("throttle_state:"))
             .times(1)
-            .returning(|_| Err(PersistenceError::NotFound)); // Simulate retrieval error
+            .returning(|_| Err(PersistenceError::OperationFailed("DB Offline".to_string())));
 
-        // Should attempt to save new throttle state with count = 1
-        let action_name_for_withf = action_name.clone();
-        kv_mock
-            .expect_set_json_state::<ThrottleState>()
-            .withf(move |key, state| {
-                key == &format!("throttle_state:{}", action_name_for_withf) && state.count == 1
-            })
-            .times(1)
-            .returning(|_, _| Ok(())); // Simulate successful state save
+        let actions = Arc::new(HashMap::new());
+        let combined_mock = Arc::new(CombinedMock { kv_mock, repo_mock });
 
-        // Expect enqueue_outbox to be called
-        repo_mock.expect_enqueue_outbox().times(1).returning(|_, _| Ok(()));
+        let result = AlertManager::new(combined_mock, actions).await;
 
-        let alert_manager = create_alert_manager(actions, kv_mock, repo_mock).await;
-        let monitor_match = create_monitor_match(action_name);
-
-        let result = alert_manager.process_match(&monitor_match).await;
-
-        assert!(result.is_ok());
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), AlertManagerError::StateRepositoryError(_)));
     }
 
     #[tokio::test]
@@ -827,32 +794,17 @@ mod tests {
         actions.insert(action_name.to_string(), action_config);
 
         let mut kv_mock = MockKeyValueStore::new();
+        setup_default_kv_mock(&mut kv_mock);
         let repo_mock = MockAppRepository::new();
-        let monitor_match = create_monitor_match(action_name.clone());
-        let aggregation_key = &monitor_match.action_name;
-        let state_key = format!("aggregation_state:{}", aggregation_key);
-
-        // Expect a call to get the current state, returning None.
-        kv_mock
-            .expect_get_json_state::<AggregationState>()
-            .with(eq(state_key.clone()))
-            .times(1)
-            .returning(|_| Ok(None));
-
-        // Expect a call to save the new state with one match.
-        kv_mock
-            .expect_set_json_state::<AggregationState>()
-            .withf(move |key, state| key == state_key && state.matches.len() == 1)
-            .times(1)
-            .returning(|_, _| Ok(()));
-
         let alert_manager = create_alert_manager(actions, kv_mock, repo_mock).await;
+        let monitor_match = create_monitor_match(action_name.clone());
 
         let result = alert_manager.process_match(&monitor_match).await;
         assert!(result.is_ok());
 
-        // Note: The background dispatcher task's behavior is tested by
-        // integration tests
+        // Ensure memory state was populated
+        let state = alert_manager.aggregation_states.get(&action_name).unwrap();
+        assert_eq!(state.matches.len(), 1);
     }
 
     #[tokio::test]
@@ -875,35 +827,40 @@ mod tests {
         actions.insert(action_name.to_string(), action_config);
 
         let mut kv_mock = MockKeyValueStore::new();
-        let repo_mock = MockAppRepository::new();
-        let monitor_match = create_monitor_match(action_name.clone());
-        let aggregation_key = &monitor_match.action_name;
-        let state_key = format!("aggregation_state:{}", aggregation_key);
+        let action_name_clone = action_name.clone();
 
-        // Expect a call to get the current state, returning an existing state.
+        kv_mock
+            .expect_get_all_json_states_by_prefix::<ThrottleState>()
+            .with(eq("throttle_state:"))
+            .returning(|_| Ok(vec![]));
+
+        // Load existing aggregation state
         let existing_match = create_monitor_match(action_name.clone());
         kv_mock
-            .expect_get_json_state::<AggregationState>()
-            .with(eq(state_key.clone()))
+            .expect_get_all_json_states_by_prefix::<AggregationState>()
+            .with(eq("aggregation_state:"))
             .times(1)
             .returning(move |_| {
-                Ok(Some(AggregationState {
-                    matches: vec![existing_match.clone()],
-                    window_start_time: Utc::now(),
-                }))
+                Ok(vec![(
+                    format!("aggregation_state:{}", action_name_clone),
+                    AggregationState {
+                        matches: vec![existing_match.clone()],
+                        window_start_time: Utc::now(),
+                    },
+                )])
             });
 
-        // Expect a call to save the updated state with two matches.
-        kv_mock
-            .expect_set_json_state::<AggregationState>()
-            .withf(move |key, state| key == state_key && state.matches.len() == 2)
-            .times(1)
-            .returning(|_, _| Ok(()));
-
+        let repo_mock = MockAppRepository::new();
         let alert_manager = create_alert_manager(actions, kv_mock, repo_mock).await;
 
+        // Add second match
+        let monitor_match = create_monitor_match(action_name.clone());
         let result = alert_manager.process_match(&monitor_match).await;
         assert!(result.is_ok());
+
+        // Validate memory state has 2 matches
+        let state = alert_manager.aggregation_states.get(&action_name).unwrap();
+        assert_eq!(state.matches.len(), 2);
     }
 
     #[tokio::test]
@@ -926,34 +883,43 @@ mod tests {
         actions.insert(action_name.to_string(), action_config.clone());
 
         let mut kv_mock = MockKeyValueStore::new();
-        let mut repo_mock = MockAppRepository::new();
+        let action_name_clone = action_name.clone();
+
+        kv_mock
+            .expect_get_all_json_states_by_prefix::<ThrottleState>()
+            .with(eq("throttle_state:"))
+            .returning(|_| Ok(vec![]));
+
+        // Simulate an existing aggregation state with an EXPIRED window
         let monitor_match1 = create_monitor_match(action_name.clone());
         let monitor_match2 = create_monitor_match(action_name.clone());
-        let aggregation_key = &monitor_match1.monitor_name;
-        let state_key = format!("aggregation_state:{}", aggregation_key);
-
-        // Simulate an existing aggregation state with two matches and an expired
-        // window.
         let expired_state = AggregationState {
             matches: vec![monitor_match1.clone(), monitor_match2.clone()],
-            window_start_time: Utc::now() - chrono::Duration::seconds(2),
+            window_start_time: Utc::now() - chrono::Duration::seconds(5),
         };
 
-        let state_key_clone = state_key.clone();
         kv_mock
             .expect_get_all_json_states_by_prefix::<AggregationState>()
-            .with(eq("aggregation_state:".to_string()))
+            .with(eq("aggregation_state:"))
             .times(1)
-            .returning(move |_| Ok(vec![(state_key_clone.clone(), expired_state.clone())]));
+            .returning(move |_| {
+                Ok(vec![(
+                    format!("aggregation_state:{}", action_name_clone),
+                    expired_state.clone(),
+                )])
+            });
 
-        // Expect the state to be cleared after dispatch.
+        // Expect the state to be saved (synced to DB) AFTER dispatch, which should now
+        // be empty.
+        let state_key = format!("aggregation_state:{}", action_name);
         kv_mock
             .expect_set_json_state::<AggregationState>()
-            .with(eq(state_key.clone()), eq(AggregationState::default()))
+            .withf(move |key, state| key == state_key.as_str() && state.matches.is_empty())
             .times(1)
             .returning(|_, _| Ok(()));
 
-        // Expect enqueue_outbox to be called for the aggregated payload
+        // Expect enqueue_outbox to be called once for the aggregated payload
+        let mut repo_mock = MockAppRepository::new();
         repo_mock.expect_enqueue_outbox().times(1).returning(|_, _| Ok(()));
 
         let alert_manager = create_alert_manager(actions, kv_mock, repo_mock).await;
@@ -968,7 +934,8 @@ mod tests {
     #[tokio::test]
     async fn test_get_action_lock_is_shared_and_distinct() {
         // Arrange
-        let kv_mock = MockKeyValueStore::new();
+        let mut kv_mock = MockKeyValueStore::new();
+        setup_default_kv_mock(&mut kv_mock);
         let repo_mock = MockAppRepository::new();
         let alert_manager = create_alert_manager(HashMap::new(), kv_mock, repo_mock).await;
         let action1_name = "action1";
@@ -992,13 +959,8 @@ mod tests {
         let publisher_action =
             ActionBuilder::new("Test Action").kafka_config("kafka:9092", "test_topic").build();
         let mut kv_mock = MockKeyValueStore::new();
+        setup_default_kv_mock(&mut kv_mock);
         let repo_mock = MockAppRepository::new();
-
-        kv_mock
-            .expect_get_all_json_states_by_prefix::<AggregationState>()
-            .with(eq("aggregation_state:".to_string()))
-            .times(1)
-            .returning(|_| Ok(vec![])); // No pending states
 
         let mut actions = HashMap::new();
 
