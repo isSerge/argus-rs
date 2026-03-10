@@ -227,7 +227,7 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
         let mut aggregation_state = self
             .aggregation_states
             .entry(action_name.clone())
-            .or_insert_with(AggregationState::default);
+            .or_default();
 
         // If this is the first match for a new window, set the start time.
         if aggregation_state.matches.is_empty() {
@@ -266,8 +266,8 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
                     }
                 };
 
-                if let Some(ActionPolicy::Aggregation(policy)) = &action_config.policy {
-                    if force || current_time > state.window_start_time + policy.window_secs {
+                if let Some(ActionPolicy::Aggregation(policy)) = &action_config.policy
+                    && (force || current_time > state.window_start_time + policy.window_secs) {
                         let payload = ActionPayload::Aggregated {
                             action_name: action_name.clone(),
                             matches: std::mem::take(&mut state.matches), // Drain matches safely
@@ -279,7 +279,6 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
                         // "cleared" for the next
                         // aggregation window.
                     }
-                }
             }
         } // End of DashMap scope
 
