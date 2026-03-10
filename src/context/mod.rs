@@ -213,7 +213,11 @@ impl AppContextBuilder {
             )?,
         );
 
-        let alert_manager = Arc::new(AlertManager::new(repo.clone(), actions_map));
+        let alert_manager = AlertManager::new(repo.clone(), actions_map).await.map_err(|e| {
+            AppContextError::Initialization(InitializationError::AlertManagerInitialization(
+                format!("Failed to initialize alert manager: {e}"),
+            ))
+        })?;
 
         // Create a shared MonitorValidator using the populated services and actions.
         let script_validator = RhaiScriptValidator::new(script_compiler.clone());
@@ -236,7 +240,7 @@ impl AppContextBuilder {
             filtering_engine,
             http_client_pool,
             action_dispatcher,
-            alert_manager,
+            alert_manager: Arc::new(alert_manager),
             monitor_validator,
         })
     }
