@@ -70,8 +70,11 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
             .await?;
 
         for (key, state) in saved_throttles {
-            let action_name = key.replace("throttle_state:", "");
-            throttle_states.insert(action_name, state);
+            if let Some(action_name) = key.strip_prefix("throttle_state:") {
+                throttle_states.insert(action_name.to_string(), state);
+            } else {
+                tracing::warn!("Found malformed throttle state key in database: {}", key);
+            }
         }
 
         // 2. Load Aggregation states from SQLite
@@ -80,8 +83,11 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
             .await?;
 
         for (key, state) in saved_aggs {
-            let action_name = key.replace("aggregation_state:", "");
-            aggregation_states.insert(action_name, state);
+            if let Some(action_name) = key.strip_prefix("aggregation_state:") {
+                aggregation_states.insert(action_name.to_string(), state);
+            } else {
+                tracing::warn!("Found malformed aggregation state key in database: {}", key);
+            }
         }
 
         Ok(Self {
@@ -267,19 +273,25 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
                     }
                 };
 
-                if let Some(ActionPolicy::Aggregation(policy)) = &action_config.policy
-                    && (force || current_time > state.window_start_time + policy.window_secs)
-                {
-                    let payload = ActionPayload::Aggregated {
-                        action_name: action_name.clone(),
-                        matches: std::mem::take(&mut state.matches), // Drain matches safely
-                        template: policy.template.clone(),
-                    };
-                    payloads_to_dispatch.push(payload);
-
-                    // We drained the matches, so the state is implicitly
-                    // "cleared" for the next
-                    // aggregation window.
+                match &action_config.policy {
+                    Some(ActionPolicy::Aggregation(policy)) => {
+                        if force || current_time > state.window_start_time + policy.window_secs {
+                            let payload = ActionPayload::Aggregated {
+                                action_name: action_name.clone(),
+                                matches: std::mem::take(&mut state.matches), // Drain matches safely
+                                template: policy.template.clone(),
+                            };
+                            payloads_to_dispatch.push(payload);
+                        }
+                    }
+                    _ => {
+                        tracing::warn!(
+                            "Aggregation policy no longer exists for action '{}' (policy changed \
+                             or removed). Clearing orphaned state.",
+                            action_name
+                        );
+                        state.matches.clear();
+                    }
                 }
             }
         } // End of DashMap scope
@@ -299,14 +311,22 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
 
     /// Explicitly sync memory to DB
     pub async fn sync_states_to_db(&self) -> Result<(), AlertManagerError> {
-        for entry in self.throttle_states.iter() {
-            let key = format!("throttle_state:{}", entry.key());
-            self.state_repository.set_json_state(&key, entry.value()).await?;
+        // Snapshot the current states to avoid holding locks during async DB calls
+        let throttles: Vec<_> =
+            self.throttle_states.iter().map(|e| (e.key().clone(), e.value().clone())).collect();
+        let aggs: Vec<_> =
+            self.aggregation_states.iter().map(|e| (e.key().clone(), e.value().clone())).collect();
+
+        for (action_name, state) in throttles {
+            let key = format!("throttle_state:{}", action_name);
+            self.state_repository.set_json_state(&key, &state).await?;
         }
-        for entry in self.aggregation_states.iter() {
-            let key = format!("aggregation_state:{}", entry.key());
-            self.state_repository.set_json_state(&key, entry.value()).await?;
+
+        for (action_name, state) in aggs {
+            let key = format!("aggregation_state:{}", action_name);
+            self.state_repository.set_json_state(&key, &state).await?;
         }
+
         Ok(())
     }
 
