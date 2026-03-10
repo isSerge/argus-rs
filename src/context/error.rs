@@ -47,4 +47,8 @@ pub enum InitializationError {
     /// Failed to initialize block state.
     #[error("Failed to initialize block state: {0}")]
     BlockStateInitialization(String),
+
+    /// Failed to initialize AlertManager state.
+    #[error("Failed to initialize AlertManager state: {0}")]
+    AlertManagerInitialization(String),
 }

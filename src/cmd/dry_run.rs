@@ -383,7 +383,7 @@ mod tests {
         actions: Arc<HashMap<String, ActionConfig>>,
     ) -> Arc<AlertManager<SqliteStateRepository>> {
         let state_repo = create_test_repo().await;
-        Arc::new(AlertManager::new(state_repo, actions))
+        Arc::new(AlertManager::new(state_repo, actions).await.unwrap())
     }
 
     const CONCURRENCY: usize = 4;
