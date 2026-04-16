@@ -4,9 +4,7 @@ use alloy::primitives::{Address, TxHash};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// Represents the absence of match data.
-pub struct NoMatchData;
-/// Represents the presence of match data.
+/// Marker struct to indicate that match data has been set in the builder.
 pub struct WithMatchData(MatchData);
 
 /// Represents a match found by a monitor, containing detailed information
@@ -50,14 +48,14 @@ impl MonitorMatch {
         action_name: String,
         block_number: u64,
         transaction_hash: TxHash,
-    ) -> MonitorMatchBuilder<NoMatchData> {
+    ) -> MonitorMatchBuilder<()> {
         MonitorMatchBuilder {
             monitor_id,
             monitor_name,
             action_name,
             block_number,
             transaction_hash,
-            match_data: NoMatchData,
+            match_data: (),
             decoded_call: None,
         }
     }
@@ -74,18 +72,26 @@ pub struct MonitorMatchBuilder<State> {
     decoded_call: Option<Value>,
 }
 
-impl MonitorMatchBuilder<NoMatchData> {
-    /// Sets the match data to a transaction match.
-    pub fn transaction_match(self, details: Value) -> MonitorMatchBuilder<WithMatchData> {
+impl<State> MonitorMatchBuilder<State> {
+    /// Internal helper to transition the builder to a new state with match
+    /// data.
+    fn with_match_data(self, match_data: WithMatchData) -> MonitorMatchBuilder<WithMatchData> {
         MonitorMatchBuilder {
             monitor_id: self.monitor_id,
             monitor_name: self.monitor_name,
             action_name: self.action_name,
             block_number: self.block_number,
             transaction_hash: self.transaction_hash,
-            match_data: WithMatchData(MatchData::Transaction { details }),
+            match_data,
             decoded_call: self.decoded_call,
         }
+    }
+}
+
+impl MonitorMatchBuilder<()> {
+    /// Sets the match data to a transaction match.
+    pub fn transaction_match(self, details: Value) -> MonitorMatchBuilder<WithMatchData> {
+        self.with_match_data(WithMatchData(MatchData::Transaction { details }))
     }
 
     /// Sets the match data to a log match.
@@ -94,15 +100,7 @@ impl MonitorMatchBuilder<NoMatchData> {
         log_details: LogDetails,
         tx_details: Value,
     ) -> MonitorMatchBuilder<WithMatchData> {
-        MonitorMatchBuilder {
-            monitor_id: self.monitor_id,
-            monitor_name: self.monitor_name,
-            action_name: self.action_name,
-            block_number: self.block_number,
-            transaction_hash: self.transaction_hash,
-            match_data: WithMatchData(MatchData::Log { log_details, tx_details }),
-            decoded_call: self.decoded_call,
-        }
+        self.with_match_data(WithMatchData(MatchData::Log { log_details, tx_details }))
     }
 }
 
