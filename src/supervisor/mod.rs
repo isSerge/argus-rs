@@ -441,8 +441,8 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
     /// Returns a new `SupervisorBuilder` instance.
     ///
     /// This is the public entry point for creating a supervisor.
-    pub fn builder() -> SupervisorBuilder<T> {
-        SupervisorBuilder::<T>::new()
+    pub fn builder() -> SupervisorBuilder<(), ()> {
+        SupervisorBuilder::new()
     }
 
     /// Updates the monitors managed by the `MonitorManager`
