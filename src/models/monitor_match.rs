@@ -4,6 +4,11 @@ use alloy::primitives::{Address, TxHash};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// Represents the absence of match data.
+pub struct NoMatchData;
+/// Represents the presence of match data.
+pub struct WithMatchData(MatchData);
+
 /// Represents a match found by a monitor, containing detailed information
 /// about the trigger.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,43 +50,63 @@ impl MonitorMatch {
         action_name: String,
         block_number: u64,
         transaction_hash: TxHash,
-    ) -> MonitorMatchBuilder {
+    ) -> MonitorMatchBuilder<NoMatchData> {
         MonitorMatchBuilder {
             monitor_id,
             monitor_name,
             action_name,
             block_number,
             transaction_hash,
-            match_data: None,
+            match_data: NoMatchData,
             decoded_call: None,
         }
     }
 }
 
 /// A builder for creating `MonitorMatch` instances.
-pub struct MonitorMatchBuilder {
+pub struct MonitorMatchBuilder<State> {
     monitor_id: i64,
     monitor_name: String,
     action_name: String,
     block_number: u64,
     transaction_hash: TxHash,
-    match_data: Option<MatchData>,
+    match_data: State,
     decoded_call: Option<Value>,
 }
 
-impl MonitorMatchBuilder {
+impl MonitorMatchBuilder<NoMatchData> {
     /// Sets the match data to a transaction match.
-    pub fn transaction_match(mut self, details: Value) -> Self {
-        self.match_data = Some(MatchData::Transaction { details });
-        self
+    pub fn transaction_match(self, details: Value) -> MonitorMatchBuilder<WithMatchData> {
+        MonitorMatchBuilder {
+            monitor_id: self.monitor_id,
+            monitor_name: self.monitor_name,
+            action_name: self.action_name,
+            block_number: self.block_number,
+            transaction_hash: self.transaction_hash,
+            match_data: WithMatchData(MatchData::Transaction { details }),
+            decoded_call: self.decoded_call,
+        }
     }
 
     /// Sets the match data to a log match.
-    pub fn log_match(mut self, log_details: LogDetails, tx_details: Value) -> Self {
-        self.match_data = Some(MatchData::Log { log_details, tx_details });
-        self
+    pub fn log_match(
+        self,
+        log_details: LogDetails,
+        tx_details: Value,
+    ) -> MonitorMatchBuilder<WithMatchData> {
+        MonitorMatchBuilder {
+            monitor_id: self.monitor_id,
+            monitor_name: self.monitor_name,
+            action_name: self.action_name,
+            block_number: self.block_number,
+            transaction_hash: self.transaction_hash,
+            match_data: WithMatchData(MatchData::Log { log_details, tx_details }),
+            decoded_call: self.decoded_call,
+        }
     }
+}
 
+impl MonitorMatchBuilder<WithMatchData> {
     /// Sets the decoded call data.
     pub fn decoded_call(mut self, decoded_call: Option<Value>) -> Self {
         self.decoded_call = decoded_call;
@@ -90,14 +115,13 @@ impl MonitorMatchBuilder {
 
     /// Builds the `MonitorMatch` instance.
     pub fn build(self) -> MonitorMatch {
-        let id = match &self.match_data {
-            Some(MatchData::Transaction { details: _ }) =>
+        let id = match &self.match_data.0 {
+            MatchData::Transaction { details: _ } =>
                 format!("{}-{}-{}", self.monitor_id, self.action_name, self.transaction_hash),
-            Some(MatchData::Log { log_details, .. }) => format!(
+            MatchData::Log { log_details, .. } => format!(
                 "{}-{}-{}-{}",
                 self.monitor_id, self.action_name, self.transaction_hash, log_details.log_index
             ),
-            None => panic!("Match data must be set before calling build()"),
         };
 
         MonitorMatch {
@@ -107,10 +131,7 @@ impl MonitorMatchBuilder {
             action_name: self.action_name,
             block_number: self.block_number,
             transaction_hash: self.transaction_hash,
-            match_data: self.match_data.expect(
-                "Match data must be set via transaction_match() or log_match() before calling \
-                 build()",
-            ),
+            match_data: self.match_data.0,
             decoded_call: self.decoded_call,
         }
     }
