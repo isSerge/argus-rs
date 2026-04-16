@@ -70,8 +70,7 @@ async fn run_supervisor(
     let supervisor = Supervisor::<SqliteStateRepository>::builder()
         .context(context)
         .app_metrics(app_metrics)
-        .build()
-        .await;
+        .build();
 
     tracing::info!("Supervisor initialized, starting monitoring...");
 

@@ -8,9 +8,6 @@ use crate::{
     providers::rpc::EvmRpcSource,
 };
 
-/// Marker for a missing component in the builder.
-pub struct Missing;
-
 /// Marker for a provided component in the builder.
 pub struct Provided<T>(T);
 
@@ -20,14 +17,14 @@ pub struct SupervisorBuilder<C, M> {
     app_metrics: M,
 }
 
-impl SupervisorBuilder<Missing, Missing> {
+impl SupervisorBuilder<(), ()> {
     /// Creates a new, empty `SupervisorBuilder`.
     pub fn new() -> Self {
-        Self { context: Missing, app_metrics: Missing }
+        Self { context: (), app_metrics: () }
     }
 }
 
-impl Default for SupervisorBuilder<Missing, Missing> {
+impl Default for SupervisorBuilder<(), ()> {
     fn default() -> Self {
         Self::new()
     }
@@ -60,7 +57,7 @@ impl<T: AppRepository + KeyValueStore + 'static>
     /// the `Supervisor`. The services are initialized by `AppContextBuilder`,
     /// ensuring consistent initialization between the supervisor and other
     /// application modes (e.g., dry-run).
-    pub async fn build(self) -> Supervisor<T> {
+    pub fn build(self) -> Supervisor<T> {
         let Provided(context) = self.context;
         let Provided(app_metrics) = self.app_metrics;
 

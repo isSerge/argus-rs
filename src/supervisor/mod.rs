@@ -23,7 +23,7 @@ mod builder;
 
 use std::sync::Arc;
 
-use builder::{Missing, SupervisorBuilder};
+use builder::SupervisorBuilder;
 use thiserror::Error;
 use tokio::{signal, sync::mpsc};
 
@@ -441,7 +441,7 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
     /// Returns a new `SupervisorBuilder` instance.
     ///
     /// This is the public entry point for creating a supervisor.
-    pub fn builder() -> SupervisorBuilder<Missing, Missing> {
+    pub fn builder() -> SupervisorBuilder<(), ()> {
         SupervisorBuilder::new()
     }
 
