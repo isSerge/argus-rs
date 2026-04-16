@@ -1,52 +1,68 @@
 //! This module provides the `SupervisorBuilder` for constructing a
 //! `Supervisor`.
 
-use super::{Supervisor, SupervisorError};
+use super::Supervisor;
 use crate::{
     context::{AppContext, AppMetrics},
     persistence::traits::{AppRepository, KeyValueStore},
     providers::rpc::EvmRpcSource,
 };
 
+/// Marker for a missing component in the builder.
+pub struct Missing;
+
+/// Marker for a provided component in the builder.
+pub struct Provided<T>(T);
+
 /// A builder for creating a `Supervisor` instance.
-pub struct SupervisorBuilder<T: AppRepository + KeyValueStore> {
-    context: Option<AppContext<T>>,
-    app_metrics: Option<AppMetrics>,
+pub struct SupervisorBuilder<C, M> {
+    context: C,
+    app_metrics: M,
 }
 
-impl<T: AppRepository + KeyValueStore + 'static> Default for SupervisorBuilder<T> {
-    fn default() -> Self {
-        Self { context: None, app_metrics: None }
-    }
-}
-
-impl<T: AppRepository + KeyValueStore + 'static> SupervisorBuilder<T> {
+impl SupervisorBuilder<Missing, Missing> {
     /// Creates a new, empty `SupervisorBuilder`.
     pub fn new() -> Self {
-        Self::default()
+        Self { context: Missing, app_metrics: Missing }
     }
+}
 
+impl Default for SupervisorBuilder<Missing, Missing> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<C, M> SupervisorBuilder<C, M> {
     /// Sets the application context for the `Supervisor`.
-    pub fn context(mut self, context: AppContext<T>) -> Self {
-        self.context = Some(context);
-        self
+    pub fn context<T: AppRepository + KeyValueStore + 'static>(
+        self,
+        context: AppContext<T>,
+    ) -> SupervisorBuilder<Provided<AppContext<T>>, M> {
+        SupervisorBuilder { context: Provided(context), app_metrics: self.app_metrics }
     }
 
     /// Sets the application metrics for the `Supervisor`.
-    pub fn app_metrics(mut self, app_metrics: AppMetrics) -> Self {
-        self.app_metrics = Some(app_metrics);
-        self
+    pub fn app_metrics(
+        self,
+        app_metrics: AppMetrics,
+    ) -> SupervisorBuilder<C, Provided<AppMetrics>> {
+        SupervisorBuilder { context: self.context, app_metrics: Provided(app_metrics) }
     }
+}
 
+impl<T: AppRepository + KeyValueStore + 'static>
+    SupervisorBuilder<Provided<AppContext<T>>, Provided<AppMetrics>>
+{
     /// Assembles and validates the components to build a `Supervisor`.
     ///
     /// This method uses the high-level services from `AppContext` to construct
     /// the `Supervisor`. The services are initialized by `AppContextBuilder`,
     /// ensuring consistent initialization between the supervisor and other
     /// application modes (e.g., dry-run).
-    pub async fn build(self) -> Result<Supervisor<T>, SupervisorError> {
-        let context = self.context.ok_or(SupervisorError::MissingConfig)?;
-        let app_metrics = self.app_metrics.ok_or(SupervisorError::MissingAppMetrics)?;
+    pub async fn build(self) -> Supervisor<T> {
+        let Provided(context) = self.context;
+        let Provided(app_metrics) = self.app_metrics;
 
         tracing::debug!(rpc_urls = ?context.config.rpc_urls, "Initializing EVM data source...");
         let evm_data_source =
@@ -54,7 +70,7 @@ impl<T: AppRepository + KeyValueStore + 'static> SupervisorBuilder<T> {
         tracing::info!(retry_policy = ?context.config.rpc_retry_config, "EVM data source initialized with fallback and retry policy.");
 
         // Construct the Supervisor with all its components from the context.
-        Ok(Supervisor::new(
+        Supervisor::new(
             context.config,
             context.repo,
             app_metrics,
@@ -64,30 +80,6 @@ impl<T: AppRepository + KeyValueStore + 'static> SupervisorBuilder<T> {
             context.monitor_manager,
             context.monitor_validator,
             context.action_dispatcher,
-        ))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::persistence::sqlite::SqliteStateRepository;
-
-    #[tokio::test]
-    async fn build_fails_if_config_is_missing() {
-        let builder = SupervisorBuilder::<SqliteStateRepository>::new();
-
-        let result: Result<Supervisor<SqliteStateRepository>, SupervisorError> =
-            builder.build().await;
-        assert!(matches!(result, Err(SupervisorError::MissingConfig)));
-    }
-
-    #[tokio::test]
-    async fn build_fails_if_app_metrics_is_missing() {
-        let builder = SupervisorBuilder::<SqliteStateRepository>::new();
-
-        let result: Result<Supervisor<SqliteStateRepository>, SupervisorError> =
-            builder.build().await;
-        assert!(matches!(result, Err(SupervisorError::MissingConfig)));
+        )
     }
 }

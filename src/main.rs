@@ -71,7 +71,7 @@ async fn run_supervisor(
         .context(context)
         .app_metrics(app_metrics)
         .build()
-        .await?;
+        .await;
 
     tracing::info!("Supervisor initialized, starting monitoring...");
 
