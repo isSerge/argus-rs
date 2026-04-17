@@ -17,11 +17,11 @@ use crate::{
         conversions::build_transaction_details_payload,
     },
     models::{
+        NetworkId,
         action::{ActionConfig, ActionPolicy},
         monitor::MonitorConfig,
         monitor_match::{LogDetails, MonitorMatch},
     },
-    persistence::traits::NetworkId,
     test_helpers::TransactionBuilder,
 };
 
@@ -167,11 +167,11 @@ impl MonitorValidator {
         script_validator: RhaiScriptValidator,
         abi_service: Arc<AbiService>,
         template_service: Arc<TemplateService>,
-        network_id: NetworkId,
+        network_id: impl Into<NetworkId>,
         actions: Arc<Vec<ActionConfig>>,
     ) -> Self {
         MonitorValidator {
-            network_id,
+            network_id: network_id.into(),
             address_validator: AddressValidator,
             template_validator: TemplateValidator { template_service },
             action_validator: ActionValidator { actions },
@@ -808,7 +808,7 @@ mod tests {
             "log.name == \"A\"",
             vec![],
         );
-        invalid_monitor.network = NetworkId("other_network".to_string()); // Set to a different network
+        invalid_monitor.network = NetworkId::from("other_network"); // Set to a different network
 
         let result = validator.validate(&invalid_monitor);
 

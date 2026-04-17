@@ -2,9 +2,9 @@
 
 use chrono::{DateTime, Utc};
 
-use crate::{
-    models::monitor::{Monitor, MonitorStatus},
-    persistence::traits::NetworkId,
+use crate::models::{
+    NetworkId,
+    monitor::{Monitor, MonitorStatus},
 };
 
 /// A builder for creating `Monitor` instances in tests.

@@ -224,8 +224,9 @@ mod tests {
 
     use super::*;
     use crate::{
+        models::NetworkId,
         monitor::InterestRegistry,
-        persistence::traits::{MockAppRepository, NetworkId},
+        persistence::traits::MockAppRepository,
         test_helpers::{
             BlockBuilder, LogBuilder, MonitorBuilder, TransactionBuilder,
             create_test_monitor_manager,

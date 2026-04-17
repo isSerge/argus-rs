@@ -5,13 +5,11 @@ use argus::{
     context::AppMetrics,
     http_server,
     models::{
+        NetworkId,
         action::{ActionConfig, ActionTypeConfig, StdoutConfig},
         monitor::{MonitorConfig, MonitorStatus},
     },
-    persistence::{
-        sqlite::SqliteStateRepository,
-        traits::{AppRepository, NetworkId},
-    },
+    persistence::{sqlite::SqliteStateRepository, traits::AppRepository},
     test_helpers::create_monitor_validator,
 };
 use reqwest::Client;

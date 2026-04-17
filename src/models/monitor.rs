@@ -7,7 +7,7 @@ use sqlx::FromRow;
 
 use crate::{
     loader::{Loadable, LoaderError},
-    persistence::traits::NetworkId,
+    models::network_id::NetworkId,
 };
 
 /// Configuration for a monitor, used to create new monitors from config files

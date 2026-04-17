@@ -9,7 +9,7 @@ use axum::{
 use serde::Serialize;
 
 use super::{ApiError, ApiState};
-use crate::persistence::traits::NetworkId;
+use crate::models::NetworkId;
 
 /// Represents the response from the `/status` endpoint.
 #[derive(Debug, Serialize, Clone)]

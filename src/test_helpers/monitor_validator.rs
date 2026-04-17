@@ -7,12 +7,9 @@ use crate::{
     action_dispatcher::template::TemplateService,
     config::RhaiConfig,
     engine::rhai::{RhaiCompiler, RhaiScriptValidator},
-    models::action::ActionConfig,
+    models::{NetworkId, action::ActionConfig},
     monitor::MonitorValidator,
-    persistence::{
-        SqliteStateRepository,
-        traits::{AppRepository, NetworkId},
-    },
+    persistence::{SqliteStateRepository, traits::AppRepository},
 };
 
 /// Creates a test `MonitorValidator` with optional preloaded ABI.

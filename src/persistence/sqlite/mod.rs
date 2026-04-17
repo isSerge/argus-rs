@@ -122,11 +122,12 @@ mod tests {
     use super::*;
     use crate::{
         models::{
+            NetworkId,
             action::{ActionPolicy, AggregationPolicy, ThrottlePolicy},
             monitor::MonitorConfig,
             notification::NotificationMessage,
         },
-        persistence::traits::{AppRepository, KeyValueStore, NetworkId},
+        persistence::traits::{AppRepository, KeyValueStore},
         test_helpers::ActionBuilder,
     };
 
@@ -141,7 +142,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_and_set_last_processed_block() {
         let repo = setup_test_db().await;
-        let network = &NetworkId::default();
+        let network = &NetworkId::from("mainnet");
 
         // Initially, should be None
         let block = repo.get_last_processed_block(network).await.unwrap();
@@ -165,7 +166,7 @@ mod tests {
     #[tokio::test]
     async fn test_cleanup_and_flush_operations() {
         let repo = setup_test_db().await;
-        let network = &NetworkId::default();
+        let network = &NetworkId::from("testnet");
 
         // Set some data
         repo.set_last_processed_block(network, 100).await.unwrap();
@@ -184,7 +185,7 @@ mod tests {
     #[tokio::test]
     async fn test_emergency_state_saving() {
         let repo = setup_test_db().await;
-        let network = &NetworkId("emergency_test".to_string());
+        let network = &NetworkId::from("emergency_test");
 
         // Save emergency state
         repo.save_emergency_state(network, 555, "Test emergency shutdown").await.unwrap();
@@ -211,7 +212,7 @@ mod tests {
     #[tokio::test]
     async fn test_emergency_state_with_no_prior_state() {
         let repo = setup_test_db().await;
-        let network = &NetworkId("fresh_network".to_string());
+        let network = &NetworkId::from("fresh_network");
 
         // Verify no prior state exists
         let initial_state = repo.get_last_processed_block(network).await.unwrap();
@@ -230,7 +231,7 @@ mod tests {
     #[tokio::test]
     async fn test_monitor_management_operations() {
         let repo = setup_test_db().await;
-        let network_id = NetworkId("ethereum".to_string());
+        let network_id = NetworkId::from("ethereum");
 
         // Create ABIs for testing
         repo.create_abi("usdc", "[]").await.unwrap();
@@ -308,8 +309,8 @@ mod tests {
     #[tokio::test]
     async fn test_monitor_network_isolation() {
         let repo = setup_test_db().await;
-        let network1 = &NetworkId("ethereum".to_string());
-        let network2 = &NetworkId("polygon".to_string());
+        let network1 = &NetworkId::from("ethereum");
+        let network2 = &NetworkId::from("polygon");
 
         // Create ABI for testing
         repo.create_abi("test", "[]").await.unwrap();
@@ -359,7 +360,7 @@ mod tests {
     #[tokio::test]
     async fn test_monitor_network_validation() {
         let repo = setup_test_db().await;
-        let network_id = &NetworkId("ethereum".to_string());
+        let network_id = &NetworkId::from("ethereum");
 
         // Create ABI for testing
         repo.create_abi("test", "[]").await.unwrap();
@@ -367,7 +368,7 @@ mod tests {
         // Create monitor with wrong network
         let wrong_network_monitors = vec![MonitorConfig::from_config(
             "Wrong Network Monitor".to_string(),
-            NetworkId("polygon".to_string()), // Different from network_id
+            NetworkId::from("polygon"), // Different from network_id
             Some("0x1111111111111111111111111111111111111111".to_string()),
             Some("test".to_string()),
             "true".to_string(),
@@ -413,7 +414,7 @@ mod tests {
     #[tokio::test]
     async fn test_monitor_transaction_atomicity() {
         let repo = setup_test_db().await;
-        let network_id = &NetworkId("ethereum".to_string());
+        let network_id = &NetworkId::from("ethereum");
 
         // Create ABI for testing
         repo.create_abi("test", "[]").await.unwrap();
@@ -430,7 +431,7 @@ mod tests {
             ),
             MonitorConfig::from_config(
                 "Invalid Monitor".to_string(),
-                NetworkId("wrong_network".to_string()), // This will cause failure
+                NetworkId::from("wrong_network"), // This will cause failure
                 Some("0x2222222222222222222222222222222222222222".to_string()),
                 Some("test".to_string()),
                 "true".to_string(),
@@ -450,7 +451,7 @@ mod tests {
     #[tokio::test]
     async fn test_monitor_large_script_handling() {
         let repo = setup_test_db().await;
-        let network_id = &NetworkId("ethereum".to_string());
+        let network_id = &NetworkId::from("ethereum");
 
         // Create ABI for testing
         repo.create_abi("test", "[]").await.unwrap();
@@ -479,7 +480,7 @@ mod tests {
     #[tokio::test]
     async fn test_action_management_operations() {
         let repo = setup_test_db().await;
-        let network_id = &NetworkId("ethereum".to_string());
+        let network_id = &NetworkId::from("ethereum");
 
         // Initially, should have no actions
         let actions = repo.get_actions(network_id).await.unwrap();
@@ -509,8 +510,8 @@ mod tests {
     #[tokio::test]
     async fn test_action_network_isolation() {
         let repo = setup_test_db().await;
-        let network1 = &NetworkId("ethereum".to_string());
-        let network2 = &NetworkId("polygon".to_string());
+        let network1 = &NetworkId::from("ethereum");
+        let network2 = &NetworkId::from("polygon");
 
         // Create actions for different networks
         let ethereum_action = ActionBuilder::new("Ethereum Slack")
@@ -546,7 +547,7 @@ mod tests {
     #[tokio::test]
     async fn test_action_transaction_atomicity() {
         let repo = setup_test_db().await;
-        let network_id = &NetworkId("ethereum".to_string());
+        let network_id = &NetworkId::from("ethereum");
 
         // Create a batch of actions where one has a name that is too long, causing a
         // DB constraint error. This test is a bit contrived as we can't easily
@@ -587,7 +588,7 @@ mod tests {
     #[tokio::test]
     async fn test_action_policy_persistence() {
         let repo = setup_test_db().await;
-        let network_id = &NetworkId("testnet_policy".to_string());
+        let network_id = &NetworkId::from("testnet_policy");
 
         let aggregation_policy = ActionPolicy::Aggregation(AggregationPolicy {
             window_secs: Duration::from_secs(60),

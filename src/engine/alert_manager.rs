@@ -377,11 +377,11 @@ mod tests {
     use super::*;
     use crate::{
         models::{
-            NotificationMessage,
+            NetworkId, NotificationMessage,
             action::{AggregationPolicy, ThrottlePolicy},
             monitor_match::LogDetails,
         },
-        persistence::traits::{AppRepository, MockAppRepository, MockKeyValueStore, NetworkId},
+        persistence::traits::{AppRepository, MockAppRepository, MockKeyValueStore},
         test_helpers::ActionBuilder,
     };
 

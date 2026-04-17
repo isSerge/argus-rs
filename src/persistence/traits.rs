@@ -3,33 +3,17 @@
 use async_trait::async_trait;
 #[cfg(test)]
 use mockall::automock;
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{Serialize, de::DeserializeOwned};
 
 use super::error::PersistenceError;
 use crate::{
     action_dispatcher::ActionPayload,
     models::{
+        NetworkId,
         action::ActionConfig,
         monitor::{Monitor, MonitorConfig, MonitorStatus},
     },
 };
-
-/// Domain newtype representing a network identifier (e.g., "mainnet",
-/// "ropsten").
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct NetworkId(pub String);
-
-impl Default for NetworkId {
-    fn default() -> Self {
-        NetworkId("testnet".to_string())
-    }
-}
-
-impl std::fmt::Display for NetworkId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-    }
-}
 
 /// Represents the application's persistence layer interface.
 #[cfg_attr(test, automock)]

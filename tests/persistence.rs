@@ -1,11 +1,8 @@
 //! Integration tests for the persistence layer
 
 use argus::{
-    models::{action::ActionConfig, monitor::MonitorConfig},
-    persistence::{
-        sqlite::SqliteStateRepository,
-        traits::{AppRepository, NetworkId},
-    },
+    models::{NetworkId, action::ActionConfig, monitor::MonitorConfig},
+    persistence::{sqlite::SqliteStateRepository, traits::AppRepository},
     test_helpers::ActionBuilder,
 };
 
@@ -36,7 +33,7 @@ fn create_test_action(name: &str) -> ActionConfig {
 async fn test_monitor_lifecycle() {
     let repo = setup_db().await;
     repo.create_abi("test", "[]").await.unwrap();
-    let network_id = NetworkId::default();
+    let network_id = NetworkId::from("ethereum");
 
     // 1. Initially, no monitors should exist
     let initial_monitors = repo.get_monitors(&network_id).await.unwrap();
@@ -64,7 +61,7 @@ async fn test_monitor_lifecycle() {
 #[tokio::test]
 async fn test_action_lifecycle() {
     let repo = setup_db().await;
-    let network_id = NetworkId::default();
+    let network_id = NetworkId::from("ethereum");
 
     // 1. Initially, no actions should exist
     let initial_actions = repo.get_actions(&network_id).await.unwrap();
@@ -90,7 +87,7 @@ async fn test_action_lifecycle() {
 #[tokio::test]
 async fn test_processed_block_management() {
     let repo = setup_db().await;
-    let network_id = NetworkId::default();
+    let network_id = NetworkId::from("ethereum");
 
     // 1. Initially, last processed block should be None
     let initial_block = repo.get_last_processed_block(&network_id).await.unwrap();
@@ -111,8 +108,8 @@ async fn test_processed_block_management() {
 async fn test_network_isolation() {
     let repo = setup_db().await;
     repo.create_abi("test", "[]").await.unwrap();
-    let eth_network = NetworkId("ethereum".to_string());
-    let poly_network = NetworkId("polygon".to_string());
+    let eth_network = NetworkId::from("ethereum");
+    let poly_network = NetworkId::from("polygon");
 
     // Add monitors and actions to both networks
     repo.add_monitors(&eth_network, vec![create_test_monitor("ETH Monitor", eth_network.clone())])

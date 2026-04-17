@@ -6,13 +6,14 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use crate::{
     action_dispatcher::ActionPayload,
     models::{
+        NetworkId,
         action::ActionConfig,
         monitor::{Monitor, MonitorConfig, MonitorStatus},
     },
     persistence::{
         error::PersistenceError,
         sqlite::SqliteStateRepository,
-        traits::{AppRepository, NetworkId, OutboxItem},
+        traits::{AppRepository, OutboxItem},
     },
 };
 
@@ -86,7 +87,7 @@ impl AppRepository for SqliteStateRepository {
                 "query last processed block",
                 sqlx::query!(
                     "SELECT block_number FROM processed_blocks WHERE network_id = ?",
-                    network_id.0
+                    network_id
                 )
                 .fetch_optional(&self.pool),
             )
@@ -135,7 +136,7 @@ impl AppRepository for SqliteStateRepository {
             "set last processed block",
             sqlx::query!(
                 "INSERT OR REPLACE INTO processed_blocks (network_id, block_number) VALUES (?, ?)",
-                network_id.0,
+                network_id,
                 block_number_i64
             )
             .execute(&self.pool),
@@ -233,7 +234,7 @@ impl AppRepository for SqliteStateRepository {
                 FROM monitors 
                 WHERE network = ?
                 "#,
-                    network_id.0
+                    network_id
                 )
                 .fetch_all(&self.pool)
                 .await
@@ -252,7 +253,7 @@ impl AppRepository for SqliteStateRepository {
                 Ok(Monitor {
                     id: row.monitor_id,
                     name: row.name,
-                    network: NetworkId(row.network),
+                    network: NetworkId::from(row.network),
                     address: row.address,
                     abi_name: row.abi_name,
                     filter_script: row.filter_script,
@@ -306,7 +307,7 @@ impl AppRepository for SqliteStateRepository {
                 FROM monitors 
                 WHERE network = ? AND monitor_id = ?
                 "#,
-                    network_id.0,
+                    network_id,
                     monitor_id_num
                 )
                 .fetch_optional(&self.pool)
@@ -324,7 +325,7 @@ impl AppRepository for SqliteStateRepository {
             let monitor = Monitor {
                 id: row.monitor_id,
                 name: row.name,
-                network: NetworkId(row.network),
+                network: NetworkId::from(row.network),
                 address: row.address,
                 abi_name: row.abi_name,
                 filter_script: row.filter_script,
@@ -379,12 +380,13 @@ impl AppRepository for SqliteStateRepository {
             let actions_str = serde_json::to_string(&monitor.actions)
                 .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
             let status = monitor.status;
+            let network = &monitor.network;
 
             sqlx::query!(
                 "INSERT INTO monitors (name, network, address, abi_name, filter_script, actions, \
                  status) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 monitor.name,
-                monitor.network.0,
+                network,
                 monitor.address,
                 monitor.abi_name,
                 monitor.filter_script,
@@ -410,7 +412,7 @@ impl AppRepository for SqliteStateRepository {
         let result = self
             .execute_query_with_error_handling(
                 "clear monitors",
-                sqlx::query!("DELETE FROM monitors WHERE network = ?", network_id.0)
+                sqlx::query!("DELETE FROM monitors WHERE network = ?", network_id)
                     .execute(&self.pool),
             )
             .await?;
@@ -433,7 +435,7 @@ impl AppRepository for SqliteStateRepository {
                 "delete monitor",
                 sqlx::query!(
                     "DELETE FROM monitors WHERE network = ? AND monitor_id = ?",
-                    network_id.0,
+                    network_id,
                     monitor_id
                 )
                 .execute(&self.pool),
@@ -478,7 +480,7 @@ impl AppRepository for SqliteStateRepository {
                     monitor.abi_name,
                     monitor.filter_script,
                     actions_json,
-                    network_id.0,
+                    network_id,
                     monitor_id,
                 )
                 .execute(&self.pool),
@@ -513,7 +515,7 @@ impl AppRepository for SqliteStateRepository {
                 WHERE network = ? AND monitor_id = ?
                 "#,
                     status,
-                    network_id.0,
+                    network_id,
                     monitor_id,
                 )
                 .execute(&self.pool),
@@ -655,7 +657,7 @@ impl AppRepository for SqliteStateRepository {
                 sqlx::query_as!(
                     ActionRow,
                     "SELECT action_id, name, config FROM actions WHERE network_id = ?",
-                    network_id.0
+                    network_id
                 )
                 .fetch_all(&self.pool),
             )
@@ -696,7 +698,7 @@ impl AppRepository for SqliteStateRepository {
                     ActionRow,
                     "SELECT action_id, name, config FROM actions WHERE network_id = ? AND \
                      action_id = ?",
-                    network_id.0,
+                    network_id,
                     action_id
                 )
                 .fetch_optional(&self.pool),
@@ -731,7 +733,7 @@ impl AppRepository for SqliteStateRepository {
                 sqlx::query_as!(
                     ActionRow,
                     "SELECT action_id, name, config FROM actions WHERE network_id = ? AND name = ?",
-                    network_id.0,
+                    network_id,
                     name
                 )
                 .fetch_optional(&self.pool),
@@ -769,7 +771,7 @@ impl AppRepository for SqliteStateRepository {
                 sqlx::query!(
                     "INSERT INTO actions (name, network_id, config) VALUES (?, ?, ?)",
                     action.name,
-                    network_id.0,
+                    network_id,
                     config
                 )
                 .execute(&self.pool),
@@ -797,7 +799,7 @@ impl AppRepository for SqliteStateRepository {
         let result = self
             .execute_query_with_error_handling(
                 "clear actions",
-                sqlx::query!("DELETE FROM actions WHERE network_id = ?", network_id.0)
+                sqlx::query!("DELETE FROM actions WHERE network_id = ?", network_id)
                     .execute(&self.pool),
             )
             .await?;
@@ -830,7 +832,7 @@ impl AppRepository for SqliteStateRepository {
                      ?",
                     action.name,
                     config,
-                    network_id.0,
+                    network_id,
                     action_id
                 )
                 .execute(&self.pool),
@@ -859,7 +861,7 @@ impl AppRepository for SqliteStateRepository {
                 "delete action",
                 sqlx::query!(
                     "DELETE FROM actions WHERE network_id = ? AND action_id = ?",
-                    network_id.0,
+                    network_id,
                     action_id
                 )
                 .execute(&self.pool),
@@ -912,7 +914,7 @@ impl AppRepository for SqliteStateRepository {
                     FROM monitors 
                     WHERE network = ? AND actions LIKE ? ESCAPE '\'
                     "#,
-                    network_id.0,
+                    network_id,
                     like_clause
                 )
                 .fetch_all(&self.pool)
@@ -928,7 +930,7 @@ impl AppRepository for SqliteStateRepository {
 
                 Ok(MonitorConfig {
                     name: row.name,
-                    network: NetworkId(row.network),
+                    network: NetworkId::from(row.network),
                     address: row.address,
                     abi_name: row.abi_name,
                     filter_script: row.filter_script,

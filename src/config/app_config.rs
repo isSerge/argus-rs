@@ -12,7 +12,7 @@ use super::{
     deserialize_duration_from_ms, deserialize_duration_from_seconds, deserialize_urls,
     initial_start_block::InitialStartBlock,
 };
-use crate::persistence::traits::NetworkId;
+use crate::models::NetworkId;
 
 /// Provides the default value for shutdown_timeout_secs.
 fn default_shutdown_timeout() -> Duration {

@@ -5,11 +5,11 @@ use std::sync::Arc;
 use thiserror::Error;
 
 use crate::{
-    models::action::{ActionConfig, ActionTypeConfigError},
-    persistence::{
-        error::PersistenceError,
-        traits::{AppRepository, NetworkId},
+    models::{
+        NetworkId,
+        action::{ActionConfig, ActionTypeConfigError},
     },
+    persistence::{error::PersistenceError, traits::AppRepository},
 };
 
 /// An error that occurs during action validation.

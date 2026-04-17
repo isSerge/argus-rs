@@ -6,11 +6,8 @@ use thiserror::Error;
 
 use super::validator::{MonitorValidationError, MonitorValidator};
 use crate::{
-    models::monitor::MonitorConfig,
-    persistence::{
-        error::PersistenceError,
-        traits::{AppRepository, NetworkId},
-    },
+    models::{NetworkId, monitor::MonitorConfig},
+    persistence::{error::PersistenceError, traits::AppRepository},
 };
 
 /// An error that occurs during monitor persistence validation.
@@ -162,7 +159,7 @@ mod tests {
 
     #[tokio::test]
     async fn monitor_persistence_validator_validates_for_create_network_mismatch() {
-        let network_id: NetworkId = NetworkId("not-testnet".to_string()); // default monitor validator uses "testnet"
+        let network_id: NetworkId = NetworkId::from("not-testnet"); // default monitor validator uses "testnet"
         let network_id_clone = network_id.clone();
         let mut repo = MockAppRepository::new();
 
@@ -359,7 +356,7 @@ mod tests {
         let monitor_id = "1".to_string();
         let updated = MonitorConfig {
             name: "monitor".into(),
-            network: NetworkId("mainnet".to_string()), // different network
+            network: NetworkId::from("mainnet"), // different network
             address: None,
             abi_name: None,
             filter_script: "true".to_string(),

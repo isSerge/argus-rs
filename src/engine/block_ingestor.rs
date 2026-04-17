@@ -162,7 +162,8 @@ mod tests {
     use super::*;
     use crate::{
         engine::filtering::MockFilteringEngine,
-        persistence::traits::{MockAppRepository, NetworkId},
+        models::NetworkId,
+        persistence::traits::MockAppRepository,
         providers::traits::MockDataSource,
         test_helpers::{BlockBuilder, ReceiptBuilder, TransactionBuilder},
     };

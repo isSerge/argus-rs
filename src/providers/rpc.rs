@@ -237,8 +237,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        models::monitor::Monitor,
-        persistence::traits::NetworkId,
+        models::{NetworkId, monitor::Monitor},
         test_helpers::{
             BlockBuilder, LogBuilder, ReceiptBuilder, create_test_monitor_manager, mock_provider,
         },

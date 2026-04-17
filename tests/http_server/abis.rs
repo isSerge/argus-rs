@@ -1,6 +1,9 @@
 use argus::{
-    models::monitor::{MonitorConfig, MonitorStatus},
-    persistence::traits::{AppRepository, NetworkId},
+    models::{
+        NetworkId,
+        monitor::{MonitorConfig, MonitorStatus},
+    },
+    persistence::traits::AppRepository,
 };
 
 use crate::helpers::*;
