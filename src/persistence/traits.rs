@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 #[cfg(test)]
 use mockall::automock;
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use super::error::PersistenceError;
 use crate::{
@@ -14,6 +14,23 @@ use crate::{
     },
 };
 
+/// Domain newtype representing a network identifier (e.g., "mainnet",
+/// "ropsten").
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct NetworkId(pub String);
+
+impl Default for NetworkId {
+    fn default() -> Self {
+        NetworkId("testnet".to_string())
+    }
+}
+
+impl std::fmt::Display for NetworkId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 /// Represents the application's persistence layer interface.
 #[cfg_attr(test, automock)]
 #[async_trait]
@@ -21,12 +38,12 @@ pub trait AppRepository: Send + Sync {
     /// Retrieves the last processed block number for a given network.
     async fn get_last_processed_block(
         &self,
-        network_id: &str,
+        network_id: &NetworkId,
     ) -> Result<Option<u64>, PersistenceError>;
     /// Sets the last processed block number for a given network.
     async fn set_last_processed_block(
         &self,
-        network_id: &str,
+        network_id: &NetworkId,
         block_number: u64,
     ) -> Result<(), PersistenceError>;
 
@@ -39,7 +56,7 @@ pub trait AppRepository: Send + Sync {
     /// Saves emergency state during shutdown (e.g., partial progress).
     async fn save_emergency_state(
         &self,
-        network_id: &str,
+        network_id: &NetworkId,
         block_number: u64,
         note: &str,
     ) -> Result<(), PersistenceError>;
@@ -47,36 +64,36 @@ pub trait AppRepository: Send + Sync {
     // Monitor management operations:
 
     /// Retrieves all monitors for a specific network.
-    async fn get_monitors(&self, network_id: &str) -> Result<Vec<Monitor>, PersistenceError>;
+    async fn get_monitors(&self, network_id: &NetworkId) -> Result<Vec<Monitor>, PersistenceError>;
 
     /// Retrieves a specific monitor by its ID for a given network.
     async fn get_monitor_by_id(
         &self,
-        network_id: &str,
+        network_id: &NetworkId,
         monitor_id: &str,
     ) -> Result<Option<Monitor>, PersistenceError>;
 
     /// Adds multiple monitors for a specific network.
     async fn add_monitors(
         &self,
-        network_id: &str,
+        network_id: &NetworkId,
         monitors: Vec<MonitorConfig>,
     ) -> Result<(), PersistenceError>;
 
     /// Clears all monitors for a specific network.
-    async fn clear_monitors(&self, network_id: &str) -> Result<(), PersistenceError>;
+    async fn clear_monitors(&self, network_id: &NetworkId) -> Result<(), PersistenceError>;
 
     /// Deletes a monitor by its ID for a specific network.
     async fn delete_monitor(
         &self,
-        network_id: &str,
+        network_id: &NetworkId,
         monitor_id: &str,
     ) -> Result<(), PersistenceError>;
 
     /// Updates an existing monitor for a specific network.
     async fn update_monitor(
         &self,
-        network_id: &str,
+        network_id: &NetworkId,
         monitor_id: &str,
         monitor: MonitorConfig,
     ) -> Result<(), PersistenceError>;
@@ -84,7 +101,7 @@ pub trait AppRepository: Send + Sync {
     /// Updates the status of a monitor for a specific network.
     async fn update_monitor_status(
         &self,
-        network_id: &str,
+        network_id: &NetworkId,
         monitor_id: &str,
         status: MonitorStatus,
     ) -> Result<(), PersistenceError>;
@@ -109,47 +126,53 @@ pub trait AppRepository: Send + Sync {
     // Action management operations:
 
     /// Retrieves all actions for a specific network.
-    async fn get_actions(&self, network_id: &str) -> Result<Vec<ActionConfig>, PersistenceError>;
+    async fn get_actions(
+        &self,
+        network_id: &NetworkId,
+    ) -> Result<Vec<ActionConfig>, PersistenceError>;
 
     /// Retrieves a specific action by its ID for a given network.
     async fn get_action_by_id(
         &self,
-        network_id: &str,
+        network_id: &NetworkId,
         action_id: i64,
     ) -> Result<Option<ActionConfig>, PersistenceError>;
 
     /// Retrieves a specific action by its name for a given network.
     async fn get_action_by_name(
         &self,
-        network_id: &str,
+        network_id: &NetworkId,
         name: &str,
     ) -> Result<Option<ActionConfig>, PersistenceError>;
 
     /// Creates a new action for a specific network.
     async fn create_action(
         &self,
-        network_id: &str,
+        network_id: &NetworkId,
         action: ActionConfig,
     ) -> Result<ActionConfig, PersistenceError>;
 
     /// Clears all actions for a specific network.
-    async fn clear_actions(&self, network_id: &str) -> Result<(), PersistenceError>;
+    async fn clear_actions(&self, network_id: &NetworkId) -> Result<(), PersistenceError>;
 
     /// Updates an existing action for a specific network.
     async fn update_action(
         &self,
-        network_id: &str,
+        network_id: &NetworkId,
         action: ActionConfig,
     ) -> Result<ActionConfig, PersistenceError>;
 
     /// Deletes an action by its ID for a specific network.
-    async fn delete_action(&self, network_id: &str, action_id: i64)
-    -> Result<(), PersistenceError>;
+    async fn delete_action(
+        &self,
+        network_id: &NetworkId,
+        action_id: i64,
+    ) -> Result<(), PersistenceError>;
 
     /// Retrieves all monitors that are associated with a specific action.
     async fn get_monitors_by_action_id(
         &self,
-        network_id: &str,
+        network_id: &NetworkId,
         action_id: i64,
     ) -> Result<Vec<crate::models::monitor::MonitorConfig>, PersistenceError>;
 

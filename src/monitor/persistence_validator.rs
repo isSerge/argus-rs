@@ -7,7 +7,10 @@ use thiserror::Error;
 use super::validator::{MonitorValidationError, MonitorValidator};
 use crate::{
     models::monitor::MonitorConfig,
-    persistence::{error::PersistenceError, traits::AppRepository},
+    persistence::{
+        error::PersistenceError,
+        traits::{AppRepository, NetworkId},
+    },
 };
 
 /// An error that occurs during monitor persistence validation.
@@ -29,7 +32,7 @@ pub enum MonitorPersistenceValidationError {
 /// A validator for monitor persistence operations.
 pub struct MonitorPersistenceValidator {
     repo: Arc<dyn AppRepository>,
-    network_id: String,
+    network_id: NetworkId,
     business_logic_validator: Arc<MonitorValidator>,
 }
 
@@ -37,10 +40,10 @@ impl MonitorPersistenceValidator {
     /// Creates a new `MonitorPersistenceValidator`.
     pub fn new(
         repo: Arc<dyn AppRepository>,
-        network_id: &str,
+        network_id: &NetworkId,
         business_logic_validator: Arc<MonitorValidator>,
     ) -> Self {
-        Self { repo, network_id: network_id.to_string(), business_logic_validator }
+        Self { repo, network_id: network_id.clone(), business_logic_validator }
     }
 
     /// Validates a `MonitorConfig` for creation via HTTP API.
@@ -124,24 +127,23 @@ mod tests {
 
     #[tokio::test]
     async fn monitor_persistence_validator_validates_for_create() {
-        const NETWORK_ID: &str = "testnet";
         let mut repo = MockAppRepository::new();
 
         repo.expect_get_monitors()
-            .withf(move |network| network == NETWORK_ID)
+            .withf(move |network| network == &NetworkId::default())
             .returning(|_| Ok(vec![]));
 
         let business_logic_validator = create_monitor_validator(&[], None).await;
 
         let validator = MonitorPersistenceValidator::new(
             Arc::new(repo),
-            NETWORK_ID,
+            &NetworkId::default(),
             Arc::new(business_logic_validator),
         );
 
         let monitor = MonitorConfig {
             name: "Test Monitor".into(),
-            network: NETWORK_ID.into(),
+            network: NetworkId::default(),
             address: Some(Address::default().to_checksum(None)),
             abi_name: Some("erc20".to_string()),
             filter_script: "true".to_string(),
@@ -160,24 +162,25 @@ mod tests {
 
     #[tokio::test]
     async fn monitor_persistence_validator_validates_for_create_network_mismatch() {
-        const NETWORK_ID: &str = "not-testnet"; // default monitor validator uses "testnet"
+        let network_id: NetworkId = NetworkId("not-testnet".to_string()); // default monitor validator uses "testnet"
+        let network_id_clone = network_id.clone();
         let mut repo = MockAppRepository::new();
 
         repo.expect_get_monitors()
-            .withf(move |network| network == NETWORK_ID)
+            .withf(move |network| network == &network_id_clone)
             .returning(|_| Ok(vec![]));
 
         let business_logic_validator = create_monitor_validator(&[], None).await;
 
         let validator = MonitorPersistenceValidator::new(
             Arc::new(repo),
-            NETWORK_ID,
+            &network_id,
             Arc::new(business_logic_validator),
         );
 
         let monitor = MonitorConfig {
             name: "Test Monitor".into(),
-            network: NETWORK_ID.into(),
+            network: network_id.clone(),
             address: Some(Address::default().to_checksum(None)),
             abi_name: Some("erc20".to_string()),
             filter_script: "true".to_string(),
@@ -197,28 +200,28 @@ mod tests {
 
     #[tokio::test]
     async fn monitor_persistence_validator_validates_for_create_name_conflict() {
-        const NETWORK_ID: &str = "testnet"; // default monitor validator uses "testnet"
         const MONITOR_NAME: &str = "Test Monitor";
         let mut repo = MockAppRepository::new();
 
         // Create an existing monitor with the same name and network
-        let existing_monitor = MonitorBuilder::new().name(MONITOR_NAME).network(NETWORK_ID).build();
+        let existing_monitor =
+            MonitorBuilder::new().name(MONITOR_NAME).network(&NetworkId::default()).build();
 
         repo.expect_get_monitors()
-            .withf(move |network| network == NETWORK_ID)
+            .withf(move |network| network == &NetworkId::default())
             .returning(move |_| Ok(vec![existing_monitor.clone()]));
 
         let business_logic_validator = create_monitor_validator(&[], None).await;
 
         let validator = MonitorPersistenceValidator::new(
             Arc::new(repo),
-            NETWORK_ID,
+            &NetworkId::default(),
             Arc::new(business_logic_validator),
         );
 
         let monitor = MonitorConfig {
             name: MONITOR_NAME.into(),
-            network: NETWORK_ID.into(),
+            network: NetworkId::default(),
             address: Some(Address::default().to_checksum(None)),
             abi_name: Some("erc20".to_string()),
             filter_script: "true".to_string(),
@@ -236,26 +239,26 @@ mod tests {
 
     #[tokio::test]
     async fn monitor_persistence_validator_validate_for_update_success_same_name() {
-        const NETWORK_ID: &str = "testnet";
         let mut repo = MockAppRepository::new();
 
         // existing monitor with id 1 and same name
-        let existing = MonitorBuilder::new().id(1).name("existing").network(NETWORK_ID).build();
+        let existing =
+            MonitorBuilder::new().id(1).name("existing").network(&NetworkId::default()).build();
         repo.expect_get_monitors()
-            .withf(move |network| network == NETWORK_ID)
+            .withf(move |network| network == &NetworkId::default())
             .returning(move |_| Ok(vec![existing.clone()]));
 
         let business_logic_validator = create_monitor_validator(&[], None).await;
         let validator = MonitorPersistenceValidator::new(
             Arc::new(repo),
-            NETWORK_ID,
+            &NetworkId::default(),
             Arc::new(business_logic_validator),
         );
 
         let monitor_id = "1".to_string();
         let monitor = MonitorConfig {
             name: "existing".into(),
-            network: NETWORK_ID.into(),
+            network: NetworkId::default(),
             address: None,
             abi_name: None,
             filter_script: "true".to_string(),
@@ -269,26 +272,26 @@ mod tests {
 
     #[tokio::test]
     async fn monitor_persistence_validator_validate_for_update_success_new_name() {
-        const NETWORK_ID: &str = "testnet";
         let mut repo = MockAppRepository::new();
 
         // existing monitor with a different name
-        let existing = MonitorBuilder::new().id(1).name("old-name").network(NETWORK_ID).build();
+        let existing =
+            MonitorBuilder::new().id(1).name("old-name").network(&NetworkId::default()).build();
         repo.expect_get_monitors()
-            .withf(move |network| network == NETWORK_ID)
+            .withf(move |network| network == &NetworkId::default())
             .returning(move |_| Ok(vec![existing.clone()]));
 
         let business_logic_validator = create_monitor_validator(&[], None).await;
         let validator = MonitorPersistenceValidator::new(
             Arc::new(repo),
-            NETWORK_ID,
+            &NetworkId::default(),
             Arc::new(business_logic_validator),
         );
 
         let monitor_id = "1".to_string();
         let monitor = MonitorConfig {
             name: "new-name".into(),
-            network: NETWORK_ID.into(),
+            network: NetworkId::default(),
             address: None,
             abi_name: None,
             filter_script: "true".to_string(),
@@ -302,27 +305,28 @@ mod tests {
 
     #[tokio::test]
     async fn monitor_persistence_validator_validate_for_update_name_conflict() {
-        const NETWORK_ID: &str = "testnet";
         let mut repo = MockAppRepository::new();
 
         // two monitors: id 1 and id 2
-        let m1 = MonitorBuilder::new().id(1).name("monitor-1").network(NETWORK_ID).build();
-        let m2 = MonitorBuilder::new().id(2).name("monitor-2").network(NETWORK_ID).build();
+        let m1 =
+            MonitorBuilder::new().id(1).name("monitor-1").network(&NetworkId::default()).build();
+        let m2 =
+            MonitorBuilder::new().id(2).name("monitor-2").network(&NetworkId::default()).build();
         repo.expect_get_monitors()
-            .withf(move |network| network == NETWORK_ID)
+            .withf(move |network| network == &NetworkId::default())
             .returning(move |_| Ok(vec![m1.clone(), m2.clone()]));
 
         let business_logic_validator = create_monitor_validator(&[], None).await;
         let validator = MonitorPersistenceValidator::new(
             Arc::new(repo),
-            NETWORK_ID,
+            &NetworkId::default(),
             Arc::new(business_logic_validator),
         );
 
         let monitor1_id = "1".to_string();
         let updated = MonitorConfig {
             name: "monitor-2".into(),
-            network: NETWORK_ID.into(),
+            network: NetworkId::default(),
             address: None,
             abi_name: None,
             filter_script: "true".to_string(),
@@ -336,26 +340,26 @@ mod tests {
 
     #[tokio::test]
     async fn monitor_persistence_validator_validate_for_update_network_mismatch() {
-        const NETWORK_ID: &str = "testnet";
         let mut repo = MockAppRepository::new();
 
         // existing monitor present
-        let existing = MonitorBuilder::new().id(1).name("monitor").network(NETWORK_ID).build();
+        let existing =
+            MonitorBuilder::new().id(1).name("monitor").network(&NetworkId::default()).build();
         repo.expect_get_monitors()
-            .withf(move |network| network == NETWORK_ID)
+            .withf(move |network| network == &NetworkId::default())
             .returning(move |_| Ok(vec![existing.clone()]));
 
         let business_logic_validator = create_monitor_validator(&[], None).await;
         let validator = MonitorPersistenceValidator::new(
             Arc::new(repo),
-            NETWORK_ID,
+            &NetworkId::default(),
             Arc::new(business_logic_validator),
         );
 
         let monitor_id = "1".to_string();
         let updated = MonitorConfig {
             name: "monitor".into(),
-            network: "mainnet".into(),
+            network: NetworkId("mainnet".to_string()), // different network
             address: None,
             abi_name: None,
             filter_script: "true".to_string(),
@@ -374,24 +378,23 @@ mod tests {
 
     #[tokio::test]
     async fn monitor_persistence_validator_validate_for_update_nonexistent_monitor() {
-        const NETWORK_ID: &str = "testnet";
         let mut repo = MockAppRepository::new();
 
         // no monitors returned
         repo.expect_get_monitors()
-            .withf(move |network| network == NETWORK_ID)
+            .withf(move |network| network == &NetworkId::default())
             .returning(move |_| Ok(vec![]));
 
         let business_logic_validator = create_monitor_validator(&[], None).await;
         let validator = MonitorPersistenceValidator::new(
             Arc::new(repo),
-            NETWORK_ID,
+            &NetworkId::default(),
             Arc::new(business_logic_validator),
         );
 
         let monitor = MonitorConfig {
             name: "monitor".into(),
-            network: NETWORK_ID.into(),
+            network: NetworkId::default(),
             address: None,
             abi_name: None,
             filter_script: "true".to_string(),

@@ -1,4 +1,7 @@
-use argus::{models::monitor::MonitorStatus, persistence::traits::AppRepository};
+use argus::{
+    models::monitor::MonitorStatus,
+    persistence::traits::{AppRepository, NetworkId},
+};
 
 use crate::helpers::*;
 
@@ -365,7 +368,7 @@ async fn update_monitor_status_endpoint_works() {
     assert_eq!(resp.status(), 200, "Failed to pause monitor");
 
     // Verify the status is updated in the database
-    let monitor = repo.get_monitor_by_id("testnet", "1").await.unwrap().unwrap();
+    let monitor = repo.get_monitor_by_id(&NetworkId::default(), "1").await.unwrap().unwrap();
     assert_eq!(monitor.status, MonitorStatus::Paused);
 
     // 2. Activate the monitor
@@ -381,7 +384,7 @@ async fn update_monitor_status_endpoint_works() {
     assert_eq!(resp.status(), 200, "Failed to activate monitor");
 
     // Verify the status is updated in the database
-    let monitor = repo.get_monitor_by_id("testnet", "1").await.unwrap().unwrap();
+    let monitor = repo.get_monitor_by_id(&NetworkId::default(), "1").await.unwrap().unwrap();
     assert_eq!(monitor.status, MonitorStatus::Active);
 
     server.cleanup();

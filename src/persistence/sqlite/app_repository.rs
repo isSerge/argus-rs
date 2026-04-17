@@ -12,7 +12,7 @@ use crate::{
     persistence::{
         error::PersistenceError,
         sqlite::SqliteStateRepository,
-        traits::{AppRepository, OutboxItem},
+        traits::{AppRepository, NetworkId, OutboxItem},
     },
 };
 
@@ -79,16 +79,14 @@ impl AppRepository for SqliteStateRepository {
     #[tracing::instrument(skip(self), level = "debug")]
     async fn get_last_processed_block(
         &self,
-        network_id: &str,
+        network_id: &NetworkId,
     ) -> Result<Option<u64>, PersistenceError> {
-        tracing::debug!(network_id, "Querying for last processed block.");
-
         let result = self
             .execute_query_with_error_handling(
                 "query last processed block",
                 sqlx::query!(
                     "SELECT block_number FROM processed_blocks WHERE network_id = ?",
-                    network_id
+                    network_id.0
                 )
                 .fetch_optional(&self.pool),
             )
@@ -100,20 +98,20 @@ impl AppRepository for SqliteStateRepository {
                 match block_number.try_into() {
                     Ok(block_number_u64) => {
                         tracing::debug!(
-                            network_id,
+                            network_id = %network_id,
                             block_number = block_number_u64,
                             "Last processed block found."
                         );
                         Ok(Some(block_number_u64))
                     }
                     Err(error) => {
-                        tracing::error!(error = %error, network_id, "Failed to convert block_number from i64 to u64.");
+                        tracing::error!(error = %error, network_id = %network_id, "Failed to convert block_number from i64 to u64.");
                         Err(PersistenceError::OperationFailed(error.to_string()))
                     }
                 }
             }
             None => {
-                tracing::debug!(network_id, "No last processed block found.");
+                tracing::debug!(network_id = %network_id, "No last processed block found.");
                 Ok(None)
             }
         }
@@ -123,13 +121,13 @@ impl AppRepository for SqliteStateRepository {
     #[tracing::instrument(skip(self), level = "debug")]
     async fn set_last_processed_block(
         &self,
-        network_id: &str,
+        network_id: &NetworkId,
         block_number: u64,
     ) -> Result<(), PersistenceError> {
-        tracing::debug!(network_id, block_number, "Attempting to set last processed block.");
+        tracing::debug!(network_id = %network_id, block_number = %block_number, "Attempting to set last processed block.");
 
         let block_number_i64 = i64::try_from(block_number).map_err(|error| {
-            tracing::error!(error = %error, block_number, "Failed to convert block_number to i64 for database insertion.");
+            tracing::error!(error = %error, block_number = %block_number, "Failed to convert block_number to i64 for database insertion.");
             PersistenceError::InvalidInput(error.to_string())
         })?;
 
@@ -137,14 +135,14 @@ impl AppRepository for SqliteStateRepository {
             "set last processed block",
             sqlx::query!(
                 "INSERT OR REPLACE INTO processed_blocks (network_id, block_number) VALUES (?, ?)",
-                network_id,
+                network_id.0,
                 block_number_i64
             )
             .execute(&self.pool),
         )
         .await?;
 
-        tracing::info!(network_id, block_number, "Last processed block set successfully.");
+        tracing::info!(network_id = %network_id, block_number = %block_number, "Last processed block set successfully.");
         Ok(())
     }
 
@@ -184,7 +182,7 @@ impl AppRepository for SqliteStateRepository {
     #[tracing::instrument(skip(self), level = "debug")]
     async fn save_emergency_state(
         &self,
-        network_id: &str,
+        network_id: &NetworkId,
         block_number: u64,
         note: &str,
     ) -> Result<(), PersistenceError> {
@@ -213,8 +211,8 @@ impl AppRepository for SqliteStateRepository {
 
     /// Retrieves all monitors for a specific network.
     #[tracing::instrument(skip(self), level = "debug")]
-    async fn get_monitors(&self, network_id: &str) -> Result<Vec<Monitor>, PersistenceError> {
-        tracing::debug!(network_id, "Querying for monitors.");
+    async fn get_monitors(&self, network_id: &NetworkId) -> Result<Vec<Monitor>, PersistenceError> {
+        tracing::debug!(network_id = %network_id, "Querying for monitors.");
 
         let monitor_rows = self
             .execute_query_with_error_handling("query monitors", async {
@@ -235,7 +233,7 @@ impl AppRepository for SqliteStateRepository {
                 FROM monitors 
                 WHERE network = ?
                 "#,
-                    network_id
+                    network_id.0
                 )
                 .fetch_all(&self.pool)
                 .await
@@ -254,7 +252,7 @@ impl AppRepository for SqliteStateRepository {
                 Ok(Monitor {
                     id: row.monitor_id,
                     name: row.name,
-                    network: row.network,
+                    network: NetworkId(row.network),
                     address: row.address,
                     abi_name: row.abi_name,
                     filter_script: row.filter_script,
@@ -267,7 +265,7 @@ impl AppRepository for SqliteStateRepository {
             .collect::<Result<Vec<_>, PersistenceError>>()?;
 
         tracing::debug!(
-            network_id,
+            network_id = %network_id,
             monitor_count = monitors.len(),
             "Monitors retrieved successfully."
         );
@@ -278,14 +276,14 @@ impl AppRepository for SqliteStateRepository {
     #[tracing::instrument(skip(self), level = "debug")]
     async fn get_monitor_by_id(
         &self,
-        network_id: &str,
+        network_id: &NetworkId,
         monitor_id: &str,
     ) -> Result<Option<Monitor>, PersistenceError> {
-        tracing::debug!(network_id, monitor_id, "Querying for monitor by ID.");
+        tracing::debug!(network_id = %network_id, monitor_id = %monitor_id, "Querying for monitor by ID.");
 
         let monitor_id_num: i64 = monitor_id.parse().map_err(|e| {
             let msg = format!("Invalid monitor_id '{}': {}", monitor_id, e);
-            tracing::error!(error = %e, monitor_id, "Failed to parse monitor_id.");
+            tracing::error!(error = %e, monitor_id = %monitor_id, "Failed to parse monitor_id.");
             PersistenceError::InvalidInput(msg)
         })?;
 
@@ -308,7 +306,7 @@ impl AppRepository for SqliteStateRepository {
                 FROM monitors 
                 WHERE network = ? AND monitor_id = ?
                 "#,
-                    network_id,
+                    network_id.0,
                     monitor_id_num
                 )
                 .fetch_optional(&self.pool)
@@ -326,7 +324,7 @@ impl AppRepository for SqliteStateRepository {
             let monitor = Monitor {
                 id: row.monitor_id,
                 name: row.name,
-                network: row.network,
+                network: NetworkId(row.network),
                 address: row.address,
                 abi_name: row.abi_name,
                 filter_script: row.filter_script,
@@ -336,10 +334,10 @@ impl AppRepository for SqliteStateRepository {
                 status: row.status,
             };
 
-            tracing::debug!(network_id, monitor_id, "Monitor found.");
+            tracing::debug!(network_id = %network_id, monitor_id = %monitor_id, "Monitor found.");
             Ok(Some(monitor))
         } else {
-            tracing::debug!(network_id, monitor_id, "No monitor found with given ID.");
+            tracing::debug!(network_id = %network_id, monitor_id = %monitor_id, "No monitor found with given ID.");
             Ok(None)
         }
     }
@@ -348,22 +346,22 @@ impl AppRepository for SqliteStateRepository {
     #[tracing::instrument(skip(self, monitors), level = "debug")]
     async fn add_monitors(
         &self,
-        network_id: &str,
+        network_id: &NetworkId,
         monitors: Vec<MonitorConfig>,
     ) -> Result<(), PersistenceError> {
-        tracing::debug!(network_id, monitor_count = monitors.len(), "Adding monitors.");
+        tracing::debug!(network_id = %network_id, monitor_count = monitors.len(), "Adding monitors.");
 
         // Validate that all monitors belong to the correct network
         for monitor in &monitors {
-            if monitor.network != network_id {
+            if monitor.network != *network_id {
                 let msg = format!(
                     "Monitor '{}' has network '{}' but expected '{}'",
                     monitor.name, monitor.network, network_id
                 );
                 tracing::error!(
-                    expected_network = network_id,
-                    actual_network = monitor.network,
-                    monitor_name = monitor.name,
+                    expected_network = %network_id,
+                    actual_network = %monitor.network,
+                    monitor_name = %monitor.name,
                     "Monitor network mismatch."
                 );
                 return Err(PersistenceError::InvalidInput(msg));
@@ -386,7 +384,7 @@ impl AppRepository for SqliteStateRepository {
                 "INSERT INTO monitors (name, network, address, abi_name, filter_script, actions, \
                  status) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 monitor.name,
-                monitor.network,
+                monitor.network.0,
                 monitor.address,
                 monitor.abi_name,
                 monitor.filter_script,
@@ -400,42 +398,42 @@ impl AppRepository for SqliteStateRepository {
 
         tx.commit().await.map_err(|e| PersistenceError::OperationFailed(e.to_string()))?;
 
-        tracing::info!(network_id, "Monitors added successfully.");
+        tracing::info!(network_id = %network_id, "Monitors added successfully.");
         Ok(())
     }
 
     /// Clears all monitors for a specific network.
     #[tracing::instrument(skip(self), level = "debug")]
-    async fn clear_monitors(&self, network_id: &str) -> Result<(), PersistenceError> {
-        tracing::debug!(network_id, "Clearing monitors.");
+    async fn clear_monitors(&self, network_id: &NetworkId) -> Result<(), PersistenceError> {
+        tracing::debug!(network_id = %network_id, "Clearing monitors.");
 
         let result = self
             .execute_query_with_error_handling(
                 "clear monitors",
-                sqlx::query!("DELETE FROM monitors WHERE network = ?", network_id)
+                sqlx::query!("DELETE FROM monitors WHERE network = ?", network_id.0)
                     .execute(&self.pool),
             )
             .await?;
 
         let deleted_count = result.rows_affected();
-        tracing::info!(network_id, deleted_count, "Monitors cleared successfully.");
+        tracing::info!(network_id = %network_id, deleted_count, "Monitors cleared successfully.");
         Ok(())
     }
 
     #[tracing::instrument(skip(self), level = "debug")]
     async fn delete_monitor(
         &self,
-        network_id: &str,
+        network_id: &NetworkId,
         monitor_id: &str,
     ) -> Result<(), PersistenceError> {
-        tracing::debug!(network_id, monitor_id, "Deleting monitor.");
+        tracing::debug!(network_id = %network_id, monitor_id = %monitor_id, "Deleting monitor.");
 
         let result = self
             .execute_query_with_error_handling(
                 "delete monitor",
                 sqlx::query!(
                     "DELETE FROM monitors WHERE network = ? AND monitor_id = ?",
-                    network_id,
+                    network_id.0,
                     monitor_id
                 )
                 .execute(&self.pool),
@@ -443,22 +441,22 @@ impl AppRepository for SqliteStateRepository {
             .await?;
 
         if result.rows_affected() == 0 {
-            tracing::warn!(network_id, monitor_id, "Monitor not found for deletion.");
+            tracing::warn!(network_id = %network_id, monitor_id = %monitor_id, "Monitor not found for deletion.");
             return Err(PersistenceError::NotFound);
         }
 
-        tracing::info!(network_id, monitor_id, "Monitor deleted successfully.");
+        tracing::info!(network_id = %network_id, monitor_id = %monitor_id, "Monitor deleted successfully.");
         Ok(())
     }
 
     #[tracing::instrument(skip(self, monitor), level = "debug")]
     async fn update_monitor(
         &self,
-        network_id: &str,
+        network_id: &NetworkId,
         monitor_id: &str,
         monitor: MonitorConfig,
     ) -> Result<(), PersistenceError> {
-        tracing::debug!(network_id, monitor_name = %monitor.name, "Updating monitor.");
+        tracing::debug!(network_id = %network_id, monitor_name = %monitor.name, "Updating monitor.");
 
         let actions_json = serde_json::to_string(&monitor.actions)
             .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
@@ -480,7 +478,7 @@ impl AppRepository for SqliteStateRepository {
                     monitor.abi_name,
                     monitor.filter_script,
                     actions_json,
-                    network_id,
+                    network_id.0,
                     monitor_id,
                 )
                 .execute(&self.pool),
@@ -488,7 +486,7 @@ impl AppRepository for SqliteStateRepository {
             .await?;
 
         if result.rows_affected() == 0 {
-            tracing::warn!(network_id, monitor_id, "Monitor not found for update.");
+            tracing::warn!(network_id = %network_id, monitor_id = %monitor_id, "Monitor not found for update.");
             return Err(PersistenceError::NotFound);
         }
 
@@ -498,11 +496,11 @@ impl AppRepository for SqliteStateRepository {
     #[tracing::instrument(skip(self), level = "debug")]
     async fn update_monitor_status(
         &self,
-        network_id: &str,
+        network_id: &NetworkId,
         monitor_id: &str,
         status: MonitorStatus,
     ) -> Result<(), PersistenceError> {
-        tracing::debug!(network_id, monitor_id, ?status, "Updating monitor status.");
+        tracing::debug!(network_id = %network_id, monitor_id = %monitor_id, ?status, "Updating monitor status.");
 
         let result = self
             .execute_query_with_error_handling(
@@ -515,7 +513,7 @@ impl AppRepository for SqliteStateRepository {
                 WHERE network = ? AND monitor_id = ?
                 "#,
                     status,
-                    network_id,
+                    network_id.0,
                     monitor_id,
                 )
                 .execute(&self.pool),
@@ -523,11 +521,11 @@ impl AppRepository for SqliteStateRepository {
             .await?;
 
         if result.rows_affected() == 0 {
-            tracing::warn!(network_id, monitor_id, "Monitor not found for status update.");
+            tracing::warn!(network_id = %network_id, monitor_id = %monitor_id, "Monitor not found for status update.");
             return Err(PersistenceError::NotFound);
         }
 
-        tracing::info!(network_id, monitor_id, ?status, "Monitor status updated successfully.");
+        tracing::info!(network_id = %network_id, monitor_id = %monitor_id, ?status, "Monitor status updated successfully.");
         Ok(())
     }
 
@@ -645,8 +643,11 @@ impl AppRepository for SqliteStateRepository {
 
     /// Retrieves all actions for a specific network.
     #[tracing::instrument(skip(self), level = "debug")]
-    async fn get_actions(&self, network_id: &str) -> Result<Vec<ActionConfig>, PersistenceError> {
-        tracing::debug!(network_id, "Querying for actions.");
+    async fn get_actions(
+        &self,
+        network_id: &NetworkId,
+    ) -> Result<Vec<ActionConfig>, PersistenceError> {
+        tracing::debug!(network_id = %network_id, "Querying for actions.");
 
         let action_rows = self
             .execute_query_with_error_handling(
@@ -654,7 +655,7 @@ impl AppRepository for SqliteStateRepository {
                 sqlx::query_as!(
                     ActionRow,
                     "SELECT action_id, name, config FROM actions WHERE network_id = ?",
-                    network_id
+                    network_id.0
                 )
                 .fetch_all(&self.pool),
             )
@@ -672,7 +673,7 @@ impl AppRepository for SqliteStateRepository {
             .collect::<Result<Vec<_>, PersistenceError>>()?;
 
         tracing::debug!(
-            network_id,
+            network_id = %network_id,
             action_count = actions.len(),
             "actions retrieved successfully."
         );
@@ -683,10 +684,10 @@ impl AppRepository for SqliteStateRepository {
     #[tracing::instrument(skip(self), level = "debug")]
     async fn get_action_by_id(
         &self,
-        network_id: &str,
+        network_id: &NetworkId,
         action_id: i64,
     ) -> Result<Option<ActionConfig>, PersistenceError> {
-        tracing::debug!(network_id, action_id, "Querying for action by ID.");
+        tracing::debug!(network_id = %network_id, action_id = %action_id, "Querying for action by ID.");
 
         let action_row = self
             .execute_query_with_error_handling(
@@ -695,7 +696,7 @@ impl AppRepository for SqliteStateRepository {
                     ActionRow,
                     "SELECT action_id, name, config FROM actions WHERE network_id = ? AND \
                      action_id = ?",
-                    network_id,
+                    network_id.0,
                     action_id
                 )
                 .fetch_optional(&self.pool),
@@ -707,10 +708,10 @@ impl AppRepository for SqliteStateRepository {
                 .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
             action.id = row.action_id;
             action.name = row.name;
-            tracing::debug!(network_id, action_id, "Action found.");
+            tracing::debug!(network_id = %network_id, action_id, "Action found.");
             Ok(Some(action))
         } else {
-            tracing::debug!(network_id, action_id, "No action found with given ID.");
+            tracing::debug!(network_id = %network_id, action_id, "No action found with given ID.");
             Ok(None)
         }
     }
@@ -719,10 +720,10 @@ impl AppRepository for SqliteStateRepository {
     #[tracing::instrument(skip(self), level = "debug")]
     async fn get_action_by_name(
         &self,
-        network_id: &str,
+        network_id: &NetworkId,
         name: &str,
     ) -> Result<Option<ActionConfig>, PersistenceError> {
-        tracing::debug!(network_id, name, "Querying for action by name.");
+        tracing::debug!(network_id = %network_id, name, "Querying for action by name.");
 
         let action_row = self
             .execute_query_with_error_handling(
@@ -730,7 +731,7 @@ impl AppRepository for SqliteStateRepository {
                 sqlx::query_as!(
                     ActionRow,
                     "SELECT action_id, name, config FROM actions WHERE network_id = ? AND name = ?",
-                    network_id,
+                    network_id.0,
                     name
                 )
                 .fetch_optional(&self.pool),
@@ -742,10 +743,10 @@ impl AppRepository for SqliteStateRepository {
                 .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
             action.id = row.action_id;
             action.name = row.name;
-            tracing::debug!(network_id, name, "Action found.");
+            tracing::debug!(network_id = %network_id, name, "Action found.");
             Ok(Some(action))
         } else {
-            tracing::debug!(network_id, name, "No action found with given name.");
+            tracing::debug!(network_id = %network_id, name, "No action found with given name.");
             Ok(None)
         }
     }
@@ -754,10 +755,10 @@ impl AppRepository for SqliteStateRepository {
     #[tracing::instrument(skip(self, action), level = "debug")]
     async fn create_action(
         &self,
-        network_id: &str,
+        network_id: &NetworkId,
         action: ActionConfig,
     ) -> Result<ActionConfig, PersistenceError> {
-        tracing::debug!(network_id, action_name = action.name, "Creating action.");
+        tracing::debug!(network_id = %network_id, action_name = action.name, "Creating action.");
 
         let config = serde_json::to_string(&action)
             .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
@@ -768,7 +769,7 @@ impl AppRepository for SqliteStateRepository {
                 sqlx::query!(
                     "INSERT INTO actions (name, network_id, config) VALUES (?, ?, ?)",
                     action.name,
-                    network_id,
+                    network_id.0,
                     config
                 )
                 .execute(&self.pool),
@@ -780,7 +781,7 @@ impl AppRepository for SqliteStateRepository {
         new_action.id = Some(new_id);
 
         tracing::info!(
-            network_id,
+            network_id = %network_id,
             action_name = new_action.name,
             action_id = new_id,
             "Action created successfully."
@@ -790,19 +791,19 @@ impl AppRepository for SqliteStateRepository {
 
     /// Clears all actions for a specific network.
     #[tracing::instrument(skip(self), level = "debug")]
-    async fn clear_actions(&self, network_id: &str) -> Result<(), PersistenceError> {
-        tracing::debug!(network_id, "Clearing actions.");
+    async fn clear_actions(&self, network_id: &NetworkId) -> Result<(), PersistenceError> {
+        tracing::debug!(network_id = %network_id, "Clearing actions.");
 
         let result = self
             .execute_query_with_error_handling(
                 "clear actions",
-                sqlx::query!("DELETE FROM actions WHERE network_id = ?", network_id)
+                sqlx::query!("DELETE FROM actions WHERE network_id = ?", network_id.0)
                     .execute(&self.pool),
             )
             .await?;
 
         let deleted_count = result.rows_affected();
-        tracing::info!(network_id, deleted_count, "actions cleared successfully.");
+        tracing::info!(network_id = %network_id, deleted_count, "actions cleared successfully.");
         Ok(())
     }
 
@@ -810,13 +811,13 @@ impl AppRepository for SqliteStateRepository {
     #[tracing::instrument(skip(self, action), level = "debug")]
     async fn update_action(
         &self,
-        network_id: &str,
+        network_id: &NetworkId,
         action: ActionConfig,
     ) -> Result<ActionConfig, PersistenceError> {
         let action_id = action.id.ok_or_else(|| {
             PersistenceError::InvalidInput("Action ID is required for update".to_string())
         })?;
-        tracing::debug!(network_id, action_id, "Updating action.");
+        tracing::debug!(network_id = %network_id, action_id, "Updating action.");
 
         let config = serde_json::to_string(&action)
             .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
@@ -829,7 +830,7 @@ impl AppRepository for SqliteStateRepository {
                      ?",
                     action.name,
                     config,
-                    network_id,
+                    network_id.0,
                     action_id
                 )
                 .execute(&self.pool),
@@ -840,7 +841,7 @@ impl AppRepository for SqliteStateRepository {
             return Err(PersistenceError::NotFound);
         }
 
-        tracing::info!(network_id, action_id, "Action updated successfully.");
+        tracing::info!(network_id = %network_id, action_id, "Action updated successfully.");
         Ok(action)
     }
 
@@ -848,17 +849,17 @@ impl AppRepository for SqliteStateRepository {
     #[tracing::instrument(skip(self), level = "debug")]
     async fn delete_action(
         &self,
-        network_id: &str,
+        network_id: &NetworkId,
         action_id: i64,
     ) -> Result<(), PersistenceError> {
-        tracing::debug!(network_id, action_id, "Deleting action.");
+        tracing::debug!(network_id = %network_id, action_id, "Deleting action.");
 
         let result = self
             .execute_query_with_error_handling(
                 "delete action",
                 sqlx::query!(
                     "DELETE FROM actions WHERE network_id = ? AND action_id = ?",
-                    network_id,
+                    network_id.0,
                     action_id
                 )
                 .execute(&self.pool),
@@ -869,7 +870,7 @@ impl AppRepository for SqliteStateRepository {
             return Err(PersistenceError::NotFound);
         }
 
-        tracing::info!(network_id, action_id, "Action deleted successfully.");
+        tracing::info!(network_id = %network_id, action_id, "Action deleted successfully.");
         Ok(())
     }
 
@@ -877,10 +878,10 @@ impl AppRepository for SqliteStateRepository {
     #[tracing::instrument(skip(self), level = "debug")]
     async fn get_monitors_by_action_id(
         &self,
-        network_id: &str,
+        network_id: &NetworkId,
         action_id: i64,
     ) -> Result<Vec<MonitorConfig>, PersistenceError> {
-        tracing::debug!(network_id, action_id, "Querying for monitors by action ID.");
+        tracing::debug!(network_id = %network_id, action_id, "Querying for monitors by action ID.");
 
         let action_name = self
             .get_action_by_id(network_id, action_id)
@@ -911,7 +912,7 @@ impl AppRepository for SqliteStateRepository {
                     FROM monitors 
                     WHERE network = ? AND actions LIKE ? ESCAPE '\'
                     "#,
-                    network_id,
+                    network_id.0,
                     like_clause
                 )
                 .fetch_all(&self.pool)
@@ -927,7 +928,7 @@ impl AppRepository for SqliteStateRepository {
 
                 Ok(MonitorConfig {
                     name: row.name,
-                    network: row.network,
+                    network: NetworkId(row.network),
                     address: row.address,
                     abi_name: row.abi_name,
                     filter_script: row.filter_script,
@@ -938,7 +939,7 @@ impl AppRepository for SqliteStateRepository {
             .collect::<Result<Vec<_>, PersistenceError>>()?;
 
         tracing::debug!(
-            network_id,
+            network_id = %network_id,
             action_id,
             monitor_count = monitors.len(),
             "Monitors retrieved successfully."

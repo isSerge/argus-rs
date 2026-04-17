@@ -21,6 +21,7 @@ use crate::{
         monitor::MonitorConfig,
         monitor_match::{LogDetails, MonitorMatch},
     },
+    persistence::traits::NetworkId,
     test_helpers::TransactionBuilder,
 };
 
@@ -44,7 +45,7 @@ struct CalldataValidator;
 /// specialized validators.
 pub struct MonitorValidator {
     /// The application network ID.
-    network_id: String,
+    network_id: NetworkId,
 
     /// Validates addresses and determines monitor types.
     address_validator: AddressValidator,
@@ -109,9 +110,9 @@ pub enum MonitorValidationError {
         /// The name of the monitor that failed validation.
         monitor_name: String,
         /// The expected network ID.
-        expected_network: String,
+        expected_network: NetworkId,
         /// The actual network ID of the monitor.
-        actual_network: String,
+        actual_network: NetworkId,
     },
 
     /// The monitor references a action that does not exist.
@@ -166,11 +167,11 @@ impl MonitorValidator {
         script_validator: RhaiScriptValidator,
         abi_service: Arc<AbiService>,
         template_service: Arc<TemplateService>,
-        network_id: impl Into<String>,
+        network_id: NetworkId,
         actions: Arc<Vec<ActionConfig>>,
     ) -> Self {
         MonitorValidator {
-            network_id: network_id.into(),
+            network_id,
             address_validator: AddressValidator,
             template_validator: TemplateValidator { template_service },
             action_validator: ActionValidator { actions },
@@ -224,7 +225,7 @@ impl MonitorValidator {
         if monitor.network != self.network_id {
             return Err(MonitorValidationError::InvalidNetwork {
                 monitor_name: monitor.name.clone(),
-                expected_network: self.network_id.to_string(),
+                expected_network: self.network_id.clone(),
                 actual_network: monitor.network.clone(),
             });
         }
@@ -678,7 +679,7 @@ mod tests {
     ) -> MonitorConfig {
         MonitorConfig::from_config(
             format!("Test Monitor {id}"),
-            "testnet".to_string(),
+            NetworkId::default(),
             address.map(String::from),
             abi.map(String::from),
             script.to_string(),
@@ -807,7 +808,7 @@ mod tests {
             "log.name == \"A\"",
             vec![],
         );
-        invalid_monitor.network = "other_network".to_string(); // Set to a different network
+        invalid_monitor.network = NetworkId("other_network".to_string()); // Set to a different network
 
         let result = validator.validate(&invalid_monitor);
 
@@ -1113,7 +1114,7 @@ mod tests {
 
         let invalid_monitor = MonitorConfig {
             name: "Test Monitor 1".into(),
-            network: "testnet".into(),
+            network: NetworkId::default(),
             address: contract_address.to_string().into(),
             abi_name: None,                                     // No ABI provided
             filter_script: "decoded_call.name == \"A\"".into(), // Accesses decoded_call
@@ -1141,7 +1142,7 @@ mod tests {
 
         let invalid_monitor = MonitorConfig {
             name: "Test Monitor 1".into(),
-            network: "testnet".into(),
+            network: NetworkId::default(),
             address: None, // No address provided
             abi_name: Some("erc20".into()),
             filter_script: "decoded_call.name == \"A\"".into(), // Accesses decoded_call
@@ -1169,7 +1170,7 @@ mod tests {
 
         let invalid_monitor = MonitorConfig {
             name: "Test Monitor 1".into(),
-            network: "testnet".into(),
+            network: NetworkId::default(),
             address: Some("all".into()), // Global monitor
             abi_name: Some("erc20".into()),
             filter_script: "decoded_call.name == \"A\"".into(),
@@ -1200,7 +1201,7 @@ mod tests {
 
         let invalid_monitor = MonitorConfig {
             name: "Test Monitor 1".into(),
-            network: "testnet".into(),
+            network: NetworkId::default(),
             address: Some(contract_address.to_string()),
             abi_name: Some("erc20".into()),
             filter_script: "log.name == \"A\"".into(),

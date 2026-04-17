@@ -2,13 +2,16 @@
 
 use chrono::{DateTime, Utc};
 
-use crate::models::monitor::{Monitor, MonitorStatus};
+use crate::{
+    models::monitor::{Monitor, MonitorStatus},
+    persistence::traits::NetworkId,
+};
 
 /// A builder for creating `Monitor` instances in tests.
 pub struct MonitorBuilder {
     id: Option<i64>,
     name: Option<String>,
-    network: Option<String>,
+    network: Option<NetworkId>,
     address: Option<String>,
     abi_name: Option<String>,
     filter_script: Option<String>,
@@ -84,8 +87,8 @@ impl MonitorBuilder {
     }
 
     /// Sets the network for the monitor.
-    pub fn network(mut self, network: &str) -> Self {
-        self.network = Some(network.to_string());
+    pub fn network(mut self, network: &NetworkId) -> Self {
+        self.network = Some(network.clone());
         self
     }
 
@@ -106,7 +109,7 @@ impl MonitorBuilder {
         Monitor {
             id: self.id.unwrap_or_default(),
             name: self.name.unwrap_or("test monitor".to_string()),
-            network: self.network.unwrap_or("test network".to_string()),
+            network: self.network.unwrap_or_default(),
             address: self.address,
             abi_name: self.abi_name,
             filter_script: self.filter_script.unwrap_or("true".to_string()),

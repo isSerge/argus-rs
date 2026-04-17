@@ -225,14 +225,12 @@ mod tests {
     use super::*;
     use crate::{
         monitor::InterestRegistry,
-        persistence::traits::MockAppRepository,
+        persistence::traits::{MockAppRepository, NetworkId},
         test_helpers::{
             BlockBuilder, LogBuilder, MonitorBuilder, TransactionBuilder,
             create_test_monitor_manager,
         },
     };
-
-    const TEST_NETWORK_ID: &str = "testnet";
 
     struct TestHarness {
         config: Arc<AppConfig>,
@@ -241,7 +239,7 @@ mod tests {
 
     impl TestHarness {
         fn new() -> Self {
-            let config = Arc::new(AppConfig::builder().network_id(TEST_NETWORK_ID).build());
+            let config = Arc::new(AppConfig::builder().network_id(&NetworkId::default()).build());
             Self { config, mock_state_repo: MockAppRepository::new() }
         }
 
@@ -252,7 +250,7 @@ mod tests {
             token: CancellationToken,
         ) -> BlockProcessor<MockAppRepository> {
             let monitor =
-                MonitorBuilder::new().network(TEST_NETWORK_ID).filter_script("true").build();
+                MonitorBuilder::new().network(&NetworkId::default()).filter_script("true").build();
             let monitors = vec![monitor];
             let monitor_manager = create_test_monitor_manager(monitors).await;
             BlockProcessor::new(
@@ -272,7 +270,7 @@ mod tests {
         harness
             .mock_state_repo
             .expect_set_last_processed_block()
-            .with(eq(TEST_NETWORK_ID), eq(100))
+            .with(eq(NetworkId::default()), eq(100))
             .times(1)
             .returning(|_, _| Ok(()));
 

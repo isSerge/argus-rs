@@ -381,7 +381,7 @@ mod tests {
             action::{AggregationPolicy, ThrottlePolicy},
             monitor_match::LogDetails,
         },
-        persistence::traits::{AppRepository, MockAppRepository, MockKeyValueStore},
+        persistence::traits::{AppRepository, MockAppRepository, MockKeyValueStore, NetworkId},
         test_helpers::ActionBuilder,
     };
 
@@ -423,14 +423,14 @@ mod tests {
     impl AppRepository for CombinedMock {
         async fn get_last_processed_block(
             &self,
-            network_id: &str,
+            network_id: &NetworkId,
         ) -> Result<Option<u64>, PersistenceError> {
             self.repo_mock.get_last_processed_block(network_id).await
         }
 
         async fn set_last_processed_block(
             &self,
-            network_id: &str,
+            network_id: &NetworkId,
             block_number: u64,
         ) -> Result<(), PersistenceError> {
             self.repo_mock.set_last_processed_block(network_id, block_number).await
@@ -446,7 +446,7 @@ mod tests {
 
         async fn save_emergency_state(
             &self,
-            network_id: &str,
+            network_id: &NetworkId,
             block_number: u64,
             note: &str,
         ) -> Result<(), PersistenceError> {
@@ -455,14 +455,14 @@ mod tests {
 
         async fn get_monitors(
             &self,
-            network_id: &str,
+            network_id: &NetworkId,
         ) -> Result<Vec<crate::models::monitor::Monitor>, PersistenceError> {
             self.repo_mock.get_monitors(network_id).await
         }
 
         async fn get_monitor_by_id(
             &self,
-            network_id: &str,
+            network_id: &NetworkId,
             monitor_id: &str,
         ) -> Result<Option<crate::models::monitor::Monitor>, PersistenceError> {
             self.repo_mock.get_monitor_by_id(network_id, monitor_id).await
@@ -470,19 +470,19 @@ mod tests {
 
         async fn add_monitors(
             &self,
-            network_id: &str,
+            network_id: &NetworkId,
             monitors: Vec<crate::models::monitor::MonitorConfig>,
         ) -> Result<(), PersistenceError> {
             self.repo_mock.add_monitors(network_id, monitors).await
         }
 
-        async fn clear_monitors(&self, network_id: &str) -> Result<(), PersistenceError> {
+        async fn clear_monitors(&self, network_id: &NetworkId) -> Result<(), PersistenceError> {
             self.repo_mock.clear_monitors(network_id).await
         }
 
         async fn delete_monitor(
             &self,
-            network_id: &str,
+            network_id: &NetworkId,
             monitor_id: &str,
         ) -> Result<(), PersistenceError> {
             self.repo_mock.delete_monitor(network_id, monitor_id).await
@@ -490,7 +490,7 @@ mod tests {
 
         async fn update_monitor(
             &self,
-            network_id: &str,
+            network_id: &NetworkId,
             monitor_id: &str,
             monitor: crate::models::monitor::MonitorConfig,
         ) -> Result<(), PersistenceError> {
@@ -499,7 +499,7 @@ mod tests {
 
         async fn update_monitor_status(
             &self,
-            network_id: &str,
+            network_id: &NetworkId,
             monitor_id: &str,
             status: crate::models::monitor::MonitorStatus,
         ) -> Result<(), PersistenceError> {
@@ -528,14 +528,14 @@ mod tests {
 
         async fn get_actions(
             &self,
-            network_id: &str,
+            network_id: &NetworkId,
         ) -> Result<Vec<ActionConfig>, PersistenceError> {
             self.repo_mock.get_actions(network_id).await
         }
 
         async fn get_action_by_id(
             &self,
-            network_id: &str,
+            network_id: &NetworkId,
             action_id: i64,
         ) -> Result<Option<ActionConfig>, PersistenceError> {
             self.repo_mock.get_action_by_id(network_id, action_id).await
@@ -543,7 +543,7 @@ mod tests {
 
         async fn get_action_by_name(
             &self,
-            network_id: &str,
+            network_id: &NetworkId,
             name: &str,
         ) -> Result<Option<ActionConfig>, PersistenceError> {
             self.repo_mock.get_action_by_name(network_id, name).await
@@ -551,19 +551,19 @@ mod tests {
 
         async fn create_action(
             &self,
-            network_id: &str,
+            network_id: &NetworkId,
             action: ActionConfig,
         ) -> Result<ActionConfig, PersistenceError> {
             self.repo_mock.create_action(network_id, action).await
         }
 
-        async fn clear_actions(&self, network_id: &str) -> Result<(), PersistenceError> {
+        async fn clear_actions(&self, network_id: &NetworkId) -> Result<(), PersistenceError> {
             self.repo_mock.clear_actions(network_id).await
         }
 
         async fn update_action(
             &self,
-            network_id: &str,
+            network_id: &NetworkId,
             action: ActionConfig,
         ) -> Result<ActionConfig, PersistenceError> {
             self.repo_mock.update_action(network_id, action).await
@@ -571,7 +571,7 @@ mod tests {
 
         async fn delete_action(
             &self,
-            network_id: &str,
+            network_id: &NetworkId,
             action_id: i64,
         ) -> Result<(), PersistenceError> {
             self.repo_mock.delete_action(network_id, action_id).await
@@ -579,7 +579,7 @@ mod tests {
 
         async fn get_monitors_by_action_id(
             &self,
-            network_id: &str,
+            network_id: &NetworkId,
             action_id: i64,
         ) -> Result<Vec<crate::models::monitor::MonitorConfig>, PersistenceError> {
             self.repo_mock.get_monitors_by_action_id(network_id, action_id).await

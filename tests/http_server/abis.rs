@@ -1,6 +1,6 @@
 use argus::{
     models::monitor::{MonitorConfig, MonitorStatus},
-    persistence::traits::AppRepository,
+    persistence::traits::{AppRepository, NetworkId},
 };
 
 use crate::helpers::*;
@@ -179,7 +179,7 @@ async fn abis_endpoint_handles_db_error() {
 #[tokio::test]
 async fn delete_abi_conflict_when_in_use() {
     let repo = create_test_repo().await;
-    let network_id = "testnet".to_string();
+    let network_id = NetworkId::default();
 
     // Create a test ABI
     let abi_content = r#"[{"type":"event","name":"Transfer","inputs":[]}]"#;

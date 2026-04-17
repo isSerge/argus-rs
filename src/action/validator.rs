@@ -6,7 +6,10 @@ use thiserror::Error;
 
 use crate::{
     models::action::{ActionConfig, ActionTypeConfigError},
-    persistence::{error::PersistenceError, traits::AppRepository},
+    persistence::{
+        error::PersistenceError,
+        traits::{AppRepository, NetworkId},
+    },
 };
 
 /// An error that occurs during action validation.
@@ -29,13 +32,13 @@ pub enum ActionValidationError {
 #[derive(Clone)]
 pub struct ActionValidator {
     repo: Arc<dyn AppRepository>,
-    network_id: String,
+    network_id: NetworkId,
 }
 
 impl ActionValidator {
     /// Creates a new `ActionValidator`.
-    pub fn new(repo: Arc<dyn AppRepository>, network_id: &str) -> Self {
-        Self { repo, network_id: network_id.to_string() }
+    pub fn new(repo: Arc<dyn AppRepository>, network_id: &NetworkId) -> Self {
+        Self { repo, network_id: network_id.clone() }
     }
 
     /// Validates an `ActionConfig` for creation.
