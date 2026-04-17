@@ -350,7 +350,7 @@ impl AppContextBuilder {
             script_validator,
             abi_service,
             template_service,
-            network_id.to_string(),
+            network_id.clone(),
             actions_arc,
         );
         for monitor in &monitors {

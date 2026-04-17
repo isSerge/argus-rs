@@ -9,6 +9,7 @@ use axum::{
 use serde::Serialize;
 
 use super::{ApiError, ApiState};
+use crate::models::NetworkId;
 
 /// Represents the response from the `/status` endpoint.
 #[derive(Debug, Serialize, Clone)]
@@ -16,7 +17,7 @@ pub struct StatusResponse {
     /// The version of the application.
     pub version: String,
     /// The network ID the application is connected to.
-    pub network_id: String,
+    pub network_id: NetworkId,
     /// The uptime of the application in seconds.
     pub uptime_secs: u64,
     /// The latest block number that has been processed.

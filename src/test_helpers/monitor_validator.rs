@@ -7,7 +7,7 @@ use crate::{
     action_dispatcher::template::TemplateService,
     config::RhaiConfig,
     engine::rhai::{RhaiCompiler, RhaiScriptValidator},
-    models::action::ActionConfig,
+    models::{NetworkId, action::ActionConfig},
     monitor::MonitorValidator,
     persistence::{SqliteStateRepository, traits::AppRepository},
 };
@@ -40,5 +40,11 @@ pub async fn create_monitor_validator(
     }
 
     let actions_arc = Arc::new(actions.to_vec());
-    MonitorValidator::new(script_validator, abi_service, template_service, "testnet", actions_arc)
+    MonitorValidator::new(
+        script_validator,
+        abi_service,
+        template_service,
+        NetworkId::default(),
+        actions_arc,
+    )
 }

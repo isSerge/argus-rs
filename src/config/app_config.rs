@@ -12,6 +12,7 @@ use super::{
     deserialize_duration_from_ms, deserialize_duration_from_seconds, deserialize_urls,
     initial_start_block::InitialStartBlock,
 };
+use crate::models::NetworkId;
 
 /// Provides the default value for shutdown_timeout_secs.
 fn default_shutdown_timeout() -> Duration {
@@ -44,7 +45,7 @@ pub struct AppConfig {
     pub rpc_urls: Vec<Url>,
 
     /// Network ID for the Ethereum network.
-    pub network_id: String,
+    pub network_id: NetworkId,
 
     /// Path to monitor configuration file.
     #[serde(skip_deserializing)]
@@ -169,8 +170,8 @@ impl AppConfigBuilder {
         self
     }
 
-    pub fn network_id(mut self, network_id: &str) -> Self {
-        self.config.network_id = network_id.to_string();
+    pub fn network_id(mut self, network_id: &NetworkId) -> Self {
+        self.config.network_id = network_id.clone();
         self
     }
 
@@ -228,7 +229,7 @@ mod tests {
         let rpc_urls = vec![Url::parse("http://localhost:8545").unwrap()];
         let config = AppConfig::builder()
             .rpc_urls(rpc_urls)
-            .network_id("testnet")
+            .network_id(&NetworkId::default())
             .monitor_config_path("test_monitor.yaml")
             .action_config_path("test_action.yaml")
             .database_url("sqlite::memory:")
@@ -237,7 +238,7 @@ mod tests {
             .build();
 
         assert_eq!(config.rpc_urls.len(), 1);
-        assert_eq!(config.network_id, "testnet");
+        assert_eq!(config.network_id, NetworkId::default());
         assert_eq!(config.monitor_config_path, PathBuf::from("test_monitor.yaml"));
         assert_eq!(config.action_config_path, PathBuf::from("test_action.yaml"));
         assert_eq!(config.database_url, "sqlite::memory:");
@@ -264,7 +265,7 @@ mod tests {
         let temp_dir_path = temp_dir.path();
         let config = AppConfig::new(Some(temp_dir_path.to_str().unwrap())).unwrap();
         assert!(!config.rpc_urls.is_empty());
-        assert_eq!(config.network_id, "testnet");
+        assert_eq!(config.network_id, NetworkId::default());
 
         let expected_monitor_path = temp_dir_path.join("monitors.yaml");
         assert_eq!(config.monitor_config_path, PathBuf::from(expected_monitor_path));

@@ -5,6 +5,7 @@ use argus::{
     context::AppMetrics,
     http_server,
     models::{
+        NetworkId,
         action::{ActionConfig, ActionTypeConfig, StdoutConfig},
         monitor::{MonitorConfig, MonitorStatus},
     },
@@ -31,7 +32,7 @@ pub async fn create_test_repo_without_migrations() -> Arc<SqliteStateRepository>
 
 pub fn create_test_server_config(address: &str) -> Arc<AppConfig> {
     Arc::new(AppConfig {
-        network_id: "testnet".to_string(),
+        network_id: NetworkId::default(),
         server: ServerConfig { listen_address: address.into(), ..Default::default() },
         ..Default::default()
     })
@@ -81,7 +82,7 @@ impl TestServer {
 
     pub async fn new_with_test_monitors() -> (Self, Arc<SqliteStateRepository>) {
         let repo = create_test_repo().await;
-        let network_id = "testnet".to_string();
+        let network_id = NetworkId::default();
 
         // Add test monitors
         let add_result = repo
@@ -106,7 +107,7 @@ impl TestServer {
 
     pub async fn new_with_multiple_monitors() -> (Self, Arc<SqliteStateRepository>) {
         let repo = create_test_repo().await;
-        let network_id = "testnet".to_string();
+        let network_id = NetworkId::default();
 
         // Add test monitors
         let add_result = repo
@@ -142,7 +143,7 @@ impl TestServer {
 
     pub async fn new_with_test_actions() -> (Self, Arc<SqliteStateRepository>) {
         let repo = create_test_repo().await;
-        let network_id = "testnet".to_string();
+        let network_id = NetworkId::default();
 
         // Add test actions
         let add_result = repo
@@ -164,7 +165,7 @@ impl TestServer {
 
     pub async fn new_with_multiple_actions() -> (Self, Arc<SqliteStateRepository>) {
         let repo = create_test_repo().await;
-        let network_id = "testnet".to_string();
+        let network_id = NetworkId::default();
 
         // Add test actions
         let add_result_1 = repo

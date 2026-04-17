@@ -162,12 +162,11 @@ mod tests {
     use super::*;
     use crate::{
         engine::filtering::MockFilteringEngine,
+        models::NetworkId,
         persistence::traits::MockAppRepository,
         providers::traits::MockDataSource,
         test_helpers::{BlockBuilder, ReceiptBuilder, TransactionBuilder},
     };
-
-    const TEST_NETWORK_ID: &str = "testnet";
 
     struct TestHarness {
         config: Arc<AppConfig>,
@@ -180,7 +179,7 @@ mod tests {
         fn new() -> Self {
             let config = Arc::new(
                 AppConfig::builder()
-                    .network_id(TEST_NETWORK_ID)
+                    .network_id(&NetworkId::default())
                     .confirmation_blocks(1)
                     .concurrency(1) // Use concurrency of 1 for tests to avoid mock issues
                     .build(),
@@ -398,7 +397,7 @@ mod tests {
         let mut harness = TestHarness::new();
         harness.config = Arc::new(
             AppConfig::builder()
-                .network_id(TEST_NETWORK_ID)
+                .network_id(&NetworkId::default())
                 .confirmation_blocks(1)
                 .concurrency(1) // Use concurrency of 1 for tests
                 .polling_interval(10) // Fast polling

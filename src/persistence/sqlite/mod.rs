@@ -122,6 +122,7 @@ mod tests {
     use super::*;
     use crate::{
         models::{
+            NetworkId,
             action::{ActionPolicy, AggregationPolicy, ThrottlePolicy},
             monitor::MonitorConfig,
             notification::NotificationMessage,
@@ -141,7 +142,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_and_set_last_processed_block() {
         let repo = setup_test_db().await;
-        let network = "mainnet";
+        let network = &NetworkId::from("mainnet");
 
         // Initially, should be None
         let block = repo.get_last_processed_block(network).await.unwrap();
@@ -165,7 +166,7 @@ mod tests {
     #[tokio::test]
     async fn test_cleanup_and_flush_operations() {
         let repo = setup_test_db().await;
-        let network = "testnet";
+        let network = &NetworkId::from("testnet");
 
         // Set some data
         repo.set_last_processed_block(network, 100).await.unwrap();
@@ -184,7 +185,7 @@ mod tests {
     #[tokio::test]
     async fn test_emergency_state_saving() {
         let repo = setup_test_db().await;
-        let network = "emergency_test";
+        let network = &NetworkId::from("emergency_test");
 
         // Save emergency state
         repo.save_emergency_state(network, 555, "Test emergency shutdown").await.unwrap();
@@ -211,7 +212,7 @@ mod tests {
     #[tokio::test]
     async fn test_emergency_state_with_no_prior_state() {
         let repo = setup_test_db().await;
-        let network = "fresh_network";
+        let network = &NetworkId::from("fresh_network");
 
         // Verify no prior state exists
         let initial_state = repo.get_last_processed_block(network).await.unwrap();
@@ -230,21 +231,21 @@ mod tests {
     #[tokio::test]
     async fn test_monitor_management_operations() {
         let repo = setup_test_db().await;
-        let network_id = "ethereum";
+        let network_id = NetworkId::from("ethereum");
 
         // Create ABIs for testing
         repo.create_abi("usdc", "[]").await.unwrap();
         repo.create_abi("test", "[]").await.unwrap();
 
         // Initially, should have no monitors
-        let monitors = repo.get_monitors(network_id).await.unwrap();
+        let monitors = repo.get_monitors(&network_id).await.unwrap();
         assert!(monitors.is_empty());
 
         // Create test monitors
         let test_monitors = vec![
             MonitorConfig::from_config(
                 "USDC Transfer Monitor".to_string(),
-                network_id.to_string(),
+                network_id.clone(),
                 Some("0xa0b86a33e6441b38d4b5e5bfa1bf7a5eb70c5b1e".to_string()),
                 Some("usdc".to_string()),
                 r#"log.name == "Transfer" && bigint(log.params.value) > bigint("1000000000")"#
@@ -253,7 +254,7 @@ mod tests {
             ),
             MonitorConfig::from_config(
                 "Simple Transfer Monitor".to_string(),
-                network_id.to_string(),
+                network_id.clone(),
                 Some("0x7a250d5630b4cf539739df2c5dacb4c659f2488d".to_string()),
                 Some("test".to_string()),
                 r#"log.name == "Transfer""#.to_string(),
@@ -261,7 +262,7 @@ mod tests {
             ),
             MonitorConfig::from_config(
                 "Native ETH Monitor".to_string(),
-                network_id.to_string(),
+                network_id.clone(),
                 None, // No address for transaction-level monitor
                 None,
                 r#"bigint(tx.value) > bigint("1000000000000000000")"#.to_string(),
@@ -270,10 +271,10 @@ mod tests {
         ];
 
         // Add monitors
-        repo.add_monitors(network_id, test_monitors.clone()).await.unwrap();
+        repo.add_monitors(&network_id, test_monitors.clone()).await.unwrap();
 
         // Retrieve monitors and verify
-        let stored_monitors = repo.get_monitors(network_id).await.unwrap();
+        let stored_monitors = repo.get_monitors(&network_id).await.unwrap();
         assert_eq!(stored_monitors.len(), 3);
 
         // Check USDC monitor
@@ -298,18 +299,18 @@ mod tests {
         );
 
         // Clear monitors
-        repo.clear_monitors(network_id).await.unwrap();
+        repo.clear_monitors(&network_id).await.unwrap();
 
         // Verify monitors are cleared
-        let monitors_after_clear = repo.get_monitors(network_id).await.unwrap();
+        let monitors_after_clear = repo.get_monitors(&network_id).await.unwrap();
         assert!(monitors_after_clear.is_empty());
     }
 
     #[tokio::test]
     async fn test_monitor_network_isolation() {
         let repo = setup_test_db().await;
-        let network1 = "ethereum";
-        let network2 = "polygon";
+        let network1 = &NetworkId::from("ethereum");
+        let network2 = &NetworkId::from("polygon");
 
         // Create ABI for testing
         repo.create_abi("test", "[]").await.unwrap();
@@ -317,7 +318,7 @@ mod tests {
         // Create monitors for different networks
         let ethereum_monitors = vec![MonitorConfig::from_config(
             "Ethereum Monitor".to_string(),
-            network1.to_string(),
+            network1.clone(),
             Some("0x1111111111111111111111111111111111111111".to_string()),
             Some("test".to_string()),
             "true".to_string(),
@@ -326,7 +327,7 @@ mod tests {
 
         let polygon_monitors = vec![MonitorConfig::from_config(
             "Polygon Monitor".to_string(),
-            network2.to_string(),
+            network2.clone(),
             Some("0x2222222222222222222222222222222222222222".to_string()),
             Some("test".to_string()),
             "true".to_string(),
@@ -334,12 +335,12 @@ mod tests {
         )];
 
         // Add monitors to different networks
-        repo.add_monitors(network1, ethereum_monitors).await.unwrap();
-        repo.add_monitors(network2, polygon_monitors).await.unwrap();
+        repo.add_monitors(&network1, ethereum_monitors).await.unwrap();
+        repo.add_monitors(&network2, polygon_monitors).await.unwrap();
 
         // Verify network isolation
-        let eth_monitors = repo.get_monitors(network1).await.unwrap();
-        let poly_monitors = repo.get_monitors(network2).await.unwrap();
+        let eth_monitors = repo.get_monitors(&network1).await.unwrap();
+        let poly_monitors = repo.get_monitors(&network2).await.unwrap();
 
         assert_eq!(eth_monitors.len(), 1);
         assert_eq!(poly_monitors.len(), 1);
@@ -347,10 +348,10 @@ mod tests {
         assert_eq!(poly_monitors[0].name, "Polygon Monitor");
 
         // Clear one network shouldn't affect the other
-        repo.clear_monitors(network1).await.unwrap();
+        repo.clear_monitors(&network1).await.unwrap();
 
-        let eth_monitors_after_clear = repo.get_monitors(network1).await.unwrap();
-        let poly_monitors_after_clear = repo.get_monitors(network2).await.unwrap();
+        let eth_monitors_after_clear = repo.get_monitors(&network1).await.unwrap();
+        let poly_monitors_after_clear = repo.get_monitors(&network2).await.unwrap();
 
         assert!(eth_monitors_after_clear.is_empty());
         assert_eq!(poly_monitors_after_clear.len(), 1);
@@ -359,7 +360,7 @@ mod tests {
     #[tokio::test]
     async fn test_monitor_network_validation() {
         let repo = setup_test_db().await;
-        let network_id = "ethereum";
+        let network_id = &NetworkId::from("ethereum");
 
         // Create ABI for testing
         repo.create_abi("test", "[]").await.unwrap();
@@ -367,7 +368,7 @@ mod tests {
         // Create monitor with wrong network
         let wrong_network_monitors = vec![MonitorConfig::from_config(
             "Wrong Network Monitor".to_string(),
-            "polygon".to_string(), // Different from network_id
+            NetworkId::from("polygon"), // Different from network_id
             Some("0x1111111111111111111111111111111111111111".to_string()),
             Some("test".to_string()),
             "true".to_string(),
@@ -397,7 +398,7 @@ mod tests {
     #[tokio::test]
     async fn test_monitor_empty_operations() {
         let repo = setup_test_db().await;
-        let network_id = "testnet";
+        let network_id = &NetworkId::default();
 
         // Test adding empty vector
         repo.add_monitors(network_id, vec![]).await.unwrap();
@@ -413,7 +414,7 @@ mod tests {
     #[tokio::test]
     async fn test_monitor_transaction_atomicity() {
         let repo = setup_test_db().await;
-        let network_id = "ethereum";
+        let network_id = &NetworkId::from("ethereum");
 
         // Create ABI for testing
         repo.create_abi("test", "[]").await.unwrap();
@@ -422,7 +423,7 @@ mod tests {
         let mixed_monitors = vec![
             MonitorConfig::from_config(
                 "Valid Monitor".to_string(),
-                network_id.to_string(),
+                network_id.clone(),
                 Some("0x1111111111111111111111111111111111111111".to_string()),
                 Some("test".to_string()),
                 "true".to_string(),
@@ -430,7 +431,7 @@ mod tests {
             ),
             MonitorConfig::from_config(
                 "Invalid Monitor".to_string(),
-                "wrong_network".to_string(), // This will cause failure
+                NetworkId::from("wrong_network"), // This will cause failure
                 Some("0x2222222222222222222222222222222222222222".to_string()),
                 Some("test".to_string()),
                 "true".to_string(),
@@ -450,7 +451,7 @@ mod tests {
     #[tokio::test]
     async fn test_monitor_large_script_handling() {
         let repo = setup_test_db().await;
-        let network_id = "ethereum";
+        let network_id = &NetworkId::from("ethereum");
 
         // Create ABI for testing
         repo.create_abi("test", "[]").await.unwrap();
@@ -459,7 +460,7 @@ mod tests {
         let large_script = "a".repeat(10000); // 10KB script
         let monitor_with_large_script = vec![MonitorConfig::from_config(
             "Large Script Monitor".to_string(),
-            network_id.to_string(),
+            network_id.clone(),
             Some("0x1111111111111111111111111111111111111111".to_string()),
             Some("test".to_string()),
             large_script.clone(),
@@ -479,7 +480,7 @@ mod tests {
     #[tokio::test]
     async fn test_action_management_operations() {
         let repo = setup_test_db().await;
-        let network_id = "ethereum";
+        let network_id = &NetworkId::from("ethereum");
 
         // Initially, should have no actions
         let actions = repo.get_actions(network_id).await.unwrap();
@@ -509,8 +510,8 @@ mod tests {
     #[tokio::test]
     async fn test_action_network_isolation() {
         let repo = setup_test_db().await;
-        let network1 = "ethereum";
-        let network2 = "polygon";
+        let network1 = &NetworkId::from("ethereum");
+        let network2 = &NetworkId::from("polygon");
 
         // Create actions for different networks
         let ethereum_action = ActionBuilder::new("Ethereum Slack")
@@ -546,7 +547,7 @@ mod tests {
     #[tokio::test]
     async fn test_action_transaction_atomicity() {
         let repo = setup_test_db().await;
-        let network_id = "ethereum";
+        let network_id = &NetworkId::from("ethereum");
 
         // Create a batch of actions where one has a name that is too long, causing a
         // DB constraint error. This test is a bit contrived as we can't easily
@@ -587,7 +588,7 @@ mod tests {
     #[tokio::test]
     async fn test_action_policy_persistence() {
         let repo = setup_test_db().await;
-        let network_id = "testnet_policy";
+        let network_id = &NetworkId::from("testnet_policy");
 
         let aggregation_policy = ActionPolicy::Aggregation(AggregationPolicy {
             window_secs: Duration::from_secs(60),

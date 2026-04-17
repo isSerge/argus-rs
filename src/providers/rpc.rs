@@ -237,7 +237,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        models::monitor::Monitor,
+        models::{NetworkId, monitor::Monitor},
         test_helpers::{
             BlockBuilder, LogBuilder, ReceiptBuilder, create_test_monitor_manager, mock_provider,
         },
@@ -378,7 +378,7 @@ mod tests {
 
         let monitor = Monitor {
             name: "Test Monitor".into(),
-            network: "testnet".into(),
+            network: NetworkId::default(),
             address: Some(monitored_address.to_string()),
             filter_script: "log != ()".to_string(), // should be log-aware
             ..Default::default()
@@ -411,7 +411,7 @@ mod tests {
 
         let monitor = Monitor {
             name: "Test Monitor".into(),
-            network: "testnet".into(),
+            network: NetworkId::default(),
             address: Some("all".to_string()), // 'all' indicates global event signature monitoring
             abi_name: Some("erc20".to_string()), // ABI with Transfer event
             filter_script: "log.name == \"Transfer\"".to_string(),
@@ -439,7 +439,7 @@ mod tests {
 
         let monitor = Monitor {
             name: "Test Monitor".into(),
-            network: "testnet".into(),
+            network: NetworkId::default(),
             address: Some(monitored_address.to_string()),
             filter_script: "true".to_string(),
             ..Default::default()
@@ -569,7 +569,7 @@ mod tests {
         // Create a monitor that is NOT log-aware (e.g., it only checks tx.value)
         let monitor = Monitor {
             name: "TX Only Monitor".into(),
-            network: "testnet".into(),
+            network: NetworkId::default(),
             filter_script: "tx.value > 100".to_string(),
             ..Default::default()
         };
@@ -601,7 +601,7 @@ mod tests {
 
         let monitor = Monitor {
             name: "Test Monitor".into(),
-            network: "testnet".into(),
+            network: NetworkId::default(),
             address: Some(monitored_address.to_string()),
             filter_script: "log != ()".to_string(),
             ..Default::default()
