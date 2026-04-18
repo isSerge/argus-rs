@@ -6,7 +6,7 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use crate::{
     action_dispatcher::ActionPayload,
     models::{
-        NetworkId,
+        ActionId, NetworkId,
         action::ActionConfig,
         monitor::{Monitor, MonitorConfig, MonitorStatus},
     },
@@ -41,7 +41,7 @@ struct AbiRow {
 // Helper struct for mapping from the database row
 #[derive(sqlx::FromRow)]
 struct ActionRow {
-    action_id: Option<i64>,
+    action_id: ActionId,
     name: String,
     config: String,
 }
@@ -668,7 +668,7 @@ impl AppRepository for SqliteStateRepository {
             .map(|row| {
                 let mut action: ActionConfig = serde_json::from_str(&row.config)
                     .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
-                action.id = row.action_id;
+                action.id = Some(row.action_id);
                 action.name = row.name;
                 Ok(action)
             })
@@ -687,7 +687,7 @@ impl AppRepository for SqliteStateRepository {
     async fn get_action_by_id(
         &self,
         network_id: &NetworkId,
-        action_id: i64,
+        action_id: &ActionId,
     ) -> Result<Option<ActionConfig>, PersistenceError> {
         tracing::debug!(network_id = %network_id, action_id = %action_id, "Querying for action by ID.");
 
@@ -708,12 +708,12 @@ impl AppRepository for SqliteStateRepository {
         if let Some(row) = action_row {
             let mut action: ActionConfig = serde_json::from_str(&row.config)
                 .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
-            action.id = row.action_id;
+            action.id = Some(row.action_id);
             action.name = row.name;
-            tracing::debug!(network_id = %network_id, action_id, "Action found.");
+            tracing::debug!(network_id = %network_id, action_id = %action_id, "Action found.");
             Ok(Some(action))
         } else {
-            tracing::debug!(network_id = %network_id, action_id, "No action found with given ID.");
+            tracing::debug!(network_id = %network_id, action_id = %action_id, "No action found with given ID.");
             Ok(None)
         }
     }
@@ -732,7 +732,7 @@ impl AppRepository for SqliteStateRepository {
                 "query action by name",
                 sqlx::query_as!(
                     ActionRow,
-                    "SELECT action_id, name, config FROM actions WHERE network_id = ? AND name = ?",
+                    r#"SELECT action_id as "action_id!", name, config FROM actions WHERE network_id = ? AND name = ?"#,
                     network_id,
                     name
                 )
@@ -743,7 +743,7 @@ impl AppRepository for SqliteStateRepository {
         if let Some(row) = action_row {
             let mut action: ActionConfig = serde_json::from_str(&row.config)
                 .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
-            action.id = row.action_id;
+            action.id = Some(row.action_id);
             action.name = row.name;
             tracing::debug!(network_id = %network_id, name, "Action found.");
             Ok(Some(action))
@@ -780,12 +780,12 @@ impl AppRepository for SqliteStateRepository {
 
         let new_id = result.last_insert_rowid();
         let mut new_action = action;
-        new_action.id = Some(new_id);
+        new_action.id = Some(ActionId::from(new_id));
 
         tracing::info!(
             network_id = %network_id,
             action_name = new_action.name,
-            action_id = new_id,
+            action_id = %new_id,
             "Action created successfully."
         );
         Ok(new_action)
@@ -816,10 +816,10 @@ impl AppRepository for SqliteStateRepository {
         network_id: &NetworkId,
         action: ActionConfig,
     ) -> Result<ActionConfig, PersistenceError> {
-        let action_id = action.id.ok_or_else(|| {
+        let action_id = action.id.clone().ok_or_else(|| {
             PersistenceError::InvalidInput("Action ID is required for update".to_string())
         })?;
-        tracing::debug!(network_id = %network_id, action_id, "Updating action.");
+        tracing::debug!(network_id = %network_id, action_id = %action_id, "Updating action.");
 
         let config = serde_json::to_string(&action)
             .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
@@ -843,7 +843,7 @@ impl AppRepository for SqliteStateRepository {
             return Err(PersistenceError::NotFound);
         }
 
-        tracing::info!(network_id = %network_id, action_id, "Action updated successfully.");
+        tracing::info!(network_id = %network_id, action_id = %action_id, "Action updated successfully.");
         Ok(action)
     }
 
@@ -852,9 +852,9 @@ impl AppRepository for SqliteStateRepository {
     async fn delete_action(
         &self,
         network_id: &NetworkId,
-        action_id: i64,
+        action_id: &ActionId,
     ) -> Result<(), PersistenceError> {
-        tracing::debug!(network_id = %network_id, action_id, "Deleting action.");
+        tracing::debug!(network_id = %network_id, action_id = %action_id, "Deleting action.");
 
         let result = self
             .execute_query_with_error_handling(
@@ -872,7 +872,7 @@ impl AppRepository for SqliteStateRepository {
             return Err(PersistenceError::NotFound);
         }
 
-        tracing::info!(network_id = %network_id, action_id, "Action deleted successfully.");
+        tracing::info!(network_id = %network_id, action_id = %action_id, "Action deleted successfully.");
         Ok(())
     }
 
@@ -881,9 +881,9 @@ impl AppRepository for SqliteStateRepository {
     async fn get_monitors_by_action_id(
         &self,
         network_id: &NetworkId,
-        action_id: i64,
+        action_id: &ActionId,
     ) -> Result<Vec<MonitorConfig>, PersistenceError> {
-        tracing::debug!(network_id = %network_id, action_id, "Querying for monitors by action ID.");
+        tracing::debug!(network_id = %network_id, action_id = %action_id, "Querying for monitors by action ID.");
 
         let action_name = self
             .get_action_by_id(network_id, action_id)
@@ -942,7 +942,7 @@ impl AppRepository for SqliteStateRepository {
 
         tracing::debug!(
             network_id = %network_id,
-            action_id,
+            action_id = %action_id,
             monitor_count = monitors.len(),
             "Monitors retrieved successfully."
         );

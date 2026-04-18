@@ -8,7 +8,10 @@ use axum::{
 use serde_json::json;
 
 use super::{ApiError, ApiState};
-use crate::{action::validator::ActionValidator, models::action::ActionConfig};
+use crate::{
+    action::validator::ActionValidator,
+    models::{ActionId, action::ActionConfig},
+};
 
 /// Retrieves all actions from the database and returns them as a JSON response.
 pub async fn get_actions(State(state): State<ApiState>) -> Result<impl IntoResponse, ApiError> {
@@ -19,11 +22,11 @@ pub async fn get_actions(State(state): State<ApiState>) -> Result<impl IntoRespo
 /// Retrieves details of a specific action by its ID.
 pub async fn get_action_details(
     State(state): State<ApiState>,
-    Path(action_id): Path<i64>,
+    Path(action_id): Path<ActionId>,
 ) -> Result<impl IntoResponse, ApiError> {
     let action = state
         .repo
-        .get_action_by_id(&state.config.network_id, action_id)
+        .get_action_by_id(&state.config.network_id, &action_id)
         .await?
         .ok_or_else(|| ApiError::NotFound("Action not found".to_string()))?;
 
@@ -49,7 +52,7 @@ pub async fn create_action(
 /// Updates an existing action.
 pub async fn update_action(
     State(state): State<ApiState>,
-    Path(action_id): Path<i64>,
+    Path(action_id): Path<ActionId>,
     Json(mut action): Json<ActionConfig>,
 ) -> Result<impl IntoResponse, ApiError> {
     // Ensure the action ID from the path matches the one in the body
@@ -69,18 +72,18 @@ pub async fn update_action(
 /// Deletes an action by its ID.
 pub async fn delete_action(
     State(state): State<ApiState>,
-    Path(action_id): Path<i64>,
+    Path(action_id): Path<ActionId>,
 ) -> Result<impl IntoResponse, ApiError> {
     // Check if the action is in use by any monitors
     let monitors =
-        state.repo.get_monitors_by_action_id(&state.config.network_id, action_id).await?;
+        state.repo.get_monitors_by_action_id(&state.config.network_id, &action_id).await?;
 
     if !monitors.is_empty() {
         let monitor_names = monitors.into_iter().map(|m| m.name).collect();
         return Err(ApiError::ActionInUse(monitor_names));
     }
 
-    state.repo.delete_action(&state.config.network_id, action_id).await?;
+    state.repo.delete_action(&state.config.network_id, &action_id).await?;
 
     // Notify that the configuration has changed
     state.config_tx.send(()).ok();

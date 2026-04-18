@@ -3,6 +3,7 @@ use url::Url;
 use crate::{
     config::HttpRetryConfig,
     models::{
+        ActionId,
         action::{
             ActionConfig, ActionPolicy, ActionTypeConfig, DiscordConfig, GenericWebhookConfig,
             KafkaConfig, NatsConfig, RabbitMqConfig, SlackConfig, StdoutConfig,
@@ -13,7 +14,7 @@ use crate::{
 
 /// A builder for creating `ActionConfig` instances for testing.
 pub struct ActionBuilder {
-    id: Option<i64>,
+    id: Option<ActionId>,
     name: String,
     config: ActionTypeConfig,
     policy: Option<ActionPolicy>,
