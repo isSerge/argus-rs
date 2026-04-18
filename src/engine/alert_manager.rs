@@ -377,8 +377,9 @@ mod tests {
     use super::*;
     use crate::{
         models::{
-            NetworkId, NotificationMessage,
+            ActionId, NetworkId, NotificationMessage,
             action::{AggregationPolicy, ThrottlePolicy},
+            monitor::MonitorConfig,
             monitor_match::LogDetails,
         },
         persistence::traits::{AppRepository, MockAppRepository, MockKeyValueStore},
@@ -536,7 +537,7 @@ mod tests {
         async fn get_action_by_id(
             &self,
             network_id: &NetworkId,
-            action_id: i64,
+            action_id: &ActionId,
         ) -> Result<Option<ActionConfig>, PersistenceError> {
             self.repo_mock.get_action_by_id(network_id, action_id).await
         }
@@ -572,7 +573,7 @@ mod tests {
         async fn delete_action(
             &self,
             network_id: &NetworkId,
-            action_id: i64,
+            action_id: &ActionId,
         ) -> Result<(), PersistenceError> {
             self.repo_mock.delete_action(network_id, action_id).await
         }
@@ -580,8 +581,8 @@ mod tests {
         async fn get_monitors_by_action_id(
             &self,
             network_id: &NetworkId,
-            action_id: i64,
-        ) -> Result<Vec<crate::models::monitor::MonitorConfig>, PersistenceError> {
+            action_id: &ActionId,
+        ) -> Result<Vec<MonitorConfig>, PersistenceError> {
             self.repo_mock.get_monitors_by_action_id(network_id, action_id).await
         }
 

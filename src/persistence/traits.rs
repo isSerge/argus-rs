@@ -9,7 +9,7 @@ use super::error::PersistenceError;
 use crate::{
     action_dispatcher::ActionPayload,
     models::{
-        NetworkId,
+        ActionId, NetworkId,
         action::ActionConfig,
         monitor::{Monitor, MonitorConfig, MonitorStatus},
     },
@@ -119,7 +119,7 @@ pub trait AppRepository: Send + Sync {
     async fn get_action_by_id(
         &self,
         network_id: &NetworkId,
-        action_id: i64,
+        action_id: &ActionId,
     ) -> Result<Option<ActionConfig>, PersistenceError>;
 
     /// Retrieves a specific action by its name for a given network.
@@ -150,14 +150,14 @@ pub trait AppRepository: Send + Sync {
     async fn delete_action(
         &self,
         network_id: &NetworkId,
-        action_id: i64,
+        action_id: &ActionId,
     ) -> Result<(), PersistenceError>;
 
     /// Retrieves all monitors that are associated with a specific action.
     async fn get_monitors_by_action_id(
         &self,
         network_id: &NetworkId,
-        action_id: i64,
+        action_id: &ActionId,
     ) -> Result<Vec<crate::models::monitor::MonitorConfig>, PersistenceError>;
 
     // Outbox management operations:

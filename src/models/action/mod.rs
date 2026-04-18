@@ -16,7 +16,10 @@ pub use stdout::StdoutConfig;
 use thiserror::Error;
 pub use webhook::{DiscordConfig, GenericWebhookConfig, SlackConfig, TelegramConfig};
 
-use crate::loader::{Loadable, LoaderError};
+use crate::{
+    loader::{Loadable, LoaderError},
+    models::ActionId,
+};
 
 /// The type of action configuration.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -181,7 +184,7 @@ pub struct ActionConfig {
     /// The unique ID of the Action.
     /// Optional because it may not be set until persisted to the database.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<i64>,
+    pub id: Option<ActionId>,
     /// The unique name of the Action.
     pub name: String,
 
