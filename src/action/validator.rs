@@ -69,7 +69,7 @@ impl ActionValidator {
         let action_id = action.id.as_ref().ok_or(PersistenceError::InvalidInput(
             "Action ID is required for update".to_string(),
         ))?;
-        if self.repo.get_action_by_id(&self.network_id, &action_id).await?.is_none() {
+        if self.repo.get_action_by_id(&self.network_id, action_id).await?.is_none() {
             return Err(ActionValidationError::Persistence(PersistenceError::NotFound));
         }
 
