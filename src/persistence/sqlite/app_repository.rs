@@ -816,7 +816,7 @@ impl AppRepository for SqliteStateRepository {
         network_id: &NetworkId,
         action: ActionConfig,
     ) -> Result<ActionConfig, PersistenceError> {
-        let action_id = action.id.clone().ok_or_else(|| {
+        let action_id = action.id.as_ref().ok_or_else(|| {
             PersistenceError::InvalidInput("Action ID is required for update".to_string())
         })?;
         tracing::debug!(network_id = %network_id, action_id = %action_id, "Updating action.");
