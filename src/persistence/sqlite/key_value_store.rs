@@ -15,8 +15,6 @@ impl KeyValueStore for SqliteStateRepository {
         &self,
         key: &str,
     ) -> Result<Option<T>, PersistenceError> {
-        tracing::debug!(key, "Attempting to retrieve JSON state.");
-
         let result = self
             .execute_query_with_error_handling(
                 "get JSON state",
@@ -43,8 +41,6 @@ impl KeyValueStore for SqliteStateRepository {
         key: &str,
         value: &T,
     ) -> Result<(), PersistenceError> {
-        tracing::debug!(key, "Attempting to set JSON state.");
-
         let value_str = serde_json::to_string(value)
             .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
 

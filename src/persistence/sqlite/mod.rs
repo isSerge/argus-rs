@@ -22,7 +22,6 @@ impl SqliteStateRepository {
     /// exist.
     #[tracing::instrument(level = "info")]
     pub async fn new(database_url: &str) -> Result<Self, PersistenceError> {
-        tracing::debug!(database_url, "Attempting to connect to SQLite database.");
         let options = SqliteConnectOptions::from_str(database_url)
             .map_err(|e| PersistenceError::InvalidInput(e.to_string()))?
             .create_if_missing(true);
@@ -36,7 +35,6 @@ impl SqliteStateRepository {
     /// Runs database migrations.
     #[tracing::instrument(skip(self), level = "info")]
     pub async fn run_migrations(&self) -> Result<(), PersistenceError> {
-        tracing::debug!("Running database migrations.");
         sqlx::migrate!("./migrations").run(&self.pool).await.map_err(|e| {
             tracing::error!(error = %e, "Failed to run database migrations.");
             PersistenceError::MigrationError(e.to_string())
@@ -53,7 +51,6 @@ impl SqliteStateRepository {
     /// Closes the connection pool gracefully.
     #[tracing::instrument(skip(self), level = "info")]
     pub async fn close(&self) {
-        tracing::debug!("Closing SQLite connection pool.");
         self.pool.close().await;
         tracing::info!("SQLite connection pool closed successfully.");
     }

@@ -48,7 +48,6 @@ impl DataSource for EvmRpcSource {
         &self,
         block_number: u64,
     ) -> Result<(Block, Vec<Log>), DataSourceError> {
-        tracing::debug!(block_number, "Fetching core block data.");
         match self.fetch_block_and_logs(block_number).await {
             Ok(data) => {
                 tracing::debug!(block_number, "Successfully fetched core block data.");
