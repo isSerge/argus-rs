@@ -125,8 +125,6 @@ impl AppRepository for SqliteStateRepository {
         network_id: &NetworkId,
         block_number: u64,
     ) -> Result<(), PersistenceError> {
-        tracing::debug!(network_id = %network_id, block_number = %block_number, "Attempting to set last processed block.");
-
         let block_number_i64 = i64::try_from(block_number).map_err(|error| {
             tracing::error!(error = %error, block_number = %block_number, "Failed to convert block_number to i64 for database insertion.");
             PersistenceError::InvalidInput(error.to_string())
@@ -150,8 +148,6 @@ impl AppRepository for SqliteStateRepository {
     /// Performs any necessary cleanup operations before shutdown.
     #[tracing::instrument(skip(self), level = "debug")]
     async fn cleanup(&self) -> Result<(), PersistenceError> {
-        tracing::debug!("Performing state repository cleanup.");
-
         // Force a checkpoint to ensure all WAL data is written to the main database
         // file
         self.checkpoint_wal("TRUNCATE").await?;
@@ -163,8 +159,6 @@ impl AppRepository for SqliteStateRepository {
     /// Ensures all pending writes are flushed to disk.
     #[tracing::instrument(skip(self), level = "debug")]
     async fn flush(&self) -> Result<(), PersistenceError> {
-        tracing::debug!("Flushing pending writes to disk.");
-
         // Temporarily set synchronous mode to FULL for maximum durability
         self.set_synchronous_mode("FULL").await?;
 
@@ -213,8 +207,6 @@ impl AppRepository for SqliteStateRepository {
     /// Retrieves all monitors for a specific network.
     #[tracing::instrument(skip(self), level = "debug")]
     async fn get_monitors(&self, network_id: &NetworkId) -> Result<Vec<Monitor>, PersistenceError> {
-        tracing::debug!(network_id = %network_id, "Querying for monitors.");
-
         let monitor_rows = self
             .execute_query_with_error_handling("query monitors", async {
                 sqlx::query_as!(
@@ -280,8 +272,6 @@ impl AppRepository for SqliteStateRepository {
         network_id: &NetworkId,
         monitor_id: &str,
     ) -> Result<Option<Monitor>, PersistenceError> {
-        tracing::debug!(network_id = %network_id, monitor_id = %monitor_id, "Querying for monitor by ID.");
-
         let monitor_id_num: i64 = monitor_id.parse().map_err(|e| {
             let msg = format!("Invalid monitor_id '{}': {}", monitor_id, e);
             tracing::error!(error = %e, monitor_id = %monitor_id, "Failed to parse monitor_id.");
@@ -350,8 +340,6 @@ impl AppRepository for SqliteStateRepository {
         network_id: &NetworkId,
         monitors: Vec<MonitorConfig>,
     ) -> Result<(), PersistenceError> {
-        tracing::debug!(network_id = %network_id, monitor_count = monitors.len(), "Adding monitors.");
-
         // Validate that all monitors belong to the correct network
         for monitor in &monitors {
             if monitor.network != *network_id {
@@ -407,8 +395,6 @@ impl AppRepository for SqliteStateRepository {
     /// Clears all monitors for a specific network.
     #[tracing::instrument(skip(self), level = "debug")]
     async fn clear_monitors(&self, network_id: &NetworkId) -> Result<(), PersistenceError> {
-        tracing::debug!(network_id = %network_id, "Clearing monitors.");
-
         let result = self
             .execute_query_with_error_handling(
                 "clear monitors",
@@ -428,8 +414,6 @@ impl AppRepository for SqliteStateRepository {
         network_id: &NetworkId,
         monitor_id: &str,
     ) -> Result<(), PersistenceError> {
-        tracing::debug!(network_id = %network_id, monitor_id = %monitor_id, "Deleting monitor.");
-
         let result = self
             .execute_query_with_error_handling(
                 "delete monitor",
@@ -458,8 +442,6 @@ impl AppRepository for SqliteStateRepository {
         monitor_id: &str,
         monitor: MonitorConfig,
     ) -> Result<(), PersistenceError> {
-        tracing::debug!(network_id = %network_id, monitor_name = %monitor.name, "Updating monitor.");
-
         let actions_json = serde_json::to_string(&monitor.actions)
             .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
 
@@ -502,8 +484,6 @@ impl AppRepository for SqliteStateRepository {
         monitor_id: &str,
         status: MonitorStatus,
     ) -> Result<(), PersistenceError> {
-        tracing::debug!(network_id = %network_id, monitor_id = %monitor_id, ?status, "Updating monitor status.");
-
         let result = self
             .execute_query_with_error_handling(
                 "update monitor status",
@@ -534,8 +514,6 @@ impl AppRepository for SqliteStateRepository {
     /// Creates a new ABI.
     #[tracing::instrument(skip(self, abi), level = "debug")]
     async fn create_abi(&self, name: &str, abi: &str) -> Result<(), PersistenceError> {
-        tracing::debug!(name, "Creating ABI.");
-
         self.execute_query_with_error_handling(
             "create abi",
             sqlx::query!("INSERT INTO abis (name, abi) VALUES (?, ?)", name, abi)
@@ -550,8 +528,6 @@ impl AppRepository for SqliteStateRepository {
     /// Retrieves an ABI by its name.
     #[tracing::instrument(skip(self), level = "debug")]
     async fn get_abi(&self, name: &str) -> Result<Option<String>, PersistenceError> {
-        tracing::debug!(name, "Querying for ABI by name.");
-
         let abi_row = self
             .execute_query_with_error_handling("query abi by name", async {
                 sqlx::query_as!(AbiRow, "SELECT abi FROM abis WHERE name = ?", name)
@@ -566,8 +542,6 @@ impl AppRepository for SqliteStateRepository {
     /// Lists all available ABI names.
     #[tracing::instrument(skip(self), level = "debug")]
     async fn list_abis(&self) -> Result<Vec<String>, PersistenceError> {
-        tracing::debug!("Querying for all ABI names.");
-
         let abi_names = self
             .execute_query_with_error_handling(
                 "list abi names",
@@ -585,8 +559,6 @@ impl AppRepository for SqliteStateRepository {
     /// Deletes an ABI by its name.
     #[tracing::instrument(skip(self), level = "debug")]
     async fn delete_abi(&self, name: &str) -> Result<(), PersistenceError> {
-        tracing::debug!(name, "Attempting to delete ABI.");
-
         // Check if any monitors are using this ABI and get their names
         let monitors_using_abi = self
             .execute_query_with_error_handling(
@@ -627,7 +599,6 @@ impl AppRepository for SqliteStateRepository {
     /// Retrieves all ABIs as a vector of (name, abi_json_string) tuples.
     #[tracing::instrument(skip(self), level = "debug")]
     async fn get_all_abis(&self) -> Result<Vec<(String, String)>, PersistenceError> {
-        tracing::debug!("Fetching all ABIs from database.");
         let abis = self
             .execute_query_with_error_handling(
                 "get all abis",
@@ -649,8 +620,6 @@ impl AppRepository for SqliteStateRepository {
         &self,
         network_id: &NetworkId,
     ) -> Result<Vec<ActionConfig>, PersistenceError> {
-        tracing::debug!(network_id = %network_id, "Querying for actions.");
-
         let action_rows = self
             .execute_query_with_error_handling(
                 "query actions",
@@ -689,8 +658,6 @@ impl AppRepository for SqliteStateRepository {
         network_id: &NetworkId,
         action_id: &ActionId,
     ) -> Result<Option<ActionConfig>, PersistenceError> {
-        tracing::debug!(network_id = %network_id, action_id = %action_id, "Querying for action by ID.");
-
         let action_row = self
             .execute_query_with_error_handling(
                 "query action by id",
@@ -725,8 +692,6 @@ impl AppRepository for SqliteStateRepository {
         network_id: &NetworkId,
         name: &str,
     ) -> Result<Option<ActionConfig>, PersistenceError> {
-        tracing::debug!(network_id = %network_id, name, "Querying for action by name.");
-
         let action_row = self
             .execute_query_with_error_handling(
                 "query action by name",
@@ -760,8 +725,6 @@ impl AppRepository for SqliteStateRepository {
         network_id: &NetworkId,
         action: ActionConfig,
     ) -> Result<ActionConfig, PersistenceError> {
-        tracing::debug!(network_id = %network_id, action_name = action.name, "Creating action.");
-
         let config = serde_json::to_string(&action)
             .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
 
@@ -794,8 +757,6 @@ impl AppRepository for SqliteStateRepository {
     /// Clears all actions for a specific network.
     #[tracing::instrument(skip(self), level = "debug")]
     async fn clear_actions(&self, network_id: &NetworkId) -> Result<(), PersistenceError> {
-        tracing::debug!(network_id = %network_id, "Clearing actions.");
-
         let result = self
             .execute_query_with_error_handling(
                 "clear actions",
