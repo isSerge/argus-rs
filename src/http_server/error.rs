@@ -22,6 +22,9 @@ pub enum ApiError {
     /// Represents a validation error for an unprocessable entity.
     UnprocessableEntity(String),
 
+    /// Represents a bad request (e.g. invalid ABI structure)
+    BadRequest(String),
+
     /// Represents a conflict, e.g., a resource that already exists.
     Conflict(String),
 
@@ -93,6 +96,7 @@ impl IntoResponse for ApiError {
             ApiError::NotFound(message) => (StatusCode::NOT_FOUND, json!({ "error": message })),
             ApiError::UnprocessableEntity(message) =>
                 (StatusCode::UNPROCESSABLE_ENTITY, json!({ "error": message })),
+            ApiError::BadRequest(message) => (StatusCode::BAD_REQUEST, json!({"error": message})),
             ApiError::Conflict(message) => (StatusCode::CONFLICT, json!({ "error": message })),
             ApiError::ActionInUse(monitors) => (
                 StatusCode::CONFLICT,
