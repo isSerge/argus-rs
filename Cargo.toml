@@ -86,7 +86,6 @@ reqwest.workspace = true
 reqwest-middleware.workspace = true
 reqwest-retry.workspace = true
 rhai.workspace = true
-rhai-bigint.workspace = true
 rhai-evm.workspace = true
 rust_decimal.workspace = true
 serde.workspace = true

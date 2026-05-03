@@ -828,7 +828,6 @@ dependencies = [
  "reqwest-middleware",
  "reqwest-retry",
  "rhai",
- "rhai-bigint",
  "rhai-evm",
  "rust_decimal",
  "serde",
