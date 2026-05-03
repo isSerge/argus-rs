@@ -1,9 +1,8 @@
 use rhai::Engine;
+use rhai_bigint::register_bigint_with_rhai;
+use rhai_evm::register_evm_wrappers_with_rhai;
 
-use super::{
-    bigint::register_bigint_with_rhai, evm_wrappers::register_evm_wrappers_with_rhai,
-    proxies::register_proxies,
-};
+use super::proxies::register_proxies;
 use crate::config::RhaiConfig;
 
 /// Creates a Rhai engine with security features and custom configurations.
