@@ -1,32 +1,36 @@
-//! # Rhai EVM Wrappers
+//! EVM token denomination helpers and primitive type conversions for Rhai.
 //!
-//! This module provides essential wrappers for EVM-related functionalities
-//! to be used within Rhai scripts. It facilitates the handling of different
-//! token denominations by offering convenient constructors for common token
-//! types and utility functions for value scaling.
-//!
-//! ## Features:
-//!
-//! - **Token Constructors**: Functions like `ether`, `gwei`, `usdc`, etc.,
-//!   allow for easy conversion of numeric values into the appropriate `BigInt`
-//!   representation, scaled to the correct number of decimal places.
-//! - **Decimal Scaling**: A generic `decimals` function is available for tokens
-//!   with a variable number of decimal places.
-//!
-//! ## Usage Example:
-//!
-//! ```rhai
-//! // Example of using the wrappers in a Rhai script
-//! let price = ether(1.5); // Represents 1.5 ETH in wei
-//! let fee = gwei(100);   // Represents 100 Gwei in wei
-//!
-//! // Custom token with 12 decimals
-//! let custom_token_amount = decimals(50.25, 12);
-//! ```
+//! Provides [`EvmPackage`] (via `def_package!`) wrapping `ether`, `gwei`,
+//! `wei`, `usdc`, `usdt`, `wbtc`, and `decimals` constructors, plus the
+//! `u256_to_bigint_dynamic` / `i256_to_bigint_dynamic` helpers used by the
+//! host crate to convert alloy primitives into Rhai `Dynamic` `BigInt` values.
 
-use num_bigint::BigInt;
-use rhai::Dynamic;
+use alloy_primitives::{I256, Sign as AlloySign, U256};
+use num_bigint::{BigInt, Sign as BigIntSign};
+use rhai::{Dynamic, def_package, packages::Package, plugin::*};
+use rhai_bigint::register_bigint_with_rhai;
 use rust_decimal::prelude::*;
+
+/// Converts a `U256` value unconditionally to a Rhai `BigInt` dynamic type.
+pub fn u256_to_bigint_dynamic(value: U256) -> Dynamic {
+    let (sign, bytes) = if value.is_zero() {
+        (BigIntSign::NoSign, vec![])
+    } else {
+        (BigIntSign::Plus, value.to_be_bytes_vec())
+    };
+    Dynamic::from(BigInt::from_bytes_be(sign, &bytes))
+}
+
+/// Converts an `I256` value unconditionally to a Rhai `BigInt` dynamic type.
+pub fn i256_to_bigint_dynamic(value: I256) -> Dynamic {
+    let (sign, abs_value) = value.into_sign_and_abs();
+    let rhai_sign = match sign {
+        AlloySign::Positive => BigIntSign::Plus,
+        AlloySign::Negative => BigIntSign::Minus,
+    };
+    let bytes = abs_value.to_be_bytes_vec();
+    Dynamic::from(BigInt::from_bytes_be(rhai_sign, &bytes))
+}
 
 /// Scales a `Dynamic` value by a specified number of decimal places.
 ///
@@ -191,27 +195,73 @@ fn dynamic_to_decimal(value: Dynamic) -> Result<Decimal, Box<rhai::EvalAltResult
     })
 }
 
-/// Register EVM wrapper types and operations with Rhai engine
-pub fn register_evm_wrappers_with_rhai(engine: &mut rhai::Engine) {
-    // Register the Decimal type
-    engine.register_type_with_name::<Decimal>("Decimal");
+/// Rhai-registered EVM denomination functions — delegates to the private
+/// helpers above so tests can call them directly via `use super::*`.
+#[export_module]
+mod evm_functions {
+    use num_bigint::BigInt;
+    use rhai::{Dynamic, EvalAltResult};
 
-    // Register constructors
-    engine.register_fn("decimals", decimals);
-    engine.register_fn("ether", ether);
-    engine.register_fn("gwei", gwei);
-    engine.register_fn("wei", wei);
-    engine.register_fn("usdc", usdc);
-    engine.register_fn("usdt", usdt);
-    engine.register_fn("wbtc", wbtc);
+    #[rhai_fn(return_raw)]
+    pub fn decimals(value: Dynamic, d: i64) -> Result<BigInt, Box<EvalAltResult>> {
+        super::decimals(value, d)
+    }
+
+    #[rhai_fn(return_raw)]
+    pub fn ether(value: Dynamic) -> Result<BigInt, Box<EvalAltResult>> {
+        super::ether(value)
+    }
+
+    #[rhai_fn(return_raw)]
+    pub fn gwei(value: Dynamic) -> Result<BigInt, Box<EvalAltResult>> {
+        super::gwei(value)
+    }
+
+    #[rhai_fn(return_raw)]
+    pub fn wei(value: Dynamic) -> Result<BigInt, Box<EvalAltResult>> {
+        super::wei(value)
+    }
+
+    #[rhai_fn(return_raw)]
+    pub fn usdc(value: Dynamic) -> Result<BigInt, Box<EvalAltResult>> {
+        super::usdc(value)
+    }
+
+    #[rhai_fn(return_raw)]
+    pub fn usdt(value: Dynamic) -> Result<BigInt, Box<EvalAltResult>> {
+        super::usdt(value)
+    }
+
+    #[rhai_fn(return_raw)]
+    pub fn wbtc(value: Dynamic) -> Result<BigInt, Box<EvalAltResult>> {
+        super::wbtc(value)
+    }
+}
+
+def_package! {
+    /// EVM token denomination helpers for Rhai scripts: `ether`, `gwei`,
+    /// `wei`, `usdc`, `usdt`, `wbtc`, and the generic `decimals` constructor.
+    /// Also includes [`BigIntPackage`] so registering `EvmPackage` alone is
+    /// sufficient for standalone use.
+    pub EvmPackage(lib) {
+        combine_with_exported_module!(lib, "evm", evm_functions);
+    }
+}
+
+/// Register the `BigInt` and `Decimal` custom types and [`EvmPackage`] with a
+/// Rhai engine. Calling this is sufficient — no need to also call
+/// `register_bigint_with_rhai`.
+pub fn register_evm_wrappers_with_rhai(engine: &mut rhai::Engine) {
+    register_bigint_with_rhai(engine);
+    engine.register_type_with_name::<Decimal>("Decimal");
+    EvmPackage::new().register_into_engine(engine);
 }
 
 #[cfg(test)]
 mod tests {
-    use alloy::primitives::U256;
+    use alloy_primitives::U256;
 
     use super::*;
-    use crate::engine::rhai::conversions::u256_to_bigint_dynamic;
 
     #[test]
     fn test_dynamic_to_decimal() {

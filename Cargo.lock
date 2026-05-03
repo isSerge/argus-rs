@@ -828,6 +828,7 @@ dependencies = [
  "reqwest-middleware",
  "reqwest-retry",
  "rhai",
+ "rhai-evm",
  "rust_decimal",
  "serde",
  "serde_json",
@@ -4608,6 +4609,26 @@ dependencies = [
  "smallvec",
  "smartstring",
  "thin-vec",
+]
+
+[[package]]
+name = "rhai-bigint"
+version = "0.1.0"
+dependencies = [
+ "num-bigint",
+ "num-traits",
+ "rhai",
+]
+
+[[package]]
+name = "rhai-evm"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "num-bigint",
+ "rhai",
+ "rhai-bigint",
+ "rust_decimal",
 ]
 
 [[package]]

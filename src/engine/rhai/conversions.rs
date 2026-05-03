@@ -6,13 +6,10 @@
 use std::collections::HashSet;
 
 use alloy::{
-    consensus::TxType,
-    dyn_abi::DynSolValue,
-    primitives::{I256, U256},
-    rpc::types::TransactionReceipt,
+    consensus::TxType, dyn_abi::DynSolValue, primitives::U256, rpc::types::TransactionReceipt,
 };
-use num_bigint::{BigInt, Sign};
 use rhai::{Dynamic, Map};
+use rhai_evm::{i256_to_bigint_dynamic, u256_to_bigint_dynamic};
 use serde_json::{Value, json};
 
 use crate::{
@@ -302,27 +299,6 @@ pub fn get_valid_decoded_call_rhai_paths() -> HashSet<String> {
     set.insert("decoded_call".to_string());
 
     set
-}
-
-/// Converts a U256 value unconditionally to a Rhai `BigInt` dynamic type.
-pub fn u256_to_bigint_dynamic(value: U256) -> Dynamic {
-    let (sign, bytes) = if value.is_zero() {
-        (Sign::NoSign, vec![])
-    } else {
-        (Sign::Plus, value.to_be_bytes_vec())
-    };
-    Dynamic::from(BigInt::from_bytes_be(sign, &bytes))
-}
-
-/// Converts an I256 value unconditionally to a Rhai `BigInt` dynamic type.
-fn i256_to_bigint_dynamic(value: I256) -> Dynamic {
-    let (sign, abs_value) = value.into_sign_and_abs();
-    let rhai_sign = match sign {
-        alloy::primitives::Sign::Positive => Sign::Plus,
-        alloy::primitives::Sign::Negative => Sign::Minus,
-    };
-    let bytes = abs_value.to_be_bytes_vec();
-    Dynamic::from(BigInt::from_bytes_be(rhai_sign, &bytes))
 }
 
 /// Builds payload data JSON from log parameters using the same conversion logic
