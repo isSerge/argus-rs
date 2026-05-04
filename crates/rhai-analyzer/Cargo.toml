@@ -1,0 +1,8 @@
+[package]
+name = "rhai-analyzer"
+version = "0.1.0"
+edition = "2024"
+description = "Static analysis of Rhai ASTs: extracts accessed variable paths and string comparisons"
+
+[dependencies]
+rhai.workspace = true

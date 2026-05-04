@@ -1,6 +1,5 @@
 //! This module provides the Rhai engine for scripting and filtering in Argus.
 
-mod ast_analysis;
 pub mod compiler;
 pub mod conversions;
 mod create_engine;
