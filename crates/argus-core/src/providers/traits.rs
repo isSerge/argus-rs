@@ -8,8 +8,6 @@ use alloy::{
     rpc::types::{Block, Log, TransactionReceipt},
 };
 use async_trait::async_trait;
-#[cfg(any(test, feature = "test-utils"))]
-use mockall::automock;
 use thiserror::Error;
 
 use crate::persistence::error::PersistenceError;

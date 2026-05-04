@@ -1,8 +1,6 @@
 //! This module contains the persistence traits for the Argus application.
 
 use async_trait::async_trait;
-#[cfg(any(test, feature = "test-utils"))]
-use mockall::automock;
 use serde::{Serialize, de::DeserializeOwned};
 
 use super::error::PersistenceError;
