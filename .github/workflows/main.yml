@@ -18,11 +18,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Set up the Rust toolchain
-      - name: Set up Rust nightly
-        run: |
-          rustup default nightly
-          rustup component add clippy rustfmt
+      # Set up the Rust toolchain (reads rust-toolchain.toml)
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-02-16
+          components: rustfmt, clippy
 
       # Cache Cargo registry (dependencies) and Git repositories
       - name: Cache Cargo registry
