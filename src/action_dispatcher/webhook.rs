@@ -1,27 +1,24 @@
+use std::sync::Arc;
+
 use omnihook::{
     DiscordPayloadBuilder, GenericWebhookPayloadBuilder, SlackPayloadBuilder,
-    TelegramPayloadBuilder, WebhookConfig, WebhookPayloadBuilder,
+    TelegramPayloadBuilder, WebhookClient, WebhookConfig, WebhookPayloadBuilder,
 };
+use reqwest_middleware::ClientWithMiddleware;
 use url::Url;
 
 use crate::{
+    action_dispatcher::{
+        ActionPayload, error::ActionDispatcherError, template::TemplateService, traits::Action,
+    },
     config::HttpRetryConfig,
     models::action::{DiscordConfig, GenericWebhookConfig, SlackConfig, TelegramConfig},
 };
 
-/// A private container struct holding the generic components required to send
-/// any webhook-based notification.
-///
-/// This struct provides a common interface for the `ActionDispatcher` to
-/// work with, regardless of the underlying provider (e.g., Slack, Discord).
+/// Argus-specific glue that maps action model configs to `omnihook` types.
 pub struct WebhookComponents {
-    /// The generic webhook configuration, including the URL, method, and
-    /// headers.
     pub config: WebhookConfig,
-    /// The specific retry policy for this notification channel.
     pub retry_policy: HttpRetryConfig,
-    /// The payload builder responsible for creating the channel-specific JSON
-    /// body.
     pub builder: Box<dyn WebhookPayloadBuilder>,
 }
 
@@ -98,5 +95,45 @@ impl From<&SlackConfig> for WebhookComponents {
             retry_policy: c.retry_policy.clone(),
             builder: Box::new(SlackPayloadBuilder),
         }
+    }
+}
+
+/// An action that sends a webhook notification via `omnihook`.
+pub struct WebhookAction {
+    components: WebhookComponents,
+    http_client: Arc<ClientWithMiddleware>,
+    template_service: Arc<TemplateService>,
+}
+
+impl WebhookAction {
+    pub fn new(
+        components: WebhookComponents,
+        http_client: Arc<ClientWithMiddleware>,
+        template_service: Arc<TemplateService>,
+    ) -> Self {
+        Self { components, http_client, template_service }
+    }
+}
+
+#[async_trait::async_trait]
+impl Action for WebhookAction {
+    async fn execute(&self, payload: ActionPayload) -> Result<(), ActionDispatcherError> {
+        let context = payload.context()?;
+        let idempotency_key = payload.idempotency_key();
+
+        let (title, body) = if let ActionPayload::Aggregated { template, .. } = &payload {
+            (template.title.clone(), template.body.clone())
+        } else {
+            (self.components.config.title.clone(), self.components.config.body_template.clone())
+        };
+
+        let rendered_title = self.template_service.render(&title, context.clone())?;
+        let rendered_body = self.template_service.render(&body, context.clone())?;
+
+        let json_payload = self.components.builder.build_payload(&rendered_title, &rendered_body);
+        let client = WebhookClient::new(self.components.config.clone(), self.http_client.clone())?;
+        client.notify_json(&json_payload, Some(&idempotency_key)).await?;
+
+        Ok(())
     }
 }
