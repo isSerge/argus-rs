@@ -1,9 +1,6 @@
 //! Implementation of the AppRepository trait for SqliteStateRepository
 
-use async_trait::async_trait;
-use chrono::{DateTime, NaiveDateTime, Utc};
-
-use crate::{
+use argus_core::{
     action_dispatcher::ActionPayload,
     models::{
         ActionId, NetworkId,
@@ -12,10 +9,13 @@ use crate::{
     },
     persistence::{
         error::PersistenceError,
-        sqlite::SqliteStateRepository,
         traits::{AppRepository, OutboxItem},
     },
 };
+use async_trait::async_trait;
+use chrono::{DateTime, NaiveDateTime, Utc};
+
+use crate::persistence::sqlite::SqliteStateRepository;
 
 // Helper struct for mapping from the database row
 #[derive(sqlx::FromRow)]

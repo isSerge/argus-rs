@@ -6,13 +6,13 @@
 
 use std::{collections::HashMap, sync::Arc};
 
+use argus_core::config::{BaseHttpClientConfig, HttpRetryConfig};
 use reqwest::Client as ReqwestClient;
 use reqwest_middleware::ClientWithMiddleware;
 use thiserror::Error;
 use tokio::sync::RwLock;
 
 use super::client::create_retryable_http_client;
-use crate::config::{BaseHttpClientConfig, HttpRetryConfig};
 
 /// Errors that can occur within the `HttpClientPool`.
 #[derive(Debug, Error)]

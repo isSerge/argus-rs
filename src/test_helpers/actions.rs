@@ -1,6 +1,4 @@
-use url::Url;
-
-use crate::{
+use argus_core::{
     config::HttpRetryConfig,
     models::{
         ActionId,
@@ -11,6 +9,7 @@ use crate::{
         notification::NotificationMessage,
     },
 };
+use url::Url;
 
 /// A builder for creating `ActionConfig` instances for testing.
 pub struct ActionBuilder {

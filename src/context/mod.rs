@@ -14,13 +14,17 @@ use std::{
 };
 
 use alloy::providers::Provider;
+use argus_core::{
+    config::{AppConfig, InitialStartBlock},
+    models::{action::ActionConfig, monitor::MonitorConfig},
+    persistence::traits::{AppRepository, KeyValueStore},
+};
 pub use error::{AppContextError, InitializationError};
 pub use metrics::{AppMetrics, Metrics};
 
 use crate::{
     abi::{AbiService, repository::AbiRepository},
     action_dispatcher::{ActionDispatcher, template::TemplateService},
-    config::{AppConfig, InitialStartBlock},
     engine::{
         alert_manager::AlertManager,
         filtering::RhaiFilteringEngine,
@@ -28,12 +32,8 @@ use crate::{
     },
     http_client::HttpClientPool,
     loader::load_config,
-    models::{action::ActionConfig, monitor::MonitorConfig},
     monitor::{MonitorManager, MonitorValidator},
-    persistence::{
-        sqlite::SqliteStateRepository,
-        traits::{AppRepository, KeyValueStore},
-    },
+    persistence::sqlite::SqliteStateRepository,
     providers::rpc::create_provider,
 };
 
@@ -533,12 +533,13 @@ impl AppContextBuilder {
 }
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{
+    use argus_core::{
         config::{AppConfig, RhaiConfig},
         models::monitor::MonitorStatus,
-        test_helpers::ActionBuilder,
     };
+
+    use super::*;
+    use crate::test_helpers::ActionBuilder;
 
     fn create_test_config() -> AppConfig {
         AppConfig::builder()

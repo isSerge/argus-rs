@@ -1,9 +1,8 @@
 //! Helper functions for creating MonitorMatch instances in tests
 
 use alloy::primitives::TxHash;
+use argus_core::models::monitor_match::{LogDetails, MonitorMatch};
 use serde_json::{Value, json};
-
-use crate::models::monitor_match::{LogDetails, MonitorMatch};
 
 /// Quick helper function for the most common case: transaction match with
 /// defaults

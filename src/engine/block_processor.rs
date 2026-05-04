@@ -5,15 +5,15 @@
 use std::sync::Arc;
 
 use alloy::rpc::types::BlockTransactions;
+use argus_core::{
+    config::AppConfig,
+    models::{BlockData, CorrelatedBlockData, CorrelatedBlockItem, transaction::Transaction},
+    persistence::traits::AppRepository,
+};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::{
-    config::AppConfig,
-    models::{BlockData, CorrelatedBlockData, CorrelatedBlockItem, transaction::Transaction},
-    monitor::{MonitorAssetState, MonitorManager},
-    persistence::traits::AppRepository,
-};
+use crate::monitor::{MonitorAssetState, MonitorManager};
 
 /// The BlockProcessor service.
 ///
@@ -220,13 +220,12 @@ mod tests {
     use std::collections::{HashMap, HashSet};
 
     use alloy::primitives::{B256, address};
+    use argus_core::{models::NetworkId, persistence::traits::MockAppRepository};
     use mockall::predicate::eq;
 
     use super::*;
     use crate::{
-        models::NetworkId,
         monitor::InterestRegistry,
-        persistence::traits::MockAppRepository,
         test_helpers::{
             BlockBuilder, LogBuilder, MonitorBuilder, TransactionBuilder,
             create_test_monitor_manager,

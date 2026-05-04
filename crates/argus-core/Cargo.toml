@@ -1,0 +1,25 @@
+[package]
+name = "argus-core"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+# Enable test helpers (mock implementations of traits).
+# Add this feature to dev-dependencies in crates that need mocks.
+test-utils = ["dep:mockall"]
+
+[dependencies]
+alloy.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+config.workspace = true
+mockall = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+mockall.workspace = true
+tempfile.workspace = true

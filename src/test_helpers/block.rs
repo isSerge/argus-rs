@@ -4,8 +4,7 @@ use alloy::{
     primitives::{B256, Bloom},
     rpc::types::{Block, BlockTransactions, Header},
 };
-
-use crate::models::transaction::Transaction;
+use argus_core::models::transaction::Transaction;
 
 /// A builder for creating `Block` instances for testing.
 #[derive(Debug, Clone, Default)]

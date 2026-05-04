@@ -804,6 +804,7 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "arc-swap",
+ "argus-core",
  "async-nats",
  "async-trait",
  "axum",
@@ -846,6 +847,23 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "urlencoding",
+]
+
+[[package]]
+name = "argus-core"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "async-trait",
+ "chrono",
+ "config",
+ "mockall",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tempfile",
+ "thiserror 2.0.12",
+ "url",
 ]
 
 [[package]]

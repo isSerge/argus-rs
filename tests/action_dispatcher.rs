@@ -5,14 +5,16 @@ use std::sync::Arc;
 
 use argus::{
     action_dispatcher::{ActionDispatcher, ActionPayload, error::ActionDispatcherError},
-    config::HttpRetryConfig,
     http_client::HttpClientPool,
+    test_helpers::{ActionBuilder, create_test_monitor_match},
+};
+use argus_core::{
+    config::HttpRetryConfig,
     models::{
         NotificationMessage,
         action::{ActionConfig, ActionTypeConfig, DiscordConfig},
         monitor_match::MonitorMatch,
     },
-    test_helpers::{ActionBuilder, create_test_monitor_match},
 };
 use lapin::{
     Connection, ConnectionProperties, ExchangeKind,

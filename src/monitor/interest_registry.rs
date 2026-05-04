@@ -7,10 +7,10 @@ use alloy::{
     json_abi::JsonAbi,
     primitives::{Address, B256},
 };
+use argus_core::models::Log;
 
 use crate::{
     abi::AbiService,
-    models::Log,
     monitor::{ClassifiedMonitor, MonitorCapabilities},
 };
 
@@ -196,11 +196,11 @@ impl InterestRegistryBuilder {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::{address, b256};
+    use argus_core::models::monitor::Monitor;
 
     use super::*;
     use crate::{
         engine::rhai::ScriptAnalysis,
-        models::monitor::Monitor,
         test_helpers::{LogBuilder, create_test_abi_service, erc20_abi_json},
     };
 

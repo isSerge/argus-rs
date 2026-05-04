@@ -4,13 +4,13 @@
 
 use std::{collections::HashSet, sync::Arc};
 
+use argus_core::config::RhaiConfig;
 use dashmap::DashMap;
 use rhai::{AST, Engine};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use super::create_engine;
-use crate::config::RhaiConfig;
 
 /// Represents the result of analyzing a Rhai script.
 #[derive(Clone, Debug, Default)]

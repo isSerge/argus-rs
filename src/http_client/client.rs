@@ -2,10 +2,9 @@
 //! middleware for handling transient errors, such as network issues or rate
 //! limiting.
 
+use argus_core::config::{HttpRetryConfig, JitterSetting};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::{Jitter, RetryTransientMiddleware, policies::ExponentialBackoff};
-
-use crate::config::{HttpRetryConfig, JitterSetting};
 
 /// Creates a retryable HTTP client with middleware for a single URL
 ///

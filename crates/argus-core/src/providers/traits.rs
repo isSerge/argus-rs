@@ -8,7 +8,7 @@ use alloy::{
     rpc::types::{Block, Log, TransactionReceipt},
 };
 use async_trait::async_trait;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 use mockall::automock;
 use thiserror::Error;
 
@@ -40,7 +40,7 @@ pub enum DataSourceError {
 }
 
 /// A trait for a data source that can fetch blockchain data.
-#[cfg_attr(test, automock)]
+#[cfg_attr(any(test, feature = "test-utils"), mockall::automock)]
 #[async_trait]
 pub trait DataSource: Send + Sync {
     /// Fetches the core data for a single block (block with transactions and

@@ -6,6 +6,12 @@ use alloy::{
     json_abi::JsonAbi,
     primitives::{Address, TxHash, U256},
 };
+use argus_core::models::{
+    NetworkId,
+    action::{ActionConfig, ActionPolicy},
+    monitor::MonitorConfig,
+    monitor_match::{LogDetails, MonitorMatch},
+};
 use serde_json::Value;
 use thiserror::Error;
 
@@ -15,12 +21,6 @@ use crate::{
     engine::rhai::{
         RhaiScriptValidationError, RhaiScriptValidationResult, RhaiScriptValidator,
         conversions::build_transaction_details_payload,
-    },
-    models::{
-        NetworkId,
-        action::{ActionConfig, ActionPolicy},
-        monitor::MonitorConfig,
-        monitor_match::{LogDetails, MonitorMatch},
     },
     test_helpers::TransactionBuilder,
 };
@@ -658,14 +658,14 @@ impl TemplateValidator {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::{Address, address};
+    use argus_core::models::{
+        action::ActionConfig,
+        monitor::{MonitorConfig, MonitorStatus},
+    };
 
     use super::*;
     use crate::{
         engine::rhai::RhaiScriptValidationError,
-        models::{
-            action::ActionConfig,
-            monitor::{MonitorConfig, MonitorStatus},
-        },
         monitor::MonitorValidationError,
         test_helpers::{ActionBuilder, create_monitor_validator, erc20_abi_json},
     };

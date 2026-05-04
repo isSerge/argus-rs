@@ -2,9 +2,11 @@
 
 use std::sync::Arc;
 
+use argus_core::persistence::traits::AppRepository;
+
 use crate::{
     abi::{AbiRepository, AbiService},
-    persistence::{sqlite::SqliteStateRepository, traits::AppRepository},
+    persistence::sqlite::SqliteStateRepository,
 };
 
 /// A simple ABI JSON for testing purposes.

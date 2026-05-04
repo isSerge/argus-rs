@@ -1,10 +1,11 @@
 //! This module provides the `SupervisorBuilder` for constructing a
 //! `Supervisor`.
 
+use argus_core::persistence::traits::{AppRepository, KeyValueStore};
+
 use super::Supervisor;
 use crate::{
     context::{AppContext, AppMetrics},
-    persistence::traits::{AppRepository, KeyValueStore},
     providers::rpc::EvmRpcSource,
 };
 

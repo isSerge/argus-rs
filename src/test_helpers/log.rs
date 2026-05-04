@@ -4,8 +4,7 @@ use alloy::{
     primitives::{Address, B256, Bytes, LogData},
     rpc::types::Log as AlloyLog,
 };
-
-use crate::models::Log;
+use argus_core::models::Log;
 
 /// A builder for creating `Log` instances for testing.
 #[derive(Debug, Clone, Default)]

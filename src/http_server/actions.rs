@@ -1,5 +1,6 @@
 //! Handlers for action-related endpoints in the HTTP server.
 
+use argus_core::models::{ActionId, action::ActionConfig};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -8,10 +9,7 @@ use axum::{
 use serde_json::json;
 
 use super::{ApiError, ApiState};
-use crate::{
-    action::validator::ActionValidator,
-    models::{ActionId, action::ActionConfig},
-};
+use crate::action::validator::ActionValidator;
 
 /// Retrieves all actions from the database and returns them as a JSON response.
 pub async fn get_actions(State(state): State<ApiState>) -> Result<impl IntoResponse, ApiError> {

@@ -13,12 +13,12 @@ use alloy::{
     json_abi::{Event, Function, JsonAbi},
     primitives::{Address, B256},
 };
+use argus_core::models::{Log, transaction::Transaction};
 use dashmap::DashMap;
 use serde::Serialize;
 use thiserror::Error;
 
 pub use self::repository::AbiRepository;
-use crate::models::{Log, transaction::Transaction};
 
 /// A pre-processed, cached representation of a contract's ABI.
 ///

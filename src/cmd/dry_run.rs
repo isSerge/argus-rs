@@ -3,6 +3,14 @@
 
 use std::{collections::HashMap, sync::Arc};
 
+use argus_core::{
+    models::monitor_match::MonitorMatch,
+    persistence::{
+        error::PersistenceError,
+        traits::{AppRepository, KeyValueStore},
+    },
+    providers::traits::{DataSource, DataSourceError},
+};
 use clap::Parser;
 use dashmap::DashMap;
 use thiserror::Error;
@@ -16,16 +24,10 @@ use crate::{
         filtering::{FilteringEngine, RhaiError, RhaiFilteringEngine},
         outbox_processor::OutboxProcessor,
     },
-    models::monitor_match::MonitorMatch,
     monitor::MonitorManager,
-    persistence::{
-        error::PersistenceError,
-        traits::{AppRepository, KeyValueStore},
-    },
     providers::{
         block_fetcher,
         rpc::{EvmRpcSource, ProviderError},
-        traits::{DataSource, DataSourceError},
     },
 };
 
@@ -355,17 +357,19 @@ mod tests {
     use std::{collections::HashMap, sync::Arc};
 
     use alloy::primitives::U256;
+    use argus_core::{
+        config::RhaiConfig,
+        models::{action::ActionConfig, monitor_match::MatchData},
+        providers::traits::MockDataSource,
+    };
     use mockall::predicate::eq;
     use serde_json::json;
 
     use super::*;
     use crate::{
         abi::{AbiRepository, AbiService},
-        config::RhaiConfig,
         engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
-        models::{action::ActionConfig, monitor_match::MatchData},
         persistence::sqlite::SqliteStateRepository,
-        providers::traits::MockDataSource,
         test_helpers::{ActionBuilder, BlockBuilder, MonitorBuilder, TransactionBuilder},
     };
 

@@ -15,11 +15,14 @@ use alloy::{
         layers::{FallbackLayer, RetryBackoffLayer},
     },
 };
+use argus_core::{
+    config::RpcRetryConfig,
+    providers::traits::{DataSource, DataSourceError},
+};
 use async_trait::async_trait;
 use tower::ServiceBuilder;
 
-use super::traits::{DataSource, DataSourceError};
-use crate::{config::RpcRetryConfig, monitor::MonitorManager};
+use crate::monitor::MonitorManager;
 
 /// A `DataSource` implementation that fetches data from an EVM RPC endpoint.
 pub struct EvmRpcSource {
@@ -233,13 +236,11 @@ mod tests {
     use std::str::FromStr;
 
     use alloy::primitives::{Address, B256, Bloom, BloomInput, U256, address, b256};
+    use argus_core::models::{NetworkId, monitor::Monitor};
 
     use super::*;
-    use crate::{
-        models::{NetworkId, monitor::Monitor},
-        test_helpers::{
-            BlockBuilder, LogBuilder, ReceiptBuilder, create_test_monitor_manager, mock_provider,
-        },
+    use crate::test_helpers::{
+        BlockBuilder, LogBuilder, ReceiptBuilder, create_test_monitor_manager, mock_provider,
     };
 
     #[tokio::test]

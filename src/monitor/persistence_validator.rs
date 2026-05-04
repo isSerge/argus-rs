@@ -2,13 +2,13 @@
 
 use std::sync::Arc;
 
-use thiserror::Error;
-
-use super::validator::{MonitorValidationError, MonitorValidator};
-use crate::{
+use argus_core::{
     models::{NetworkId, monitor::MonitorConfig},
     persistence::{error::PersistenceError, traits::AppRepository},
 };
+use thiserror::Error;
+
+use crate::monitor::validator::{MonitorValidationError, MonitorValidator};
 
 /// An error that occurs during monitor persistence validation.
 #[derive(Debug, Error)]
@@ -114,13 +114,10 @@ impl MonitorPersistenceValidator {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::Address;
+    use argus_core::{models::monitor::MonitorStatus, persistence::traits::MockAppRepository};
 
     use super::*;
-    use crate::{
-        models::monitor::MonitorStatus,
-        persistence::traits::MockAppRepository,
-        test_helpers::{MonitorBuilder, create_monitor_validator},
-    };
+    use crate::test_helpers::{MonitorBuilder, create_monitor_validator};
 
     #[tokio::test]
     async fn monitor_persistence_validator_validates_for_create() {

@@ -1,8 +1,8 @@
+use argus_core::config::RhaiConfig;
 use rhai::Engine;
 use rhai_evm::register_evm_wrappers_with_rhai;
 
 use super::proxies::register_proxies;
-use crate::config::RhaiConfig;
 
 /// Creates a Rhai engine with security features and custom configurations.
 /// Used for both RhaiCompiler (AST compilation) and RhaiFilteringEngine (AST

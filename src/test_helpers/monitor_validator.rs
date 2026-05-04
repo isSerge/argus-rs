@@ -1,15 +1,18 @@
 use std::sync::Arc;
 
 use alloy::primitives::Address;
+use argus_core::{
+    config::RhaiConfig,
+    models::{NetworkId, action::ActionConfig},
+    persistence::traits::AppRepository,
+};
 
 use crate::{
     abi::{AbiService, repository::AbiRepository},
     action_dispatcher::template::TemplateService,
-    config::RhaiConfig,
     engine::rhai::{RhaiCompiler, RhaiScriptValidator},
-    models::{NetworkId, action::ActionConfig},
     monitor::MonitorValidator,
-    persistence::{SqliteStateRepository, traits::AppRepository},
+    persistence::SqliteStateRepository,
 };
 
 /// Creates a test `MonitorValidator` with optional preloaded ABI.
