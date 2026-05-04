@@ -98,11 +98,8 @@ impl RhaiCompiler {
             analysis_result.accessed_variables.iter().any(|p| p.starts_with("log"));
         let accesses_call_variable =
             analysis_result.accessed_variables.iter().any(|p| p.starts_with("decoded_call"));
-        let accessed_log_event_names = analysis_result
-            .string_comparisons
-            .get("log.name")
-            .cloned()
-            .unwrap_or_default();
+        let accessed_log_event_names =
+            analysis_result.string_comparisons.get("log.name").cloned().unwrap_or_default();
 
         // Create the ScriptAnalysis struct
         let analysis = ScriptAnalysis {

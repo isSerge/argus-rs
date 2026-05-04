@@ -56,11 +56,10 @@ fn walk_stmt(stmt: &Stmt, result: &mut ScriptAnalysisResult) {
 
     match stmt {
         Stmt::Expr(expr) => walk_expr(expr, result),
-        Stmt::Block(stmt_block) => {
+        Stmt::Block(stmt_block) =>
             for s in stmt_block.statements() {
                 walk_stmt(s, result);
-            }
-        }
+            },
         Stmt::If(flow_control, _) => {
             walk_expr(&flow_control.expr, result);
             for s in flow_control.body.statements() {
@@ -100,11 +99,10 @@ fn walk_stmt(stmt: &Stmt, result: &mut ScriptAnalysisResult) {
             walk_expr(&assignment.1.lhs, result);
             walk_expr(&assignment.1.rhs, result);
         }
-        Stmt::FnCall(fn_call_expr, _) => {
+        Stmt::FnCall(fn_call_expr, _) =>
             for arg in &fn_call_expr.args {
                 walk_expr(arg, result);
-            }
-        }
+            },
         Stmt::Switch(switch_data, _) => {
             let (expr, cases_collection) = &**switch_data;
             walk_expr(expr, result);
@@ -166,41 +164,35 @@ fn walk_expr(expr: &Expr, result: &mut ScriptAnalysisResult) {
                 walk_expr(&binary_expr.rhs, result);
             }
         }
-        Expr::MethodCall(method_call_expr, _) => {
+        Expr::MethodCall(method_call_expr, _) =>
             for arg in &method_call_expr.args {
                 walk_expr(arg, result);
-            }
-        }
-        Expr::FnCall(fn_call_expr, _) => {
+            },
+        Expr::FnCall(fn_call_expr, _) =>
             for arg in &fn_call_expr.args {
                 walk_expr(arg, result);
-            }
-        }
+            },
         Expr::And(expr_vec, _) | Expr::Or(expr_vec, _) | Expr::Coalesce(expr_vec, _) => {
             for e in &**expr_vec {
                 walk_expr(e, result);
             }
         }
-        Expr::Array(expr_vec, _) | Expr::InterpolatedString(expr_vec, _) => {
+        Expr::Array(expr_vec, _) | Expr::InterpolatedString(expr_vec, _) =>
             for e in expr_vec {
                 walk_expr(e, result);
-            }
-        }
-        Expr::Map(map_data, _) => {
+            },
+        Expr::Map(map_data, _) =>
             for (_, value_expr) in &map_data.0 {
                 walk_expr(value_expr, result);
-            }
-        }
-        Expr::Stmt(stmt_block) => {
+            },
+        Expr::Stmt(stmt_block) =>
             for s in stmt_block.statements() {
                 walk_stmt(s, result);
-            }
-        }
-        Expr::Custom(custom_expr, _) => {
+            },
+        Expr::Custom(custom_expr, _) =>
             for e in &custom_expr.inputs {
                 walk_expr(e, result);
-            }
-        }
+            },
         _ => {}
     }
 }
@@ -214,9 +206,8 @@ fn walk_expr(expr: &Expr, result: &mut ScriptAnalysisResult) {
 fn get_full_variable_path(expr: &Expr) -> Option<String> {
     fn collect_path(expr: &Expr, parts: &mut Vec<String>) -> bool {
         match expr {
-            Expr::Dot(binary_expr, _, _) => {
-                collect_path(&binary_expr.lhs, parts) && collect_path(&binary_expr.rhs, parts)
-            }
+            Expr::Dot(binary_expr, _, _) =>
+                collect_path(&binary_expr.lhs, parts) && collect_path(&binary_expr.rhs, parts),
             Expr::Property(prop_info, _) => {
                 parts.push(prop_info.2.to_string());
                 true
@@ -243,7 +234,8 @@ fn get_full_variable_path(expr: &Expr) -> Option<String> {
 // ---------------------------------------------------------------------------
 
 /// Recursively checks an expression for `variable_path == "literal"` (or
-/// `!=`) patterns and records them in [`ScriptAnalysisResult::string_comparisons`].
+/// `!=`) patterns and records them in
+/// [`ScriptAnalysisResult::string_comparisons`].
 fn check_for_string_comparisons(expr: &Expr, result: &mut ScriptAnalysisResult) {
     match expr {
         Expr::FnCall(fn_call_expr, _) => {
@@ -261,11 +253,10 @@ fn check_for_string_comparisons(expr: &Expr, result: &mut ScriptAnalysisResult) 
                             result,
                         );
                     }
-                    _ => {
+                    _ =>
                         for arg in &fn_call_expr.args {
                             check_for_string_comparisons(arg, result);
-                        }
-                    }
+                        },
                 }
             } else {
                 for arg in &fn_call_expr.args {
@@ -273,32 +264,28 @@ fn check_for_string_comparisons(expr: &Expr, result: &mut ScriptAnalysisResult) 
                 }
             }
         }
-        Expr::And(expr_vec, _) | Expr::Or(expr_vec, _) => {
+        Expr::And(expr_vec, _) | Expr::Or(expr_vec, _) =>
             for e in &**expr_vec {
                 check_for_string_comparisons(e, result);
-            }
-        }
+            },
         Expr::Dot(binary_expr, _, _) | Expr::Index(binary_expr, _, _) => {
             check_for_string_comparisons(&binary_expr.lhs, result);
             check_for_string_comparisons(&binary_expr.rhs, result);
         }
-        Expr::MethodCall(method_call_expr, _) => {
+        Expr::MethodCall(method_call_expr, _) =>
             for arg in &method_call_expr.args {
                 check_for_string_comparisons(arg, result);
-            }
-        }
-        Expr::Array(expr_vec, _) => {
+            },
+        Expr::Array(expr_vec, _) =>
             for e in expr_vec {
                 check_for_string_comparisons(e, result);
-            }
-        }
-        Expr::Stmt(stmt_block) => {
+            },
+        Expr::Stmt(stmt_block) =>
             for s in stmt_block.statements() {
                 if let Stmt::Expr(inner_expr) = s {
                     check_for_string_comparisons(inner_expr, result);
                 }
-            }
-        }
+            },
         _ => {}
     }
 }
@@ -308,11 +295,7 @@ fn check_for_string_comparisons(expr: &Expr, result: &mut ScriptAnalysisResult) 
 fn record_string_comparison(lhs: &Expr, rhs: &Expr, result: &mut ScriptAnalysisResult) {
     if let Some(var_path) = get_full_variable_path(lhs) {
         if let Expr::StringConstant(string_val, _) = rhs {
-            result
-                .string_comparisons
-                .entry(var_path)
-                .or_default()
-                .insert(string_val.to_string());
+            result.string_comparisons.entry(var_path).or_default().insert(string_val.to_string());
         }
     }
 }
@@ -540,8 +523,7 @@ mod tests {
 
     #[test]
     fn test_string_comparison_multiple_values() {
-        let result =
-            analyze_script(r#"log.name == "Transfer" || log.name == "Approval""#).unwrap();
+        let result = analyze_script(r#"log.name == "Transfer" || log.name == "Approval""#).unwrap();
         let names = result.string_comparisons.get("log.name").unwrap();
         assert_eq!(names, &HashSet::from(["Transfer".to_string(), "Approval".to_string()]));
     }
