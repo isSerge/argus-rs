@@ -2,12 +2,7 @@
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use dashmap::DashMap;
-use thiserror::Error;
-use tokio::sync::Mutex;
-
-use crate::{
-    action_dispatcher::{ActionPayload, error::ActionDispatcherError},
+use argus_core::{
     models::{
         action::{ActionConfig, ActionPolicy},
         alert_manager_state::{AggregationState, ThrottleState},
@@ -18,6 +13,11 @@ use crate::{
         traits::{AppRepository, KeyValueStore},
     },
 };
+use dashmap::DashMap;
+use thiserror::Error;
+use tokio::sync::Mutex;
+
+use crate::action_dispatcher::{ActionPayload, error::ActionDispatcherError};
 
 /// The AlertManager is responsible for processing monitor matches, applying
 /// notification policies (throttling, aggregation, etc.) and enqueuing
@@ -175,7 +175,7 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
     async fn handle_throttle(
         &self,
         monitor_match: &MonitorMatch,
-        policy: &crate::models::action::ThrottlePolicy,
+        policy: &argus_core::models::action::ThrottlePolicy,
     ) -> Result<(), AlertManagerError> {
         let action_name = &monitor_match.action_name;
         let lock = self.get_action_lock(action_name);
@@ -370,12 +370,7 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::{Address, TxHash};
-    use chrono::Utc;
-    use mockall::predicate::eq;
-    use serde_json::json;
-
-    use super::*;
-    use crate::{
+    use argus_core::{
         models::{
             ActionId, NetworkId, NotificationMessage,
             action::{AggregationPolicy, ThrottlePolicy},
@@ -383,8 +378,13 @@ mod tests {
             monitor_match::LogDetails,
         },
         persistence::traits::{AppRepository, MockAppRepository, MockKeyValueStore},
-        test_helpers::ActionBuilder,
     };
+    use chrono::Utc;
+    use mockall::predicate::eq;
+    use serde_json::json;
+
+    use super::*;
+    use crate::test_helpers::ActionBuilder;
 
     /// Combined mock implementing both KeyValueStore and AppRepository
     #[derive(Debug)]
@@ -457,7 +457,7 @@ mod tests {
         async fn get_monitors(
             &self,
             network_id: &NetworkId,
-        ) -> Result<Vec<crate::models::monitor::Monitor>, PersistenceError> {
+        ) -> Result<Vec<argus_core::models::monitor::Monitor>, PersistenceError> {
             self.repo_mock.get_monitors(network_id).await
         }
 
@@ -465,14 +465,14 @@ mod tests {
             &self,
             network_id: &NetworkId,
             monitor_id: &str,
-        ) -> Result<Option<crate::models::monitor::Monitor>, PersistenceError> {
+        ) -> Result<Option<argus_core::models::monitor::Monitor>, PersistenceError> {
             self.repo_mock.get_monitor_by_id(network_id, monitor_id).await
         }
 
         async fn add_monitors(
             &self,
             network_id: &NetworkId,
-            monitors: Vec<crate::models::monitor::MonitorConfig>,
+            monitors: Vec<argus_core::models::monitor::MonitorConfig>,
         ) -> Result<(), PersistenceError> {
             self.repo_mock.add_monitors(network_id, monitors).await
         }
@@ -493,7 +493,7 @@ mod tests {
             &self,
             network_id: &NetworkId,
             monitor_id: &str,
-            monitor: crate::models::monitor::MonitorConfig,
+            monitor: argus_core::models::monitor::MonitorConfig,
         ) -> Result<(), PersistenceError> {
             self.repo_mock.update_monitor(network_id, monitor_id, monitor).await
         }
@@ -502,7 +502,7 @@ mod tests {
             &self,
             network_id: &NetworkId,
             monitor_id: &str,
-            status: crate::models::monitor::MonitorStatus,
+            status: argus_core::models::monitor::MonitorStatus,
         ) -> Result<(), PersistenceError> {
             self.repo_mock.update_monitor_status(network_id, monitor_id, status).await
         }
@@ -597,7 +597,7 @@ mod tests {
         async fn get_pending_outbox(
             &self,
             limit: i64,
-        ) -> Result<Vec<crate::persistence::traits::OutboxItem>, PersistenceError> {
+        ) -> Result<Vec<argus_core::persistence::traits::OutboxItem>, PersistenceError> {
             self.repo_mock.get_pending_outbox(limit).await
         }
 

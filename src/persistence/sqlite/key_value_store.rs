@@ -1,11 +1,10 @@
 //! Implementation of the KeyValueStore trait for SqliteStateRepository
 
+use argus_core::persistence::{error::PersistenceError, traits::KeyValueStore};
 use async_trait::async_trait;
 use serde::{Serialize, de::DeserializeOwned};
 
-use crate::persistence::{
-    error::PersistenceError, sqlite::SqliteStateRepository, traits::KeyValueStore,
-};
+use crate::persistence::sqlite::SqliteStateRepository;
 
 #[async_trait]
 impl KeyValueStore for SqliteStateRepository {

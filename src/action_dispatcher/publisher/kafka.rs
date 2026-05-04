@@ -2,19 +2,17 @@
 
 use std::time::Duration;
 
+use argus_core::models::action::KafkaConfig;
 use rdkafka::{
     ClientConfig,
     producer::{FutureProducer, FutureRecord, Producer},
 };
 
-use crate::{
-    action_dispatcher::{
-        ActionPayload,
-        error::ActionDispatcherError,
-        publisher::{EventPublisher, PublisherError},
-        traits::Action,
-    },
-    models::action::KafkaConfig,
+use crate::action_dispatcher::{
+    ActionPayload,
+    error::ActionDispatcherError,
+    publisher::{EventPublisher, PublisherError},
+    traits::Action,
 };
 
 /// A Kafka event publisher.
@@ -111,6 +109,10 @@ impl KafkaEventPublisher {
 
 #[cfg(test)]
 mod tests {
+    use argus_core::models::{
+        action::{KafkaProducerConfig, KafkaSecurityConfig},
+        monitor_match::MonitorMatch,
+    };
     use rdkafka::{
         Message,
         consumer::{Consumer, StreamConsumer},
@@ -118,10 +120,6 @@ mod tests {
     };
 
     use super::*;
-    use crate::models::{
-        action::{KafkaProducerConfig, KafkaSecurityConfig},
-        monitor_match::MonitorMatch,
-    };
 
     #[test]
     fn test_kafka_event_publisher_from_config_default() {

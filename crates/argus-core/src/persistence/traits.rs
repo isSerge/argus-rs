@@ -1,8 +1,6 @@
 //! This module contains the persistence traits for the Argus application.
 
 use async_trait::async_trait;
-#[cfg(test)]
-use mockall::automock;
 use serde::{Serialize, de::DeserializeOwned};
 
 use super::error::PersistenceError;
@@ -16,7 +14,7 @@ use crate::{
 };
 
 /// Represents the application's persistence layer interface.
-#[cfg_attr(test, automock)]
+#[cfg_attr(any(test, feature = "test-utils"), mockall::automock)]
 #[async_trait]
 pub trait AppRepository: Send + Sync {
     /// Retrieves the last processed block number for a given network.
@@ -193,7 +191,7 @@ pub struct OutboxItem {
 }
 
 /// Represents a generic key-value store for JSON-serializable objects.
-#[cfg_attr(test, automock)]
+#[cfg_attr(any(test, feature = "test-utils"), mockall::automock)]
 #[async_trait]
 pub trait KeyValueStore: Send + Sync {
     /// Retrieves a JSON-serializable state object by its key.

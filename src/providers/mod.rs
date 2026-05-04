@@ -2,4 +2,3 @@
 
 pub mod block_fetcher;
 pub mod rpc;
-pub mod traits;

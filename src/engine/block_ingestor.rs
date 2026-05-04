@@ -3,20 +3,16 @@
 
 use std::sync::Arc;
 
+use argus_core::{
+    config::AppConfig,
+    models::BlockData,
+    persistence::traits::AppRepository,
+    providers::traits::{DataSource, DataSourceError},
+};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::{
-    config::AppConfig,
-    context::AppMetrics,
-    engine::filtering::FilteringEngine,
-    models::BlockData,
-    persistence::traits::AppRepository,
-    providers::{
-        block_fetcher,
-        traits::{DataSource, DataSourceError},
-    },
-};
+use crate::{context::AppMetrics, engine::filtering::FilteringEngine, providers::block_fetcher};
 
 /// The BlockIngestor service.
 ///
@@ -157,14 +153,15 @@ mod tests {
     use std::collections::HashMap;
 
     use alloy::primitives::B256;
+    use argus_core::{
+        models::NetworkId, persistence::traits::MockAppRepository,
+        providers::traits::MockDataSource,
+    };
     use mockall::predicate::eq;
 
     use super::*;
     use crate::{
         engine::filtering::MockFilteringEngine,
-        models::NetworkId,
-        persistence::traits::MockAppRepository,
-        providers::traits::MockDataSource,
         test_helpers::{BlockBuilder, ReceiptBuilder, TransactionBuilder},
     };
 

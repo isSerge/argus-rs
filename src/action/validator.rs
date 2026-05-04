@@ -2,15 +2,14 @@
 
 use std::sync::Arc;
 
-use thiserror::Error;
-
-use crate::{
+use argus_core::{
     models::{
         NetworkId,
         action::{ActionConfig, ActionTypeConfigError},
     },
     persistence::{error::PersistenceError, traits::AppRepository},
 };
+use thiserror::Error;
 
 /// An error that occurs during action validation.
 #[derive(Debug, Error)]

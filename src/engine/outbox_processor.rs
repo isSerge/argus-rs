@@ -3,14 +3,14 @@
 
 use std::{sync::Arc, time::Duration};
 
-use futures::{StreamExt, stream};
-use tokio_util::sync::CancellationToken;
-
-use crate::{
-    action_dispatcher::ActionDispatcher,
+use argus_core::{
     config::OutboxConfig,
     persistence::traits::{AppRepository, OutboxItem},
 };
+use futures::{StreamExt, stream};
+use tokio_util::sync::CancellationToken;
+
+use crate::action_dispatcher::ActionDispatcher;
 
 /// Service responsible for processing the persistent action queue.
 pub struct OutboxProcessor<S: AppRepository + ?Sized> {

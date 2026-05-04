@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
+use argus_core::{config::RhaiConfig, models::monitor::Monitor};
+
 use crate::{
-    config::RhaiConfig,
     engine::rhai::RhaiCompiler,
-    models::monitor::Monitor,
     monitor::MonitorManager,
     test_helpers::{create_test_abi_service, erc20_abi_json},
 };

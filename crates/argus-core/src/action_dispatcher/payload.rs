@@ -2,10 +2,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    action_dispatcher::error::ActionDispatcherError,
-    models::{NotificationMessage, monitor_match::MonitorMatch},
-};
+use crate::models::{NotificationMessage, monitor_match::MonitorMatch};
 
 /// An enum representing the different types of action payloads.
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -25,21 +22,15 @@ pub enum ActionPayload {
 
 impl ActionPayload {
     /// Serializes the payload context to a JSON value.
-    pub fn context(&self) -> Result<serde_json::Value, ActionDispatcherError> {
+    pub fn context(&self) -> Result<serde_json::Value, serde_json::Error> {
         match self {
-            ActionPayload::Single(monitor_match) =>
-                serde_json::to_value(monitor_match).map_err(|e| {
-                    ActionDispatcherError::InternalError(format!(
-                        "Failed to serialize monitor match: {e}"
-                    ))
-                }),
+            ActionPayload::Single(monitor_match) => serde_json::to_value(monitor_match),
             ActionPayload::Aggregated { matches, .. } => {
                 let monitor_name = matches.first().map(|m| m.monitor_name.clone());
-                let context = serde_json::json!({
+                serde_json::to_value(serde_json::json!({
                     "matches": matches,
                     "monitor_name": monitor_name,
-                });
-                Ok(context)
+                }))
             }
         }
     }

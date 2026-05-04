@@ -2,30 +2,10 @@
 
 use std::{env, fs, path::PathBuf};
 
+use argus_core::loader::{Loadable, LoaderError};
 use config::{Config, File, FileFormat};
 use regex::Regex;
 use serde::de::DeserializeOwned;
-use thiserror::Error;
-
-/// Errors that can occur during configuration loading.
-#[derive(Debug, Error)]
-pub enum LoaderError {
-    /// Error when reading the configuration file.
-    #[error("Failed to read configuration file: {0}")]
-    IoError(#[from] std::io::Error),
-
-    /// Error when parsing the configuration file.
-    #[error("Failed to parse configuration: {0}")]
-    ParseError(#[from] config::ConfigError),
-
-    /// Error when the configuration format is unsupported.
-    #[error("Unsupported configuration format")]
-    UnsupportedFormat,
-
-    /// Error when an expected environment variable is missing.
-    #[error("Missing environment variable: {0}")]
-    MissingEnvVar(String),
-}
 
 /// A generic loader for YAML files.
 pub struct ConfigLoader {
@@ -80,23 +60,6 @@ impl ConfigLoader {
 
         result.push_str(&config_str[last..]);
         Ok(result)
-    }
-}
-
-/// A trait for types that can be loaded from a configuration file.
-pub trait Loadable: Sized + DeserializeOwned {
-    /// The top-level key in the YAML file (e.g., "monitors").
-    const KEY: &'static str;
-
-    /// The specific error type for this loadable item.
-    type Error: From<LoaderError>;
-
-    /// A method for post-deserialization logic, such as validation.
-    ///
-    /// This method has a default no-op implementation, making it optional
-    /// for types that don't require specific processing.
-    fn validate(&mut self) -> Result<(), Self::Error> {
-        Ok(())
     }
 }
 

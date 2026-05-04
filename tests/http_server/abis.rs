@@ -1,4 +1,4 @@
-use argus::{
+use argus_core::{
     models::{
         NetworkId,
         monitor::{MonitorConfig, MonitorStatus},

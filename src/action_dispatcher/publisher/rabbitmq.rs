@@ -1,18 +1,16 @@
 //! Event publisher for RabbitMQ.
 
+use argus_core::models::action::RabbitMqConfig;
 use lapin::{
     Connection, ConnectionProperties, ExchangeKind, options::ExchangeDeclareOptions,
     types::FieldTable,
 };
 
-use crate::{
-    action_dispatcher::{
-        ActionPayload,
-        error::ActionDispatcherError,
-        publisher::{EventPublisher, PublisherError},
-        traits::Action,
-    },
-    models::action::RabbitMqConfig,
+use crate::action_dispatcher::{
+    ActionPayload,
+    error::ActionDispatcherError,
+    publisher::{EventPublisher, PublisherError},
+    traits::Action,
 };
 
 /// A RabbitMQ event publisher.

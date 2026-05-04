@@ -7,26 +7,25 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use crate::{
-    http_client::HttpClientPool,
-    models::{
-        action::{ActionConfig, ActionTypeConfig},
-        monitor_match::MonitorMatch,
-    },
+use argus_core::models::{
+    action::{ActionConfig, ActionTypeConfig},
+    monitor_match::MonitorMatch,
 };
+
+use crate::http_client::HttpClientPool;
 
 mod action_type;
 pub mod error;
-mod payload;
 pub mod publisher;
 mod stdout;
 pub mod template;
 mod traits;
 mod webhook;
 
+// ActionPayload is now defined in argus-core:
 use action_type::ActionType;
+pub use argus_core::action_dispatcher::ActionPayload;
 use error::ActionDispatcherError;
-pub use payload::ActionPayload;
 use publisher::{KafkaEventPublisher, NatsEventPublisher, RabbitMqEventPublisher};
 use stdout::StdoutAction;
 use template::TemplateService;
@@ -34,7 +33,11 @@ use tokio::sync::mpsc;
 use traits::Action;
 use webhook::{WebhookAction, WebhookComponents};
 
-impl ActionTypeConfig {
+trait IntoWebhookComponents {
+    fn as_webhook_components(&self) -> Result<WebhookComponents, ActionDispatcherError>;
+}
+
+impl IntoWebhookComponents for ActionTypeConfig {
     /// Transforms the specific action configuration into a generic set of
     /// webhook components.
     fn as_webhook_components(&self) -> Result<WebhookComponents, ActionDispatcherError> {
@@ -51,7 +54,6 @@ impl ActionTypeConfig {
         })
     }
 }
-
 /// A service responsible for dispatching actions based on pre-loaded
 /// action configurations (webhook notifiers, publishers, etc.)
 pub struct ActionDispatcher {
@@ -196,11 +198,7 @@ impl ActionDispatcher {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::{TxHash, address};
-    use serde_json::json;
-    use url::Url;
-
-    use super::*;
-    use crate::{
+    use argus_core::{
         config::HttpRetryConfig,
         models::{
             action::{
@@ -209,8 +207,12 @@ mod tests {
             monitor_match::LogDetails,
             notification::NotificationMessage,
         },
-        test_helpers::ActionBuilder,
     };
+    use serde_json::json;
+    use url::Url;
+
+    use super::*;
+    use crate::test_helpers::ActionBuilder;
 
     fn create_mock_monitor_match(action_name: &str) -> MonitorMatch {
         let log_details = LogDetails {

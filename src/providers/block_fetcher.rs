@@ -4,12 +4,11 @@
 
 use std::collections::HashMap;
 
-use futures::stream::{self, StreamExt};
-
-use crate::{
+use argus_core::{
     models::BlockData,
     providers::traits::{DataSource, DataSourceError},
 };
+use futures::stream::{self, StreamExt};
 
 /// Fetches all necessary data for a single block.
 pub async fn fetch_single_block_data<D: DataSource + ?Sized>(

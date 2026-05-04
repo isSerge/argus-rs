@@ -4,9 +4,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use alloy::json_abi::JsonAbi;
+use argus_core::persistence::{error::PersistenceError, traits::AppRepository};
 use thiserror::Error;
-
-use crate::persistence::{error::PersistenceError, traits::AppRepository};
 
 /// Errors that can occur while loading ABIs into the repository.
 #[derive(Debug, Error)]
@@ -74,11 +73,10 @@ impl AbiRepository {
 mod tests {
     use std::collections::HashSet;
 
+    use argus_core::persistence::traits::AppRepository;
+
     use super::*;
-    use crate::{
-        persistence::{sqlite::SqliteStateRepository, traits::AppRepository},
-        test_helpers::erc20_abi_json,
-    };
+    use crate::{persistence::sqlite::SqliteStateRepository, test_helpers::erc20_abi_json};
 
     const REQUIRED_ERC20_FUNCTIONS: &[&str] = &[
         "transfer",

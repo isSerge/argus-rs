@@ -8,7 +8,7 @@ use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 pub mod app_repository;
 pub mod key_value_store;
 
-use crate::persistence::error::PersistenceError;
+use argus_core::persistence::error::PersistenceError;
 
 /// A concrete implementation of the AppRepository using SQLite.
 pub struct SqliteStateRepository {
@@ -114,10 +114,7 @@ impl SqliteStateRepository {
 mod tests {
     use std::time::Duration;
 
-    use serde::{Deserialize, Serialize};
-
-    use super::*;
-    use crate::{
+    use argus_core::{
         models::{
             NetworkId,
             action::{ActionPolicy, AggregationPolicy, ThrottlePolicy},
@@ -125,8 +122,11 @@ mod tests {
             notification::NotificationMessage,
         },
         persistence::traits::{AppRepository, KeyValueStore},
-        test_helpers::ActionBuilder,
     };
+    use serde::{Deserialize, Serialize};
+
+    use super::*;
+    use crate::test_helpers::ActionBuilder;
 
     async fn setup_test_db() -> SqliteStateRepository {
         let repo = SqliteStateRepository::new("sqlite::memory:")

@@ -5,8 +5,7 @@ use alloy::{
     primitives::{Address, B256, Bytes, U256},
     rpc::types::Transaction as AlloyTransaction,
 };
-
-use crate::models::transaction::Transaction;
+use argus_core::models::transaction::Transaction;
 
 const STANDARD_GAS_LIMIT: u64 = 21_000;
 

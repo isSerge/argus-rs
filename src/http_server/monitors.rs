@@ -1,5 +1,6 @@
 //! Handlers for monitor-related endpoints in the HTTP server.
 
+use argus_core::models::monitor::{MonitorConfig, MonitorStatus};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -9,7 +10,6 @@ use serde::Deserialize;
 use serde_json::json;
 
 use super::{ApiError, ApiState};
-use crate::models::monitor::{MonitorConfig, MonitorStatus};
 
 /// Represents the request payload for updating a monitor's status.
 #[derive(Debug, Deserialize)]

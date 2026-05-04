@@ -1,11 +1,10 @@
 //! A builder for creating `Monitor` instances in tests.
 
-use chrono::{DateTime, Utc};
-
-use crate::models::{
+use argus_core::models::{
     NetworkId,
     monitor::{Monitor, MonitorStatus},
 };
+use chrono::{DateTime, Utc};
 
 /// A builder for creating `Monitor` instances in tests.
 pub struct MonitorBuilder {

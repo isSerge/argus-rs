@@ -1,15 +1,13 @@
 //! Defines the custom `ApiError` type for the HTTP server.
 
+use argus_core::persistence::error::PersistenceError;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Json},
 };
 use serde_json::json;
 
-use crate::{
-    action::validator::ActionValidationError, monitor::MonitorPersistenceValidationError,
-    persistence::error::PersistenceError,
-};
+use crate::{action::validator::ActionValidationError, monitor::MonitorPersistenceValidationError};
 
 /// A custom error type for the API that can be converted into an HTTP response.
 pub enum ApiError {

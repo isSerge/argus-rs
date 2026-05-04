@@ -150,20 +150,20 @@ impl AppConfig {
     }
 
     /// Creates a new `AppConfigBuilder` for testing purposes.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn builder() -> AppConfigBuilder {
         AppConfigBuilder::default()
     }
 }
 
 /// A builder for creating `AppConfig` instances for testing.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 #[derive(Default)]
 pub struct AppConfigBuilder {
     config: AppConfig,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 impl AppConfigBuilder {
     pub fn rpc_urls(mut self, rpc_urls: Vec<Url>) -> Self {
         self.config.rpc_urls = rpc_urls;

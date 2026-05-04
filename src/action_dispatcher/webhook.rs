@@ -1,5 +1,9 @@
 use std::sync::Arc;
 
+use argus_core::{
+    config::HttpRetryConfig,
+    models::action::{DiscordConfig, GenericWebhookConfig, SlackConfig, TelegramConfig},
+};
 use omnihook::{
     DiscordPayloadBuilder, GenericWebhookPayloadBuilder, SlackPayloadBuilder,
     TelegramPayloadBuilder, WebhookClient, WebhookConfig, WebhookPayloadBuilder,
@@ -7,12 +11,8 @@ use omnihook::{
 use reqwest_middleware::ClientWithMiddleware;
 use url::Url;
 
-use crate::{
-    action_dispatcher::{
-        ActionPayload, error::ActionDispatcherError, template::TemplateService, traits::Action,
-    },
-    config::HttpRetryConfig,
-    models::action::{DiscordConfig, GenericWebhookConfig, SlackConfig, TelegramConfig},
+use crate::action_dispatcher::{
+    ActionPayload, error::ActionDispatcherError, template::TemplateService, traits::Action,
 };
 
 /// Argus-specific glue that maps action model configs to `omnihook` types.

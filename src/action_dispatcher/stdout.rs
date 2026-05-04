@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
-use crate::{
-    action_dispatcher::{
-        ActionPayload, error::ActionDispatcherError, template::TemplateService, traits::Action,
-    },
-    models::action::StdoutConfig,
+use argus_core::models::action::StdoutConfig;
+
+use crate::action_dispatcher::{
+    ActionPayload, error::ActionDispatcherError, template::TemplateService, traits::Action,
 };
 
 /// An action that prints a message to standard output.
@@ -45,17 +44,15 @@ impl Action for StdoutAction {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::{TxHash, address};
+    use argus_core::models::{
+        NotificationMessage,
+        action::ActionTypeConfig,
+        monitor_match::{LogDetails, MonitorMatch},
+    };
     use serde_json::json;
 
     use super::*;
-    use crate::{
-        models::{
-            NotificationMessage,
-            action::ActionTypeConfig,
-            monitor_match::{LogDetails, MonitorMatch},
-        },
-        test_helpers::ActionBuilder,
-    };
+    use crate::test_helpers::ActionBuilder;
 
     fn create_mock_monitor_match(action_name: &str) -> MonitorMatch {
         let log_details = LogDetails {

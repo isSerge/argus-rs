@@ -4,17 +4,20 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use argus::{
     action_dispatcher::ActionDispatcher,
-    config::OutboxConfig,
     engine::{alert_manager::AlertManager, outbox_processor::OutboxProcessor},
     http_client::HttpClientPool,
+    persistence::sqlite::SqliteStateRepository,
+    test_helpers::{ActionBuilder, create_test_tx_monitor_match},
+};
+use argus_core::{
+    config::OutboxConfig,
     models::{
         NotificationMessage,
         action::{ActionConfig, ActionPolicy, AggregationPolicy, ThrottlePolicy},
         alert_manager_state::{AggregationState, ThrottleState},
         monitor_match::MonitorMatch,
     },
-    persistence::{sqlite::SqliteStateRepository, traits::KeyValueStore},
-    test_helpers::{ActionBuilder, create_test_tx_monitor_match},
+    persistence::traits::KeyValueStore,
 };
 use serde_json::json;
 use tokio::time::sleep;
