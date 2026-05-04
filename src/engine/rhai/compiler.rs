@@ -94,10 +94,15 @@ impl RhaiCompiler {
         let analysis_result = rhai_analyzer::analyze_ast(&ast);
 
         // Derive Argus-specific flags from the generic analysis output.
+        // Match only the exact root variable or a dotted child path to avoid
+        // false positives from unrelated variables (e.g. `logger.level`,
+        // `decoded_call_data.foo`).
         let accesses_log_variable =
-            analysis_result.accessed_variables.iter().any(|p| p.starts_with("log"));
-        let accesses_call_variable =
-            analysis_result.accessed_variables.iter().any(|p| p.starts_with("decoded_call"));
+            analysis_result.accessed_variables.iter().any(|p| p == "log" || p.starts_with("log."));
+        let accesses_call_variable = analysis_result
+            .accessed_variables
+            .iter()
+            .any(|p| p == "decoded_call" || p.starts_with("decoded_call."));
         let accessed_log_event_names =
             analysis_result.string_comparisons.get("log.name").cloned().unwrap_or_default();
 
