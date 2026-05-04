@@ -1,5 +1,6 @@
 //! Error types for the notification service.
 
+use omnihook::OmnihookError;
 use thiserror::Error;
 
 use crate::{
@@ -47,4 +48,8 @@ pub enum ActionDispatcherError {
     /// An error originating from the event publisher.
     #[error("Publisher error: {0}")]
     Publisher(#[from] PublisherError),
+
+    /// An error from the `omnihook` webhook client.
+    #[error("Webhook error: {0}")]
+    Webhook(#[from] OmnihookError),
 }

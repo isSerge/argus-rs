@@ -1,8 +1,4 @@
-//! Webhook notification implementation.
-//!
-//! Provides functionality to send formatted messages to webhooks
-//! via incoming webhooks, supporting message templates with variable
-//! substitution.
+//! Webhook HTTP client with optional HMAC signing.
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -16,12 +12,11 @@ use reqwest_middleware::ClientWithMiddleware;
 use sha2::Sha256;
 use url::Url;
 
-use crate::action_dispatcher::error::ActionDispatcherError;
+use crate::error::OmnihookError;
 
-/// HMAC SHA256 type alias
 type HmacSha256 = Hmac<Sha256>;
 
-/// Represents a webhook configuration
+/// Configuration for a webhook request.
 #[derive(Clone)]
 pub struct WebhookConfig {
     pub url: Url,
@@ -33,37 +28,23 @@ pub struct WebhookConfig {
     pub headers: Option<HashMap<String, String>>,
 }
 
-/// Implementation of webhook notifications via webhooks
+/// HTTP client for sending webhook notifications with optional HMAC signing.
 #[derive(Debug)]
 pub struct WebhookClient {
-    /// Webhook URL for message delivery
     pub url: Url,
-    /// URL parameters to use for the webhook request
     pub url_params: Option<HashMap<String, String>>,
-    /// Configured HTTP client for webhook requests with retry capabilities
     pub client: Arc<ClientWithMiddleware>,
-    /// HTTP method to use for the webhook request
     pub method: Option<String>,
-    /// Secret to use for the webhook request
     pub secret: Option<String>,
-    /// Headers to use for the webhook request
     pub headers: Option<HashMap<String, String>>,
 }
 
 impl WebhookClient {
-    /// Creates a new Webhook action instance
-    ///
-    /// # Arguments
-    /// * `config` - Webhook configuration
-    /// * `http_client` - HTTP client with middleware for retries
-    ///
-    /// # Returns
-    /// * `Result<Self, ActionDispatcherError>` - Action instance if config is
-    ///   valid
+    /// Creates a new `WebhookClient` from the given config and HTTP client.
     pub fn new(
         config: WebhookConfig,
         http_client: Arc<ClientWithMiddleware>,
-    ) -> Result<Self, ActionDispatcherError> {
+    ) -> Result<Self, OmnihookError> {
         let mut headers = config.headers.unwrap_or_default();
         if !headers.contains_key("Content-Type") {
             headers.insert("Content-Type".to_string(), "application/json".to_string());
@@ -79,53 +60,42 @@ impl WebhookClient {
         })
     }
 
+    /// Signs a JSON payload with HMAC-SHA256 and returns `(hex_signature,
+    /// timestamp_ms)`.
     pub fn sign_payload(
         &self,
         secret: &str,
         payload: &serde_json::Value,
-    ) -> Result<(String, String), ActionDispatcherError> {
-        // Explicitly reject empty secret, because `HmacSha256::new_from_slice`
-        // currently allows empty secrets
+    ) -> Result<(String, String), OmnihookError> {
         if secret.is_empty() {
-            return Err(ActionDispatcherError::NotifyFailed(
+            return Err(OmnihookError::NotifyFailed(
                 "Invalid secret: cannot be empty.".to_string(),
             ));
         }
 
         let timestamp = Utc::now().timestamp_millis();
 
-        // Create HMAC instance
         let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .map_err(|e| ActionDispatcherError::ConfigError(format!("Invalid secret: {e}")))?;
+            .map_err(|e| OmnihookError::ConfigError(format!("Invalid secret: {e}")))?;
 
-        // Create the message to sign
         let serialized_payload = serde_json::to_string(payload).map_err(|e| {
-            ActionDispatcherError::InternalError(format!("Failed to serialize payload: {e}"))
+            OmnihookError::InternalError(format!("Failed to serialize payload: {e}"))
         })?;
         let message = format!("{serialized_payload}{timestamp}");
         mac.update(message.as_bytes());
 
-        // Get the HMAC result
         let signature = hex::encode(mac.finalize().into_bytes());
-
         Ok((signature, timestamp.to_string()))
     }
 
-    /// Sends a JSON payload to Webhook
-    ///
-    /// # Arguments
-    /// * `payload` - The JSON payload to send
-    ///
-    /// # Returns
-    /// * `Result<(), ActionDispatcherError>` - Success or error
+    /// Sends a JSON payload to the configured webhook URL.
     pub async fn notify_json(
         &self,
         payload: &serde_json::Value,
         idempotency_key: Option<&str>,
-    ) -> Result<(), ActionDispatcherError> {
+    ) -> Result<(), OmnihookError> {
         let mut url = self.url.clone();
 
-        // Add URL parameters if any
         if let Some(params) = &self.url_params
             && !params.is_empty()
         {
@@ -138,7 +108,6 @@ impl WebhookClient {
             Method::POST
         };
 
-        // Add default headers
         let mut headers = HeaderMap::new();
         headers.insert(
             HeaderName::from_static("content-type"),
@@ -148,29 +117,27 @@ impl WebhookClient {
         if let Some(secret) = &self.secret {
             let (signature, timestamp) = self.sign_payload(secret, payload)?;
 
-            // Add signature headers
             headers.insert(
                 HeaderName::from_static("x-signature"),
                 HeaderValue::from_str(&signature).map_err(|e| {
-                    ActionDispatcherError::NotifyFailed(format!("Invalid signature value: {e}"))
+                    OmnihookError::NotifyFailed(format!("Invalid signature value: {e}"))
                 })?,
             );
             headers.insert(
                 HeaderName::from_static("x-timestamp"),
                 HeaderValue::from_str(&timestamp).map_err(|e| {
-                    ActionDispatcherError::NotifyFailed(format!("Invalid timestamp value: {e}"))
+                    OmnihookError::NotifyFailed(format!("Invalid timestamp value: {e}"))
                 })?,
             );
         }
 
-        // Add custom headers
         if let Some(headers_map) = &self.headers {
             for (key, value) in headers_map {
                 let header_name = HeaderName::from_bytes(key.as_bytes()).map_err(|e| {
-                    ActionDispatcherError::NotifyFailed(format!("Invalid header name: {key}: {e}"))
+                    OmnihookError::NotifyFailed(format!("Invalid header name: {key}: {e}"))
                 })?;
                 let header_value = HeaderValue::from_str(value).map_err(|e| {
-                    ActionDispatcherError::NotifyFailed(format!(
+                    OmnihookError::NotifyFailed(format!(
                         "Invalid header value for {key}: {value}: {e}"
                     ))
                 })?;
@@ -178,22 +145,19 @@ impl WebhookClient {
             }
         }
 
-        // Add the Idempotency Key
         if let Some(key) = idempotency_key {
             let header_val = HeaderValue::from_str(key).map_err(|e| {
-                ActionDispatcherError::NotifyFailed(format!("Invalid idempotency key value: {e}"))
+                OmnihookError::NotifyFailed(format!("Invalid idempotency key value: {e}"))
             })?;
             headers.insert("Idempotency-Key", header_val);
         }
 
-        // Send request with custom payload
         let response =
             self.client.request(method, url.as_str()).headers(headers).json(payload).send().await?;
 
         let status = response.status();
-
         if !status.is_success() {
-            return Err(ActionDispatcherError::NotifyFailed(format!(
+            return Err(OmnihookError::NotifyFailed(format!(
                 "Webhook request failed with status: {status}"
             )));
         }
@@ -204,13 +168,13 @@ impl WebhookClient {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{collections::HashMap, sync::Arc};
 
     use mockito::{Matcher, Mock};
     use serde_json::json;
 
     use super::*;
-    use crate::action_dispatcher::webhook::{GenericWebhookPayloadBuilder, WebhookPayloadBuilder};
+    use crate::{GenericWebhookPayloadBuilder, OmnihookError, WebhookPayloadBuilder};
 
     fn create_test_http_client() -> Arc<ClientWithMiddleware> {
         Arc::new(reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build())
@@ -238,22 +202,11 @@ mod tests {
         GenericWebhookPayloadBuilder.build_payload("Test Alert", "Test message with value ${value}")
     }
 
-    ////////////////////////////////////////////////////////////
-    // sign_request tests
-    ////////////////////////////////////////////////////////////
-
     #[test]
     fn test_sign_request() {
         let action = create_test_action("https://webhook.example.com", Some("test-secret"), None);
-        let payload = json!({
-            "title": "Test Title",
-            "body": "Test message"
-        });
-        let secret = "test-secret";
-
-        let result = action.sign_payload(secret, &payload).unwrap();
-        let (signature, timestamp) = result;
-
+        let payload = json!({ "title": "Test Title", "body": "Test message" });
+        let (signature, timestamp) = action.sign_payload("test-secret", &payload).unwrap();
         assert!(!signature.is_empty());
         assert!(!timestamp.is_empty());
     }
@@ -261,22 +214,10 @@ mod tests {
     #[test]
     fn test_sign_request_fails_empty_secret() {
         let action = create_test_action("https://webhook.example.com", None, None);
-        let payload = json!({
-            "title": "Test Title",
-            "body": "Test message"
-        });
-        let empty_secret = "";
-
-        let result = action.sign_payload(empty_secret, &payload);
-        assert!(result.is_err());
-
-        let error = result.unwrap_err();
-        assert!(matches!(error, ActionDispatcherError::NotifyFailed(_)));
+        let payload = json!({ "title": "Test Title", "body": "Test message" });
+        let error = action.sign_payload("", &payload).unwrap_err();
+        assert!(matches!(error, OmnihookError::NotifyFailed(_)));
     }
-
-    ////////////////////////////////////////////////////////////
-    // notify tests
-    ////////////////////////////////////////////////////////////
 
     #[tokio::test]
     async fn test_notify_failure() {
@@ -303,29 +244,18 @@ mod tests {
             Some("top-secret"),
             Some(HashMap::from([("Content-Type".to_string(), "application/json".to_string())])),
         );
-
-        let payload = create_test_payload();
-        let result = action.notify_json(&payload, None).await;
-
+        let result = action.notify_json(&create_test_payload(), None).await;
         assert!(result.is_ok());
-
         mock.assert();
     }
-
-    ////////////////////////////////////////////////////////////
-    // notify header validation tests
-    ////////////////////////////////////////////////////////////
 
     #[tokio::test]
     async fn test_notify_with_invalid_header_name() {
         let server = mockito::Server::new_async().await;
         let invalid_headers =
             HashMap::from([("Invalid Header!@#".to_string(), "value".to_string())]);
-
         let action = create_test_action(server.url().as_str(), None, Some(invalid_headers));
-        let payload = create_test_payload();
-        let result = action.notify_json(&payload, None).await;
-        let err = result.unwrap_err();
+        let err = action.notify_json(&create_test_payload(), None).await.unwrap_err();
         assert!(err.to_string().contains("Invalid header name"));
     }
 
@@ -334,12 +264,8 @@ mod tests {
         let server = mockito::Server::new_async().await;
         let invalid_headers =
             HashMap::from([("X-Custom-Header".to_string(), "Invalid\nValue".to_string())]);
-
         let action = create_test_action(server.url().as_str(), None, Some(invalid_headers));
-
-        let payload = create_test_payload();
-        let result = action.notify_json(&payload, None).await;
-        let err = result.unwrap_err();
+        let err = action.notify_json(&create_test_payload(), None).await.unwrap_err();
         assert!(err.to_string().contains("Invalid header value"));
     }
 
@@ -350,7 +276,6 @@ mod tests {
             ("X-Custom-Header".to_string(), "valid-value".to_string()),
             ("Accept".to_string(), "application/json".to_string()),
         ]);
-
         let mock = server
             .mock("POST", "/")
             .match_header("X-Custom-Header", "valid-value")
@@ -358,19 +283,14 @@ mod tests {
             .with_status(200)
             .create_async()
             .await;
-
         let action = create_test_action(server.url().as_str(), None, Some(valid_headers));
-
-        let payload = create_test_payload();
-        let result = action.notify_json(&payload, None).await;
-        assert!(result.is_ok());
+        assert!(action.notify_json(&create_test_payload(), None).await.is_ok());
         mock.assert();
     }
 
     #[tokio::test]
     async fn test_notify_signature_header_cases() {
         let mut server = mockito::Server::new_async().await;
-
         let mock = server
             .mock("POST", "/")
             .match_header("X-Signature", Matcher::Any)
@@ -378,28 +298,17 @@ mod tests {
             .with_status(200)
             .create_async()
             .await;
-
         let action = create_test_action(server.url().as_str(), Some("test-secret"), None);
-
-        let payload = create_test_payload();
-        let result = action.notify_json(&payload, None).await;
-        assert!(result.is_ok());
+        assert!(action.notify_json(&create_test_payload(), None).await.is_ok());
         mock.assert();
     }
 
     #[test]
     fn test_sign_request_validation() {
         let action = create_test_action("https://webhook.example.com", Some("test-secret"), None);
-
-        let payload = create_test_payload();
-
-        let result = action.sign_payload("test-secret", &payload).unwrap();
-        let (signature, timestamp) = result;
-
-        // Validate signature format (should be a hex string)
+        let (signature, timestamp) =
+            action.sign_payload("test-secret", &create_test_payload()).unwrap();
         assert!(hex::decode(&signature).is_ok(), "Signature should be valid hex");
-
-        // Validate timestamp format (should be a valid i64)
         assert!(timestamp.parse::<i64>().is_ok(), "Timestamp should be valid i64");
     }
 }

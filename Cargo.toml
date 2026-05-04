@@ -7,6 +7,7 @@ resolver = "2"
 
 [workspace.dependencies]
 alloy = { version = "1.0.37", features = ["essentials"] }
+omnihook = { path = "crates/omnihook" }
 rhai-analyzer = { path = "crates/rhai-analyzer" }
 rhai-bigint = { path = "crates/rhai-bigint" }
 rhai-evm = { path = "crates/rhai-evm" }
@@ -81,6 +82,7 @@ lapin.workspace = true
 minijinja.workspace = true
 num-bigint.workspace = true
 num-traits.workspace = true
+omnihook.workspace = true
 rdkafka.workspace = true
 regex.workspace = true
 reqwest.workspace = true
