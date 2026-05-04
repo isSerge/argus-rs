@@ -7,6 +7,7 @@ resolver = "2"
 
 [workspace.dependencies]
 alloy = { version = "1.0.37", features = ["essentials"] }
+rhai-analyzer = { path = "crates/rhai-analyzer" }
 rhai-bigint = { path = "crates/rhai-bigint" }
 rhai-evm = { path = "crates/rhai-evm" }
 arc-swap = "1.7.1"
@@ -86,6 +87,7 @@ reqwest.workspace = true
 reqwest-middleware.workspace = true
 reqwest-retry.workspace = true
 rhai.workspace = true
+rhai-analyzer.workspace = true
 rhai-evm.workspace = true
 rust_decimal.workspace = true
 serde.workspace = true

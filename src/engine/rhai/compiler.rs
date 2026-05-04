@@ -9,7 +9,7 @@ use rhai::{AST, Engine};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use super::{ast_analysis, create_engine};
+use super::create_engine;
 use crate::config::RhaiConfig;
 
 /// Represents the result of analyzing a Rhai script.
@@ -91,16 +91,27 @@ impl RhaiCompiler {
         // Compile the script
         let ast = self.engine.compile(script)?;
         // Analyze the AST to extract accessed variables
-        let analysis_result = ast_analysis::analyze_ast(&ast);
+        let analysis_result = rhai_analyzer::analyze_ast(&ast);
+
+        // Derive Argus-specific flags from the generic analysis output.
+        let accesses_log_variable =
+            analysis_result.accessed_variables.iter().any(|p| p.starts_with("log"));
+        let accesses_call_variable =
+            analysis_result.accessed_variables.iter().any(|p| p.starts_with("decoded_call"));
+        let accessed_log_event_names = analysis_result
+            .string_comparisons
+            .get("log.name")
+            .cloned()
+            .unwrap_or_default();
 
         // Create the ScriptAnalysis struct
         let analysis = ScriptAnalysis {
             ast: Arc::new(ast),
             accessed_variables: Arc::new(analysis_result.accessed_variables),
-            accesses_log_variable: analysis_result.accesses_log_variable,
+            accesses_log_variable,
             local_variables: analysis_result.local_variables,
-            accesses_call_variable: analysis_result.accesses_call_variable,
-            accessed_log_event_names: analysis_result.accessed_log_event_names,
+            accesses_call_variable,
+            accessed_log_event_names,
         };
 
         // Store the analysis in the cache

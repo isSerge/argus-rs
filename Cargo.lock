@@ -828,6 +828,7 @@ dependencies = [
  "reqwest-middleware",
  "reqwest-retry",
  "rhai",
+ "rhai-analyzer",
  "rhai-evm",
  "rust_decimal",
  "serde",
@@ -4609,6 +4610,13 @@ dependencies = [
  "smallvec",
  "smartstring",
  "thin-vec",
+]
+
+[[package]]
+name = "rhai-analyzer"
+version = "0.1.0"
+dependencies = [
+ "rhai",
 ]
 
 [[package]]
