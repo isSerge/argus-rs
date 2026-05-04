@@ -1,0 +1,21 @@
+[package]
+name = "omnihook"
+version = "0.1.0"
+edition = "2024"
+description = "Generic webhook client with HMAC signing and platform-specific payload builders (Slack, Discord, Telegram)"
+
+[dependencies]
+chrono.workspace = true
+hex.workspace = true
+hmac.workspace = true
+regex.workspace = true
+reqwest.workspace = true
+reqwest-middleware.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+mockito.workspace = true
+tokio.workspace = true

@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
+use omnihook::WebhookClient;
 use reqwest_middleware::ClientWithMiddleware;
 
 use crate::action_dispatcher::{
     ActionPayload, WebhookComponents, error::ActionDispatcherError, template::TemplateService,
-    traits::Action, webhook::WebhookClient,
+    traits::Action,
 };
 
 /// An action that sends a webhook notification.

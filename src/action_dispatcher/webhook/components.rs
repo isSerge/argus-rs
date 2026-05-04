@@ -1,6 +1,9 @@
+use omnihook::{
+    DiscordPayloadBuilder, GenericWebhookPayloadBuilder, SlackPayloadBuilder,
+    TelegramPayloadBuilder, WebhookConfig, WebhookPayloadBuilder,
+};
 use url::Url;
 
-use super::*;
 use crate::{
     config::HttpRetryConfig,
     models::action::{DiscordConfig, GenericWebhookConfig, SlackConfig, TelegramConfig},
