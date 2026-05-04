@@ -143,10 +143,10 @@ fn walk_expr(expr: &Expr, result: &mut ScriptAnalysisResult) {
 
     if let Some(path) = get_full_variable_path(expr) {
         result.accessed_variables.insert(path);
-        if let Expr::Index(binary_expr, _, _) = expr {
-            if let Some(index_path) = get_full_variable_path(&binary_expr.rhs) {
-                result.accessed_variables.insert(index_path);
-            }
+        if let Expr::Index(binary_expr, _, _) = expr
+            && let Some(index_path) = get_full_variable_path(&binary_expr.rhs)
+        {
+            result.accessed_variables.insert(index_path);
         }
         return;
     }
@@ -293,10 +293,10 @@ fn check_for_string_comparisons(expr: &Expr, result: &mut ScriptAnalysisResult) 
 /// If `lhs` is a variable path and `rhs` is a string literal, records the
 /// comparison in `result.string_comparisons`.
 fn record_string_comparison(lhs: &Expr, rhs: &Expr, result: &mut ScriptAnalysisResult) {
-    if let Some(var_path) = get_full_variable_path(lhs) {
-        if let Expr::StringConstant(string_val, _) = rhs {
-            result.string_comparisons.entry(var_path).or_default().insert(string_val.to_string());
-        }
+    if let Some(var_path) = get_full_variable_path(lhs)
+        && let Expr::StringConstant(string_val, _) = rhs
+    {
+        result.string_comparisons.entry(var_path).or_default().insert(string_val.to_string());
     }
 }
 
