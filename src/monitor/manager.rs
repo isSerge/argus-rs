@@ -108,10 +108,17 @@ impl MonitorManager {
 
     /// Updates the monitor state with a new set of monitors.
     /// This method atomically swaps the entire monitor state.
+    ///
+    /// The state snapshot is published before the interest registry so that
+    /// `EvmRpcSource` never narrows log-fetching for a block that the
+    /// still-live monitor set needs to evaluate. The transient window where
+    /// the registry is stale only causes harmless over-fetching, not silent
+    /// match drops.
     pub fn update(&self, monitors: Vec<Monitor>) {
         let state = Self::organize_assets(monitors, &self.compiler, &self.abi_service);
-        self.interest_registry.store(Arc::new(state.interest_registry.clone()));
+        let new_registry = Arc::new(state.interest_registry.clone());
         self.state.store(Arc::new(state));
+        self.interest_registry.store(new_registry);
     }
 
     /// Loads the current snapshot of the monitor state.
