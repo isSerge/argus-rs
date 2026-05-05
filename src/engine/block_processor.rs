@@ -220,16 +220,14 @@ mod tests {
     use std::collections::{HashMap, HashSet};
 
     use alloy::primitives::{B256, address};
-    use argus_core::{models::NetworkId, persistence::traits::MockAppRepository};
+    use argus_core::{
+        models::NetworkId, monitor::InterestRegistry, persistence::traits::MockAppRepository,
+    };
     use mockall::predicate::eq;
 
     use super::*;
-    use crate::{
-        monitor::InterestRegistry,
-        test_helpers::{
-            BlockBuilder, LogBuilder, MonitorBuilder, TransactionBuilder,
-            create_test_monitor_manager,
-        },
+    use crate::test_helpers::{
+        BlockBuilder, LogBuilder, MonitorBuilder, TransactionBuilder, create_test_monitor_manager,
     };
 
     struct TestHarness {

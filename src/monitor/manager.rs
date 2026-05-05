@@ -7,10 +7,13 @@ use std::{
 };
 
 use arc_swap::{ArcSwap, Guard};
-use argus_core::models::monitor::{Monitor, MonitorStatus};
+use argus_core::{
+    models::monitor::{Monitor, MonitorStatus},
+    monitor::InterestRegistry,
+};
 use bitflags::bitflags;
 
-use super::{InterestRegistry, InterestRegistryBuilder};
+use super::InterestRegistryBuilder;
 use crate::{
     abi::AbiService,
     engine::rhai::{RhaiCompiler, ScriptAnalysis},
@@ -80,6 +83,8 @@ pub struct MonitorManager {
     /// The current state of monitors, wrapped in an `ArcSwap` for atomic
     /// updates.
     state: ArcSwap<MonitorAssetState>,
+    /// Shared interest registry for `EvmRpcSource` bloom-filter optimisation.
+    interest_registry: Arc<ArcSwap<InterestRegistry>>,
 }
 
 impl MonitorManager {
@@ -91,19 +96,33 @@ impl MonitorManager {
         abi_service: Arc<AbiService>,
     ) -> Self {
         let initial_state = Self::organize_assets(initial_monitors, &compiler, &abi_service);
-        Self { compiler, abi_service, state: ArcSwap::new(Arc::new(initial_state)) }
+        let interest_registry =
+            Arc::new(ArcSwap::new(Arc::new(initial_state.interest_registry.clone())));
+        Self {
+            compiler,
+            abi_service,
+            state: ArcSwap::new(Arc::new(initial_state)),
+            interest_registry,
+        }
     }
 
     /// Updates the monitor state with a new set of monitors.
     /// This method atomically swaps the entire monitor state.
     pub fn update(&self, monitors: Vec<Monitor>) {
         let state = Self::organize_assets(monitors, &self.compiler, &self.abi_service);
+        self.interest_registry.store(Arc::new(state.interest_registry.clone()));
         self.state.store(Arc::new(state));
     }
 
     /// Loads the current snapshot of the monitor state.
     pub fn load(&self) -> Guard<Arc<MonitorAssetState>> {
         self.state.load()
+    }
+
+    /// Returns a shared handle to the interest registry for use by
+    /// `EvmRpcSource`.
+    pub fn interest_registry(&self) -> Arc<ArcSwap<InterestRegistry>> {
+        self.interest_registry.clone()
     }
 
     /// Organizes monitors into the `MonitorAssetState`, categorizing them and
