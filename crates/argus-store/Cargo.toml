@@ -1,0 +1,17 @@
+[package]
+name = "argus-store"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+argus-core.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+argus-core = { path = "../argus-core", features = ["test-utils"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

@@ -14,7 +14,6 @@ pub mod http_client;
 pub mod http_server;
 pub mod loader;
 pub mod monitor;
-pub mod persistence;
 pub mod providers;
 pub mod supervisor;
 pub mod test_helpers;

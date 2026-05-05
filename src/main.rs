@@ -1,10 +1,10 @@
 use argus::{
     cmd::{DryRunArgs, dry_run},
     context::{AppContextBuilder, AppMetrics},
-    persistence::SqliteStateRepository,
     supervisor::Supervisor,
 };
 use argus_core::config::InitialStartBlock;
+use argus_store::SqliteStateRepository;
 use clap::{Parser, Subcommand};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 

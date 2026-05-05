@@ -15,7 +15,7 @@ use argus_core::{
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDateTime, Utc};
 
-use crate::persistence::sqlite::SqliteStateRepository;
+use crate::SqliteStateRepository;
 
 // Helper struct for mapping from the database row
 #[derive(sqlx::FromRow)]

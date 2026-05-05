@@ -8,6 +8,7 @@ resolver = "2"
 [workspace.dependencies]
 alloy = { version = "1.0.37", features = ["essentials"] }
 argus-core = { path = "crates/argus-core" }
+argus-store = { path = "crates/argus-store" }
 omnihook = { path = "crates/omnihook" }
 rhai-analyzer = { path = "crates/rhai-analyzer" }
 rhai-bigint = { path = "crates/rhai-bigint" }
@@ -67,6 +68,7 @@ edition = "2024"
 [dependencies]
 alloy.workspace = true
 argus-core.workspace = true
+argus-store.workspace = true
 arc-swap.workspace = true
 async-nats.workspace = true
 async-trait.workspace = true
@@ -110,6 +112,7 @@ urlencoding.workspace = true
 
 [dev-dependencies]
 argus-core = { path = "crates/argus-core", features = ["test-utils"] }
+argus-store = { path = "crates/argus-store" }
 mockall.workspace = true
 mockito.workspace = true
 tokio-stream.workspace = true

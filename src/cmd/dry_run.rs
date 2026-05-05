@@ -365,11 +365,12 @@ mod tests {
     use mockall::predicate::eq;
     use serde_json::json;
 
+    use argus_store::SqliteStateRepository;
+
     use super::*;
     use crate::{
         abi::{AbiRepository, AbiService},
         engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
-        persistence::sqlite::SqliteStateRepository,
         test_helpers::{ActionBuilder, BlockBuilder, MonitorBuilder, TransactionBuilder},
     };
 

@@ -33,9 +33,9 @@ use crate::{
     http_client::HttpClientPool,
     loader::load_config,
     monitor::{MonitorManager, MonitorValidator},
-    persistence::sqlite::SqliteStateRepository,
     providers::rpc::create_provider,
 };
+use argus_store::SqliteStateRepository;
 
 /// The application context, holding configuration, database repository,
 /// ABI service, script compiler, and EVM data provider.

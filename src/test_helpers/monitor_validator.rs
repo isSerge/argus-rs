@@ -12,8 +12,8 @@ use crate::{
     action_dispatcher::template::TemplateService,
     engine::rhai::{RhaiCompiler, RhaiScriptValidator},
     monitor::MonitorValidator,
-    persistence::SqliteStateRepository,
 };
+use argus_store::SqliteStateRepository;
 
 /// Creates a test `MonitorValidator` with optional preloaded ABI.
 pub async fn create_monitor_validator(

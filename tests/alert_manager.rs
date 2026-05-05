@@ -6,9 +6,9 @@ use argus::{
     action_dispatcher::ActionDispatcher,
     engine::{alert_manager::AlertManager, outbox_processor::OutboxProcessor},
     http_client::HttpClientPool,
-    persistence::sqlite::SqliteStateRepository,
     test_helpers::{ActionBuilder, create_test_tx_monitor_match},
 };
+use argus_store::SqliteStateRepository;
 use argus_core::{
     config::OutboxConfig,
     models::{
