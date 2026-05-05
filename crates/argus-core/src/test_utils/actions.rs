@@ -1,4 +1,6 @@
-use argus_core::{
+use url::Url;
+
+use crate::{
     config::HttpRetryConfig,
     models::{
         ActionId,
@@ -9,7 +11,6 @@ use argus_core::{
         notification::NotificationMessage,
     },
 };
-use url::Url;
 
 /// A builder for creating `ActionConfig` instances for testing.
 pub struct ActionBuilder {
@@ -120,7 +121,7 @@ impl ActionBuilder {
             ActionTypeConfig::Discord(cfg) => cfg.message = new_message,
             ActionTypeConfig::Telegram(cfg) => cfg.message = new_message,
             ActionTypeConfig::Stdout(cfg) => cfg.message = Some(new_message),
-            _ => { /* No message for other action types */ }
+            _ => {}
         }
         self
     }
@@ -138,7 +139,7 @@ impl ActionBuilder {
             ActionTypeConfig::Slack(cfg) => cfg.retry_policy = retry_policy,
             ActionTypeConfig::Discord(cfg) => cfg.retry_policy = retry_policy,
             ActionTypeConfig::Telegram(cfg) => cfg.retry_policy = retry_policy,
-            _ => { /* No retry policy for other action types */ }
+            _ => {}
         }
         self
     }

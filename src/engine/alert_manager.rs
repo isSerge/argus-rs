@@ -377,13 +377,13 @@ mod tests {
             monitor_match::LogDetails,
         },
         persistence::traits::{AppRepository, MockAppRepository, MockKeyValueStore},
+        test_utils::ActionBuilder,
     };
     use chrono::Utc;
     use mockall::predicate::eq;
     use serde_json::json;
 
     use super::*;
-    use crate::test_helpers::ActionBuilder;
 
     /// Combined mock implementing both KeyValueStore and AppRepository
     #[derive(Debug)]

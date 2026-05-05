@@ -658,16 +658,19 @@ impl TemplateValidator {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::{Address, address};
-    use argus_core::models::{
-        action::ActionConfig,
-        monitor::{MonitorConfig, MonitorStatus},
+    use argus_core::{
+        models::{
+            action::ActionConfig,
+            monitor::{MonitorConfig, MonitorStatus},
+        },
+        test_utils::ActionBuilder,
     };
 
     use super::*;
     use crate::{
         engine::rhai::RhaiScriptValidationError,
         monitor::MonitorValidationError,
-        test_helpers::{ActionBuilder, create_monitor_validator, erc20_abi_json},
+        test_helpers::{create_monitor_validator, erc20_abi_json},
     };
 
     fn create_test_monitor(

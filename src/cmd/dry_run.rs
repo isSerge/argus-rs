@@ -358,6 +358,7 @@ mod tests {
         config::RhaiConfig,
         models::{action::ActionConfig, monitor_match::MatchData},
         providers::traits::MockDataSource,
+        test_utils::ActionBuilder,
     };
     use argus_store::SqliteStateRepository;
     use mockall::predicate::eq;
@@ -367,7 +368,7 @@ mod tests {
     use crate::{
         abi::{AbiRepository, AbiService},
         engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
-        test_helpers::{ActionBuilder, BlockBuilder, MonitorBuilder, TransactionBuilder},
+        test_helpers::{BlockBuilder, MonitorBuilder, TransactionBuilder},
     };
 
     // A helper function to create a test state repository

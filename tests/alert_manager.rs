@@ -4,7 +4,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use argus::{
     engine::{alert_manager::AlertManager, outbox_processor::OutboxProcessor},
-    test_helpers::{ActionBuilder, create_test_tx_monitor_match},
+    test_helpers::create_test_tx_monitor_match,
 };
 use argus_core::{
     config::OutboxConfig,
@@ -15,6 +15,7 @@ use argus_core::{
         monitor_match::MonitorMatch,
     },
     persistence::traits::KeyValueStore,
+    test_utils::ActionBuilder,
 };
 use argus_dispatch::{ActionDispatcher, http_client::HttpClientPool};
 use argus_store::SqliteStateRepository;

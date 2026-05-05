@@ -69,7 +69,7 @@ edition = "2024"
 
 [dependencies]
 alloy.workspace = true
-argus-core.workspace = true
+argus-core = { path = "crates/argus-core", features = ["test-utils"] }
 argus-dispatch = { workspace = true, features = ["kafka", "rabbitmq", "nats"] }
 argus-providers.workspace = true
 argus-store.workspace = true
@@ -115,9 +115,6 @@ url.workspace = true
 urlencoding.workspace = true
 
 [dev-dependencies]
-argus-core = { path = "crates/argus-core", features = ["test-utils"] }
-argus-dispatch = { workspace = true, features = ["kafka", "rabbitmq", "nats"] }
-argus-store = { path = "crates/argus-store" }
 mockall.workspace = true
 mockito.workspace = true
 tokio-stream.workspace = true

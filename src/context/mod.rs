@@ -535,10 +535,10 @@ mod tests {
     use argus_core::{
         config::{AppConfig, RhaiConfig},
         models::monitor::MonitorStatus,
+        test_utils::ActionBuilder,
     };
 
     use super::*;
-    use crate::test_helpers::ActionBuilder;
 
     fn create_test_config() -> AppConfig {
         AppConfig::builder()

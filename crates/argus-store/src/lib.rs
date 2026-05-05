@@ -121,11 +121,11 @@ mod tests {
             notification::NotificationMessage,
         },
         persistence::traits::{AppRepository, KeyValueStore},
+        test_utils::ActionBuilder,
     };
     use serde::{Deserialize, Serialize};
 
     use super::*;
-    use crate::test_helpers::ActionBuilder;
 
     async fn setup_test_db() -> SqliteStateRepository {
         let repo = SqliteStateRepository::new("sqlite::memory:")
