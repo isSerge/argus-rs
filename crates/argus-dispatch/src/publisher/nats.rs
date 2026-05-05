@@ -2,7 +2,7 @@ use argus_core::models::action::NatsConfig;
 use async_nats::HeaderMap;
 use bytes::Bytes;
 
-use crate::action_dispatcher::{
+use crate::{
     ActionPayload,
     error::ActionDispatcherError,
     publisher::{EventPublisher, PublisherError},

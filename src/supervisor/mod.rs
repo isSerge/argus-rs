@@ -37,7 +37,6 @@ use thiserror::Error;
 use tokio::{signal, sync::mpsc};
 
 use crate::{
-    action_dispatcher::{ActionDispatcher, error::ActionDispatcherError},
     context::AppMetrics,
     engine::{
         alert_manager::AlertManager, block_ingestor::BlockIngestor,
@@ -47,6 +46,7 @@ use crate::{
     http_server,
     monitor::{MonitorManager, MonitorValidationError, MonitorValidator},
 };
+use argus_dispatch::{ActionDispatcher, error::ActionDispatcherError};
 use argus_providers::rpc::ProviderError;
 
 /// Represents the set of errors that can occur during the supervisor's

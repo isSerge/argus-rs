@@ -6,7 +6,7 @@ use lapin::{
     types::FieldTable,
 };
 
-use crate::action_dispatcher::{
+use crate::{
     ActionPayload,
     error::ActionDispatcherError,
     publisher::{EventPublisher, PublisherError},

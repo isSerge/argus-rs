@@ -11,7 +11,7 @@ use omnihook::{
 use reqwest_middleware::ClientWithMiddleware;
 use url::Url;
 
-use crate::action_dispatcher::{
+use crate::{
     ActionPayload, error::ActionDispatcherError, template::TemplateService, traits::Action,
 };
 

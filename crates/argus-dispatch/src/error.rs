@@ -4,7 +4,8 @@ use omnihook::OmnihookError;
 use thiserror::Error;
 
 use crate::{
-    action_dispatcher::{publisher::PublisherError, template::TemplateServiceError},
+    publisher::PublisherError,
+    template::TemplateServiceError,
     http_client::HttpClientPoolError,
 };
 

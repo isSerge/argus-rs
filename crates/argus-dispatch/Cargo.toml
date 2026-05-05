@@ -1,0 +1,25 @@
+[package]
+name = "argus-dispatch"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+argus-core.workspace = true
+async-nats.workspace = true
+async-trait.workspace = true
+bytes.workspace = true
+futures.workspace = true
+lapin.workspace = true
+minijinja.workspace = true
+omnihook.workspace = true
+rdkafka.workspace = true
+reqwest.workspace = true
+reqwest-middleware.workspace = true
+reqwest-retry.workspace = true
+rust_decimal.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+url.workspace = true

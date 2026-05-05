@@ -11,7 +11,7 @@ mod docker_compose_guard;
 use std::time::Duration;
 
 use alloy::primitives::TxHash;
-use argus::action_dispatcher::{
+use argus_dispatch::{
     ActionPayload,
     publisher::{EventPublisher, KafkaEventPublisher, NatsEventPublisher, RabbitMqEventPublisher},
 };

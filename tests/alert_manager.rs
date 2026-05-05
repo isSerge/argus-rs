@@ -3,11 +3,10 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use argus::{
-    action_dispatcher::ActionDispatcher,
     engine::{alert_manager::AlertManager, outbox_processor::OutboxProcessor},
-    http_client::HttpClientPool,
     test_helpers::{ActionBuilder, create_test_tx_monitor_match},
 };
+use argus_dispatch::{ActionDispatcher, http_client::HttpClientPool};
 use argus_store::SqliteStateRepository;
 use argus_core::{
     config::OutboxConfig,

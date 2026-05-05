@@ -15,9 +15,9 @@ use argus_core::models::{
 use serde_json::Value;
 use thiserror::Error;
 
+use argus_dispatch::template::{TemplateService, TemplateServiceError};
 use crate::{
     abi::AbiService,
-    action_dispatcher::template::{TemplateService, TemplateServiceError},
     engine::rhai::{
         RhaiScriptValidationError, RhaiScriptValidationResult, RhaiScriptValidator,
         conversions::build_transaction_details_payload,

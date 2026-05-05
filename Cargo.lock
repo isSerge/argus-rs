@@ -808,6 +808,7 @@ dependencies = [
  "alloy",
  "arc-swap",
  "argus-core",
+ "argus-dispatch",
  "argus-providers",
  "argus-store",
  "async-nats",
@@ -868,6 +869,31 @@ dependencies = [
  "sqlx",
  "tempfile",
  "thiserror 2.0.12",
+ "url",
+]
+
+[[package]]
+name = "argus-dispatch"
+version = "0.1.0"
+dependencies = [
+ "argus-core",
+ "async-nats",
+ "async-trait",
+ "bytes",
+ "futures",
+ "lapin",
+ "minijinja",
+ "omnihook",
+ "rdkafka",
+ "reqwest",
+ "reqwest-middleware",
+ "reqwest-retry",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.12",
+ "tokio",
+ "tracing",
  "url",
 ]
 

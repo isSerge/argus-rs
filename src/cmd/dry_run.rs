@@ -15,8 +15,8 @@ use clap::Parser;
 use dashmap::DashMap;
 use thiserror::Error;
 
+use argus_dispatch::error::ActionDispatcherError;
 use crate::{
-    action_dispatcher::error::ActionDispatcherError,
     context::{AppContextBuilder, AppContextError},
     engine::{
         alert_manager::{AlertManager, AlertManagerError},

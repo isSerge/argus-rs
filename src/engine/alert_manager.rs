@@ -17,7 +17,7 @@ use dashmap::DashMap;
 use thiserror::Error;
 use tokio::sync::Mutex;
 
-use crate::action_dispatcher::{ActionPayload, error::ActionDispatcherError};
+use argus_dispatch::{ActionPayload, error::ActionDispatcherError};
 
 /// The AlertManager is responsible for processing monitor matches, applying
 /// notification policies (throttling, aggregation, etc.) and enqueuing

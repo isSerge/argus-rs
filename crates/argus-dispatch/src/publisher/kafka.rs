@@ -8,7 +8,7 @@ use rdkafka::{
     producer::{FutureProducer, FutureRecord, Producer},
 };
 
-use crate::action_dispatcher::{
+use crate::{
     ActionPayload,
     error::ActionDispatcherError,
     publisher::{EventPublisher, PublisherError},

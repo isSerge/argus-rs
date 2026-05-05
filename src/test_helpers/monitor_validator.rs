@@ -7,9 +7,9 @@ use argus_core::{
     persistence::traits::AppRepository,
 };
 
+use argus_dispatch::template::TemplateService;
 use crate::{
     abi::{AbiService, repository::AbiRepository},
-    action_dispatcher::template::TemplateService,
     engine::rhai::{RhaiCompiler, RhaiScriptValidator},
     monitor::MonitorValidator,
 };
