@@ -46,8 +46,8 @@ use crate::{
     },
     http_server,
     monitor::{MonitorManager, MonitorValidationError, MonitorValidator},
-    providers::rpc::ProviderError,
 };
+use argus_providers::rpc::ProviderError;
 
 /// Represents the set of errors that can occur during the supervisor's
 /// operation.

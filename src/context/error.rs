@@ -1,7 +1,8 @@
 use argus_core::persistence::error::PersistenceError;
 use thiserror::Error;
 
-use crate::{abi::repository::AbiRepositoryError, providers::rpc::ProviderError};
+use crate::abi::repository::AbiRepositoryError;
+use argus_providers::rpc::ProviderError;
 
 /// Errors that can occur during application context initialization.
 #[derive(Debug, Error)]

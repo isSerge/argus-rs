@@ -33,8 +33,8 @@ use crate::{
     http_client::HttpClientPool,
     loader::load_config,
     monitor::{MonitorManager, MonitorValidator},
-    providers::rpc::create_provider,
 };
+use argus_providers::rpc::create_provider;
 use argus_store::SqliteStateRepository;
 
 /// The application context, holding configuration, database repository,

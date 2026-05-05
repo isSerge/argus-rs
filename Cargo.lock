@@ -808,6 +808,7 @@ dependencies = [
  "alloy",
  "arc-swap",
  "argus-core",
+ "argus-providers",
  "argus-store",
  "async-nats",
  "async-trait",
@@ -868,6 +869,20 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.12",
  "url",
+]
+
+[[package]]
+name = "argus-providers"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "arc-swap",
+ "argus-core",
+ "async-trait",
+ "futures",
+ "thiserror 2.0.12",
+ "tower",
+ "tracing",
 ]
 
 [[package]]

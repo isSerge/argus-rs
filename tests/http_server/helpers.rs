@@ -1,9 +1,10 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use argus::{
-    context::AppMetrics, http_server, persistence::sqlite::SqliteStateRepository,
+    context::AppMetrics, http_server,
     test_helpers::create_monitor_validator,
 };
+use argus_store::SqliteStateRepository;
 use argus_core::{
     config::{AppConfig, ServerConfig},
     models::{

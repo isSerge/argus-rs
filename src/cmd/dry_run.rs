@@ -25,11 +25,8 @@ use crate::{
         outbox_processor::OutboxProcessor,
     },
     monitor::MonitorManager,
-    providers::{
-        block_fetcher,
-        rpc::{EvmRpcSource, ProviderError},
-    },
 };
+use argus_providers::{EvmRpcSource, block_fetcher, rpc::ProviderError};
 
 /// Errors that can occur during the execution of a dry run.
 #[derive(Error, Debug)]
@@ -132,7 +129,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     );
 
     // Init EVM data source for fetching blockchain data.
-    let evm_source = EvmRpcSource::new(provider, monitor_manager.clone());
+    let evm_source = EvmRpcSource::new(provider, monitor_manager.interest_registry());
 
     // Execute the core processing loop.
     let matches = run_dry_run_loop(
