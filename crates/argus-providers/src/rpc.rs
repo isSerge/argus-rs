@@ -229,3 +229,371 @@ pub fn create_provider(
     let provider = ProviderBuilder::new().layer(CallBatchLayer::new()).connect_client(client);
     Ok(provider)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        collections::{HashMap, HashSet},
+        str::FromStr,
+        sync::Arc,
+    };
+
+    use alloy::{
+        primitives::{Address, B256, Bloom, BloomInput, U256, address, b256},
+        providers::{Provider, ProviderBuilder},
+        rpc::types::{Block, TransactionReceipt},
+        transports::{http::reqwest::Url, mock::Asserter},
+    };
+    use arc_swap::ArcSwap;
+    use argus_core::{
+        config::RpcRetryConfig,
+        monitor::InterestRegistry,
+        test_utils::{BlockBuilder, LogBuilder, ReceiptBuilder},
+    };
+
+    use super::*;
+
+    // --- Test helpers ---
+
+    fn mock_provider() -> (Arc<dyn Provider + Send + Sync>, Asserter) {
+        let asserter = Asserter::new();
+        let provider = Arc::new(ProviderBuilder::new().connect_mocked_client(asserter.clone()));
+        (provider, asserter)
+    }
+
+    fn make_empty_registry() -> Arc<ArcSwap<InterestRegistry>> {
+        Arc::new(ArcSwap::new(Arc::new(InterestRegistry::default())))
+    }
+
+    fn make_address_registry(address: Address) -> Arc<ArcSwap<InterestRegistry>> {
+        let mut map = HashMap::new();
+        map.insert(address, None);
+        Arc::new(ArcSwap::new(Arc::new(InterestRegistry {
+            log_interests: Arc::new(map),
+            ..Default::default()
+        })))
+    }
+
+    fn make_global_topic_registry(topic: B256) -> Arc<ArcSwap<InterestRegistry>> {
+        let mut set = HashSet::new();
+        set.insert(topic);
+        Arc::new(ArcSwap::new(Arc::new(InterestRegistry {
+            global_event_signatures: Arc::new(set),
+            ..Default::default()
+        })))
+    }
+
+    // --- Tests ---
+
+    #[tokio::test]
+    async fn test_fetch_block_core_data_success() {
+        let (provider, asserter) = mock_provider();
+
+        let monitored_address = address!("1111111111111111111111111111111111111111");
+
+        let mut bloom = Bloom::default();
+        bloom.accrue(BloomInput::Raw(monitored_address.as_slice()));
+
+        let block = BlockBuilder::new().number(1).bloom(bloom).build();
+        let log = LogBuilder::new().block_number(1).address(monitored_address).build();
+        let alloy_log: Log = log.into();
+
+        asserter.push_success(&block);
+        asserter.push_success(&vec![alloy_log.clone()]);
+
+        let source = EvmRpcSource::new(provider, make_address_registry(monitored_address));
+
+        let (fetched_block, fetched_logs) = source.fetch_block_core_data(1).await.unwrap();
+
+        assert_eq!(fetched_block, block);
+        assert_eq!(fetched_logs, vec![alloy_log]);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_block_core_data_block_not_found() {
+        let (provider, asserter) = mock_provider();
+
+        asserter.push_success(&Option::<Block>::None);
+
+        let source = EvmRpcSource::new(provider, make_empty_registry());
+
+        let result = source.fetch_block_core_data(1).await;
+
+        assert!(matches!(result, Err(DataSourceError::BlockNotFound(1))));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_block_core_data_error_handling() {
+        let (provider, asserter) = mock_provider();
+        asserter.push_failure_msg("RPC error");
+
+        let source = EvmRpcSource::new(provider, make_empty_registry());
+
+        let result = source.fetch_block_core_data(1).await;
+
+        assert!(matches!(result, Err(DataSourceError::Provider(_))));
+    }
+
+    #[tokio::test]
+    async fn test_get_current_block_number() {
+        let (provider, asserter) = mock_provider();
+        asserter.push_success(&U256::from(1));
+
+        let source = EvmRpcSource::new(provider, make_empty_registry());
+
+        let block_number = source.get_current_block_number().await.unwrap();
+
+        assert_eq!(block_number, 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_current_block_number_error_handling() {
+        let (provider, asserter) = mock_provider();
+        asserter.push_failure_msg("RPC error");
+
+        let source = EvmRpcSource::new(provider, make_empty_registry());
+
+        let result = source.get_current_block_number().await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_fetch_receipts_error_handling() {
+        let (provider, asserter) = mock_provider();
+        asserter.push_failure_msg("RPC error");
+
+        let source = EvmRpcSource::new(provider, make_empty_registry());
+
+        let tx_hashes = &[B256::default()];
+        let result = source.fetch_receipts(tx_hashes).await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_create_provider_success() {
+        let url = Url::from_str("http://localhost:8545").unwrap();
+        let retry_config = RpcRetryConfig::default();
+
+        let result = create_provider(vec![url], retry_config);
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_create_provider_error_handling() {
+        let retry_config = RpcRetryConfig::default();
+        let result = create_provider(vec![], retry_config);
+        assert!(matches!(result, Err(ProviderError::CreationError(_))));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_block_and_logs_bloom_hit_address() {
+        let (provider, asserter) = mock_provider();
+        let block_number = 123;
+        let monitored_address = Address::default();
+
+        let mut bloom = Bloom::default();
+        bloom.accrue(BloomInput::Raw(monitored_address.as_slice()));
+
+        let block = BlockBuilder::new().number(block_number).bloom(bloom).build();
+        let logs: Vec<Log> = vec![Log::default(), Log::default()];
+
+        asserter.push_success(&block);
+        asserter.push_success(&logs);
+
+        let data_source = EvmRpcSource::new(provider, make_address_registry(monitored_address));
+        let (fetched_block, fetched_logs) =
+            data_source.fetch_block_and_logs(block_number).await.unwrap();
+
+        assert_eq!(fetched_block.header.number, block_number);
+        assert_eq!(fetched_logs.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_block_and_logs_bloom_hit_topic() {
+        let (provider, asserter) = mock_provider();
+        let block_number = 123;
+        let transfer_topic =
+            b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef");
+
+        let mut bloom = Bloom::default();
+        bloom.accrue(BloomInput::Raw(transfer_topic.as_slice()));
+
+        let block = BlockBuilder::new().number(block_number).bloom(bloom).build();
+        let log = LogBuilder::new().topics(vec![transfer_topic]).build();
+
+        asserter.push_success(&block);
+        asserter.push_success(&vec![log]);
+
+        let data_source = EvmRpcSource::new(provider, make_global_topic_registry(transfer_topic));
+        let (fetched_block, fetched_logs) =
+            data_source.fetch_block_and_logs(block_number).await.unwrap();
+
+        assert_eq!(fetched_block.header.number, block_number);
+        assert_eq!(fetched_logs.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_block_and_logs_bloom_miss() {
+        let (provider, asserter) = mock_provider();
+        let block_number = 123;
+        let monitored_address = address!("1111111111111111111111111111111111111111");
+
+        // Default bloom is empty — address won't appear in it.
+        let block = BlockBuilder::new().number(block_number).build();
+
+        asserter.push_success(&block);
+
+        let data_source = EvmRpcSource::new(provider, make_address_registry(monitored_address));
+        let (fetched_block, fetched_logs) =
+            data_source.fetch_block_and_logs(block_number).await.unwrap();
+
+        assert_eq!(fetched_block.header.number, block_number);
+        assert!(fetched_logs.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_fetch_receipts_success() {
+        let (provider, asserter) = mock_provider();
+        let tx_hash1 = B256::from_slice(&[1; 32]);
+        let tx_hash2 = B256::from_slice(&[2; 32]);
+
+        let receipt1 = ReceiptBuilder::new().transaction_hash(tx_hash1).build();
+        let receipt2 = ReceiptBuilder::new().transaction_hash(tx_hash2).build();
+
+        asserter.push_success(&receipt1);
+        asserter.push_success(&receipt2);
+
+        let data_source = EvmRpcSource::new(provider, make_empty_registry());
+        let receipts = data_source.fetch_receipts(&[tx_hash1, tx_hash2]).await.unwrap();
+
+        assert_eq!(receipts.len(), 2);
+        assert_eq!(receipts.get(&tx_hash1).unwrap().transaction_hash, tx_hash1);
+        assert_eq!(receipts.get(&tx_hash2).unwrap().transaction_hash, tx_hash2);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_receipts_empty() {
+        let (provider, _) = mock_provider();
+        let data_source = EvmRpcSource::new(provider, make_empty_registry());
+        let receipts = data_source.fetch_receipts(&[]).await.unwrap();
+        assert!(receipts.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_current_block_number_success() {
+        let (provider, asserter) = mock_provider();
+        let current_block = 999;
+
+        asserter.push_success(&U256::from(current_block));
+
+        let data_source = EvmRpcSource::new(provider, make_empty_registry());
+        let result = data_source.get_current_block_number().await.unwrap();
+
+        assert_eq!(result, current_block);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_block_not_found() {
+        let (provider, asserter) = mock_provider();
+        let block_number = 404;
+
+        asserter.push_success(&Option::<Block>::None);
+
+        let data_source = EvmRpcSource::new(provider, make_empty_registry());
+        let result = data_source.fetch_block_and_logs(block_number).await;
+
+        assert!(matches!(result, Err(DataSourceError::BlockNotFound(404))));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_receipts_partial_success() {
+        let (provider, asserter) = mock_provider();
+        let tx_hash1 = B256::from_slice(&[1; 32]);
+        let tx_hash2 = B256::from_slice(&[2; 32]);
+
+        let receipt1 = ReceiptBuilder::new().transaction_hash(tx_hash1).build();
+
+        asserter.push_success(&receipt1);
+        asserter.push_success(&Option::<TransactionReceipt>::None);
+
+        let data_source = EvmRpcSource::new(provider, make_empty_registry());
+        let receipts = data_source.fetch_receipts(&[tx_hash1, tx_hash2]).await.unwrap();
+
+        assert_eq!(receipts.len(), 1);
+        assert!(receipts.contains_key(&tx_hash1));
+        assert!(!receipts.contains_key(&tx_hash2));
+    }
+
+    #[tokio::test]
+    async fn test_provider_error_propagation() {
+        let (provider, asserter) = mock_provider();
+
+        asserter.push_failure_msg("test provider error");
+
+        let data_source = EvmRpcSource::new(provider, make_empty_registry());
+        let result = data_source.get_current_block_number().await;
+
+        assert!(matches!(result, Err(DataSourceError::Provider(_))));
+        assert!(result.unwrap_err().to_string().contains("test provider error"));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_block_and_logs_no_log_interest() {
+        let (provider, asserter) = mock_provider();
+        let block_number = 123;
+
+        let mut bloom = Bloom::default();
+        bloom.accrue(BloomInput::Raw(&[1; 32]));
+        let block = BlockBuilder::new().number(block_number).bloom(bloom).build();
+
+        // No log interests in the registry — logs should never be requested.
+        asserter.push_success(&block);
+
+        let data_source = EvmRpcSource::new(provider, make_empty_registry());
+        let (fetched_block, fetched_logs) =
+            data_source.fetch_block_and_logs(block_number).await.unwrap();
+
+        assert_eq!(fetched_block.header.number, block_number);
+        assert!(fetched_logs.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_fetch_block_and_logs_log_fetch_fails() {
+        let (provider, asserter) = mock_provider();
+        let block_number = 123;
+        let monitored_address = Address::default();
+
+        let mut bloom = Bloom::default();
+        bloom.accrue(BloomInput::Raw(monitored_address.as_slice()));
+        let block = BlockBuilder::new().number(block_number).bloom(bloom).build();
+
+        asserter.push_success(&block);
+        asserter.push_failure_msg("failed to get logs");
+
+        let data_source = EvmRpcSource::new(provider, make_address_registry(monitored_address));
+        let result = data_source.fetch_block_and_logs(block_number).await;
+
+        assert!(matches!(result, Err(DataSourceError::Provider(_))));
+        assert!(result.unwrap_err().to_string().contains("failed to get logs"));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_receipts_provider_error() {
+        let (provider, asserter) = mock_provider();
+        let tx_hash1 = B256::from_slice(&[1; 32]);
+        let tx_hash2 = B256::from_slice(&[2; 32]);
+
+        let receipt1 = ReceiptBuilder::new().transaction_hash(tx_hash1).build();
+
+        asserter.push_success(&receipt1);
+        asserter.push_failure_msg("receipt unavailable");
+
+        let data_source = EvmRpcSource::new(provider, make_empty_registry());
+        let result = data_source.fetch_receipts(&[tx_hash1, tx_hash2]).await;
+
+        assert!(matches!(result, Err(DataSourceError::Provider(_))));
+        assert!(result.unwrap_err().to_string().contains("receipt unavailable"));
+    }
+}

@@ -12,3 +12,7 @@ futures.workspace = true
 tower.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+argus-core = { workspace = true, features = ["test-utils"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
