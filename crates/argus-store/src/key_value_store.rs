@@ -4,7 +4,7 @@ use argus_core::persistence::{error::PersistenceError, traits::KeyValueStore};
 use async_trait::async_trait;
 use serde::{Serialize, de::DeserializeOwned};
 
-use crate::persistence::sqlite::SqliteStateRepository;
+use crate::SqliteStateRepository;
 
 #[async_trait]
 impl KeyValueStore for SqliteStateRepository {

@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
 use argus_core::config::HttpRetryConfig;
+use argus_dispatch::http_client::create_retryable_http_client;
 use reqwest::Client;
 use reqwest_middleware::ClientWithMiddleware;
-
-use crate::http_client::create_retryable_http_client;
 
 /// Creates a default HTTP client with retry capabilities for testing purposes.
 pub fn create_test_http_client() -> Arc<ClientWithMiddleware> {

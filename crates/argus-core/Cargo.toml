@@ -10,6 +10,7 @@ test-utils = ["dep:mockall"]
 
 [dependencies]
 alloy.workspace = true
+arc-swap.workspace = true
 async-trait.workspace = true
 chrono.workspace = true
 config.workspace = true

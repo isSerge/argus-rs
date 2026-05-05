@@ -1,7 +1,10 @@
-use super::{
-    Action, ActionDispatcherError, ActionPayload, KafkaEventPublisher, NatsEventPublisher,
-    RabbitMqEventPublisher, StdoutAction, WebhookAction,
-};
+#[cfg(feature = "kafka")]
+use super::KafkaEventPublisher;
+#[cfg(feature = "nats")]
+use super::NatsEventPublisher;
+#[cfg(feature = "rabbitmq")]
+use super::RabbitMqEventPublisher;
+use super::{Action, ActionDispatcherError, ActionPayload, StdoutAction, WebhookAction};
 
 /// An enum representing the different types of actions that can be executed.
 pub enum ActionType {
@@ -12,10 +15,13 @@ pub enum ActionType {
     /// and debugging purposes.
     Stdout(StdoutAction),
     /// An action that publishes messages to a Kafka topic.
+    #[cfg(feature = "kafka")]
     Kafka(KafkaEventPublisher),
     /// An action that publishes messages to a RabbitMQ exchange.
+    #[cfg(feature = "rabbitmq")]
     RabbitMq(RabbitMqEventPublisher),
     /// An action that publishes messages to a NATS subject.
+    #[cfg(feature = "nats")]
     Nats(NatsEventPublisher),
 }
 
@@ -26,8 +32,11 @@ macro_rules! dispatch_action {
         match $self {
             ActionType::Webhook(a) => a.$method($($args),*).await,
             ActionType::Stdout(a) => a.$method($($args),*).await,
+            #[cfg(feature = "kafka")]
             ActionType::Kafka(a) => a.$method($($args),*).await,
+            #[cfg(feature = "rabbitmq")]
             ActionType::RabbitMq(a) => a.$method($($args),*).await,
+            #[cfg(feature = "nats")]
             ActionType::Nats(a) => a.$method($($args),*).await,
         }
     };

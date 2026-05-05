@@ -17,30 +17,29 @@ use alloy::{
 };
 use argus_core::{
     config::RpcRetryConfig,
+    monitor::RegistryProvider,
     providers::traits::{DataSource, DataSourceError},
 };
 use async_trait::async_trait;
 use tower::ServiceBuilder;
-
-use crate::monitor::MonitorManager;
 
 /// A `DataSource` implementation that fetches data from an EVM RPC endpoint.
 pub struct EvmRpcSource {
     /// The RPC provider used to fetch block data.
     provider: Arc<dyn Provider + Send + Sync>,
 
-    /// The monitor manager to access Interest registry
-    monitor_manager: Arc<MonitorManager>,
+    /// Shared interest registry for bloom-filter pre-screening.
+    registry: Arc<dyn RegistryProvider>,
 }
 
 impl EvmRpcSource {
     /// Creates a new `EvmRpcSource`.
-    #[tracing::instrument(skip(provider), level = "debug")]
+    #[tracing::instrument(skip(provider, registry), level = "debug")]
     pub fn new(
         provider: Arc<dyn Provider + Send + Sync>,
-        monitor_manager: Arc<MonitorManager>,
+        registry: Arc<dyn RegistryProvider>,
     ) -> Self {
-        Self { provider, monitor_manager }
+        Self { provider, registry }
     }
 }
 
@@ -135,8 +134,7 @@ impl EvmRpcSource {
         // Check if there is any log interest in this block
         // If not, skip fetching logs to save RPC calls
         let block_bloom = &block.header.logs_bloom;
-        let monitor_snapshot = self.monitor_manager.load();
-        let interest_registry = &monitor_snapshot.interest_registry;
+        let interest_registry = self.registry.interest_registry();
 
         // Early exit if there are absolutely no log-aware monitors of any kind.
         if interest_registry.log_interests.is_empty()
@@ -233,15 +231,58 @@ pub fn create_provider(
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
+    use std::{
+        collections::{HashMap, HashSet},
+        str::FromStr,
+        sync::Arc,
+    };
 
-    use alloy::primitives::{Address, B256, Bloom, BloomInput, U256, address, b256};
-    use argus_core::models::{NetworkId, monitor::Monitor};
+    use alloy::{
+        primitives::{Address, B256, Bloom, BloomInput, U256, address, b256},
+        providers::{Provider, ProviderBuilder},
+        rpc::types::{Block, TransactionReceipt},
+        transports::{http::reqwest::Url, mock::Asserter},
+    };
+    use arc_swap::ArcSwap;
+    use argus_core::{
+        config::RpcRetryConfig,
+        monitor::{InterestRegistry, RegistryProvider},
+        test_utils::{BlockBuilder, LogBuilder, ReceiptBuilder},
+    };
 
     use super::*;
-    use crate::test_helpers::{
-        BlockBuilder, LogBuilder, ReceiptBuilder, create_test_monitor_manager, mock_provider,
-    };
+
+    // --- Test helpers ---
+
+    fn mock_provider() -> (Arc<dyn Provider + Send + Sync>, Asserter) {
+        let asserter = Asserter::new();
+        let provider = Arc::new(ProviderBuilder::new().connect_mocked_client(asserter.clone()));
+        (provider, asserter)
+    }
+
+    fn make_empty_registry() -> Arc<dyn RegistryProvider> {
+        Arc::new(ArcSwap::new(Arc::new(InterestRegistry::default())))
+    }
+
+    fn make_address_registry(address: Address) -> Arc<dyn RegistryProvider> {
+        let mut map = HashMap::new();
+        map.insert(address, None);
+        Arc::new(ArcSwap::new(Arc::new(InterestRegistry {
+            log_interests: Arc::new(map),
+            ..Default::default()
+        })))
+    }
+
+    fn make_global_topic_registry(topic: B256) -> Arc<dyn RegistryProvider> {
+        let mut set = HashSet::new();
+        set.insert(topic);
+        Arc::new(ArcSwap::new(Arc::new(InterestRegistry {
+            global_event_signatures: Arc::new(set),
+            ..Default::default()
+        })))
+    }
+
+    // --- Tests ---
 
     #[tokio::test]
     async fn test_fetch_block_core_data_success() {
@@ -249,7 +290,6 @@ mod tests {
 
         let monitored_address = address!("1111111111111111111111111111111111111111");
 
-        // Create a block with a bloom filter that includes the monitored address
         let mut bloom = Bloom::default();
         bloom.accrue(BloomInput::Raw(monitored_address.as_slice()));
 
@@ -260,15 +300,7 @@ mod tests {
         asserter.push_success(&block);
         asserter.push_success(&vec![alloy_log.clone()]);
 
-        let monitor = Monitor {
-            name: "Test Monitor".into(),
-            address: Some(monitored_address.to_string()),
-            filter_script: "log != ()".into(), // Should be log-aware monitor
-            ..Default::default()
-        };
-
-        let monitor_manager = create_test_monitor_manager(vec![monitor]).await;
-        let source = EvmRpcSource::new(provider, monitor_manager);
+        let source = EvmRpcSource::new(provider, make_address_registry(monitored_address));
 
         let (fetched_block, fetched_logs) = source.fetch_block_core_data(1).await.unwrap();
 
@@ -281,10 +313,8 @@ mod tests {
         let (provider, asserter) = mock_provider();
 
         asserter.push_success(&Option::<Block>::None);
-        asserter.push_success(&Vec::<Log>::new());
 
-        let monitor_manager = create_test_monitor_manager(vec![]).await;
-        let source = EvmRpcSource::new(provider, monitor_manager);
+        let source = EvmRpcSource::new(provider, make_empty_registry());
 
         let result = source.fetch_block_core_data(1).await;
 
@@ -295,10 +325,8 @@ mod tests {
     async fn test_fetch_block_core_data_error_handling() {
         let (provider, asserter) = mock_provider();
         asserter.push_failure_msg("RPC error");
-        asserter.push_success(&Vec::<Log>::new());
 
-        let monitor_manager = create_test_monitor_manager(vec![]).await;
-        let source = EvmRpcSource::new(provider, monitor_manager);
+        let source = EvmRpcSource::new(provider, make_empty_registry());
 
         let result = source.fetch_block_core_data(1).await;
 
@@ -310,8 +338,7 @@ mod tests {
         let (provider, asserter) = mock_provider();
         asserter.push_success(&U256::from(1));
 
-        let monitor_manager = create_test_monitor_manager(vec![]);
-        let source = EvmRpcSource::new(provider, monitor_manager.await);
+        let source = EvmRpcSource::new(provider, make_empty_registry());
 
         let block_number = source.get_current_block_number().await.unwrap();
 
@@ -323,8 +350,7 @@ mod tests {
         let (provider, asserter) = mock_provider();
         asserter.push_failure_msg("RPC error");
 
-        let monitor_manager = create_test_monitor_manager(vec![]);
-        let source = EvmRpcSource::new(provider, monitor_manager.await);
+        let source = EvmRpcSource::new(provider, make_empty_registry());
 
         let result = source.get_current_block_number().await;
 
@@ -336,8 +362,7 @@ mod tests {
         let (provider, asserter) = mock_provider();
         asserter.push_failure_msg("RPC error");
 
-        let monitor_manager = create_test_monitor_manager(vec![]);
-        let source = EvmRpcSource::new(provider, monitor_manager.await);
+        let source = EvmRpcSource::new(provider, make_empty_registry());
 
         let tx_hashes = &[B256::default()];
         let result = source.fetch_receipts(tx_hashes).await;
@@ -376,16 +401,7 @@ mod tests {
         asserter.push_success(&block);
         asserter.push_success(&logs);
 
-        let monitor = Monitor {
-            name: "Test Monitor".into(),
-            network: NetworkId::default(),
-            address: Some(monitored_address.to_string()),
-            filter_script: "log != ()".to_string(), // should be log-aware
-            ..Default::default()
-        };
-
-        let monitor_manager = create_test_monitor_manager(vec![monitor]);
-        let data_source = EvmRpcSource::new(provider, monitor_manager.await);
+        let data_source = EvmRpcSource::new(provider, make_address_registry(monitored_address));
         let (fetched_block, fetched_logs) =
             data_source.fetch_block_and_logs(block_number).await.unwrap();
 
@@ -398,7 +414,7 @@ mod tests {
         let (provider, asserter) = mock_provider();
         let block_number = 123;
         let transfer_topic =
-            b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"); // keccak256("Transfer(address,address,uint256)")
+            b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef");
 
         let mut bloom = Bloom::default();
         bloom.accrue(BloomInput::Raw(transfer_topic.as_slice()));
@@ -409,17 +425,7 @@ mod tests {
         asserter.push_success(&block);
         asserter.push_success(&vec![log]);
 
-        let monitor = Monitor {
-            name: "Test Monitor".into(),
-            network: NetworkId::default(),
-            address: Some("all".to_string()), // 'all' indicates global event signature monitoring
-            abi_name: Some("erc20".to_string()), // ABI with Transfer event
-            filter_script: "log.name == \"Transfer\"".to_string(),
-            ..Default::default()
-        };
-
-        let monitor_manager = create_test_monitor_manager(vec![monitor]);
-        let data_source = EvmRpcSource::new(provider, monitor_manager.await);
+        let data_source = EvmRpcSource::new(provider, make_global_topic_registry(transfer_topic));
         let (fetched_block, fetched_logs) =
             data_source.fetch_block_and_logs(block_number).await.unwrap();
 
@@ -433,20 +439,12 @@ mod tests {
         let block_number = 123;
         let monitored_address = address!("1111111111111111111111111111111111111111");
 
-        let block = BlockBuilder::new().number(block_number).build(); // Default bloom is empty
+        // Default bloom is empty — address won't appear in it.
+        let block = BlockBuilder::new().number(block_number).build();
 
         asserter.push_success(&block);
 
-        let monitor = Monitor {
-            name: "Test Monitor".into(),
-            network: NetworkId::default(),
-            address: Some(monitored_address.to_string()),
-            filter_script: "true".to_string(),
-            ..Default::default()
-        };
-
-        let monitor_manager = create_test_monitor_manager(vec![monitor]);
-        let data_source = EvmRpcSource::new(provider, monitor_manager.await);
+        let data_source = EvmRpcSource::new(provider, make_address_registry(monitored_address));
         let (fetched_block, fetched_logs) =
             data_source.fetch_block_and_logs(block_number).await.unwrap();
 
@@ -463,12 +461,10 @@ mod tests {
         let receipt1 = ReceiptBuilder::new().transaction_hash(tx_hash1).build();
         let receipt2 = ReceiptBuilder::new().transaction_hash(tx_hash2).build();
 
-        // Push responses in the order they are expected to be called.
         asserter.push_success(&receipt1);
         asserter.push_success(&receipt2);
 
-        let monitor_manager = create_test_monitor_manager(vec![]);
-        let data_source = EvmRpcSource::new(provider, monitor_manager.await);
+        let data_source = EvmRpcSource::new(provider, make_empty_registry());
         let receipts = data_source.fetch_receipts(&[tx_hash1, tx_hash2]).await.unwrap();
 
         assert_eq!(receipts.len(), 2);
@@ -478,9 +474,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_receipts_empty() {
-        let (provider, _) = mock_provider(); // Asserter is not needed as no calls are made.     
-        let monitor_manager = create_test_monitor_manager(vec![]);
-        let data_source = EvmRpcSource::new(provider, monitor_manager.await);
+        let (provider, _) = mock_provider();
+        let data_source = EvmRpcSource::new(provider, make_empty_registry());
         let receipts = data_source.fetch_receipts(&[]).await.unwrap();
         assert!(receipts.is_empty());
     }
@@ -492,8 +487,7 @@ mod tests {
 
         asserter.push_success(&U256::from(current_block));
 
-        let monitor_manager = create_test_monitor_manager(vec![]);
-        let data_source = EvmRpcSource::new(provider, monitor_manager.await);
+        let data_source = EvmRpcSource::new(provider, make_empty_registry());
         let result = data_source.get_current_block_number().await.unwrap();
 
         assert_eq!(result, current_block);
@@ -504,13 +498,9 @@ mod tests {
         let (provider, asserter) = mock_provider();
         let block_number = 404;
 
-        // Mock a `null` response for the block, which deserializes to `None`.
         asserter.push_success(&Option::<Block>::None);
-        // The logs request will still be made in the sequential test version.
-        asserter.push_success(&Vec::<Log>::new());
 
-        let monitor_manager = create_test_monitor_manager(vec![]);
-        let data_source = EvmRpcSource::new(provider, monitor_manager.await);
+        let data_source = EvmRpcSource::new(provider, make_empty_registry());
         let result = data_source.fetch_block_and_logs(block_number).await;
 
         assert!(matches!(result, Err(DataSourceError::BlockNotFound(404))));
@@ -520,17 +510,14 @@ mod tests {
     async fn test_fetch_receipts_partial_success() {
         let (provider, asserter) = mock_provider();
         let tx_hash1 = B256::from_slice(&[1; 32]);
-        let tx_hash2 = B256::from_slice(&[2; 32]); // This one will not be found.
+        let tx_hash2 = B256::from_slice(&[2; 32]);
 
         let receipt1 = ReceiptBuilder::new().transaction_hash(tx_hash1).build();
 
-        // Push a success for the first receipt.
         asserter.push_success(&receipt1);
-        // Push a `null` response for the second, which deserializes to `None`.
         asserter.push_success(&Option::<TransactionReceipt>::None);
 
-        let monitor_manager = create_test_monitor_manager(vec![]);
-        let data_source = EvmRpcSource::new(provider, monitor_manager.await);
+        let data_source = EvmRpcSource::new(provider, make_empty_registry());
         let receipts = data_source.fetch_receipts(&[tx_hash1, tx_hash2]).await.unwrap();
 
         assert_eq!(receipts.len(), 1);
@@ -542,11 +529,9 @@ mod tests {
     async fn test_provider_error_propagation() {
         let (provider, asserter) = mock_provider();
 
-        // Push a custom error response.
         asserter.push_failure_msg("test provider error");
 
-        let monitor_manager = create_test_monitor_manager(vec![]);
-        let data_source = EvmRpcSource::new(provider, monitor_manager.await);
+        let data_source = EvmRpcSource::new(provider, make_empty_registry());
         let result = data_source.get_current_block_number().await;
 
         assert!(matches!(result, Err(DataSourceError::Provider(_))));
@@ -558,29 +543,18 @@ mod tests {
         let (provider, asserter) = mock_provider();
         let block_number = 123;
 
-        // Block can have a bloom filter, it shouldn't matter.
         let mut bloom = Bloom::default();
         bloom.accrue(BloomInput::Raw(&[1; 32]));
         let block = BlockBuilder::new().number(block_number).bloom(bloom).build();
 
-        // Only push the block response. The logs response should never be requested.
+        // No log interests in the registry — logs should never be requested.
         asserter.push_success(&block);
 
-        // Create a monitor that is NOT log-aware (e.g., it only checks tx.value)
-        let monitor = Monitor {
-            name: "TX Only Monitor".into(),
-            network: NetworkId::default(),
-            filter_script: "tx.value > 100".to_string(),
-            ..Default::default()
-        };
-
-        let monitor_manager = create_test_monitor_manager(vec![monitor]);
-        let data_source = EvmRpcSource::new(provider, monitor_manager.await);
+        let data_source = EvmRpcSource::new(provider, make_empty_registry());
         let (fetched_block, fetched_logs) =
             data_source.fetch_block_and_logs(block_number).await.unwrap();
 
         assert_eq!(fetched_block.header.number, block_number);
-        // The key assertion: logs are empty because they were never fetched.
         assert!(fetched_logs.is_empty());
     }
 
@@ -594,26 +568,14 @@ mod tests {
         bloom.accrue(BloomInput::Raw(monitored_address.as_slice()));
         let block = BlockBuilder::new().number(block_number).bloom(bloom).build();
 
-        // Mock a successful block response.
         asserter.push_success(&block);
-        // Mock a failure for the logs response.
         asserter.push_failure_msg("failed to get logs");
 
-        let monitor = Monitor {
-            name: "Test Monitor".into(),
-            network: NetworkId::default(),
-            address: Some(monitored_address.to_string()),
-            filter_script: "log != ()".to_string(),
-            ..Default::default()
-        };
-
-        let monitor_manager = create_test_monitor_manager(vec![monitor]);
-        let data_source = EvmRpcSource::new(provider, monitor_manager.await);
+        let data_source = EvmRpcSource::new(provider, make_address_registry(monitored_address));
         let result = data_source.fetch_block_and_logs(block_number).await;
 
         assert!(matches!(result, Err(DataSourceError::Provider(_))));
-
-        assert!(result.unwrap_err().to_string().contains("failed to get logs",));
+        assert!(result.unwrap_err().to_string().contains("failed to get logs"));
     }
 
     #[tokio::test]
@@ -624,13 +586,10 @@ mod tests {
 
         let receipt1 = ReceiptBuilder::new().transaction_hash(tx_hash1).build();
 
-        // Push a success for the first receipt.
         asserter.push_success(&receipt1);
-        // Push a failure for the second receipt.
         asserter.push_failure_msg("receipt unavailable");
 
-        let monitor_manager = create_test_monitor_manager(vec![]);
-        let data_source = EvmRpcSource::new(provider, monitor_manager.await);
+        let data_source = EvmRpcSource::new(provider, make_empty_registry());
         let result = data_source.fetch_receipts(&[tx_hash1, tx_hash2]).await;
 
         assert!(matches!(result, Err(DataSourceError::Provider(_))));

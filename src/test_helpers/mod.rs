@@ -1,7 +1,6 @@
 //! A set of helpers for testing
 
 mod abi;
-mod actions;
 mod block;
 mod http_client;
 mod log;
@@ -14,7 +13,6 @@ mod receipt;
 mod transaction;
 
 pub use abi::{create_test_abi_service, erc20_abi_json};
-pub use actions::ActionBuilder;
 pub use block::BlockBuilder;
 pub use http_client::create_test_http_client;
 pub use log::LogBuilder;

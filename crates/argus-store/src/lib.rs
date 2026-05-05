@@ -1,5 +1,4 @@
-//! This module provides a concrete implementation of the StateRepository using
-//! SQLite.
+//! SQLite-backed persistence implementation for Argus.
 
 use std::str::FromStr;
 
@@ -35,7 +34,7 @@ impl SqliteStateRepository {
     /// Runs database migrations.
     #[tracing::instrument(skip(self), level = "info")]
     pub async fn run_migrations(&self) -> Result<(), PersistenceError> {
-        sqlx::migrate!("./migrations").run(&self.pool).await.map_err(|e| {
+        sqlx::migrate!("../../migrations").run(&self.pool).await.map_err(|e| {
             tracing::error!(error = %e, "Failed to run database migrations.");
             PersistenceError::MigrationError(e.to_string())
         })?;
@@ -122,11 +121,11 @@ mod tests {
             notification::NotificationMessage,
         },
         persistence::traits::{AppRepository, KeyValueStore},
+        test_utils::ActionBuilder,
     };
     use serde::{Deserialize, Serialize};
 
     use super::*;
-    use crate::test_helpers::ActionBuilder;
 
     async fn setup_test_db() -> SqliteStateRepository {
         let repo = SqliteStateRepository::new("sqlite::memory:")

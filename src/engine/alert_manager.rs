@@ -13,11 +13,10 @@ use argus_core::{
         traits::{AppRepository, KeyValueStore},
     },
 };
+use argus_dispatch::{ActionPayload, error::ActionDispatcherError};
 use dashmap::DashMap;
 use thiserror::Error;
 use tokio::sync::Mutex;
-
-use crate::action_dispatcher::{ActionPayload, error::ActionDispatcherError};
 
 /// The AlertManager is responsible for processing monitor matches, applying
 /// notification policies (throttling, aggregation, etc.) and enqueuing
@@ -378,13 +377,13 @@ mod tests {
             monitor_match::LogDetails,
         },
         persistence::traits::{AppRepository, MockAppRepository, MockKeyValueStore},
+        test_utils::ActionBuilder,
     };
     use chrono::Utc;
     use mockall::predicate::eq;
     use serde_json::json;
 
     use super::*;
-    use crate::test_helpers::ActionBuilder;
 
     /// Combined mock implementing both KeyValueStore and AppRepository
     #[derive(Debug)]

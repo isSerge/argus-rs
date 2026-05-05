@@ -11,12 +11,13 @@ use argus_core::{
     },
     providers::traits::{DataSource, DataSourceError},
 };
+use argus_dispatch::error::ActionDispatcherError;
+use argus_providers::{EvmRpcSource, block_fetcher, rpc::ProviderError};
 use clap::Parser;
 use dashmap::DashMap;
 use thiserror::Error;
 
 use crate::{
-    action_dispatcher::error::ActionDispatcherError,
     context::{AppContextBuilder, AppContextError},
     engine::{
         alert_manager::{AlertManager, AlertManagerError},
@@ -25,10 +26,6 @@ use crate::{
         outbox_processor::OutboxProcessor,
     },
     monitor::MonitorManager,
-    providers::{
-        block_fetcher,
-        rpc::{EvmRpcSource, ProviderError},
-    },
 };
 
 /// Errors that can occur during the execution of a dry run.
@@ -132,7 +129,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     );
 
     // Init EVM data source for fetching blockchain data.
-    let evm_source = EvmRpcSource::new(provider, monitor_manager.clone());
+    let evm_source = EvmRpcSource::new(provider, monitor_manager.registry_provider());
 
     // Execute the core processing loop.
     let matches = run_dry_run_loop(
@@ -361,7 +358,9 @@ mod tests {
         config::RhaiConfig,
         models::{action::ActionConfig, monitor_match::MatchData},
         providers::traits::MockDataSource,
+        test_utils::ActionBuilder,
     };
+    use argus_store::SqliteStateRepository;
     use mockall::predicate::eq;
     use serde_json::json;
 
@@ -369,8 +368,7 @@ mod tests {
     use crate::{
         abi::{AbiRepository, AbiService},
         engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
-        persistence::sqlite::SqliteStateRepository,
-        test_helpers::{ActionBuilder, BlockBuilder, MonitorBuilder, TransactionBuilder},
+        test_helpers::{BlockBuilder, MonitorBuilder, TransactionBuilder},
     };
 
     // A helper function to create a test state repository

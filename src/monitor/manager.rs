@@ -7,10 +7,13 @@ use std::{
 };
 
 use arc_swap::{ArcSwap, Guard};
-use argus_core::models::monitor::{Monitor, MonitorStatus};
+use argus_core::{
+    models::monitor::{Monitor, MonitorStatus},
+    monitor::{InterestRegistry, RegistryProvider},
+};
 use bitflags::bitflags;
 
-use super::{InterestRegistry, InterestRegistryBuilder};
+use super::InterestRegistryBuilder;
 use crate::{
     abi::AbiService,
     engine::rhai::{RhaiCompiler, ScriptAnalysis},
@@ -59,7 +62,7 @@ pub struct MonitorAssetState {
     pub log_aware_monitors: Vec<i64>,
 
     /// An optimized, fast-lookup registry for the BlockProcessor.
-    pub interest_registry: InterestRegistry,
+    pub interest_registry: Arc<InterestRegistry>,
 
     /// The flag indicating if any monitor in this snapshot requires receipts.
     pub requires_receipts: bool,
@@ -77,9 +80,12 @@ pub struct MonitorManager {
     compiler: Arc<RhaiCompiler>,
     /// The ABI service used for resolving ABIs in monitors.
     abi_service: Arc<AbiService>,
-    /// The current state of monitors, wrapped in an `ArcSwap` for atomic
-    /// updates.
-    state: ArcSwap<MonitorAssetState>,
+    /// The current state of monitors, wrapped in an `Arc<ArcSwap>` for atomic
+    /// updates and cheap sharing.  This is the single source of truth for both
+    /// `BlockProcessor`/`FilteringEngine` (via `load()`) and `EvmRpcSource`
+    /// (via `registry_provider()`), eliminating the previous two-`ArcSwap`
+    /// race.
+    state: Arc<ArcSwap<MonitorAssetState>>,
 }
 
 impl MonitorManager {
@@ -91,11 +97,14 @@ impl MonitorManager {
         abi_service: Arc<AbiService>,
     ) -> Self {
         let initial_state = Self::organize_assets(initial_monitors, &compiler, &abi_service);
-        Self { compiler, abi_service, state: ArcSwap::new(Arc::new(initial_state)) }
+        Self { compiler, abi_service, state: Arc::new(ArcSwap::new(Arc::new(initial_state))) }
     }
 
     /// Updates the monitor state with a new set of monitors.
-    /// This method atomically swaps the entire monitor state.
+    /// This method atomically swaps the entire monitor state, including the
+    /// embedded `InterestRegistry`, in a single store so that
+    /// `EvmRpcSource` and `BlockProcessor`/`FilteringEngine` always observe a
+    /// consistent pair.
     pub fn update(&self, monitors: Vec<Monitor>) {
         let state = Self::organize_assets(monitors, &self.compiler, &self.abi_service);
         self.state.store(Arc::new(state));
@@ -104,6 +113,13 @@ impl MonitorManager {
     /// Loads the current snapshot of the monitor state.
     pub fn load(&self) -> Guard<Arc<MonitorAssetState>> {
         self.state.load()
+    }
+
+    /// Returns a [`RegistryProvider`] backed by the same `ArcSwap` that drives
+    /// the monitor state.  `EvmRpcSource` uses this to read the registry from
+    /// a single authoritative snapshot, eliminating the previous race.
+    pub fn registry_provider(&self) -> Arc<dyn RegistryProvider> {
+        Arc::new(MonitorStateHandle(self.state.clone()))
     }
 
     /// Organizes monitors into the `MonitorAssetState`, categorizing them and
@@ -142,7 +158,8 @@ impl MonitorManager {
         // Build interest registry by borrowing from classified_monitors
         let monitors_for_registry: Vec<&ClassifiedMonitor> =
             classified_monitors.iter().map(|(cm, _)| cm).collect();
-        let interest_registry = Self::build_interest_registry(&monitors_for_registry, abi_service);
+        let interest_registry =
+            Arc::new(Self::build_interest_registry(&monitors_for_registry, abi_service));
 
         let has_transaction_only_monitors =
             classified_monitors.iter().any(|(cm, _)| cm.caps == MonitorCapabilities::TX);
@@ -258,6 +275,18 @@ impl MonitorManager {
                 builder
             })
             .build()
+    }
+}
+
+/// `EvmRpcSource` holds an `Arc<dyn RegistryProvider>`.  By implementing the
+/// trait here (where `MonitorStateHandle` is the local type), we can pass the
+/// same `Arc<ArcSwap<MonitorAssetState>>` that drives the manager state
+/// directly — registry and state are now a single atomic snapshot.
+struct MonitorStateHandle(Arc<ArcSwap<MonitorAssetState>>);
+
+impl RegistryProvider for MonitorStateHandle {
+    fn interest_registry(&self) -> Arc<InterestRegistry> {
+        self.0.load().interest_registry.clone()
     }
 }
 

@@ -2,7 +2,7 @@ use argus_core::models::action::NatsConfig;
 use async_nats::HeaderMap;
 use bytes::Bytes;
 
-use crate::action_dispatcher::{
+use crate::{
     ActionPayload,
     error::ActionDispatcherError,
     publisher::{EventPublisher, PublisherError},
@@ -55,6 +55,11 @@ impl EventPublisher for NatsEventPublisher {
             .publish_with_headers(subject.to_string(), headers, Bytes::copy_from_slice(payload))
             .await?;
 
+        Ok(())
+    }
+
+    async fn flush(&self) -> Result<(), PublisherError> {
+        self.client.flush().await?;
         Ok(())
     }
 }

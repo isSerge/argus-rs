@@ -19,22 +19,21 @@ use argus_core::{
     models::{action::ActionConfig, monitor::MonitorConfig},
     persistence::traits::{AppRepository, KeyValueStore},
 };
+use argus_dispatch::{ActionDispatcher, http_client::HttpClientPool, template::TemplateService};
+use argus_providers::rpc::create_provider;
+use argus_store::SqliteStateRepository;
 pub use error::{AppContextError, InitializationError};
 pub use metrics::{AppMetrics, Metrics};
 
 use crate::{
     abi::{AbiService, repository::AbiRepository},
-    action_dispatcher::{ActionDispatcher, template::TemplateService},
     engine::{
         alert_manager::AlertManager,
         filtering::RhaiFilteringEngine,
         rhai::{RhaiCompiler, RhaiScriptValidator},
     },
-    http_client::HttpClientPool,
     loader::load_config,
     monitor::{MonitorManager, MonitorValidator},
-    persistence::sqlite::SqliteStateRepository,
-    providers::rpc::create_provider,
 };
 
 /// The application context, holding configuration, database repository,
@@ -536,10 +535,10 @@ mod tests {
     use argus_core::{
         config::{AppConfig, RhaiConfig},
         models::monitor::MonitorStatus,
+        test_utils::ActionBuilder,
     };
 
     use super::*;
-    use crate::test_helpers::ActionBuilder;
 
     fn create_test_config() -> AppConfig {
         AppConfig::builder()

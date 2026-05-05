@@ -8,6 +8,9 @@ resolver = "2"
 [workspace.dependencies]
 alloy = { version = "1.0.37", features = ["essentials"] }
 argus-core = { path = "crates/argus-core" }
+argus-dispatch = { path = "crates/argus-dispatch" }
+argus-providers = { path = "crates/argus-providers" }
+argus-store = { path = "crates/argus-store" }
 omnihook = { path = "crates/omnihook" }
 rhai-analyzer = { path = "crates/rhai-analyzer" }
 rhai-bigint = { path = "crates/rhai-bigint" }
@@ -67,6 +70,9 @@ edition = "2024"
 [dependencies]
 alloy.workspace = true
 argus-core.workspace = true
+argus-dispatch = { workspace = true, features = ["kafka", "rabbitmq", "nats"] }
+argus-providers.workspace = true
+argus-store.workspace = true
 arc-swap.workspace = true
 async-nats.workspace = true
 async-trait.workspace = true

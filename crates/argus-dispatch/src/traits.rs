@@ -1,4 +1,4 @@
-use crate::action_dispatcher::{ActionPayload, error::ActionDispatcherError};
+use crate::{ActionPayload, error::ActionDispatcherError};
 
 /// A trait representing an action that can be executed in response to a monitor
 /// match.

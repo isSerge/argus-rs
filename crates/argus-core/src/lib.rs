@@ -7,5 +7,9 @@ pub mod action_dispatcher;
 pub mod config;
 pub mod loader;
 pub mod models;
+pub mod monitor;
 pub mod persistence;
 pub mod providers;
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_utils;

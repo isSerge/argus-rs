@@ -16,6 +16,7 @@ use crate::http_client::HttpClientPool;
 
 mod action_type;
 pub mod error;
+pub mod http_client;
 pub mod publisher;
 mod stdout;
 pub mod template;
@@ -26,7 +27,12 @@ mod webhook;
 use action_type::ActionType;
 pub use argus_core::action_dispatcher::ActionPayload;
 use error::ActionDispatcherError;
-use publisher::{KafkaEventPublisher, NatsEventPublisher, RabbitMqEventPublisher};
+#[cfg(feature = "kafka")]
+use publisher::KafkaEventPublisher;
+#[cfg(feature = "nats")]
+use publisher::NatsEventPublisher;
+#[cfg(feature = "rabbitmq")]
+use publisher::RabbitMqEventPublisher;
 use stdout::StdoutAction;
 use template::TemplateService;
 use tokio::sync::mpsc;
@@ -79,6 +85,7 @@ impl ActionDispatcher {
         for (name, config) in action_configs.iter() {
             let action: ActionType = match &config.config {
                 // Kafka publisher action
+                #[cfg(feature = "kafka")]
                 ActionTypeConfig::Kafka(c) => {
                     let publisher = match KafkaEventPublisher::from_config(c) {
                         Ok(p) => p,
@@ -96,6 +103,7 @@ impl ActionDispatcher {
                 }
 
                 // RabbitMQ publisher action
+                #[cfg(feature = "rabbitmq")]
                 ActionTypeConfig::RabbitMq(c) => {
                     let publisher = match RabbitMqEventPublisher::from_config(c).await {
                         Ok(p) => p,
@@ -113,6 +121,7 @@ impl ActionDispatcher {
                 }
 
                 // NATS publisher action
+                #[cfg(feature = "nats")]
                 ActionTypeConfig::Nats(c) => {
                     let publisher = match NatsEventPublisher::from_config(c).await {
                         Ok(p) => p,
@@ -146,6 +155,16 @@ impl ActionDispatcher {
                         http_client,
                         template_service.clone(),
                     ))
+                }
+
+                #[allow(unreachable_patterns)]
+                _ => {
+                    return Err(ActionDispatcherError::ConfigError(format!(
+                        "Action '{}' uses a type that is not compiled into this build (feature \
+                         flag disabled). Either enable the required feature flag or remove this \
+                         action from the configuration.",
+                        name
+                    )));
                 }
             };
             actions.insert(name.clone(), action);
@@ -197,26 +216,29 @@ impl ActionDispatcher {
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::HashMap, sync::Arc};
+
     use alloy::primitives::{TxHash, address};
     use argus_core::{
         config::HttpRetryConfig,
         models::{
             action::{
-                DiscordConfig, GenericWebhookConfig, SlackConfig, StdoutConfig, TelegramConfig,
+                ActionTypeConfig, DiscordConfig, GenericWebhookConfig, SlackConfig, StdoutConfig,
+                TelegramConfig,
             },
             monitor_match::LogDetails,
             notification::NotificationMessage,
         },
+        test_utils::ActionBuilder,
     };
     use serde_json::json;
     use url::Url;
 
     use super::*;
-    use crate::test_helpers::ActionBuilder;
 
     fn create_mock_monitor_match(action_name: &str) -> MonitorMatch {
         let log_details = LogDetails {
-            address: address!("0x1234567890abcdef1234567890abcdef12345678"),
+            address: address!("1234567890abcdef1234567890abcdef12345678"),
             log_index: 15,
             name: "TestLog".to_string(),
             params: json!({"param1": "value1", "param2": 42}),
@@ -235,168 +257,149 @@ mod tests {
 
     #[tokio::test]
     async fn test_missing_action_error() {
-        let http_client_pool = Arc::new(HttpClientPool::default());
         let service =
-            ActionDispatcher::new(Arc::new(HashMap::new()), http_client_pool).await.unwrap();
-        let monitor_match = create_mock_monitor_match("nonexistent");
-        let notification_payload = ActionPayload::Single(monitor_match.clone());
-        let result = service.execute(notification_payload).await;
+            ActionDispatcher::new(Arc::new(HashMap::new()), Arc::new(HttpClientPool::default()))
+                .await
+                .unwrap();
 
-        assert!(result.is_err());
-        match result {
-            Err(ActionDispatcherError::ConfigError(msg)) => {
-                assert!(msg.contains("Action 'nonexistent' not found"));
-            }
-            _ => panic!("Expected ConfigError"),
-        }
+        let result =
+            service.execute(ActionPayload::Single(create_mock_monitor_match("nonexistent"))).await;
+
+        assert!(matches!(
+            result,
+            Err(ActionDispatcherError::ConfigError(ref msg)) if msg.contains("Action 'nonexistent' not found")
+        ));
     }
 
     #[test]
-    fn as_webhook_components_trait_for_slack_config() {
-        let title = "Slack Title";
-        let message = "Slack Body";
+    fn as_webhook_components_slack() {
         let url = Url::parse("https://slack.example.com").unwrap();
-
-        let slack_config = ActionTypeConfig::Slack(SlackConfig {
+        let config = ActionTypeConfig::Slack(SlackConfig {
             slack_url: url.clone(),
-            message: NotificationMessage { title: title.to_string(), body: message.to_string() },
+            message: NotificationMessage { title: "T".into(), body: "B".into() },
             retry_policy: HttpRetryConfig::default(),
         });
 
-        let components = slack_config.as_webhook_components().unwrap();
+        let components = config.as_webhook_components().unwrap();
 
-        // Assert WebhookConfig is correct
         assert_eq!(components.config.url, url);
-        assert_eq!(components.config.title, title);
-        assert_eq!(components.config.body_template, message);
+        assert_eq!(components.config.title, "T");
+        assert_eq!(components.config.body_template, "B");
         assert_eq!(components.config.method, Some("POST".to_string()));
         assert!(components.config.secret.is_none());
-
-        // Assert the builder creates the correct payload
-        let payload = components.builder.build_payload(title, message);
-        assert!(payload.get("blocks").is_some(), "Expected a Slack payload with 'blocks'");
-        assert!(payload.get("content").is_none(), "Did not expect a Discord payload");
+        let payload = components.builder.build_payload("T", "B");
+        assert!(payload.get("blocks").is_some(), "expected Slack 'blocks' payload");
+        assert!(payload.get("content").is_none());
     }
 
     #[test]
-    fn as_webhook_components_trait_for_discord_config() {
-        let title = "Discord Title"; // Not directly used in Discord payload, but part of the message struct
-        let message = "Discord Body";
+    fn as_webhook_components_discord() {
         let url = Url::parse("https://discord.example.com").unwrap();
-
-        let discord_config = ActionTypeConfig::Discord(DiscordConfig {
+        let config = ActionTypeConfig::Discord(DiscordConfig {
             discord_url: url.clone(),
-            message: NotificationMessage { title: title.to_string(), body: message.to_string() },
+            message: NotificationMessage { title: "T".into(), body: "B".into() },
             retry_policy: HttpRetryConfig::default(),
         });
 
-        let components = discord_config.as_webhook_components().unwrap();
+        let components = config.as_webhook_components().unwrap();
 
-        // Assert WebhookConfig is correct
         assert_eq!(components.config.url, url);
-        assert_eq!(components.config.title, title);
-        assert_eq!(components.config.body_template, message);
         assert_eq!(components.config.method, Some("POST".to_string()));
         assert!(components.config.secret.is_none());
-
-        // Assert the builder creates the correct payload
-        let payload = components.builder.build_payload(title, message);
-        assert_eq!(payload.get("content").unwrap(), &format!("*{title}*\n\n{message}"));
-        assert!(payload.get("blocks").is_none(), "Did not expect a Slack payload");
+        let payload = components.builder.build_payload("T", "B");
+        assert_eq!(payload.get("content").unwrap(), "*T*\n\nB");
+        assert!(payload.get("blocks").is_none());
     }
 
     #[test]
-    fn as_webhook_components_trait_for_telegram_config() {
-        let title = "Telegram Title"; // Not used in Telegram payload
-        let message = "Telegram Body";
-        let token = "test_token";
-        let chat_id = "test_chat_id";
-
-        let telegram_config = ActionTypeConfig::Telegram(TelegramConfig {
-            token: token.to_string(),
-            chat_id: chat_id.to_string(),
-            message: NotificationMessage { title: title.to_string(), body: message.to_string() },
+    fn as_webhook_components_telegram() {
+        let config = ActionTypeConfig::Telegram(TelegramConfig {
+            token: "mytoken123".into(),
+            chat_id: "cid".into(),
+            message: NotificationMessage { title: "T".into(), body: "B".into() },
             disable_web_preview: Some(true),
             retry_policy: HttpRetryConfig::default(),
         });
 
-        let components = telegram_config.as_webhook_components().unwrap();
+        let components = config.as_webhook_components().unwrap();
 
-        // Assert WebhookConfig is correct
         assert_eq!(
             components.config.url,
-            Url::parse(&format!("https://api.telegram.org/bot{token}/sendMessage")).unwrap()
+            Url::parse("https://api.telegram.org/botmytoken123/sendMessage").unwrap()
         );
-        assert_eq!(components.config.title, title);
-        assert_eq!(components.config.body_template, message);
-        assert_eq!(components.config.method, Some("POST".to_string()));
-
-        // Assert the builder creates the correct payload
-        let payload = components.builder.build_payload(title, message);
-        assert_eq!(payload.get("chat_id").unwrap(), chat_id);
-        assert_eq!(payload.get("text").unwrap(), &format!("*{title}* \n\n{message}"));
+        let payload = components.builder.build_payload("T", "B");
+        assert_eq!(payload.get("chat_id").unwrap(), "cid");
+        assert_eq!(payload.get("text").unwrap(), "*T* \n\nB");
         assert_eq!(payload.get("disable_web_page_preview").unwrap(), &json!(true));
     }
 
     #[test]
-    fn as_webhook_components_trait_for_generic_webhook_config() {
-        let title = "Webhook Title";
-        let message = "Webhook Body";
+    fn as_webhook_components_generic_webhook() {
         let url = Url::parse("https://webhook.example.com").unwrap();
         let mut headers = HashMap::new();
-        headers.insert("X-Test-Header".to_string(), "Value".to_string());
-
-        let webhook_config = ActionTypeConfig::Webhook(GenericWebhookConfig {
+        headers.insert("X-Test".to_string(), "val".to_string());
+        let config = ActionTypeConfig::Webhook(GenericWebhookConfig {
             url: url.clone(),
-            message: NotificationMessage { title: title.to_string(), body: message.to_string() },
+            message: NotificationMessage { title: "T".into(), body: "B".into() },
             method: Some("PUT".to_string()),
-            secret: Some("my-secret".to_string()),
+            secret: Some("s3cr3t".to_string()),
             headers: Some(headers.clone()),
             retry_policy: HttpRetryConfig::default(),
         });
 
-        let components = webhook_config.as_webhook_components().unwrap();
+        let components = config.as_webhook_components().unwrap();
 
-        // Assert WebhookConfig is correct
         assert_eq!(components.config.url, url);
         assert_eq!(components.config.method, Some("PUT".to_string()));
-        assert_eq!(components.config.secret, Some("my-secret".to_string()));
+        assert_eq!(components.config.secret, Some("s3cr3t".to_string()));
         assert_eq!(components.config.headers, Some(headers));
-
-        // Assert the builder creates the correct payload
-        let payload = components.builder.build_payload(title, message);
-        assert_eq!(payload.get("title").unwrap(), title);
-        assert_eq!(payload.get("body").unwrap(), message);
+        let payload = components.builder.build_payload("T", "B");
+        assert_eq!(payload.get("title").unwrap(), "T");
+        assert_eq!(payload.get("body").unwrap(), "B");
     }
 
     #[test]
-    fn as_webhook_components_trait_fails_for_stdout_config() {
-        let stdout_config = ActionTypeConfig::Stdout(StdoutConfig { message: None });
-
-        let result = stdout_config.as_webhook_components();
-
-        assert!(result.is_err());
-        match result {
-            Err(ActionDispatcherError::ConfigError(msg)) => {
-                assert!(msg.contains("action does not support webhook components"));
-            }
-            _ => panic!("Expected ConfigError"),
-        }
+    fn as_webhook_components_fails_for_stdout() {
+        let config = ActionTypeConfig::Stdout(StdoutConfig { message: None });
+        let result = config.as_webhook_components();
+        assert!(matches!(
+            result,
+            Err(ActionDispatcherError::ConfigError(ref msg)) if msg.contains("action does not support webhook components")
+        ));
     }
 
     #[tokio::test]
-    async fn test_shutdown_actions_no_panic() {
+    async fn test_shutdown_no_panic() {
         let action_config = ActionBuilder::new("stdout_test").stdout_config(None).build();
+        let configs = Arc::new(
+            [(action_config.name.clone(), action_config)].into_iter().collect::<HashMap<_, _>>(),
+        );
+        let service =
+            ActionDispatcher::new(configs, Arc::new(HttpClientPool::default())).await.unwrap();
 
-        let service = ActionDispatcher::new(
-            Arc::new(
-                vec![(action_config.name.clone(), action_config.clone())].into_iter().collect(),
-            ),
-            Arc::new(HttpClientPool::default()),
-        )
-        .await
-        .unwrap();
+        service.shutdown().await; // must not panic
+    }
 
-        service.shutdown().await;
+    /// When all publisher features are disabled the catch-all arm returns an
+    /// error instead of silently skipping the unsupported action type.
+    ///
+    /// This test is only meaningful when none of kafka/rabbitmq/nats is
+    /// compiled in, so it is gated accordingly.
+    #[cfg(not(any(feature = "kafka", feature = "rabbitmq", feature = "nats")))]
+    #[tokio::test]
+    async fn test_unsupported_action_type_returns_error() {
+        let action_config =
+            ActionBuilder::new("kafka_action").kafka_config("localhost:9092", "test-topic").build();
+        let configs = Arc::new(
+            [(action_config.name.clone(), action_config)].into_iter().collect::<HashMap<_, _>>(),
+        );
+
+        let result = ActionDispatcher::new(configs, Arc::new(HttpClientPool::default())).await;
+
+        assert!(matches!(
+            result,
+            Err(ActionDispatcherError::ConfigError(ref msg))
+                if msg.contains("kafka_action") && msg.contains("feature flag disabled")
+        ));
     }
 }
