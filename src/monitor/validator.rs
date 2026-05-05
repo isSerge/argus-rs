@@ -12,10 +12,10 @@ use argus_core::models::{
     monitor::MonitorConfig,
     monitor_match::{LogDetails, MonitorMatch},
 };
+use argus_dispatch::template::{TemplateService, TemplateServiceError};
 use serde_json::Value;
 use thiserror::Error;
 
-use argus_dispatch::template::{TemplateService, TemplateServiceError};
 use crate::{
     abi::AbiService,
     engine::rhai::{

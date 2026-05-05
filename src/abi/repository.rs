@@ -74,9 +74,9 @@ mod tests {
     use std::collections::HashSet;
 
     use argus_core::persistence::traits::AppRepository;
+    use argus_store::SqliteStateRepository;
 
     use super::*;
-    use argus_store::SqliteStateRepository;
     use crate::test_helpers::erc20_abi_json;
 
     const REQUIRED_ERC20_FUNCTIONS: &[&str] = &[

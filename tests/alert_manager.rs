@@ -6,8 +6,6 @@ use argus::{
     engine::{alert_manager::AlertManager, outbox_processor::OutboxProcessor},
     test_helpers::{ActionBuilder, create_test_tx_monitor_match},
 };
-use argus_dispatch::{ActionDispatcher, http_client::HttpClientPool};
-use argus_store::SqliteStateRepository;
 use argus_core::{
     config::OutboxConfig,
     models::{
@@ -18,6 +16,8 @@ use argus_core::{
     },
     persistence::traits::KeyValueStore,
 };
+use argus_dispatch::{ActionDispatcher, http_client::HttpClientPool};
+use argus_store::SqliteStateRepository;
 use serde_json::json;
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;

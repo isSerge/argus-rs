@@ -3,11 +3,9 @@
 use std::sync::Arc;
 
 use argus_core::persistence::traits::AppRepository;
-
-use crate::{
-    abi::{AbiRepository, AbiService},
-};
 use argus_store::SqliteStateRepository;
+
+use crate::abi::{AbiRepository, AbiService};
 
 /// A simple ABI JSON for testing purposes.
 pub fn erc20_abi_json() -> &'static str {

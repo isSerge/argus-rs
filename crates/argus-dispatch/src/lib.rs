@@ -11,11 +11,12 @@ use argus_core::models::{
     action::{ActionConfig, ActionTypeConfig},
     monitor_match::MonitorMatch,
 };
+
 use crate::http_client::HttpClientPool;
 
-pub mod http_client;
 mod action_type;
 pub mod error;
+pub mod http_client;
 pub mod publisher;
 mod stdout;
 pub mod template;
@@ -194,4 +195,3 @@ impl ActionDispatcher {
         }
     }
 }
-

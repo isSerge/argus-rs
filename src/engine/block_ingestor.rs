@@ -9,11 +9,11 @@ use argus_core::{
     persistence::traits::AppRepository,
     providers::traits::{DataSource, DataSourceError},
 };
+use argus_providers::block_fetcher;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::{context::AppMetrics, engine::filtering::FilteringEngine};
-use argus_providers::block_fetcher;
 
 /// The BlockIngestor service.
 ///

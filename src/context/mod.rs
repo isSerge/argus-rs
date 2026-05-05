@@ -19,6 +19,9 @@ use argus_core::{
     models::{action::ActionConfig, monitor::MonitorConfig},
     persistence::traits::{AppRepository, KeyValueStore},
 };
+use argus_dispatch::{ActionDispatcher, http_client::HttpClientPool, template::TemplateService};
+use argus_providers::rpc::create_provider;
+use argus_store::SqliteStateRepository;
 pub use error::{AppContextError, InitializationError};
 pub use metrics::{AppMetrics, Metrics};
 
@@ -32,9 +35,6 @@ use crate::{
     loader::load_config,
     monitor::{MonitorManager, MonitorValidator},
 };
-use argus_dispatch::{ActionDispatcher, http_client::HttpClientPool, template::TemplateService};
-use argus_providers::rpc::create_provider;
-use argus_store::SqliteStateRepository;
 
 /// The application context, holding configuration, database repository,
 /// ABI service, script compiler, and EVM data provider.

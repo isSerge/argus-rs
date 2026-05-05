@@ -11,11 +11,12 @@ use argus_core::{
     },
     providers::traits::{DataSource, DataSourceError},
 };
+use argus_dispatch::error::ActionDispatcherError;
+use argus_providers::{EvmRpcSource, block_fetcher, rpc::ProviderError};
 use clap::Parser;
 use dashmap::DashMap;
 use thiserror::Error;
 
-use argus_dispatch::error::ActionDispatcherError;
 use crate::{
     context::{AppContextBuilder, AppContextError},
     engine::{
@@ -26,7 +27,6 @@ use crate::{
     },
     monitor::MonitorManager,
 };
-use argus_providers::{EvmRpcSource, block_fetcher, rpc::ProviderError};
 
 /// Errors that can occur during the execution of a dry run.
 #[derive(Error, Debug)]
@@ -359,10 +359,9 @@ mod tests {
         models::{action::ActionConfig, monitor_match::MatchData},
         providers::traits::MockDataSource,
     };
+    use argus_store::SqliteStateRepository;
     use mockall::predicate::eq;
     use serde_json::json;
-
-    use argus_store::SqliteStateRepository;
 
     use super::*;
     use crate::{

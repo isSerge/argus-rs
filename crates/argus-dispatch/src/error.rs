@@ -4,9 +4,7 @@ use omnihook::OmnihookError;
 use thiserror::Error;
 
 use crate::{
-    publisher::PublisherError,
-    template::TemplateServiceError,
-    http_client::HttpClientPoolError,
+    http_client::HttpClientPoolError, publisher::PublisherError, template::TemplateServiceError,
 };
 
 /// Defines the possible errors that can occur within the notification service.

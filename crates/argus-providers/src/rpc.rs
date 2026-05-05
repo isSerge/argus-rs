@@ -229,4 +229,3 @@ pub fn create_provider(
     let provider = ProviderBuilder::new().layer(CallBatchLayer::new()).connect_client(client);
     Ok(provider)
 }
-

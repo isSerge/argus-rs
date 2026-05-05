@@ -13,11 +13,10 @@ use argus_core::{
         traits::{AppRepository, KeyValueStore},
     },
 };
+use argus_dispatch::{ActionPayload, error::ActionDispatcherError};
 use dashmap::DashMap;
 use thiserror::Error;
 use tokio::sync::Mutex;
-
-use argus_dispatch::{ActionPayload, error::ActionDispatcherError};
 
 /// The AlertManager is responsible for processing monitor matches, applying
 /// notification policies (throttling, aggregation, etc.) and enqueuing

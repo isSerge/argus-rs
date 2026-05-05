@@ -32,6 +32,8 @@ use argus_core::{
     },
     providers::traits::{DataSource, DataSourceError},
 };
+use argus_dispatch::{ActionDispatcher, error::ActionDispatcherError};
+use argus_providers::rpc::ProviderError;
 use builder::SupervisorBuilder;
 use thiserror::Error;
 use tokio::{signal, sync::mpsc};
@@ -46,8 +48,6 @@ use crate::{
     http_server,
     monitor::{MonitorManager, MonitorValidationError, MonitorValidator},
 };
-use argus_dispatch::{ActionDispatcher, error::ActionDispatcherError};
-use argus_providers::rpc::ProviderError;
 
 /// Represents the set of errors that can occur during the supervisor's
 /// operation.

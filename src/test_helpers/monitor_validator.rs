@@ -6,14 +6,14 @@ use argus_core::{
     models::{NetworkId, action::ActionConfig},
     persistence::traits::AppRepository,
 };
-
 use argus_dispatch::template::TemplateService;
+use argus_store::SqliteStateRepository;
+
 use crate::{
     abi::{AbiService, repository::AbiRepository},
     engine::rhai::{RhaiCompiler, RhaiScriptValidator},
     monitor::MonitorValidator,
 };
-use argus_store::SqliteStateRepository;
 
 /// Creates a test `MonitorValidator` with optional preloaded ABI.
 pub async fn create_monitor_validator(

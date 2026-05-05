@@ -7,10 +7,9 @@ use argus_core::{
     config::OutboxConfig,
     persistence::traits::{AppRepository, OutboxItem},
 };
+use argus_dispatch::ActionDispatcher;
 use futures::{StreamExt, stream};
 use tokio_util::sync::CancellationToken;
-
-use argus_dispatch::ActionDispatcher;
 
 /// Service responsible for processing the persistent action queue.
 pub struct OutboxProcessor<S: AppRepository + ?Sized> {

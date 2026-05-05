@@ -2,9 +2,9 @@
 //! `Supervisor`.
 
 use argus_core::persistence::traits::{AppRepository, KeyValueStore};
+use argus_providers::EvmRpcSource;
 
 use super::Supervisor;
-use argus_providers::EvmRpcSource;
 use crate::context::{AppContext, AppMetrics};
 
 /// Marker for a provided component in the builder.
@@ -61,8 +61,10 @@ impl<T: AppRepository + KeyValueStore + 'static>
         let Provided(app_metrics) = self.app_metrics;
 
         tracing::debug!(rpc_urls = ?context.config.rpc_urls, "Initializing EVM data source...");
-        let evm_data_source =
-            EvmRpcSource::new(context.provider.clone(), context.monitor_manager.interest_registry());
+        let evm_data_source = EvmRpcSource::new(
+            context.provider.clone(),
+            context.monitor_manager.interest_registry(),
+        );
         tracing::info!(retry_policy = ?context.config.rpc_retry_config, "EVM data source initialized with fallback and retry policy.");
 
         // Construct the Supervisor with all its components from the context.

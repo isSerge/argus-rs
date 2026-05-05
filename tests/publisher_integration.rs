@@ -11,13 +11,13 @@ mod docker_compose_guard;
 use std::time::Duration;
 
 use alloy::primitives::TxHash;
-use argus_dispatch::{
-    ActionPayload,
-    publisher::{EventPublisher, KafkaEventPublisher, NatsEventPublisher, RabbitMqEventPublisher},
-};
 use argus_core::models::{
     action::{KafkaConfig, NatsConfig, RabbitMqConfig},
     monitor_match::MonitorMatch,
+};
+use argus_dispatch::{
+    ActionPayload,
+    publisher::{EventPublisher, KafkaEventPublisher, NatsEventPublisher, RabbitMqEventPublisher},
 };
 use rdkafka::{
     ClientConfig, Message,

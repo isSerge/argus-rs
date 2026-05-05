@@ -1,11 +1,11 @@
 //! Integration tests for the persistence layer
 
 use argus::test_helpers::ActionBuilder;
-use argus_store::SqliteStateRepository;
 use argus_core::{
     models::{NetworkId, action::ActionConfig, monitor::MonitorConfig},
     persistence::traits::AppRepository,
 };
+use argus_store::SqliteStateRepository;
 
 async fn setup_db() -> SqliteStateRepository {
     let repo = SqliteStateRepository::new("sqlite::memory:")
