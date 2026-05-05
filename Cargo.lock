@@ -876,6 +876,7 @@ dependencies = [
 name = "argus-dispatch"
 version = "0.1.0"
 dependencies = [
+ "alloy",
  "argus-core",
  "async-nats",
  "async-trait",
