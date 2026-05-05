@@ -3,16 +3,21 @@ name = "argus-dispatch"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+kafka = ["dep:rdkafka"]
+rabbitmq = ["dep:lapin"]
+nats = ["dep:async-nats", "dep:bytes"]
+
 [dependencies]
 argus-core.workspace = true
-async-nats.workspace = true
+async-nats = { workspace = true, optional = true }
 async-trait.workspace = true
-bytes.workspace = true
+bytes = { workspace = true, optional = true }
 futures.workspace = true
-lapin.workspace = true
+lapin = { workspace = true, optional = true }
 minijinja.workspace = true
 omnihook.workspace = true
-rdkafka.workspace = true
+rdkafka = { workspace = true, optional = true }
 reqwest.workspace = true
 reqwest-middleware.workspace = true
 reqwest-retry.workspace = true

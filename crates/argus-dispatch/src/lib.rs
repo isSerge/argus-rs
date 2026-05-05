@@ -27,7 +27,12 @@ mod webhook;
 use action_type::ActionType;
 pub use argus_core::action_dispatcher::ActionPayload;
 use error::ActionDispatcherError;
-use publisher::{KafkaEventPublisher, NatsEventPublisher, RabbitMqEventPublisher};
+#[cfg(feature = "kafka")]
+use publisher::KafkaEventPublisher;
+#[cfg(feature = "nats")]
+use publisher::NatsEventPublisher;
+#[cfg(feature = "rabbitmq")]
+use publisher::RabbitMqEventPublisher;
 use stdout::StdoutAction;
 use template::TemplateService;
 use tokio::sync::mpsc;
@@ -80,6 +85,7 @@ impl ActionDispatcher {
         for (name, config) in action_configs.iter() {
             let action: ActionType = match &config.config {
                 // Kafka publisher action
+                #[cfg(feature = "kafka")]
                 ActionTypeConfig::Kafka(c) => {
                     let publisher = match KafkaEventPublisher::from_config(c) {
                         Ok(p) => p,
@@ -97,6 +103,7 @@ impl ActionDispatcher {
                 }
 
                 // RabbitMQ publisher action
+                #[cfg(feature = "rabbitmq")]
                 ActionTypeConfig::RabbitMq(c) => {
                     let publisher = match RabbitMqEventPublisher::from_config(c).await {
                         Ok(p) => p,
@@ -114,6 +121,7 @@ impl ActionDispatcher {
                 }
 
                 // NATS publisher action
+                #[cfg(feature = "nats")]
                 ActionTypeConfig::Nats(c) => {
                     let publisher = match NatsEventPublisher::from_config(c).await {
                         Ok(p) => p,
@@ -147,6 +155,16 @@ impl ActionDispatcher {
                         http_client,
                         template_service.clone(),
                     ))
+                }
+
+                #[allow(unreachable_patterns)]
+                _ => {
+                    tracing::warn!(
+                        action_name = name,
+                        "Action type not supported in this build (feature flag disabled); \
+                         skipping."
+                    );
+                    continue;
                 }
             };
             actions.insert(name.clone(), action);
