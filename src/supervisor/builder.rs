@@ -63,7 +63,7 @@ impl<T: AppRepository + KeyValueStore + 'static>
         tracing::debug!(rpc_urls = ?context.config.rpc_urls, "Initializing EVM data source...");
         let evm_data_source = EvmRpcSource::new(
             context.provider.clone(),
-            context.monitor_manager.interest_registry(),
+            context.monitor_manager.registry_provider(),
         );
         tracing::info!(retry_policy = ?context.config.rpc_retry_config, "EVM data source initialized with fallback and retry policy.");
 

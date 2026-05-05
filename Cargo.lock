@@ -860,6 +860,7 @@ name = "argus-core"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "arc-swap",
  "async-trait",
  "chrono",
  "config",

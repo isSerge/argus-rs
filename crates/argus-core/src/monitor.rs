@@ -6,6 +6,7 @@ use std::{
 };
 
 use alloy::primitives::{Address, B256};
+use arc_swap::ArcSwap;
 
 use crate::models::Log;
 
@@ -69,5 +70,26 @@ impl InterestRegistry {
             Some(addr) => self.calldata_addresses.contains(addr),
             None => false,
         }
+    }
+}
+
+/// Provides live access to the current [`InterestRegistry`].
+///
+/// Implementors expose a single `interest_registry()` method so that
+/// [`EvmRpcSource`] can read the registry without needing to know whether it
+/// comes from a standalone `ArcSwap<InterestRegistry>` (tests / isolated use)
+/// or from the authoritative `ArcSwap<MonitorAssetState>` (production).  Both
+/// cases then share a single atomic snapshot, eliminating the two-`ArcSwap`
+/// race that previously existed in `MonitorManager::update()`.
+pub trait RegistryProvider: Send + Sync {
+    /// Returns a cheap `Arc` handle to the current `InterestRegistry`.
+    fn interest_registry(&self) -> Arc<InterestRegistry>;
+}
+
+/// Blanket implementation for the standalone case used in tests and anywhere
+/// an `ArcSwap<InterestRegistry>` is the source of truth.
+impl RegistryProvider for ArcSwap<InterestRegistry> {
+    fn interest_registry(&self) -> Arc<InterestRegistry> {
+        self.load_full()
     }
 }

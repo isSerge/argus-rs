@@ -129,7 +129,7 @@ pub async fn execute(args: DryRunArgs) -> Result<(), DryRunError> {
     );
 
     // Init EVM data source for fetching blockchain data.
-    let evm_source = EvmRpcSource::new(provider, monitor_manager.interest_registry());
+    let evm_source = EvmRpcSource::new(provider, monitor_manager.registry_provider());
 
     // Execute the core processing loop.
     let matches = run_dry_run_loop(

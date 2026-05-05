@@ -296,7 +296,7 @@ mod tests {
             log_aware_monitors: vec![],
             tx_aware_monitors: vec![],
             requires_receipts: false,
-            interest_registry: InterestRegistry::default(),
+            interest_registry: Arc::new(InterestRegistry::default()),
             has_transaction_only_monitors: false,
         }
     }
@@ -322,10 +322,14 @@ mod tests {
     #[test]
     fn test_optimized_path_filters_irrelevant_transactions() {
         // Arrange
-        let mut monitor_snapshot = empty_monitor_snapshot();
         let monitored_addr = address!("0000000000000000000000000000000000000001");
-        monitor_snapshot.interest_registry.calldata_addresses =
-            HashSet::from([monitored_addr]).into();
+        let monitor_snapshot = MonitorAssetState {
+            interest_registry: Arc::new(InterestRegistry {
+                calldata_addresses: Arc::new(HashSet::from([monitored_addr])),
+                ..Default::default()
+            }),
+            ..empty_monitor_snapshot()
+        };
 
         // Create transactions with unique hashes
         let hash1 = B256::from([1u8; 32]);

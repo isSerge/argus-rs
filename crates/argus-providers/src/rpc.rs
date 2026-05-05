@@ -15,10 +15,9 @@ use alloy::{
         layers::{FallbackLayer, RetryBackoffLayer},
     },
 };
-use arc_swap::ArcSwap;
 use argus_core::{
     config::RpcRetryConfig,
-    monitor::InterestRegistry,
+    monitor::RegistryProvider,
     providers::traits::{DataSource, DataSourceError},
 };
 use async_trait::async_trait;
@@ -30,17 +29,17 @@ pub struct EvmRpcSource {
     provider: Arc<dyn Provider + Send + Sync>,
 
     /// Shared interest registry for bloom-filter pre-screening.
-    interest_registry: Arc<ArcSwap<InterestRegistry>>,
+    registry: Arc<dyn RegistryProvider>,
 }
 
 impl EvmRpcSource {
     /// Creates a new `EvmRpcSource`.
-    #[tracing::instrument(skip(provider), level = "debug")]
+    #[tracing::instrument(skip(provider, registry), level = "debug")]
     pub fn new(
         provider: Arc<dyn Provider + Send + Sync>,
-        interest_registry: Arc<ArcSwap<InterestRegistry>>,
+        registry: Arc<dyn RegistryProvider>,
     ) -> Self {
-        Self { provider, interest_registry }
+        Self { provider, registry }
     }
 }
 
@@ -135,7 +134,7 @@ impl EvmRpcSource {
         // Check if there is any log interest in this block
         // If not, skip fetching logs to save RPC calls
         let block_bloom = &block.header.logs_bloom;
-        let interest_registry = self.interest_registry.load();
+        let interest_registry = self.registry.interest_registry();
 
         // Early exit if there are absolutely no log-aware monitors of any kind.
         if interest_registry.log_interests.is_empty()
@@ -247,7 +246,7 @@ mod tests {
     use arc_swap::ArcSwap;
     use argus_core::{
         config::RpcRetryConfig,
-        monitor::InterestRegistry,
+        monitor::{InterestRegistry, RegistryProvider},
         test_utils::{BlockBuilder, LogBuilder, ReceiptBuilder},
     };
 
@@ -261,11 +260,11 @@ mod tests {
         (provider, asserter)
     }
 
-    fn make_empty_registry() -> Arc<ArcSwap<InterestRegistry>> {
+    fn make_empty_registry() -> Arc<dyn RegistryProvider> {
         Arc::new(ArcSwap::new(Arc::new(InterestRegistry::default())))
     }
 
-    fn make_address_registry(address: Address) -> Arc<ArcSwap<InterestRegistry>> {
+    fn make_address_registry(address: Address) -> Arc<dyn RegistryProvider> {
         let mut map = HashMap::new();
         map.insert(address, None);
         Arc::new(ArcSwap::new(Arc::new(InterestRegistry {
@@ -274,7 +273,7 @@ mod tests {
         })))
     }
 
-    fn make_global_topic_registry(topic: B256) -> Arc<ArcSwap<InterestRegistry>> {
+    fn make_global_topic_registry(topic: B256) -> Arc<dyn RegistryProvider> {
         let mut set = HashSet::new();
         set.insert(topic);
         Arc::new(ArcSwap::new(Arc::new(InterestRegistry {
