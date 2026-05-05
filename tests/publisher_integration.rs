@@ -178,6 +178,7 @@ async fn test_nats_publisher_integration() {
     let key = payload.action_name();
 
     publisher.publish(&nats_config.subject, &key, serialized_payload.as_bytes()).await.unwrap();
+    publisher.flush().await.unwrap();
 
     // Verify the message was sent
     let message_result = timeout(Duration::from_secs(10), subscriber.next()).await;

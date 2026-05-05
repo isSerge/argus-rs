@@ -1,7 +1,7 @@
 //! A guard that manages the lifecycle of a Docker Compose setup.
 //! It runs `docker compose up` on creation and `docker compose down` on drop.
 
-use std::{process::Command, time::Duration};
+use std::process::Command;
 
 pub struct DockerComposeGuard {
     file: String,
@@ -16,12 +16,10 @@ impl DockerComposeGuard {
 
     fn up(&self) {
         let status = Command::new("docker")
-            .args(["compose", "-f", &self.file, "up", "-d"])
+            .args(["compose", "-f", &self.file, "up", "-d", "--wait"])
             .status()
             .expect("Failed to execute docker compose up");
-        assert!(status.success(), "Docker compose up failed");
-        // Give services some time to start up
-        std::thread::sleep(Duration::from_secs(15));
+        assert!(status.success(), "Docker compose up failed: services did not become healthy");
     }
 
     fn down(&self) {

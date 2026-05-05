@@ -4,3 +4,9 @@ services:
     ports:
       - "4222:4222"
       - "8222:8222" # Monitoring port
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s

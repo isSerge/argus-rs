@@ -57,6 +57,11 @@ impl EventPublisher for NatsEventPublisher {
 
         Ok(())
     }
+
+    async fn flush(&self) -> Result<(), PublisherError> {
+        self.client.flush().await?;
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]

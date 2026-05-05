@@ -25,4 +25,9 @@ pub enum PublisherError {
     #[cfg(feature = "nats")]
     #[error("NATS publish error: {0}")]
     NatsPublish(#[from] async_nats::PublishError),
+
+    /// NATS flush error.
+    #[cfg(feature = "nats")]
+    #[error("NATS flush error: {0}")]
+    NatsFlush(#[from] async_nats::client::FlushError),
 }
