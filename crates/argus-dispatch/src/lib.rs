@@ -159,12 +159,12 @@ impl ActionDispatcher {
 
                 #[allow(unreachable_patterns)]
                 _ => {
-                    tracing::warn!(
-                        action_name = name,
-                        "Action type not supported in this build (feature flag disabled); \
-                         skipping."
-                    );
-                    continue;
+                    return Err(ActionDispatcherError::ConfigError(format!(
+                        "Action '{}' uses a type that is not compiled into this build (feature \
+                         flag disabled). Either enable the required feature flag or remove this \
+                         action from the configuration.",
+                        name
+                    )));
                 }
             };
             actions.insert(name.clone(), action);
