@@ -4,40 +4,87 @@ This document provides a high-level overview of the internal architecture of the
 
 ## Core Principles
 
--   **Modular**: Each component has a distinct and well-defined responsibility.
+-   **Modular**: The codebase is organized as a Cargo workspace of focused library crates, each with a distinct and well-defined responsibility.
 -   **Asynchronous**: Built on top of Tokio, the application is designed to be highly concurrent and non-blocking.
 -   **Stateful**: The application's progress is persisted to a local database, allowing for resilience and crash recovery.
 -   **Decoupled**: Components communicate through channels, reducing tight coupling and improving maintainability.
 
+## Workspace Layout
+
+```text
+argus-rs/
+├── src/                  # Binary entry point – CLI, context wiring, supervisor
+└── crates/
+    ├── rhai-bigint        # Rhai plugin: arbitrary-precision integers
+    ├── rhai-evm           # Rhai plugin: EVM value helpers (ether, gwei, …)
+    ├── rhai-analyzer      # Rhai AST analyser (script dependency extraction)
+    ├── omnihook           # Generic Slack/Discord/Telegram payload builders
+    ├── argus-core         # Core models, config structs, and abstract traits
+    ├── argus-store        # SQLite persistence (implements argus-core traits)
+    ├── argus-providers    # Alloy RPC block fetcher (implements DataSource)
+    ├── argus-dispatch     # Notification dispatch: webhooks, Kafka, RabbitMQ, NATS
+    ├── argus-abi          # ABI repository and log/calldata decoding
+    ├── argus-rhai         # Rhai script compiler and filtering engine
+    ├── argus-monitor      # Monitor validation, interest registry, MonitorManager
+    ├── argus-engine       # Pipeline orchestration: ingestor, processor, alert manager, outbox
+    └── argus-api          # Axum HTTP REST API server
+```
+
 ## Key Components
 
-The `src` directory is organized into several modules, each representing a key component of the system.
+### `src/` – Binary
 
--   **`supervisor`**: The top-level orchestrator. It is responsible for initializing all other components, wiring them together via channels, and managing the graceful shutdown of the application.
+The root `src/` directory is a thin application entry point. It imports all library crates and wires them together at startup.
 
--   **`monitor`**: This module, centered around the `MonitorManager`, is responsible for the lifecycle of monitor configurations. It loads, validates, and analyzes the monitors, preparing them for the filtering engine. It handles dynamic updates to the monitor set.
+-   **`supervisor`**: The top-level orchestrator. Initializes all services, connects them through async channels, and manages graceful shutdown.
+-   **`context`**: Builds the `AppContext` – reads configuration, creates the database connection, RPC provider, and all service instances.
+-   **`cmd`**: CLI command definitions (`run`, `dry-run`).
+-   **`loader`**: Loads and parses YAML configuration files.
+-   **`main.rs`**: Application entry point; handles CLI argument parsing.
 
--   **`providers`**: This component is responsible for fetching block data from the external EVM RPC nodes. It handles connection management, retries, and polling for new blocks.
+### `argus-core`
 
--   **`engine`**: This is the core data processing pipeline. It is divided into several stages:
-    -   **`BlockProcessor`**: Receives raw block data from the providers and correlates transactions with their corresponding logs and receipts into a structured format.
-    -   **`FilteringEngine`**: Receives correlated block data from the `BlockProcessor`. It executes the appropriate Rhai filter scripts for each monitor, lazily decoding event logs and transaction calldata as needed during script execution. Upon a match, it creates a `MonitorMatch` object.
-    -   **`AlertManager`**: Receives `MonitorMatch`es from the `FilteringEngine`. It is responsible for managing notification policies (throttling, aggregation) before enqueueing alerts to the `Outbox`.
+Defines the shared domain: models (`Monitor`, `BlockData`, `Transaction`, `Log`, `MonitorMatch`, `Action`), config structs, and the abstract `AppRepository`, `KeyValueStore`, and `DataSource` traits. No heavy dependencies; all other crates build on top of this one.
 
--   **`Outbox`**: A durable queue that persists alerts to the database. It decouples the `AlertManager` from the action dispatcher, allowing for asynchronous processing and guaranteed delivery.
+### `argus-store`
 
--   **`OutboxProcessor`**: Processes alerts from the `Outbox` and forwards them to the `action_dispatcher` for execution. It handles retries and manages the outbox lifecycle.
+Implements `AppRepository` and `KeyValueStore` for SQLite using `sqlx`. All database migrations live in `migrations/` at the workspace root.
 
--   **`action_dispatcher`**: Receives alert requests from the `OutboxProcessor`. It manages a collection of specific action clients (e.g., Webhook, Stdout) and is responsible for executing the alert with the external service.
+### `argus-providers`
 
--   **`persistence`**: This module provides an abstraction layer over the database (currently SQLite). It handles all state management, such as storing the last processed block number.
+Contains the Alloy-based RPC client (`EvmRpcSource`) and concurrent block fetcher. Implements the `DataSource` trait from `argus-core`.
 
--   **`config` & `loader`**: These modules manage the loading, parsing, and validation of the application's configuration from the YAML files.
+### `argus-abi`
 
--   **`models`**: Defines the core data structures used throughout the application (e.g., `BlockData`, `Transaction`, `Log`, `Monitor`, `Action`).
+Manages ABI storage and exposes an `AbiService` for decoding event logs and transaction calldata against stored ABIs.
 
--   **`http_server`**: Provides a REST API for system introspection and dynamic configuration. It is managed by the `supervisor` and shares access to the application's state.
+### `argus-rhai`
 
--   **`http_client`**: Provides a robust and reusable HTTP client with built-in retry logic, used by the notification component to send alerts.
+Wraps the `rhai`, `rhai-bigint`, `rhai-evm`, and `rhai-analyzer` crates to provide a safe `RhaiCompiler` and the `RhaiFilteringEngine` that executes monitor scripts.
 
--   **`main.rs`**: The application's entry point. It handles command-line argument parsing and kicks off the supervisor.
+### `argus-monitor`
+
+Hosts the `MonitorManager`, the monitor interest registry (which monitors care about which contracts/topics), and the `MonitorValidator` for validating monitor configs before they are accepted.
+
+### `argus-engine`
+
+Wires the data pipeline:
+
+-   **`BlockIngestor`**: Polls the provider for new blocks and sends raw `BlockData` into the pipeline.
+-   **`BlockProcessor`**: Correlates transactions with logs and receipts into `CorrelatedBlockData`.
+-   **`FilteringEngine`** (via `argus-rhai`): Runs Rhai scripts against each correlated item; emits `MonitorMatch` objects.
+-   **`AlertManager`**: Applies throttle/aggregation policies and enqueues alerts to the Outbox.
+-   **`OutboxProcessor`**: Drains the persistent Outbox and forwards alerts to `argus-dispatch`.
+
+### `argus-dispatch`
+
+Implements the notification layer. Wraps `omnihook` for Slack/Discord/Telegram payloads, `rdkafka` for Kafka, `lapin` for RabbitMQ, and `async-nats` for NATS. Uses MiniJinja for message templating.
+
+### `argus-api`
+
+An Axum HTTP server exposing the REST management API for monitors, actions, and ABIs.
+
+### `omnihook`, `rhai-bigint`, `rhai-evm`, `rhai-analyzer`
+
+Pure infrastructure crates with no Argus-specific dependencies. They can be published independently.
+
