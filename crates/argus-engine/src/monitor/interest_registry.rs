@@ -133,12 +133,12 @@ impl InterestRegistryBuilder {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::{address, b256};
-    use argus_core::models::monitor::Monitor;
+    use argus_core::{models::monitor::Monitor, test_utils::LogBuilder};
 
     use super::*;
     use crate::{
         engine::rhai::ScriptAnalysis,
-        test_helpers::{LogBuilder, create_test_abi_service, erc20_abi_json},
+        test_utils::{create_test_abi_service, erc20_abi_json},
     };
 
     const ADDRESS1: Address = address!("0000000000000000000000000000000000000001");

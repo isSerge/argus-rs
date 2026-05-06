@@ -4,13 +4,11 @@
 //! This includes monitoring, alerting, persistence, action dispatching, and
 //! more.
 
-pub mod abi;
-pub mod action;
+pub use argus_api::{action, http_server};
+pub use argus_engine::{abi, engine, monitor};
+
 pub mod cmd;
 pub mod context;
-pub mod engine;
-pub mod http_server;
 pub mod loader;
-pub mod monitor;
 pub mod supervisor;
 pub mod test_helpers;

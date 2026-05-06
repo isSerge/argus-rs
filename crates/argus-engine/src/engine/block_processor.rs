@@ -221,14 +221,15 @@ mod tests {
 
     use alloy::primitives::{B256, address};
     use argus_core::{
-        models::NetworkId, monitor::InterestRegistry, persistence::traits::MockAppRepository,
+        models::NetworkId,
+        monitor::InterestRegistry,
+        persistence::traits::MockAppRepository,
+        test_utils::{BlockBuilder, LogBuilder, MonitorBuilder, TransactionBuilder},
     };
     use mockall::predicate::eq;
 
     use super::*;
-    use crate::test_helpers::{
-        BlockBuilder, LogBuilder, MonitorBuilder, TransactionBuilder, create_test_monitor_manager,
-    };
+    use crate::test_utils::create_test_monitor_manager;
 
     struct TestHarness {
         config: Arc<AppConfig>,

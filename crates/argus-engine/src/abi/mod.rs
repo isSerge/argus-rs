@@ -490,11 +490,10 @@ mod tests {
     use std::collections::HashSet;
 
     use alloy::primitives::{Address, Bytes, U256, address, b256, bytes};
+    use argus_core::test_utils::{LogBuilder, TransactionBuilder};
 
     use super::*;
-    use crate::test_helpers::{
-        LogBuilder, TransactionBuilder, create_test_abi_service, erc20_abi_json,
-    };
+    use crate::test_utils::{create_test_abi_service, erc20_abi_json};
 
     const REQUIRED_ERC20_FUNCTIONS: &[&str] = &[
         "transfer",

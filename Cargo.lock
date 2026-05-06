@@ -807,8 +807,10 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "arc-swap",
+ "argus-api",
  "argus-core",
  "argus-dispatch",
+ "argus-engine",
  "argus-providers",
  "argus-store",
  "async-nats",
@@ -856,6 +858,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "argus-api"
+version = "0.1.0"
+dependencies = [
+ "argus-core",
+ "argus-engine",
+ "axum",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.12",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "argus-core"
 version = "0.1.0"
 dependencies = [
@@ -870,6 +886,7 @@ dependencies = [
  "sqlx",
  "tempfile",
  "thiserror 2.0.12",
+ "tokio",
  "url",
 ]
 
@@ -897,6 +914,36 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+]
+
+[[package]]
+name = "argus-engine"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "arc-swap",
+ "argus-core",
+ "argus-dispatch",
+ "argus-providers",
+ "argus-store",
+ "async-trait",
+ "bitflags 2.9.4",
+ "chrono",
+ "dashmap",
+ "futures",
+ "hex",
+ "mockall",
+ "num-bigint",
+ "rhai",
+ "rhai-analyzer",
+ "rhai-evm",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.12",
+ "tokio",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]

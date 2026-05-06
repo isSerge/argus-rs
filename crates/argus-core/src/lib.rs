@@ -6,6 +6,7 @@
 pub mod action_dispatcher;
 pub mod config;
 pub mod loader;
+pub mod metrics;
 pub mod models;
 pub mod monitor;
 pub mod persistence;

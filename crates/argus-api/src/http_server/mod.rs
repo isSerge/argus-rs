@@ -11,7 +11,8 @@ use std::{net::SocketAddr, sync::Arc};
 
 use abi::{delete_abi, get_abi_by_name, list_abis, upload_abi};
 use actions::{create_action, delete_action, get_action_details, get_actions, update_action};
-use argus_core::{config::AppConfig, persistence::traits::AppRepository};
+use argus_core::{config::AppConfig, metrics::AppMetrics, persistence::traits::AppRepository};
+use argus_engine::monitor::{MonitorPersistenceValidator, MonitorValidator};
 use auth::auth;
 use axum::{
     Router, middleware,
@@ -26,11 +27,6 @@ use monitors::{
 use serde_json::json;
 use status::status;
 use tokio::sync::watch;
-
-use crate::{
-    context::AppMetrics,
-    monitor::{MonitorPersistenceValidator, MonitorValidator},
-};
 
 /// Shared application state for the HTTP server.
 #[derive(Clone)]

@@ -5,7 +5,6 @@
 //! throughout the application.
 
 mod error;
-mod metrics;
 
 use std::{
     fs,
@@ -14,6 +13,7 @@ use std::{
 };
 
 use alloy::providers::Provider;
+pub use argus_core::metrics::{AppMetrics, Metrics};
 use argus_core::{
     config::{AppConfig, InitialStartBlock},
     models::{action::ActionConfig, monitor::MonitorConfig},
@@ -23,7 +23,6 @@ use argus_dispatch::{ActionDispatcher, http_client::HttpClientPool, template::Te
 use argus_providers::rpc::create_provider;
 use argus_store::SqliteStateRepository;
 pub use error::{AppContextError, InitializationError};
-pub use metrics::{AppMetrics, Metrics};
 
 use crate::{
     abi::{AbiService, repository::AbiRepository},

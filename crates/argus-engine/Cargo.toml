@@ -1,0 +1,38 @@
+[package]
+name = "argus-engine"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+test-utils = []
+
+[dependencies]
+argus-core.workspace = true
+argus-dispatch.workspace = true
+argus-providers.workspace = true
+alloy.workspace = true
+arc-swap.workspace = true
+async-trait.workspace = true
+bitflags.workspace = true
+chrono.workspace = true
+dashmap.workspace = true
+futures.workspace = true
+hex.workspace = true
+mockall.workspace = true
+rhai.workspace = true
+rhai-analyzer.workspace = true
+rhai-evm.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+argus-core = { workspace = true, features = ["test-utils"] }
+argus-store.workspace = true
+mockall.workspace = true
+num-bigint.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

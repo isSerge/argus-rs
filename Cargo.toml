@@ -11,6 +11,8 @@ argus-core = { path = "crates/argus-core" }
 argus-dispatch = { path = "crates/argus-dispatch" }
 argus-providers = { path = "crates/argus-providers" }
 argus-store = { path = "crates/argus-store" }
+argus-engine = { path = "crates/argus-engine" }
+argus-api = { path = "crates/argus-api" }
 omnihook = { path = "crates/omnihook" }
 rhai-analyzer = { path = "crates/rhai-analyzer" }
 rhai-bigint = { path = "crates/rhai-bigint" }
@@ -73,6 +75,8 @@ argus-core.workspace = true
 argus-dispatch = { workspace = true, features = ["kafka", "rabbitmq", "nats"] }
 argus-providers.workspace = true
 argus-store.workspace = true
+argus-engine.workspace = true
+argus-api.workspace = true
 arc-swap.workspace = true
 async-nats.workspace = true
 async-trait.workspace = true

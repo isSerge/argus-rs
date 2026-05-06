@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use argus_core::{
     config::AppConfig,
+    metrics::AppMetrics,
     models::BlockData,
     persistence::traits::AppRepository,
     providers::traits::{DataSource, DataSourceError},
@@ -13,7 +14,7 @@ use argus_providers::block_fetcher;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::{context::AppMetrics, engine::filtering::FilteringEngine};
+use crate::engine::filtering::FilteringEngine;
 
 /// The BlockIngestor service.
 ///
@@ -155,16 +156,15 @@ mod tests {
 
     use alloy::primitives::B256;
     use argus_core::{
-        models::NetworkId, persistence::traits::MockAppRepository,
+        models::NetworkId,
+        persistence::traits::MockAppRepository,
         providers::traits::MockDataSource,
+        test_utils::{BlockBuilder, ReceiptBuilder, TransactionBuilder},
     };
     use mockall::predicate::eq;
 
     use super::*;
-    use crate::{
-        engine::filtering::MockFilteringEngine,
-        test_helpers::{BlockBuilder, ReceiptBuilder, TransactionBuilder},
-    };
+    use crate::engine::filtering::MockFilteringEngine;
 
     struct TestHarness {
         config: Arc<AppConfig>,

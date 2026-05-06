@@ -614,14 +614,13 @@ mod tests {
             monitor_match::{LogDetails, MatchData},
             transaction::Transaction,
         },
+        test_utils::{LogBuilder, MonitorBuilder, TransactionBuilder},
     };
 
     use super::*;
     use crate::{
         abi::AbiService,
-        test_helpers::{
-            LogBuilder, MonitorBuilder, TransactionBuilder, create_test_abi_service, erc20_abi_json,
-        },
+        test_utils::{create_test_abi_service, erc20_abi_json},
     };
 
     const TRANSFER_EVENT_TOPIC: B256 =

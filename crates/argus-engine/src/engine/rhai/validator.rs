@@ -205,7 +205,7 @@ mod tests {
     use argus_core::config::RhaiConfig;
 
     use super::*;
-    use crate::test_helpers::erc20_abi_json;
+    use crate::test_utils::erc20_abi_json;
 
     fn create_validator() -> RhaiScriptValidator {
         let config = RhaiConfig::default();

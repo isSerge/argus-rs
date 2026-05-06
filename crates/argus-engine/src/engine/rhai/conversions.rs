@@ -383,11 +383,11 @@ mod tests {
         dyn_abi::Word,
         primitives::{Address, Function, I256, U256, address, b256},
     };
+    use argus_core::test_utils::{LogBuilder, ReceiptBuilder, TransactionBuilder};
     use num_bigint::BigInt;
     use serde_json::json;
 
     use super::*;
-    use crate::test_helpers::{LogBuilder, ReceiptBuilder, TransactionBuilder};
 
     // --- Tests for dyn_sol_value_to_rhai ---
 

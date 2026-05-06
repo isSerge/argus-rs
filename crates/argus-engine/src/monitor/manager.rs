@@ -293,10 +293,10 @@ impl RegistryProvider for MonitorStateHandle {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::{address, b256};
-    use argus_core::config::RhaiConfig;
+    use argus_core::{config::RhaiConfig, test_utils::MonitorBuilder};
 
     use super::*;
-    use crate::test_helpers::{MonitorBuilder, create_test_abi_service, erc20_abi_json};
+    use crate::test_utils::{create_test_abi_service, erc20_abi_json};
 
     async fn setup() -> (Arc<RhaiCompiler>, Arc<AbiService>) {
         let config = RhaiConfig::default();

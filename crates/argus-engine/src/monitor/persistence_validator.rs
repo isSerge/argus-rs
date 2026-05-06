@@ -114,10 +114,13 @@ impl MonitorPersistenceValidator {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::Address;
-    use argus_core::{models::monitor::MonitorStatus, persistence::traits::MockAppRepository};
+    use argus_core::{
+        models::monitor::MonitorStatus, persistence::traits::MockAppRepository,
+        test_utils::MonitorBuilder,
+    };
 
     use super::*;
-    use crate::test_helpers::{MonitorBuilder, create_monitor_validator};
+    use crate::test_utils::create_monitor_validator;
 
     #[tokio::test]
     async fn monitor_persistence_validator_validates_for_create() {

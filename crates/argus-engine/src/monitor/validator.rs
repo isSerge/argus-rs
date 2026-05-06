@@ -11,6 +11,7 @@ use argus_core::models::{
     action::{ActionConfig, ActionPolicy},
     monitor::MonitorConfig,
     monitor_match::{LogDetails, MonitorMatch},
+    transaction_builder::TransactionBuilder,
 };
 use argus_dispatch::template::{TemplateService, TemplateServiceError};
 use serde_json::Value;
@@ -22,7 +23,6 @@ use crate::{
         RhaiScriptValidationError, RhaiScriptValidationResult, RhaiScriptValidator,
         conversions::build_transaction_details_payload,
     },
-    test_helpers::TransactionBuilder,
 };
 
 /// Validates monitor addresses and determines monitor type.
@@ -670,7 +670,7 @@ mod tests {
     use crate::{
         engine::rhai::RhaiScriptValidationError,
         monitor::MonitorValidationError,
-        test_helpers::{create_monitor_validator, erc20_abi_json},
+        test_utils::{create_monitor_validator, erc20_abi_json},
     };
 
     fn create_test_monitor(

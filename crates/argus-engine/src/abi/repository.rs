@@ -77,7 +77,7 @@ mod tests {
     use argus_store::SqliteStateRepository;
 
     use super::*;
-    use crate::test_helpers::erc20_abi_json;
+    use crate::test_utils::erc20_abi_json;
 
     const REQUIRED_ERC20_FUNCTIONS: &[&str] = &[
         "transfer",

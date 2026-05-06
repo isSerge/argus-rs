@@ -12,6 +12,7 @@ pub mod monitor_match;
 pub mod network_id;
 pub mod notification;
 pub mod transaction;
+pub mod transaction_builder;
 
 pub use action_id::ActionId;
 pub use block_data::BlockData;

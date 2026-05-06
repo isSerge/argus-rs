@@ -103,8 +103,9 @@ pub fn register_proxies(engine: &mut rhai::Engine) {
 
 #[cfg(test)]
 mod tests {
+    use argus_core::test_utils::LogBuilder;
+
     use super::*;
-    use crate::test_helpers::LogBuilder;
 
     #[test]
     fn test_params_proxy_indexing() {
