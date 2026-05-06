@@ -1,6 +1,7 @@
 use std::{net::SocketAddr, sync::Arc};
 
-use argus::{context::AppMetrics, http_server, test_helpers::create_monitor_validator};
+use argus::{context::AppMetrics, test_helpers::create_monitor_validator};
+use argus_api::http_server;
 use argus_core::{
     config::{AppConfig, ServerConfig},
     models::{

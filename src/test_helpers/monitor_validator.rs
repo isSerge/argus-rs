@@ -7,13 +7,12 @@ use argus_core::{
     persistence::traits::AppRepository,
 };
 use argus_dispatch::template::TemplateService;
-use argus_store::SqliteStateRepository;
-
-use crate::{
+use argus_engine::{
     abi::{AbiService, repository::AbiRepository},
     engine::rhai::{RhaiCompiler, RhaiScriptValidator},
     monitor::MonitorValidator,
 };
+use argus_store::SqliteStateRepository;
 
 /// Creates a test `MonitorValidator` with optional preloaded ABI.
 pub async fn create_monitor_validator(

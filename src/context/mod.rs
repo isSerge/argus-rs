@@ -20,20 +20,20 @@ use argus_core::{
     persistence::traits::{AppRepository, KeyValueStore},
 };
 use argus_dispatch::{ActionDispatcher, http_client::HttpClientPool, template::TemplateService};
-use argus_providers::rpc::create_provider;
-use argus_store::SqliteStateRepository;
-pub use error::{AppContextError, InitializationError};
-
-use crate::{
+use argus_engine::{
     abi::{AbiService, repository::AbiRepository},
     engine::{
         alert_manager::AlertManager,
         filtering::RhaiFilteringEngine,
         rhai::{RhaiCompiler, RhaiScriptValidator},
     },
-    loader::load_config,
     monitor::{MonitorManager, MonitorValidator},
 };
+use argus_providers::rpc::create_provider;
+use argus_store::SqliteStateRepository;
+pub use error::{AppContextError, InitializationError};
+
+use crate::loader::load_config;
 
 /// The application context, holding configuration, database repository,
 /// ABI service, script compiler, and EVM data provider.

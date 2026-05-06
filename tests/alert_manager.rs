@@ -2,10 +2,7 @@
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use argus::{
-    engine::{alert_manager::AlertManager, outbox_processor::OutboxProcessor},
-    test_helpers::create_test_tx_monitor_match,
-};
+use argus::test_helpers::create_test_tx_monitor_match;
 use argus_core::{
     config::OutboxConfig,
     models::{
@@ -18,6 +15,7 @@ use argus_core::{
     test_utils::ActionBuilder,
 };
 use argus_dispatch::{ActionDispatcher, http_client::HttpClientPool};
+use argus_engine::engine::{alert_manager::AlertManager, outbox_processor::OutboxProcessor};
 use argus_store::SqliteStateRepository;
 use serde_json::json;
 use tokio::time::sleep;

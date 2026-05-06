@@ -1,12 +1,9 @@
 use std::sync::Arc;
 
 use argus_core::{config::RhaiConfig, models::monitor::Monitor};
+use argus_engine::{engine::rhai::RhaiCompiler, monitor::MonitorManager};
 
-use crate::{
-    engine::rhai::RhaiCompiler,
-    monitor::MonitorManager,
-    test_helpers::{create_test_abi_service, erc20_abi_json},
-};
+use crate::test_helpers::{create_test_abi_service, erc20_abi_json};
 
 /// Creates a test `MonitorManager` with the given monitors.
 pub async fn create_test_monitor_manager(monitors: Vec<Monitor>) -> Arc<MonitorManager> {

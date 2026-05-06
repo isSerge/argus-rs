@@ -12,13 +12,7 @@ use argus_core::{
     providers::traits::{DataSource, DataSourceError},
 };
 use argus_dispatch::error::ActionDispatcherError;
-use argus_providers::{EvmRpcSource, block_fetcher, rpc::ProviderError};
-use clap::Parser;
-use dashmap::DashMap;
-use thiserror::Error;
-
-use crate::{
-    context::{AppContextBuilder, AppContextError},
+use argus_engine::{
     engine::{
         alert_manager::{AlertManager, AlertManagerError},
         block_processor::process_blocks_batch,
@@ -27,6 +21,12 @@ use crate::{
     },
     monitor::MonitorManager,
 };
+use argus_providers::{EvmRpcSource, block_fetcher, rpc::ProviderError};
+use clap::Parser;
+use dashmap::DashMap;
+use thiserror::Error;
+
+use crate::context::{AppContextBuilder, AppContextError};
 
 /// Errors that can occur during the execution of a dry run.
 #[derive(Error, Debug)]
@@ -360,16 +360,16 @@ mod tests {
         providers::traits::MockDataSource,
         test_utils::ActionBuilder,
     };
+    use argus_engine::{
+        abi::{AbiRepository, AbiService},
+        engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
+    };
     use argus_store::SqliteStateRepository;
     use mockall::predicate::eq;
     use serde_json::json;
 
     use super::*;
-    use crate::{
-        abi::{AbiRepository, AbiService},
-        engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
-        test_helpers::{BlockBuilder, MonitorBuilder, TransactionBuilder},
-    };
+    use crate::test_helpers::{BlockBuilder, MonitorBuilder, TransactionBuilder};
 
     // A helper function to create a test state repository
     async fn create_test_repo() -> Arc<SqliteStateRepository> {
