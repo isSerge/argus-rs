@@ -6,6 +6,7 @@ use alloy::{
     json_abi::JsonAbi,
     primitives::{Address, TxHash, U256},
 };
+use argus_abi::AbiService;
 use argus_core::models::{
     NetworkId,
     action::{ActionConfig, ActionPolicy},
@@ -14,16 +15,12 @@ use argus_core::models::{
     transaction_builder::TransactionBuilder,
 };
 use argus_dispatch::template::{TemplateService, TemplateServiceError};
+use argus_rhai::{
+    RhaiScriptValidationError, RhaiScriptValidationResult, RhaiScriptValidator,
+    conversions::build_transaction_details_payload,
+};
 use serde_json::Value;
 use thiserror::Error;
-
-use crate::{
-    abi::AbiService,
-    engine::rhai::{
-        RhaiScriptValidationError, RhaiScriptValidationResult, RhaiScriptValidator,
-        conversions::build_transaction_details_payload,
-    },
-};
 
 /// Validates monitor addresses and determines monitor type.
 struct AddressValidator;
@@ -665,12 +662,12 @@ mod tests {
         },
         test_utils::ActionBuilder,
     };
+    use argus_rhai::RhaiScriptValidationError;
 
     use super::*;
     use crate::{
-        engine::rhai::RhaiScriptValidationError,
-        monitor::MonitorValidationError,
         test_utils::{create_monitor_validator, erc20_abi_json},
+        validator::MonitorValidationError,
     };
 
     fn create_test_monitor(

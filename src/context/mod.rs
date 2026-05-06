@@ -13,6 +13,7 @@ use std::{
 };
 
 use alloy::providers::Provider;
+use argus_abi::{AbiService, repository::AbiRepository};
 pub use argus_core::metrics::{AppMetrics, Metrics};
 use argus_core::{
     config::{AppConfig, InitialStartBlock},
@@ -20,16 +21,10 @@ use argus_core::{
     persistence::traits::{AppRepository, KeyValueStore},
 };
 use argus_dispatch::{ActionDispatcher, http_client::HttpClientPool, template::TemplateService};
-use argus_engine::{
-    abi::{AbiService, repository::AbiRepository},
-    engine::{
-        alert_manager::AlertManager,
-        filtering::RhaiFilteringEngine,
-        rhai::{RhaiCompiler, RhaiScriptValidator},
-    },
-    monitor::{MonitorManager, MonitorValidator},
-};
+use argus_engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine};
+use argus_monitor::{MonitorManager, MonitorValidator};
 use argus_providers::rpc::create_provider;
+use argus_rhai::{RhaiCompiler, RhaiScriptValidator};
 use argus_store::SqliteStateRepository;
 pub use error::{AppContextError, InitializationError};
 

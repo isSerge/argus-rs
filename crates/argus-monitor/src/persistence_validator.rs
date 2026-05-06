@@ -8,7 +8,7 @@ use argus_core::{
 };
 use thiserror::Error;
 
-use crate::monitor::validator::{MonitorValidationError, MonitorValidator};
+use crate::validator::{MonitorValidationError, MonitorValidator};
 
 /// An error that occurs during monitor persistence validation.
 #[derive(Debug, Error)]

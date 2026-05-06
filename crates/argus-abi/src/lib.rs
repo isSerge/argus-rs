@@ -19,6 +19,9 @@ use thiserror::Error;
 
 pub use self::repository::AbiRepository;
 
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_utils;
+
 /// A pre-processed, cached representation of a contract's ABI.
 ///
 /// This struct stores function and event definitions in hashmaps for fast,

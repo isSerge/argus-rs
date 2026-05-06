@@ -72,6 +72,7 @@ use std::{
 };
 
 use alloy::primitives::B256;
+use argus_abi::{AbiService, DecodedCall, DecodedLog};
 use argus_core::{
     config::RhaiConfig,
     models::{
@@ -82,6 +83,15 @@ use argus_core::{
         monitor_match::{LogDetails, MonitorMatch},
     },
 };
+use argus_monitor::{ClassifiedMonitor, MonitorCapabilities, MonitorManager};
+use argus_rhai::{
+    RhaiCompiler, RhaiCompilerError,
+    conversions::{
+        build_log_params_payload, build_transaction_details_payload, build_transaction_map,
+    },
+    create_engine,
+    proxies::{CallProxy, LogProxy},
+};
 use async_trait::async_trait;
 use futures::future;
 #[cfg(test)]
@@ -89,19 +99,6 @@ use mockall::automock;
 use rhai::{AST, Engine, EvalAltResult, Map, Scope};
 use thiserror::Error;
 use tokio::{sync::mpsc, time::timeout};
-
-use super::rhai::{
-    conversions::{
-        build_log_params_payload, build_transaction_details_payload, build_transaction_map,
-    },
-    create_engine,
-    proxies::{CallProxy, LogProxy},
-};
-use crate::engine::{
-    abi::{AbiService, DecodedCall, DecodedLog},
-    monitor::{ClassifiedMonitor, MonitorCapabilities, MonitorManager},
-    rhai::{RhaiCompiler, RhaiCompilerError},
-};
 
 /// Rhai script execution errors that can occur during compilation or runtime
 #[derive(Debug, Error)]
@@ -608,6 +605,10 @@ mod tests {
         primitives::{Address, B256, Bytes, U256, address, b256},
         sol_types::SolValue,
     };
+    use argus_abi::{
+        AbiService,
+        test_utils::{create_test_abi_service, erc20_abi_json},
+    };
     use argus_core::{
         config::RhaiConfig,
         models::{
@@ -618,8 +619,6 @@ mod tests {
     };
 
     use super::*;
-    use argus_abi::test_utils::{create_test_abi_service, erc20_abi_json};
-    use argus_abi::AbiService;
 
     const TRANSFER_EVENT_TOPIC: B256 =
         b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef");

@@ -1,11 +1,10 @@
 #![warn(missing_docs)]
-//! Argus core library.
-//! Contains the main components and modules for the Argus application.
-//! This includes monitoring, alerting, persistence, action dispatching, and
-//! more.
+//! Argus monitoring application.
+//!
+//! This is the main crate for the Argus application, orchestrating
+//! blockchain monitoring, alert evaluation, and notification dispatch.
 
 pub mod cmd;
 pub mod context;
 pub mod loader;
 pub mod supervisor;
-pub mod test_helpers;

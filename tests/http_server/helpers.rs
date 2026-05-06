@@ -1,6 +1,6 @@
 use std::{net::SocketAddr, sync::Arc};
 
-use argus::{context::AppMetrics, test_helpers::create_monitor_validator};
+use argus::context::AppMetrics;
 use argus_api::http_server;
 use argus_core::{
     config::{AppConfig, ServerConfig},
@@ -11,6 +11,7 @@ use argus_core::{
     },
     persistence::traits::AppRepository,
 };
+use argus_monitor::test_utils::create_monitor_validator;
 use argus_store::SqliteStateRepository;
 use reqwest::Client;
 use tokio::{sync::watch, task};

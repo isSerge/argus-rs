@@ -1,5 +1,5 @@
+use argus_abi::repository::AbiRepositoryError;
 use argus_core::persistence::error::PersistenceError;
-use argus_engine::abi::repository::AbiRepositoryError;
 use argus_providers::rpc::ProviderError;
 use thiserror::Error;
 

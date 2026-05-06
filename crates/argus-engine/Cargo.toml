@@ -11,6 +11,8 @@ argus-core.workspace = true
 argus-dispatch.workspace = true
 argus-providers.workspace = true
 argus-rhai.workspace = true
+argus-abi = { workspace = true, features = ["test-utils"] }
+argus-monitor = { workspace = true, features = ["test-utils"] }
 alloy.workspace = true
 arc-swap.workspace = true
 async-trait.workspace = true

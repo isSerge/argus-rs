@@ -1,7 +1,7 @@
 //! Defines the custom `ApiError` type for the HTTP server.
 
 use argus_core::persistence::error::PersistenceError;
-use argus_engine::monitor::MonitorPersistenceValidationError;
+use argus_monitor::MonitorPersistenceValidationError;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Json},

@@ -13,14 +13,12 @@ use argus_core::{
 };
 use argus_dispatch::error::ActionDispatcherError;
 use argus_engine::{
-    engine::{
-        alert_manager::{AlertManager, AlertManagerError},
-        block_processor::process_blocks_batch,
-        filtering::{FilteringEngine, RhaiError, RhaiFilteringEngine},
-        outbox_processor::OutboxProcessor,
-    },
-    monitor::MonitorManager,
+    alert_manager::{AlertManager, AlertManagerError},
+    block_processor::process_blocks_batch,
+    filtering::{FilteringEngine, RhaiError, RhaiFilteringEngine},
+    outbox_processor::OutboxProcessor,
 };
+use argus_monitor::MonitorManager;
 use argus_providers::{EvmRpcSource, block_fetcher, rpc::ProviderError};
 use clap::Parser;
 use dashmap::DashMap;
@@ -354,22 +352,20 @@ mod tests {
     use std::{collections::HashMap, sync::Arc};
 
     use alloy::primitives::U256;
+    use argus_abi::{AbiRepository, AbiService};
     use argus_core::{
         config::RhaiConfig,
         models::{action::ActionConfig, monitor_match::MatchData},
         providers::traits::MockDataSource,
-        test_utils::ActionBuilder,
+        test_utils::{ActionBuilder, BlockBuilder, MonitorBuilder, TransactionBuilder},
     };
-    use argus_engine::{
-        abi::{AbiRepository, AbiService},
-        engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine, rhai::RhaiCompiler},
-    };
+    use argus_engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine};
+    use argus_rhai::RhaiCompiler;
     use argus_store::SqliteStateRepository;
     use mockall::predicate::eq;
     use serde_json::json;
 
     use super::*;
-    use crate::test_helpers::{BlockBuilder, MonitorBuilder, TransactionBuilder};
 
     // A helper function to create a test state repository
     async fn create_test_repo() -> Arc<SqliteStateRepository> {

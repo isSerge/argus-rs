@@ -202,8 +202,8 @@ impl RhaiScriptValidator {
 
 #[cfg(test)]
 mod tests {
+    use argus_abi::test_utils::erc20_abi_json;
     use argus_core::config::RhaiConfig;
-    use argus_engine::test_utils::erc20_abi_json;
 
     use super::*;
 

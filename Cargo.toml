@@ -14,6 +14,8 @@ argus-store = { path = "crates/argus-store" }
 argus-engine = { path = "crates/argus-engine" }
 argus-api = { path = "crates/argus-api" }
 argus-rhai = { path = "crates/argus-rhai" }
+argus-abi = { path = "crates/argus-abi" }
+argus-monitor = { path = "crates/argus-monitor" }
 omnihook = { path = "crates/omnihook" }
 rhai-analyzer = { path = "crates/rhai-analyzer" }
 rhai-bigint = { path = "crates/rhai-bigint" }
@@ -78,6 +80,9 @@ argus-providers.workspace = true
 argus-store.workspace = true
 argus-engine.workspace = true
 argus-api.workspace = true
+argus-abi.workspace = true
+argus-monitor.workspace = true
+argus-rhai.workspace = true
 arc-swap.workspace = true
 async-nats.workspace = true
 async-trait.workspace = true

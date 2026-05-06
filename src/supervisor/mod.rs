@@ -35,13 +35,10 @@ use argus_core::{
 };
 use argus_dispatch::{ActionDispatcher, error::ActionDispatcherError};
 use argus_engine::{
-    engine::{
-        alert_manager::AlertManager, block_ingestor::BlockIngestor,
-        block_processor::BlockProcessor, filtering::FilteringEngine,
-        outbox_processor::OutboxProcessor,
-    },
-    monitor::{MonitorManager, MonitorValidationError, MonitorValidator},
+    alert_manager::AlertManager, block_ingestor::BlockIngestor, block_processor::BlockProcessor,
+    filtering::FilteringEngine, outbox_processor::OutboxProcessor,
 };
+use argus_monitor::{MonitorManager, MonitorValidationError, MonitorValidator};
 use argus_providers::rpc::ProviderError;
 use builder::SupervisorBuilder;
 use thiserror::Error;

@@ -7,12 +7,10 @@ use alloy::{
     json_abi::JsonAbi,
     primitives::{Address, B256},
 };
+use argus_abi::AbiService;
 use argus_core::monitor::InterestRegistry;
 
-use crate::{
-    abi::AbiService,
-    monitor::{ClassifiedMonitor, MonitorCapabilities},
-};
+use crate::manager::{ClassifiedMonitor, MonitorCapabilities};
 
 /// A builder for constructing an `InterestRegistry` from classified monitors.
 #[derive(Debug, Default)]
@@ -133,13 +131,11 @@ impl InterestRegistryBuilder {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::{address, b256};
+    use argus_abi::test_utils::{create_test_abi_service, erc20_abi_json};
     use argus_core::{models::monitor::Monitor, test_utils::LogBuilder};
+    use argus_rhai::ScriptAnalysis;
 
     use super::*;
-    use crate::{
-        engine::rhai::ScriptAnalysis,
-        test_utils::{create_test_abi_service, erc20_abi_json},
-    };
 
     const ADDRESS1: Address = address!("0000000000000000000000000000000000000001");
     const ADDRESS2: Address = address!("0000000000000000000000000000000000000002");

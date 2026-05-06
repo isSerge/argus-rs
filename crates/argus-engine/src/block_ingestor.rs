@@ -14,7 +14,7 @@ use argus_providers::block_fetcher;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::engine::filtering::FilteringEngine;
+use crate::filtering::FilteringEngine;
 
 /// The BlockIngestor service.
 ///
@@ -164,7 +164,7 @@ mod tests {
     use mockall::predicate::eq;
 
     use super::*;
-    use crate::engine::filtering::MockFilteringEngine;
+    use crate::filtering::MockFilteringEngine;
 
     struct TestHarness {
         config: Arc<AppConfig>,

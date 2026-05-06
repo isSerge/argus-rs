@@ -7,17 +7,15 @@ use std::{
 };
 
 use arc_swap::{ArcSwap, Guard};
+use argus_abi::AbiService;
 use argus_core::{
     models::monitor::{Monitor, MonitorStatus},
     monitor::{InterestRegistry, RegistryProvider},
 };
+use argus_rhai::{RhaiCompiler, ScriptAnalysis};
 use bitflags::bitflags;
 
 use super::InterestRegistryBuilder;
-use crate::{
-    abi::AbiService,
-    engine::rhai::{RhaiCompiler, ScriptAnalysis},
-};
 
 const TX_GAS_USED: &str = "tx.gas_used";
 const TX_STATUS: &str = "tx.status";
@@ -293,10 +291,10 @@ impl RegistryProvider for MonitorStateHandle {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::{address, b256};
+    use argus_abi::test_utils::{create_test_abi_service, erc20_abi_json};
     use argus_core::{config::RhaiConfig, test_utils::MonitorBuilder};
 
     use super::*;
-    use crate::test_utils::{create_test_abi_service, erc20_abi_json};
 
     async fn setup() -> (Arc<RhaiCompiler>, Arc<AbiService>) {
         let config = RhaiConfig::default();

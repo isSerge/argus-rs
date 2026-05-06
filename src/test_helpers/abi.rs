@@ -3,7 +3,8 @@
 use std::sync::Arc;
 
 use argus_core::persistence::traits::AppRepository;
-use argus_engine::abi::{AbiRepository, AbiService};
+use argus_abi::{AbiRepository, AbiService};
+
 use argus_store::SqliteStateRepository;
 
 /// A simple ABI JSON for testing purposes.

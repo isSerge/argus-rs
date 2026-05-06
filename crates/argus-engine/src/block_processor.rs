@@ -10,10 +10,9 @@ use argus_core::{
     models::{BlockData, CorrelatedBlockData, CorrelatedBlockItem, transaction::Transaction},
     persistence::traits::AppRepository,
 };
+use argus_monitor::{MonitorAssetState, MonitorManager};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-
-use crate::engine::monitor::{MonitorAssetState, MonitorManager};
 
 /// The BlockProcessor service.
 ///
@@ -226,10 +225,10 @@ mod tests {
         persistence::traits::MockAppRepository,
         test_utils::{BlockBuilder, LogBuilder, MonitorBuilder, TransactionBuilder},
     };
+    use argus_monitor::test_utils::create_test_monitor_manager;
     use mockall::predicate::eq;
 
     use super::*;
-    use argus_monitor::test_utils::create_test_monitor_manager;
 
     struct TestHarness {
         config: Arc<AppConfig>,

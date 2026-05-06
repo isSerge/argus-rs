@@ -1,19 +1,21 @@
 use std::sync::Arc;
 
 use alloy::primitives::Address;
+pub use argus_abi::test_utils::erc20_abi_json;
+use argus_abi::{AbiService, repository::AbiRepository};
 use argus_core::{
     config::RhaiConfig,
     models::{NetworkId, action::ActionConfig},
     persistence::traits::AppRepository,
 };
 use argus_dispatch::template::TemplateService;
+use argus_rhai::{RhaiCompiler, RhaiScriptValidator};
 use argus_store::SqliteStateRepository;
 
-use crate::{
-    abi::{AbiService, repository::AbiRepository},
-    engine::rhai::{RhaiCompiler, RhaiScriptValidator},
-    monitor::MonitorValidator,
-};
+use crate::MonitorValidator;
+
+mod monitor_manager;
+pub use monitor_manager::create_test_monitor_manager;
 
 /// Creates a test `MonitorValidator` with optional preloaded ABI.
 pub async fn create_monitor_validator(

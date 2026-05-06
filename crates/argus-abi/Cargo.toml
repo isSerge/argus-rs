@@ -1,23 +1,22 @@
 [package]
-name = "argus-rhai"
+name = "argus-abi"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+test-utils = ["dep:argus-store"]
+
 [dependencies]
 argus-core.workspace = true
+argus-store = { workspace = true, optional = true }
 alloy.workspace = true
-hex.workspace = true
-rhai.workspace = true
-rhai-analyzer.workspace = true
-rhai-evm.workspace = true
+dashmap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-dashmap.workspace = true
-sha2.workspace = true
 
 [dev-dependencies]
-num-bigint.workspace = true
+argus-store.workspace = true
 argus-core = { workspace = true, features = ["test-utils"] }
-argus-abi = { workspace = true, features = ["test-utils"] }
+tokio = { workspace = true, features = ["rt", "macros"] }

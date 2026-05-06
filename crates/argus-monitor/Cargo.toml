@@ -1,0 +1,27 @@
+[package]
+name = "argus-monitor"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+test-utils = ["dep:argus-store", "argus-abi/test-utils"]
+
+[dependencies]
+argus-core.workspace = true
+argus-abi.workspace = true
+argus-rhai.workspace = true
+argus-dispatch.workspace = true
+argus-store = { workspace = true, optional = true }
+alloy.workspace = true
+arc-swap.workspace = true
+bitflags.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+argus-store.workspace = true
+argus-core = { workspace = true, features = ["test-utils"] }
+argus-abi = { workspace = true, features = ["test-utils"] }
+tokio = { workspace = true, features = ["rt", "macros"] }
