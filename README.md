@@ -251,33 +251,59 @@ You can view logs with `docker compose logs -f` and stop the application with `d
 
 ## Project Structure
 
-The repository is organized to separate application logic, configuration, and documentation.
+The repository is organized as a Cargo workspace. Shared logic lives in focused library crates under `crates/`, while `src/` contains only the thin application binary (CLI, context wiring, and supervisor).
 
--   `configs`: Holds the default YAML configuration files (`app.yaml`, `monitors.yaml`, `actions.yaml`).
--   `benchmarks`: Contains performance benchmark configurations and scripts.
--   `examples`: Contains a collection of self-contained, runnable examples, each demonstrating a specific feature or use case.
--   `docs`: The source for the project's official documentation, built with `mdbook`.
--   `abis`: The default directory for storing contract ABI JSON files, which are used to decode event logs.
--   `migrations`: Contains the SQL migration files for setting up and updating the application's database schema.
+```text
+argus-rs/
+├── Cargo.toml                  # Workspace root
+├── src/                        # argus binary (CLI entry point, wiring only)
+│   ├── main.rs
+│   ├── cmd/                    # CLI commands (run, dry-run)
+│   ├── context/                # AppContext builder – wires all crates together
+│   ├── loader/                 # YAML config file loading
+│   └── supervisor/             # Top-level service orchestrator
+└── crates/
+    ├── rhai-bigint/            # Rhai plugin: arbitrary-precision integers
+    ├── rhai-evm/               # Rhai plugin: EVM value helpers (ether, gwei, …)
+    ├── rhai-analyzer/          # Rhai AST analyser (script dependency extraction)
+    ├── omnihook/               # Generic Slack/Discord/Telegram payload builders
+    ├── argus-core/             # Core models, config structs, and abstract traits
+    ├── argus-store/            # SQLite persistence (implements argus-core traits)
+    ├── argus-providers/        # Alloy RPC block fetcher (implements DataSource)
+    ├── argus-dispatch/         # Notification dispatch: webhooks, Kafka, RabbitMQ, NATS
+    ├── argus-abi/              # ABI repository and log/call decoding
+    ├── argus-rhai/             # Rhai script compiler and filtering engine
+    ├── argus-monitor/          # Monitor validation, interest registry, manager
+    ├── argus-engine/           # Pipeline orchestration: block ingestor, processor, alert manager, outbox
+    └── argus-api/              # Axum HTTP REST API server
+```
 
-The `src` directory contains all the Rust source code, organized into the following modules:
+### Crate responsibilities
 
--   `abi`: Handles ABI parsing, decoding, and management.
--   `action_dispatcher`: Manages sending notifications to services like webhooks, Slack, and message queues like Kafka.
--   `context`: Encapsulates all necessary components for use throughout the application
--   `cmd`: Contains the definitions for the command-line interface (CLI) commands like `run` and `dry-run`.
--   `config`: Manages application configuration loading and validation.
--   `engine`: The core processing and filtering logic, including the Rhai script executor.
--   `http_client`: Provides a retryable HTTP client and a pool for managing clients.
--   `loader`: Handles the loading and parsing of configuration files.
--   `models`: Defines the core data structures (e.g., `Monitor`, `BlockData`, `Transaction`).
--   `monitor`: Manages the lifecycle and validation of monitor configurations.
--   `persistence`: Manages the application's state via the `StateRepository` trait.
--   `providers`: Fetches data from external sources like EVM nodes.
--   `supervisor`: The top-level orchestrator that initializes and coordinates all services.
--   `test_helpers`: Utilities and mock objects for tests.
--   `main.rs`: The application's entry point, handling CLI parsing and startup.
--   `lib.rs`: The library crate root.
+| Crate | Responsibility |
+|---|---|
+| `rhai-bigint` | BigInt math package for the Rhai scripting engine |
+| `rhai-evm` | EVM denomination helpers (`ether`, `gwei`, `usdc`, …) for Rhai |
+| `rhai-analyzer` | Static AST analysis to extract variable dependencies from Rhai scripts |
+| `omnihook` | Webhook payload builders and HMAC signing for Slack, Discord, and Telegram |
+| `argus-core` | Core domain models (`Monitor`, `BlockData`, `MonitorMatch`, …), config structs, and abstract repository/provider traits |
+| `argus-store` | SQLite implementation of `AppRepository` and `KeyValueStore` via `sqlx` |
+| `argus-providers` | Alloy-based RPC provider and concurrent block fetcher |
+| `argus-dispatch` | Sends notifications to webhooks, Slack, Kafka, RabbitMQ, and NATS; wraps `omnihook` and MiniJinja templating |
+| `argus-abi` | ABI storage, loading, and ABI-based log/calldata decoding |
+| `argus-rhai` | Compiles and executes Rhai filter scripts; exposes `RhaiCompiler` and `RhaiFilteringEngine` |
+| `argus-monitor` | Validates monitor configs, maintains the interest registry, and exposes `MonitorManager` |
+| `argus-engine` | Wires the pipeline: `BlockIngestor` → `BlockProcessor` → `FilteringEngine` → `AlertManager` → `OutboxProcessor` |
+| `argus-api` | Axum HTTP server exposing the REST management API |
+
+### Supporting directories
+
+-   `configs/`: Default YAML configuration files (`app.yaml`, `monitors.yaml`, `actions.yaml`).
+-   `abis/`: Default directory for contract ABI JSON files used to decode event logs.
+-   `migrations/`: SQL migration files for the application database schema.
+-   `examples/`: Self-contained runnable examples demonstrating specific features.
+-   `benchmarks/`: Performance benchmark configurations and scripts.
+-   `docs/`: Source for the project's official documentation, built with `mdbook`.
 
 ## Contributing
 
