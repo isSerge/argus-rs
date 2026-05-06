@@ -8,12 +8,13 @@ use std::collections::HashSet;
 use alloy::{
     consensus::TxType, dyn_abi::DynSolValue, primitives::U256, rpc::types::TransactionReceipt,
 };
-use argus_core::models::transaction::Transaction;
+use argus_core::models::{
+    abi::{DecodedCall, DecodedLog},
+    transaction::Transaction,
+};
 use rhai::{Dynamic, Map};
 use rhai_evm::{i256_to_bigint_dynamic, u256_to_bigint_dynamic};
 use serde_json::{Value, json};
-
-use crate::abi::{DecodedCall, DecodedLog};
 
 /// Converts a `DynSolValue` directly to a Rhai `Dynamic` value.
 ///

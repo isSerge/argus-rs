@@ -2,9 +2,9 @@
 
 pub mod compiler;
 pub mod conversions;
-mod create_engine;
+pub mod create_engine;
 pub mod proxies;
-mod validator;
+pub mod validator;
 
 pub use compiler::{RhaiCompiler, RhaiCompilerError, ScriptAnalysis};
 pub use conversions::{

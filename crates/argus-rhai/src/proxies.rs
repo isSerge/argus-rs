@@ -8,12 +8,10 @@
 use std::sync::Arc;
 
 use alloy::primitives::Address;
+use argus_core::models::abi::{DecodedCall, DecodedLog};
 use rhai::{Dynamic, Map};
 
-use crate::{
-    abi::{DecodedCall, DecodedLog},
-    engine::rhai::conversions::build_params_map,
-};
+use crate::conversions::build_params_map;
 
 /// A proxy for accessing parameters of decoded logs and calls in Rhai scripts.
 #[derive(Clone)]

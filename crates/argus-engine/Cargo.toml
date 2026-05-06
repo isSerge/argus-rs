@@ -4,18 +4,20 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-test-utils = []
+test-utils = ["dep:argus-store"]
 
 [dependencies]
 argus-core.workspace = true
 argus-dispatch.workspace = true
 argus-providers.workspace = true
+argus-rhai.workspace = true
 alloy.workspace = true
 arc-swap.workspace = true
 async-trait.workspace = true
 bitflags.workspace = true
 chrono.workspace = true
 dashmap.workspace = true
+argus-store = { workspace = true, optional = true }
 futures.workspace = true
 hex.workspace = true
 mockall.workspace = true

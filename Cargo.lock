@@ -880,6 +880,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "config",
+ "hex",
  "mockall",
  "serde",
  "serde_json",
@@ -925,6 +926,7 @@ dependencies = [
  "argus-core",
  "argus-dispatch",
  "argus-providers",
+ "argus-rhai",
  "argus-store",
  "async-trait",
  "bitflags 2.9.4",
@@ -958,6 +960,26 @@ dependencies = [
  "thiserror 2.0.12",
  "tokio",
  "tower",
+ "tracing",
+]
+
+[[package]]
+name = "argus-rhai"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "argus-core",
+ "argus-engine",
+ "dashmap",
+ "hex",
+ "num-bigint",
+ "rhai",
+ "rhai-analyzer",
+ "rhai-evm",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.12",
  "tracing",
 ]
 

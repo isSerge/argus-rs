@@ -13,6 +13,7 @@ argus-providers = { path = "crates/argus-providers" }
 argus-store = { path = "crates/argus-store" }
 argus-engine = { path = "crates/argus-engine" }
 argus-api = { path = "crates/argus-api" }
+argus-rhai = { path = "crates/argus-rhai" }
 omnihook = { path = "crates/omnihook" }
 rhai-analyzer = { path = "crates/rhai-analyzer" }
 rhai-bigint = { path = "crates/rhai-bigint" }

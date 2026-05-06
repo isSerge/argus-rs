@@ -1,0 +1,23 @@
+[package]
+name = "argus-rhai"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+argus-core.workspace = true
+alloy.workspace = true
+hex.workspace = true
+rhai.workspace = true
+rhai-analyzer.workspace = true
+rhai-evm.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+dashmap.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+num-bigint.workspace = true
+argus-core = { workspace = true, features = ["test-utils"] }
+argus-engine = { workspace = true, features = ["test-utils"] }

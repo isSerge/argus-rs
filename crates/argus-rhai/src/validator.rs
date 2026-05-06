@@ -7,7 +7,7 @@ use super::{
     RhaiCompiler, RhaiCompilerError, ScriptAnalysis, get_valid_log_rhai_paths,
     get_valid_receipt_rhai_paths, get_valid_tx_rhai_paths,
 };
-use crate::engine::rhai::conversions::get_valid_decoded_call_rhai_paths;
+use crate::conversions::get_valid_decoded_call_rhai_paths;
 
 #[derive(Clone)]
 /// Validates Rhai scripts against allowed fields and ABI.
@@ -203,9 +203,9 @@ impl RhaiScriptValidator {
 #[cfg(test)]
 mod tests {
     use argus_core::config::RhaiConfig;
+    use argus_engine::test_utils::erc20_abi_json;
 
     use super::*;
-    use crate::test_utils::erc20_abi_json;
 
     fn create_validator() -> RhaiScriptValidator {
         let config = RhaiConfig::default();
