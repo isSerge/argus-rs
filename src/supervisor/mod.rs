@@ -23,6 +23,7 @@ mod builder;
 
 use std::sync::Arc;
 
+use argus_api::http_server;
 use argus_core::{
     config::AppConfig,
     models::{BlockData, CorrelatedBlockData, monitor::Monitor, monitor_match::MonitorMatch},
@@ -33,21 +34,17 @@ use argus_core::{
     providers::traits::{DataSource, DataSourceError},
 };
 use argus_dispatch::{ActionDispatcher, error::ActionDispatcherError};
+use argus_engine::{
+    alert_manager::AlertManager, block_ingestor::BlockIngestor, block_processor::BlockProcessor,
+    filtering::FilteringEngine, outbox_processor::OutboxProcessor,
+};
+use argus_monitor::{MonitorManager, MonitorValidationError, MonitorValidator};
 use argus_providers::rpc::ProviderError;
 use builder::SupervisorBuilder;
 use thiserror::Error;
 use tokio::{signal, sync::mpsc};
 
-use crate::{
-    context::AppMetrics,
-    engine::{
-        alert_manager::AlertManager, block_ingestor::BlockIngestor,
-        block_processor::BlockProcessor, filtering::FilteringEngine,
-        outbox_processor::OutboxProcessor,
-    },
-    http_server,
-    monitor::{MonitorManager, MonitorValidationError, MonitorValidator},
-};
+use crate::context::AppMetrics;
 
 /// Represents the set of errors that can occur during the supervisor's
 /// operation.

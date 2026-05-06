@@ -54,6 +54,16 @@ impl LogBuilder {
         self
     }
 
+    pub fn log_index(mut self, index: u64) -> Self {
+        self.log_index = Some(index);
+        self
+    }
+
+    pub fn transaction_index(mut self, index: u64) -> Self {
+        self.transaction_index = Some(index);
+        self
+    }
+
     pub fn build(self) -> Log {
         AlloyLog {
             inner: alloy::primitives::Log {

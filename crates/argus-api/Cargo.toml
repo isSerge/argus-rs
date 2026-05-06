@@ -1,0 +1,16 @@
+[package]
+name = "argus-api"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+argus-core.workspace = true
+argus-engine.workspace = true
+argus-abi.workspace = true
+argus-monitor.workspace = true
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true

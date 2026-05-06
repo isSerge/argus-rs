@@ -1,5 +1,6 @@
 //! This module contains the data models for the Argus application.
 
+pub mod abi;
 pub mod action;
 pub mod action_id;
 pub mod alert_manager_state;
@@ -12,7 +13,9 @@ pub mod monitor_match;
 pub mod network_id;
 pub mod notification;
 pub mod transaction;
+pub mod transaction_builder;
 
+pub use abi::{DecodedCall, DecodedLog};
 pub use action_id::ActionId;
 pub use block_data::BlockData;
 pub use correlated_data::CorrelatedBlockItem;

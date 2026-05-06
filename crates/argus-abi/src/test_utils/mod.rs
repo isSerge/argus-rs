@@ -1,16 +1,15 @@
-//! Test helpers for ABI-related functionality.
+//! ABI test helpers.
 
 use std::sync::Arc;
 
 use argus_core::persistence::traits::AppRepository;
-use argus_abi::{AbiRepository, AbiService};
-
 use argus_store::SqliteStateRepository;
+
+use crate::{AbiRepository, AbiService};
 
 /// A simple ABI JSON for testing purposes.
 pub fn erc20_abi_json() -> &'static str {
-    // get abi from abis/erc20.json
-    include_str!("../../abis/erc20.json")
+    include_str!("../../../../abis/erc20.json")
 }
 
 /// Creates a test `AbiService` with the given ABIs written to the database.

@@ -807,9 +807,14 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "arc-swap",
+ "argus-abi",
+ "argus-api",
  "argus-core",
  "argus-dispatch",
+ "argus-engine",
+ "argus-monitor",
  "argus-providers",
+ "argus-rhai",
  "argus-store",
  "async-nats",
  "async-trait",
@@ -856,6 +861,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "argus-abi"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "argus-core",
+ "argus-store",
+ "dashmap",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.12",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "argus-api"
+version = "0.1.0"
+dependencies = [
+ "argus-abi",
+ "argus-core",
+ "argus-engine",
+ "argus-monitor",
+ "axum",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.12",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "argus-core"
 version = "0.1.0"
 dependencies = [
@@ -864,12 +900,14 @@ dependencies = [
  "async-trait",
  "chrono",
  "config",
+ "hex",
  "mockall",
  "serde",
  "serde_json",
  "sqlx",
  "tempfile",
  "thiserror 2.0.12",
+ "tokio",
  "url",
 ]
 
@@ -900,6 +938,58 @@ dependencies = [
 ]
 
 [[package]]
+name = "argus-engine"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "arc-swap",
+ "argus-abi",
+ "argus-core",
+ "argus-dispatch",
+ "argus-monitor",
+ "argus-providers",
+ "argus-rhai",
+ "argus-store",
+ "async-trait",
+ "bitflags 2.9.4",
+ "chrono",
+ "dashmap",
+ "futures",
+ "hex",
+ "mockall",
+ "num-bigint",
+ "rhai",
+ "rhai-analyzer",
+ "rhai-evm",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.12",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "argus-monitor"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "arc-swap",
+ "argus-abi",
+ "argus-core",
+ "argus-dispatch",
+ "argus-rhai",
+ "argus-store",
+ "bitflags 2.9.4",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.12",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "argus-providers"
 version = "0.1.0"
 dependencies = [
@@ -911,6 +1001,26 @@ dependencies = [
  "thiserror 2.0.12",
  "tokio",
  "tower",
+ "tracing",
+]
+
+[[package]]
+name = "argus-rhai"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "argus-abi",
+ "argus-core",
+ "dashmap",
+ "hex",
+ "num-bigint",
+ "rhai",
+ "rhai-analyzer",
+ "rhai-evm",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.12",
  "tracing",
 ]
 

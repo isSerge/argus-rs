@@ -5,7 +5,6 @@
 //! throughout the application.
 
 mod error;
-mod metrics;
 
 use std::{
     fs,
@@ -14,27 +13,22 @@ use std::{
 };
 
 use alloy::providers::Provider;
+use argus_abi::{AbiService, repository::AbiRepository};
+pub use argus_core::metrics::{AppMetrics, Metrics};
 use argus_core::{
     config::{AppConfig, InitialStartBlock},
     models::{action::ActionConfig, monitor::MonitorConfig},
     persistence::traits::{AppRepository, KeyValueStore},
 };
 use argus_dispatch::{ActionDispatcher, http_client::HttpClientPool, template::TemplateService};
+use argus_engine::{alert_manager::AlertManager, filtering::RhaiFilteringEngine};
+use argus_monitor::{MonitorManager, MonitorValidator};
 use argus_providers::rpc::create_provider;
+use argus_rhai::{RhaiCompiler, RhaiScriptValidator};
 use argus_store::SqliteStateRepository;
 pub use error::{AppContextError, InitializationError};
-pub use metrics::{AppMetrics, Metrics};
 
-use crate::{
-    abi::{AbiService, repository::AbiRepository},
-    engine::{
-        alert_manager::AlertManager,
-        filtering::RhaiFilteringEngine,
-        rhai::{RhaiCompiler, RhaiScriptValidator},
-    },
-    loader::load_config,
-    monitor::{MonitorManager, MonitorValidator},
-};
+use crate::loader::load_config;
 
 /// The application context, holding configuration, database repository,
 /// ABI service, script compiler, and EVM data provider.

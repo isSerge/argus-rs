@@ -2,10 +2,6 @@
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use argus::{
-    engine::{alert_manager::AlertManager, outbox_processor::OutboxProcessor},
-    test_helpers::create_test_tx_monitor_match,
-};
 use argus_core::{
     config::OutboxConfig,
     models::{
@@ -15,11 +11,11 @@ use argus_core::{
         monitor_match::MonitorMatch,
     },
     persistence::traits::KeyValueStore,
-    test_utils::ActionBuilder,
+    test_utils::{ActionBuilder, create_test_monitor_match},
 };
 use argus_dispatch::{ActionDispatcher, http_client::HttpClientPool};
+use argus_engine::{alert_manager::AlertManager, outbox_processor::OutboxProcessor};
 use argus_store::SqliteStateRepository;
-use serde_json::json;
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 
@@ -32,7 +28,7 @@ async fn setup_db() -> SqliteStateRepository {
 }
 
 fn create_monitor_match(monitor_name: &str, action_name: &str) -> MonitorMatch {
-    create_test_tx_monitor_match(monitor_name, action_name, json!({ "key": "value" }))
+    create_test_monitor_match(monitor_name, action_name)
 }
 
 // Helper to build the dispatcher

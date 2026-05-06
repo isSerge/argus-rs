@@ -14,11 +14,13 @@ arc-swap.workspace = true
 async-trait.workspace = true
 chrono.workspace = true
 config.workspace = true
+hex.workspace = true
 mockall = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
 url.workspace = true
 
 [dev-dependencies]

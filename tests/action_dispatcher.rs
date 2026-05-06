@@ -3,7 +3,6 @@
 mod docker_compose_guard;
 use std::sync::Arc;
 
-use argus::test_helpers::create_test_monitor_match;
 use argus_core::{
     config::HttpRetryConfig,
     models::{
@@ -11,7 +10,7 @@ use argus_core::{
         action::{ActionConfig, ActionTypeConfig, DiscordConfig},
         monitor_match::MonitorMatch,
     },
-    test_utils::ActionBuilder,
+    test_utils::{ActionBuilder, create_test_monitor_match},
 };
 use argus_dispatch::{
     ActionDispatcher, ActionPayload, error::ActionDispatcherError, http_client::HttpClientPool,
