@@ -19,7 +19,7 @@ argus-monitor = { path = "crates/argus-monitor" }
 omnihook = { path = "crates/omnihook" }
 rhai-analyzer = { path = "crates/rhai-analyzer" }
 rhai-bigint = "0.1.0"
-rhai-evm = { path = "crates/rhai-evm" }
+rhai-evm = "0.1.0"
 arc-swap = "1.7.1"
 async-nats = "0.43.1"
 async-trait = "0.1.88"
@@ -108,7 +108,6 @@ reqwest-middleware.workspace = true
 reqwest-retry.workspace = true
 rhai.workspace = true
 rhai-analyzer.workspace = true
-rhai-evm.workspace = true
 rust_decimal.workspace = true
 serde.workspace = true
 serde_json.workspace = true

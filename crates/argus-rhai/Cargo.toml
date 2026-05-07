@@ -9,6 +9,7 @@ alloy.workspace = true
 hex.workspace = true
 rhai.workspace = true
 rhai-analyzer.workspace = true
+rhai-bigint.workspace = true
 rhai-evm.workspace = true
 serde.workspace = true
 serde_json.workspace = true

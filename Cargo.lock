@@ -842,7 +842,6 @@ dependencies = [
  "reqwest-retry",
  "rhai",
  "rhai-analyzer",
- "rhai-evm",
  "rust_decimal",
  "serde",
  "serde_json",
@@ -960,7 +959,7 @@ dependencies = [
  "num-bigint",
  "rhai",
  "rhai-analyzer",
- "rhai-evm",
+ "rhai-evm 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde",
  "serde_json",
  "sha2",
@@ -1016,7 +1015,8 @@ dependencies = [
  "num-bigint",
  "rhai",
  "rhai-analyzer",
- "rhai-evm",
+ "rhai-bigint",
+ "rhai-evm 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde",
  "serde_json",
  "sha2",
@@ -4847,6 +4847,19 @@ dependencies = [
  "num-bigint",
  "rhai",
  "rhai-bigint",
+ "rust_decimal",
+]
+
+[[package]]
+name = "rhai-evm"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3a16e43ac2b7eefa985a5900ee67b8148916c5d03ccf29351c778cd57783d47"
+dependencies = [
+ "alloy-primitives",
+ "num-bigint",
+ "num-traits",
+ "rhai",
  "rust_decimal",
 ]
 
