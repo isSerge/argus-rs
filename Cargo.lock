@@ -4831,6 +4831,8 @@ dependencies = [
 [[package]]
 name = "rhai-bigint"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d55cbef62aefe8a451ba99fb65da57c9c005cb63a4696adcbdfd94ebff4962f"
 dependencies = [
  "num-bigint",
  "num-traits",

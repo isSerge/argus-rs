@@ -18,7 +18,7 @@ argus-abi = { path = "crates/argus-abi" }
 argus-monitor = { path = "crates/argus-monitor" }
 omnihook = { path = "crates/omnihook" }
 rhai-analyzer = { path = "crates/rhai-analyzer" }
-rhai-bigint = { path = "crates/rhai-bigint" }
+rhai-bigint = "0.1.0"
 rhai-evm = { path = "crates/rhai-evm" }
 arc-swap = "1.7.1"
 async-nats = "0.43.1"

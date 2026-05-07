@@ -8,7 +8,7 @@
 use alloy_primitives::{I256, Sign as AlloySign, U256};
 use num_bigint::{BigInt, Sign as BigIntSign};
 use rhai::{Dynamic, def_package, packages::Package, plugin::*};
-use rhai_bigint::register_bigint_with_rhai;
+use rhai_bigint::BigIntPackage;
 use rust_decimal::prelude::*;
 
 /// Converts a `U256` value unconditionally to a Rhai `BigInt` dynamic type.
@@ -252,8 +252,8 @@ def_package! {
 /// Rhai engine. Calling this is sufficient — no need to also call
 /// `register_bigint_with_rhai`.
 pub fn register_evm_wrappers_with_rhai(engine: &mut rhai::Engine) {
-    register_bigint_with_rhai(engine);
     engine.register_type_with_name::<Decimal>("Decimal");
+    BigIntPackage::new().register_into_engine(engine);
     EvmPackage::new().register_into_engine(engine);
 }
 
