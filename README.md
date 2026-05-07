@@ -263,8 +263,6 @@ argus-rs/
 │   ├── loader/                 # YAML config file loading
 │   └── supervisor/             # Top-level service orchestrator
 └── crates/
-    ├── rhai-bigint/            # Rhai plugin: arbitrary-precision integers
-    ├── rhai-evm/               # Rhai plugin: EVM value helpers (ether, gwei, …)
     ├── rhai-analyzer/          # Rhai AST analyser (script dependency extraction)
     ├── omnihook/               # Generic Slack/Discord/Telegram payload builders
     ├── argus-core/             # Core models, config structs, and abstract traits
@@ -282,8 +280,6 @@ argus-rs/
 
 | Crate | Responsibility |
 |---|---|
-| `rhai-bigint` | BigInt math package for the Rhai scripting engine |
-| `rhai-evm` | EVM denomination helpers (`ether`, `gwei`, `usdc`, …) for Rhai |
 | `rhai-analyzer` | Static AST analysis to extract variable dependencies from Rhai scripts |
 | `omnihook` | Webhook payload builders and HMAC signing for Slack, Discord, and Telegram |
 | `argus-core` | Core domain models (`Monitor`, `BlockData`, `MonitorMatch`, …), config structs, and abstract repository/provider traits |

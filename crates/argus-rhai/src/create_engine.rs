@@ -1,6 +1,7 @@
 use argus_core::config::RhaiConfig;
-use rhai::Engine;
-use rhai_evm::register_evm_wrappers_with_rhai;
+use rhai::{Engine, packages::Package};
+use rhai_bigint::BigIntPackage;
+use rhai_evm::EvmPackage;
 
 use super::proxies::register_proxies;
 
@@ -25,8 +26,10 @@ pub fn create_engine(rhai_config: RhaiConfig) -> Engine {
         engine.disable_symbol(symbol);
     }
 
-    // Register EVM wrappers (includes BigInt package) for handling token values
-    register_evm_wrappers_with_rhai(&mut engine);
+    // Register BigInt package for handling large integers in token values
+    BigIntPackage::new().register_into_engine(&mut engine);
+    // Register EVM wrappers for handling decoded logs and calls
+    EvmPackage::new().register_into_engine(&mut engine);
 
     // Register custom proxies for accessing decoded logs and calls
     register_proxies(&mut engine);
