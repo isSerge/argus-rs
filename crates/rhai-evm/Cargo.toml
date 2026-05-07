@@ -8,5 +8,5 @@ description = "Rhai plugin providing EVM token denomination helpers and primitiv
 alloy-primitives = "1.3.0"
 num-bigint.workspace = true
 rhai.workspace = true
-rhai-bigint = { path = "../rhai-bigint" }
+rhai-bigint = "0.1.0"
 rust_decimal.workspace = true

@@ -15,7 +15,6 @@ This document provides a high-level overview of the internal architecture of the
 argus-rs/
 ├── src/                  # Binary entry point – CLI, context wiring, supervisor
 └── crates/
-    ├── rhai-bigint        # Rhai plugin: arbitrary-precision integers
     ├── rhai-evm           # Rhai plugin: EVM value helpers (ether, gwei, …)
     ├── rhai-analyzer      # Rhai AST analyser (script dependency extraction)
     ├── omnihook           # Generic Slack/Discord/Telegram payload builders
