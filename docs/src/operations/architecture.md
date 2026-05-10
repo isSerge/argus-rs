@@ -15,7 +15,6 @@ This document provides a high-level overview of the internal architecture of the
 argus-rs/
 ├── src/                  # Binary entry point – CLI, context wiring, supervisor
 └── crates/
-    ├── rhai-analyzer      # Rhai AST analyser (script dependency extraction)
     ├── omnihook           # Generic Slack/Discord/Telegram payload builders
     ├── argus-core         # Core models, config structs, and abstract traits
     ├── argus-store        # SQLite persistence (implements argus-core traits)

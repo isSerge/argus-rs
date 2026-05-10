@@ -17,9 +17,9 @@ argus-rhai = { path = "crates/argus-rhai" }
 argus-abi = { path = "crates/argus-abi" }
 argus-monitor = { path = "crates/argus-monitor" }
 omnihook = { path = "crates/omnihook" }
-rhai-analyzer = { path = "crates/rhai-analyzer" }
-rhai-bigint = "0.1.0"
-rhai-evm = "0.1.0"
+rhai-analyzer = "0.1.0"
+rhai-bigint = "0.1.1"
+rhai-evm = "0.1.1"
 arc-swap = "1.7.1"
 async-nats = "0.43.1"
 async-trait = "0.1.88"
@@ -125,6 +125,8 @@ urlencoding.workspace = true
 
 [dev-dependencies]
 argus-core = { path = "crates/argus-core", features = ["test-utils"] }
+argus-abi = { path = "crates/argus-abi", features = ["test-utils"] }
+argus-monitor = { path = "crates/argus-monitor", features = ["test-utils"] }
 mockall.workspace = true
 mockito.workspace = true
 tokio-stream.workspace = true
