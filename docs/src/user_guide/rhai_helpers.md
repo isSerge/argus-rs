@@ -15,7 +15,7 @@ Converts a number into a `BigInt` with 18 decimal places. Useful for ETH and oth
 -   `value`: An integer or float.
 
 **Example:**
-`ether(10)` is equivalent to `bigint("10000000000000000000")`.
+`ether(10)` is equivalent to `parse_bigint("10000000000000000000")`.
 
 ```rhai
 // Check if more than 10 ETH was transferred
@@ -29,7 +29,7 @@ Converts a number into a `BigInt` with 9 decimal places.
 -   `value`: An integer or float.
 
 **Example:**
-`gwei(20)` is equivalent to `bigint("20000000000")`.
+`gwei(20)` is equivalent to `parse_bigint("20000000000")`.
 
 ```rhai
 // Check if the gas price is over 20 gwei
@@ -43,7 +43,7 @@ Converts a number into a `BigInt` with 6 decimal places. Specifically for USDC a
 -   `value`: An integer or float.
 
 **Example:**
-`usdc(1_000_000)` is equivalent to `bigint("1000000000000")`.
+`usdc(1_000_000)` is equivalent to `parse_bigint("1000000000000")`.
 
 ```rhai
 // Check for a USDC transfer of over 1,000,000
@@ -69,7 +69,7 @@ log.params.value > decimals(5000, 8)
 
 ## BigInt Helper
 
-### `bigint(value)`
+### `parse_bigint(value)`
 
 Converts a string into a `BigInt`. This is useful for representing very large numbers that might not fit in a standard integer type.
 
@@ -79,7 +79,7 @@ Converts a string into a `BigInt`. This is useful for representing very large nu
 
 ```rhai
 // A very large number
-let threshold = bigint("5000000000000000000000");
+let threshold = parse_bigint("5000000000000000000000");
 tx.value > threshold
 ```
 

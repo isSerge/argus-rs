@@ -688,7 +688,7 @@ mod tests {
         let (abi_service, _) = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
         let monitor = MonitorBuilder::new()
             .id(1)
-            .filter_script("tx.value > bigint(\"100\")")
+            .filter_script("tx.value > parse_bigint(\"100\")")
             .actions(vec!["action1".to_string()])
             .build();
         let monitors = vec![monitor];
@@ -710,7 +710,7 @@ mod tests {
 
         let monitor = MonitorBuilder::new()
             .id(1)
-            .filter_script("tx.value > bigint(\"200\")")
+            .filter_script("tx.value > parse_bigint(\"200\")")
             .actions(vec!["action1".to_string()])
             .build();
         let monitors = vec![monitor];
@@ -737,7 +737,7 @@ mod tests {
             .build();
         let tx_monitor = MonitorBuilder::new()
             .id(2)
-            .filter_script("tx.value > bigint(\"100\")")
+            .filter_script("tx.value > parse_bigint(\"100\")")
             .actions(vec!["tx_action".to_string()])
             .build();
         let monitors = vec![log_monitor.clone(), tx_monitor.clone()];
@@ -773,7 +773,7 @@ mod tests {
             .id(1)
             .address(&CONTRACT_ADDRESS.to_checksum(None))
             .abi_name("erc20")
-            .filter_script("log.name == \"Transfer\" && log.params.value > bigint(\"100\")")
+            .filter_script("log.name == \"Transfer\" && log.params.value > parse_bigint(\"100\")")
             .actions(vec!["action1".to_string()])
             .build();
         let monitors = vec![monitor];
@@ -825,7 +825,7 @@ mod tests {
             .address(&CONTRACT_ADDRESS.to_checksum(None))
             .abi_name("erc20")
             .filter_script(
-                r#"decoded_call.name == "transfer" && decoded_call.params._value > bigint(1000)"#,
+                r#"decoded_call.name == "transfer" && decoded_call.params._value > parse_bigint(1000)"#,
             )
             .actions(vec!["test-action".to_string()])
             .build();
@@ -854,7 +854,7 @@ mod tests {
             .address(&CONTRACT_ADDRESS.to_checksum(None))
             .abi_name("erc20")
             .filter_script(
-                r#"log.name == "Transfer" && decoded_call.name == "transfer" && decoded_call.params._value > bigint(1000)"#,
+                r#"log.name == "Transfer" && decoded_call.name == "transfer" && decoded_call.params._value > parse_bigint(1000)"#,
             )
             .actions(vec!["test-action".to_string()])
             .build();
@@ -909,7 +909,7 @@ mod tests {
         // --- Scenario 1: A monitor explicitly uses a receipt field ---
         let monitor_no_receipt = MonitorBuilder::new()
             .id(1)
-            .filter_script("tx.value > bigint(\"100\")") // No receipt needed
+            .filter_script("tx.value > parse_bigint(\"100\")") // No receipt needed
             .build();
         let monitor_requires_receipt = MonitorBuilder::new()
             .id(2)
@@ -926,7 +926,7 @@ mod tests {
         // --- Scenario 2: No monitors use any receipt fields ---
         let monitor_no_receipt = MonitorBuilder::new()
             .id(1)
-            .filter_script("tx.value > bigint(\"100\")") // No receipt needed
+            .filter_script("tx.value > parse_bigint(\"100\")") // No receipt needed
             .build();
         let monitor_no_receipt_too = MonitorBuilder::new()
             .id(2)
@@ -947,7 +947,7 @@ mod tests {
             MonitorBuilder::new().id(1).filter_script("// This script checks tx.status").build();
         let monitor = MonitorBuilder::new()
             .id(2)
-            .filter_script("tx.value > bigint(\"100\") && log.name == \"tx.gas_used\"")
+            .filter_script("tx.value > parse_bigint(\"100\") && log.name == \"tx.gas_used\"")
             .build();
         let monitors_with_receipt_field_in_comment = vec![monitor_commented_field, monitor];
         let engine_ast_check =
@@ -961,11 +961,11 @@ mod tests {
         // --- Scenario 4: A mix of valid and invalid scripts ---
         let monitor_valid_no_receipt = MonitorBuilder::new()
             .id(1)
-            .filter_script("tx.value > bigint(\"100\")") // Valid, no receipt
+            .filter_script("tx.value > parse_bigint(\"100\")") // Valid, no receipt
             .build();
         let monitor_valid_requires_receipt = MonitorBuilder::new()
             .id(2)
-            .filter_script("tx.gas_used > bigint(\"50000\")") // Valid, needs receipt
+            .filter_script("tx.gas_used > parse_bigint(\"50000\")") // Valid, needs receipt
             .build();
         let monitor_invalid = MonitorBuilder::new()
             .id(3)
@@ -1088,7 +1088,7 @@ mod tests {
             .abi_name("erc20")
             .filter_script(
                 r#" 
-            tx.value > bigint(100) || log.name == "Transfer"
+            tx.value > parse_bigint(100) || log.name == "Transfer"
         "#,
             )
             .actions(vec!["test-action".to_string()])
@@ -1115,7 +1115,7 @@ mod tests {
             .abi_name("erc20")
             .filter_script(
                 r#" 
-            tx.value > bigint(100) || log.name == "Transfer"
+            tx.value > parse_bigint(100) || log.name == "Transfer"
         "#,
             )
             .actions(vec!["test-action".to_string()])
@@ -1148,7 +1148,7 @@ mod tests {
             .abi_name("erc20")
             .filter_script(
                 r#" 
-            tx.value > bigint(100) || log.name == "Transfer"
+            tx.value > parse_bigint(100) || log.name == "Transfer"
         "#,
             )
             .actions(vec!["test-action".to_string()])
