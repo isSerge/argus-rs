@@ -18,14 +18,14 @@ argus-abi = { path = "crates/argus-abi" }
 argus-monitor = { path = "crates/argus-monitor" }
 omnihook = { path = "crates/omnihook" }
 rhai-analyzer = "0.1.0"
-rhai-bigint = "0.1.1"
-rhai-evm = "0.1.1"
+rhai-bigint = "0.1.6"
+rhai-evm = "0.1.2"
 arc-swap = "1.7.1"
 async-nats = "0.43.1"
 async-trait = "0.1.88"
 axum = "0.8.6"
 bitflags = "2.9.4"
-bytes = "1.10.1"
+bytes = "1.11.1"
 chrono = { version = "0.4.41", features = ["serde"] }
 clap = { version = "4.5.45", features = ["derive"] }
 config = { version = "0.15.13", features = ["yaml"] }

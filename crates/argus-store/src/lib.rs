@@ -244,7 +244,7 @@ mod tests {
                 network_id.clone(),
                 Some("0xa0b86a33e6441b38d4b5e5bfa1bf7a5eb70c5b1e".to_string()),
                 Some("usdc".to_string()),
-                r#"log.name == "Transfer" && bigint(log.params.value) > bigint("1000000000")"#
+                r#"log.name == "Transfer" && parse_bigint(log.params.value) > parse_bigint("1000000000")"#
                     .to_string(),
                 vec!["test-action".to_string()],
             ),
@@ -261,7 +261,7 @@ mod tests {
                 network_id.clone(),
                 None, // No address for transaction-level monitor
                 None,
-                r#"bigint(tx.value) > bigint("1000000000000000000")"#.to_string(),
+                r#"parse_bigint(tx.value) > parse_bigint("1000000000000000000")"#.to_string(),
                 vec!["eth-action".to_string(), "another-action".to_string()],
             ),
         ];

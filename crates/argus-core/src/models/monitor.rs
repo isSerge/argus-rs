@@ -161,14 +161,14 @@ mod tests {
             NetworkId::default(),
             None,
             None,
-            "bigint(tx.value) > bigint(1000)".to_string(),
+            "parse_bigint(tx.value) > parse_bigint(1000)".to_string(),
             vec![],
         );
 
         assert_eq!(monitor.name, "Native Transfer Monitor");
         assert_eq!(monitor.network, NetworkId::default());
         assert_eq!(monitor.address, None);
-        assert_eq!(monitor.filter_script, "bigint(tx.value) > bigint(1000)");
+        assert_eq!(monitor.filter_script, "parse_bigint(tx.value) > parse_bigint(1000)");
         assert!(monitor.actions.is_empty());
     }
 }

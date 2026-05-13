@@ -417,7 +417,7 @@ mod tests {
     #[test]
     fn test_validate_analysis_log_params_access_without_abi() {
         let validator = create_validator();
-        let script = "log.params.amount > bigint(100)"; // Accessing log.params without ABI
+        let script = "log.params.amount > parse_bigint(100)"; // Accessing log.params without ABI
         let analysis = validator.compiler.analyze_script(script).unwrap();
         let result = validator.validate_analysis(analysis, None);
         assert!(result.is_err());
