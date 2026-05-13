@@ -391,7 +391,7 @@ mod tests {
         // Arrange
         let from_block = 100;
         let to_block = 100;
-        let monitor_script = "tx.value > bigint(\"10000000000000000000\")";
+        let monitor_script = "tx.value > parse_bigint(\"10000000000000000000\")";
 
         // Create a mock data source
         let mut mock_data_source = MockDataSource::new();
@@ -462,7 +462,7 @@ mod tests {
         // Arrange
         let from_block = 100;
         let to_block = 100;
-        let monitor_script = "tx.value > bigint(\"100\")"; // Condition will not be met
+        let monitor_script = "tx.value > parse_bigint(\"100\")"; // Condition will not be met
 
         // Create a mock data source
         let mut mock_data_source = MockDataSource::new();
@@ -635,7 +635,7 @@ mod tests {
         // Arrange
         let from_block = 100;
         let to_block = 101;
-        let monitor_script = "tx.value > bigint(\"10000000000000000000\")";
+        let monitor_script = "tx.value > parse_bigint(\"10000000000000000000\")";
 
         // Create a mock data source
         let mut mock_data_source = MockDataSource::new();
