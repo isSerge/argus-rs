@@ -624,7 +624,7 @@ mod tests {
         },
         test_utils::{LogBuilder, MonitorBuilder, TransactionBuilder},
     };
-use argus_rhai::RhaiCompiler;
+    use argus_rhai::RhaiCompiler;
 
     use super::*;
 
