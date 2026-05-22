@@ -290,36 +290,50 @@ async fn run_dry_run_loop<T: KeyValueStore + AppRepository>(
         let needs_receipts = filtering_engine.requires_receipt_data();
 
         // Use the reusable concurrent fetching function
-        let block_data_batch = block_fetcher::fetch_blocks_concurrent(
-            data_source_ref,
-            needs_receipts,
-            current_block,
-            batch_end_block,
-            concurrency,
-        )
-        .await?;
+        let block_data_batch = {
+            let _span = tracing::info_span!("fetch_blocks", from = current_block, to = batch_end_block).entered();
+            block_fetcher::fetch_blocks_concurrent(
+                data_source_ref,
+                needs_receipts,
+                current_block,
+                batch_end_block,
+                concurrency,
+            )
+            .await?
+        };
 
         // Process the entire collected batch in one call.
         if !block_data_batch.is_empty() {
             tracing::info!(count = block_data_batch.len(), "Processing block batch...");
 
-            let decoded_blocks_batch =
-                process_blocks_batch(block_data_batch, monitor_manager.clone()).await?;
+            let decoded_blocks_batch = {
+                let _span = tracing::info_span!("process_blocks").entered();
+                process_blocks_batch(block_data_batch, monitor_manager.clone()).await?
+            };
 
-            // Concurrently evaluate all items from the batch of decoded blocks.
-            let evaluation_futures = decoded_blocks_batch
-                .iter()
-                .flat_map(|block| &block.items)
-                .map(|item| filtering_engine.evaluate_item(item));
-
-            let results = futures::future::join_all(evaluation_futures).await;
-
-            // Flatten matches while propagating errors early
-            let mut batch_matches = Vec::new();
-            for result in results {
-                batch_matches.extend(result?);
-            }
-
+            // Evaluate all items across the batch in parallel using Rayon.
+            // spawn_blocking moves the CPU-bound work off the tokio runtime.
+            let engine = filtering_engine.clone();
+            let batch_matches = {
+                let span = tracing::info_span!("rayon_eval");
+                tokio::task::spawn_blocking(move || {
+                    let _guard = span.enter();
+                    use rayon::prelude::*;
+                    decoded_blocks_batch
+                        .into_par_iter()
+                        .flat_map(|block| block.items.into_par_iter())
+                        .flat_map(|item| match engine.evaluate_item(&item) {
+                            Ok(matches) => matches,
+                            Err(e) => {
+                                tracing::error!("Error evaluating item: {}", e);
+                                vec![]
+                            }
+                        })
+                        .collect::<Vec<MonitorMatch>>()
+                })
+                .await
+                .map_err(|e| DryRunError::BlockProcessor(Box::new(e)))?
+            };
             if !batch_matches.is_empty() {
                 // Process all the matches found in the batch.
                 let processing_futures =

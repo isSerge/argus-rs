@@ -6,7 +6,7 @@ use argus::{
 use argus_core::config::InitialStartBlock;
 use argus_store::SqliteStateRepository;
 use clap::{Parser, Subcommand};
-use tracing_subscriber::{EnvFilter, FmtSubscriber};
+use tracing_subscriber::{EnvFilter, FmtSubscriber, fmt::format::FmtSpan};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -46,8 +46,10 @@ fn parse_start_block_arg(s: &str) -> Result<InitialStartBlock, String> {
 #[tracing::instrument(level = "info")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize tracing subscriber
-    let subscriber =
-        FmtSubscriber::builder().with_env_filter(EnvFilter::from_default_env()).finish();
+    let subscriber = FmtSubscriber::builder()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_span_events(FmtSpan::CLOSE)
+        .finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
     let cli = Cli::parse();
