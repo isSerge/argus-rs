@@ -48,6 +48,20 @@ pub trait DataSource: Send + Sync {
         block_number: u64,
     ) -> Result<(Block, Vec<Log>), DataSourceError>;
 
+    /// Fetches a single block with full transaction data, without fetching
+    /// logs. Used by the range-fetch path where logs are retrieved in a
+    /// single batch call via `fetch_logs_for_range`.
+    async fn fetch_block_only(&self, block_number: u64) -> Result<Block, DataSourceError>;
+
+    /// Fetches all logs matching the monitor interest registry for the given
+    /// inclusive block range in a single RPC call. This is significantly more
+    /// efficient than one-call-per-block when processing batches.
+    async fn fetch_logs_for_range(
+        &self,
+        from_block: u64,
+        to_block: u64,
+    ) -> Result<Vec<Log>, DataSourceError>;
+
     /// Fetches the current block number from the data source.
     async fn get_current_block_number(&self) -> Result<u64, DataSourceError>;
 

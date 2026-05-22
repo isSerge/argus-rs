@@ -1,10 +1,10 @@
 //! This module provides functionality to create a provider for EVM RPC requests
 //! with retry logic and backoff strategies.
 
-use std::{collections::HashMap, num::NonZeroUsize, sync::Arc};
+use std::{collections::{HashMap, HashSet}, num::NonZeroUsize, sync::Arc};
 
 use alloy::{
-    primitives::{BloomInput, TxHash},
+    primitives::{B256, BloomInput, TxHash},
     providers::{Provider, ProviderBuilder, layers::CallBatchLayer},
     rpc::{
         client::RpcClient,
@@ -104,12 +104,77 @@ impl DataSource for EvmRpcSource {
     async fn get_current_block_number(&self) -> Result<u64, DataSourceError> {
         self.provider.get_block_number().await.map_err(|e| DataSourceError::Provider(Box::new(e)))
     }
+
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn fetch_block_only(&self, block_number: u64) -> Result<Block, DataSourceError> {
+        self.provider
+            .get_block_by_number(block_number.into())
+            .full()
+            .await
+            .map_err(|e| DataSourceError::Provider(Box::new(e)))?
+            .ok_or(DataSourceError::BlockNotFound(block_number))
+    }
+
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn fetch_logs_for_range(
+        &self,
+        from_block: u64,
+        to_block: u64,
+    ) -> Result<Vec<Log>, DataSourceError> {
+        let interest_registry = self.registry.interest_registry();
+
+        // No log-aware monitors — skip entirely.
+        if interest_registry.log_interests.is_empty()
+            && interest_registry.global_event_signatures.is_empty()
+        {
+            tracing::debug!("No log-aware monitors. Skipping range log fetch.");
+            return Ok(Vec::new());
+        }
+
+        let topic_filter = Self::build_topic_filter(&interest_registry);
+        self.fetch_logs_for_block_range(from_block, to_block, topic_filter).await
+    }
 }
 
 impl EvmRpcSource {
-    /// Fetches all logs for a given block number.
-    async fn fetch_logs_for_block(&self, number: u64) -> Result<Vec<Log>, DataSourceError> {
-        let filter = Filter::new().from_block(number).to_block(number);
+    /// Builds a topic0 OR-filter from the interest registry, if possible.
+    ///
+    /// Returns `None` when at least one address-specific monitor is in "broad
+    /// mode" (i.e. its `log_interests` entry is `None`), because in that case
+    /// we must accept every log from that address regardless of topic and
+    /// cannot apply a topic filter safely.
+    ///
+    /// When a non-empty `Some` is returned the caller should pass the vector
+    /// as a `topic0` OR-filter to `eth_getLogs`, which lets the node / eRPC
+    /// discard irrelevant events before they reach the client.
+    fn build_topic_filter(registry: &argus_core::monitor::InterestRegistry) -> Option<Vec<B256>> {
+        // Broad-mode monitors need every log from their address — cannot filter.
+        if registry.log_interests.values().any(|v| v.is_none()) {
+            return None;
+        }
+
+        // Union of all event signatures we care about.
+        let mut topics: HashSet<B256> =
+            registry.global_event_signatures.iter().copied().collect();
+        for precise_sigs in registry.log_interests.values().filter_map(|v| v.as_ref()) {
+            topics.extend(precise_sigs.iter().copied());
+        }
+
+        if topics.is_empty() { None } else { Some(topics.into_iter().collect()) }
+    }
+
+    /// Fetches logs for a block, optionally restricting to a set of topic0
+    /// values (OR semantics).
+    async fn fetch_logs_for_block_range(
+        &self,
+        from: u64,
+        to: u64,
+        topic_filter: Option<Vec<B256>>,
+    ) -> Result<Vec<Log>, DataSourceError> {
+        let mut filter = Filter::new().from_block(from).to_block(to);
+        if let Some(topics) = topic_filter {
+            filter = filter.event_signature(topics);
+        }
         self.provider.get_logs(&filter).await.map_err(|e| DataSourceError::Provider(Box::new(e)))
     }
 
@@ -172,12 +237,16 @@ impl EvmRpcSource {
 
         let might_contain_relevant_logs = might_have_global_logs || might_have_address_logs;
 
+        // Build a topic0 OR-filter from the interest registry when possible.
+        // This lets the node / eRPC discard irrelevant events before transfer.
+        let topic_filter = Self::build_topic_filter(&interest_registry);
+
         // Conditionally call eth_getLogs based on the bloom filter check.
         let logs = if might_contain_relevant_logs {
             // The bloom filter indicates a potential match. We MUST fetch the logs to
             // verify.
             tracing::debug!(block_number = number, "Bloom filter hit. Fetching logs.");
-            self.fetch_logs_for_block(number).await?
+            self.fetch_logs_for_block_range(number, number, topic_filter).await?
         } else {
             // The bloom filter guarantees no relevant logs are in this block.
             // We can safely skip the expensive eth_getLogs call.

@@ -409,13 +409,14 @@ mod tests {
 
         // Create a mock data source
         let mut mock_data_source = MockDataSource::new();
-        mock_data_source.expect_fetch_block_core_data().with(eq(from_block)).times(1).returning(
+        mock_data_source.expect_fetch_block_only().with(eq(from_block)).times(1).returning(
             |block_num| {
                 let tx = TransactionBuilder::new().value(U256::MAX).block_number(block_num).build();
                 let block = BlockBuilder::new().number(block_num).transaction(tx).build();
-                Ok((block, vec![]))
+                Ok(block)
             },
         );
+        mock_data_source.expect_fetch_logs_for_range().returning(|_, _| Ok(vec![]));
 
         // Create a monitor that will match the transaction
         let monitor = MonitorBuilder::new()
@@ -480,16 +481,17 @@ mod tests {
 
         // Create a mock data source
         let mut mock_data_source = MockDataSource::new();
-        mock_data_source.expect_fetch_block_core_data().with(eq(from_block)).times(1).returning(
+        mock_data_source.expect_fetch_block_only().with(eq(from_block)).times(1).returning(
             |block_num| {
                 let tx = TransactionBuilder::new()
                     .value(U256::from(50)) // Value is less than the script's condition
                     .block_number(block_num)
                     .build();
                 let block = BlockBuilder::new().number(block_num).transaction(tx).build();
-                Ok((block, vec![]))
+                Ok(block)
             },
         );
+        mock_data_source.expect_fetch_logs_for_range().returning(|_, _| Ok(vec![]));
 
         let monitor = MonitorBuilder::new().filter_script(monitor_script).build();
 
@@ -540,13 +542,14 @@ mod tests {
 
         // Create a mock data source
         let mut mock_data_source = MockDataSource::new();
-        mock_data_source.expect_fetch_block_core_data().with(eq(from_block)).times(1).returning(
+        mock_data_source.expect_fetch_block_only().with(eq(from_block)).times(1).returning(
             |block_num| {
                 let tx = TransactionBuilder::new().block_number(block_num).build();
                 let block = BlockBuilder::new().number(block_num).transaction(tx).build();
-                Ok((block, vec![]))
+                Ok(block)
             },
         );
+        mock_data_source.expect_fetch_logs_for_range().returning(|_, _| Ok(vec![]));
 
         // This is the key assertion for this test: fetch_receipts must be called.
         mock_data_source.expect_fetch_receipts().times(1).returning(|_| Ok(Default::default()));
@@ -599,10 +602,12 @@ mod tests {
         // Create a mock data source that returns an error
         let mut mock_data_source = MockDataSource::new();
         mock_data_source
-            .expect_fetch_block_core_data()
+            .expect_fetch_block_only()
             .with(eq(from_block))
             .times(1)
             .returning(|_| Err(DataSourceError::BlockNotFound(100)));
+        // fetch_logs_for_range runs concurrently via tokio::join! and must also be mocked
+        mock_data_source.expect_fetch_logs_for_range().returning(|_, _| Ok(vec![]));
 
         let monitor = MonitorBuilder::new().filter_script(monitor_script).build();
 
@@ -655,23 +660,24 @@ mod tests {
         let mut mock_data_source = MockDataSource::new();
 
         // Block 100 - with matching tx
-        mock_data_source.expect_fetch_block_core_data().with(eq(100)).times(1).returning(
+        mock_data_source.expect_fetch_block_only().with(eq(100)).times(1).returning(
             |block_num| {
                 let tx = TransactionBuilder::new().value(U256::MAX).block_number(block_num).build();
                 let block = BlockBuilder::new().number(block_num).transaction(tx).build();
-                Ok((block, vec![]))
+                Ok(block)
             },
         );
 
         // Block 101 - with non-matching tx
-        mock_data_source.expect_fetch_block_core_data().with(eq(101)).times(1).returning(
+        mock_data_source.expect_fetch_block_only().with(eq(101)).times(1).returning(
             |block_num| {
                 let tx =
                     TransactionBuilder::new().value(U256::from(10)).block_number(block_num).build();
                 let block = BlockBuilder::new().number(block_num).transaction(tx).build();
-                Ok((block, vec![]))
+                Ok(block)
             },
         );
+        mock_data_source.expect_fetch_logs_for_range().returning(|_, _| Ok(vec![]));
 
         // Create a monitor that will match the transaction
         let monitor = MonitorBuilder::new()
