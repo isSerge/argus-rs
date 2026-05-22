@@ -306,18 +306,10 @@ async fn run_dry_run_loop<T: KeyValueStore + AppRepository>(
             let decoded_blocks_batch =
                 process_blocks_batch(block_data_batch, monitor_manager.clone()).await?;
 
-            // Concurrently evaluate all items from the batch of decoded blocks.
-            let evaluation_futures = decoded_blocks_batch
-                .iter()
-                .flat_map(|block| &block.items)
-                .map(|item| filtering_engine.evaluate_item(item));
-
-            let results = futures::future::join_all(evaluation_futures).await;
-
-            // Flatten matches while propagating errors early
+            // Evaluate all items from the batch of decoded blocks.
             let mut batch_matches = Vec::new();
-            for result in results {
-                batch_matches.extend(result?);
+            for item in decoded_blocks_batch.iter().flat_map(|block| &block.items) {
+                batch_matches.extend(filtering_engine.evaluate_item(item)?);
             }
 
             if !batch_matches.is_empty() {
@@ -423,7 +415,6 @@ mod tests {
         ));
         let filtering_engine = Arc::new(RhaiFilteringEngine::new(
             abi_service.clone(),
-            rhai_compiler,
             rhai_config,
             monitor_manager.clone(),
         ));
@@ -493,7 +484,6 @@ mod tests {
         ));
         let filtering_engine = Arc::new(RhaiFilteringEngine::new(
             abi_service.clone(),
-            rhai_compiler,
             rhai_config,
             monitor_manager.clone(),
         ));
@@ -553,7 +543,6 @@ mod tests {
         ));
         let filtering_engine = Arc::new(RhaiFilteringEngine::new(
             abi_service.clone(),
-            rhai_compiler,
             rhai_config,
             monitor_manager.clone(),
         ));
@@ -606,7 +595,6 @@ mod tests {
         ));
         let filtering_engine = Arc::new(RhaiFilteringEngine::new(
             abi_service.clone(),
-            rhai_compiler,
             rhai_config,
             monitor_manager.clone(),
         ));
@@ -679,7 +667,6 @@ mod tests {
         ));
         let filtering_engine = Arc::new(RhaiFilteringEngine::new(
             abi_service.clone(),
-            rhai_compiler,
             rhai_config,
             monitor_manager.clone(),
         ));
@@ -735,7 +722,6 @@ mod tests {
         ));
         let filtering_engine = Arc::new(RhaiFilteringEngine::new(
             abi_service.clone(),
-            rhai_compiler,
             rhai_config,
             monitor_manager.clone(),
         ));
