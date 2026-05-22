@@ -1,77 +1,13 @@
 //! This module defines the `FilteringEngine`, which is responsible for
 //! evaluating incoming blockchain data (transactions and logs) against a set of
-//! user-defined Rhai scripts. It implements a script-driven filtering logic,
-//! where the behavior of a monitor (transaction-only, global log-aware, or
-//! address-specific log-aware) is determined by the static analysis of its
-//! `filter_script`.
-//!
-//! # Evaluation Flow
-//!
-//! The filtering engine uses a two-pass evaluation strategy:
-//!
-//! 1. **Log-Aware Pass**: Evaluates monitors that reference log data in their
-//!    scripts
-//!    - Each monitor is evaluated against ALL logs in the transaction
-//!    - A global monitor (no address filter) can match multiple logs
-//!    - Each matching log creates a separate set of action matches
-//!    - Monitors are marked to prevent duplicate evaluation in pass 2
-//!
-//! 2. **Transaction-Only Pass**: Evaluates remaining monitors without log
-//!    context
-//!    - Only runs on monitors that didn't match in pass 1
-//!    - Handles pure transaction monitors (e.g., `tx.value > 100`)
-//!    - Handles hybrid monitors that didn't match any logs
-//!
-//! # Duplicate Match Prevention
-//!
-//! The engine prevents duplicate matches for hybrid monitors (monitors with
-//! scripts like `tx.value > 100 || log.name == "Transfer"`):
-//!
-//! - If the monitor matches a log → creates LogMatch, skips transaction-only
-//!   pass
-//! - If no logs match but tx condition is true → creates TransactionMatch
-//! - If both conditions are true → creates ONLY LogMatch (more specific)
-//!
-//! This ensures each monitor produces at most one type of match per
-//! transaction, while still allowing a monitor to match multiple logs.
-//!
-//! # Example Scenarios
-//!
-//! ## Scenario 1: Global ERC20 Monitor
-//! ```ignore
-//! Monitor script: "log.name == 'Transfer'"
-//! Transaction: Contains 3 Transfer logs from different contracts
-//! Result: 3 LogMatches (one per log) × number of actions
-//! ```
-//!
-//! ## Scenario 2: Hybrid Monitor (Log Match)
-//! ```ignore
-//! Monitor script: "tx.value > ether(1) || log.name == 'Transfer'"
-//! Transaction: value = 0.5 ETH, contains 1 Transfer log
-//! Result: 1 LogMatch (log condition satisfied, tx condition not needed)
-//! ```
-//!
-//! ## Scenario 3: Hybrid Monitor (Tx Match)
-//! ```ignore
-//! Monitor script: "tx.value > ether(1) || log.name == 'Transfer'"
-//! Transaction: value = 2 ETH, no logs
-//! Result: 1 TransactionMatch (no logs to match, falls through to tx-only pass)
-//! ```
-//!
-//! ## Scenario 4: Pure Transaction Monitor
-//! ```ignore
-//! Monitor script: "tx.value > ether(1)"
-//! Transaction: value = 2 ETH, contains logs
-//! Result: 1 TransactionMatch (monitor doesn't reference logs, evaluated in tx-only pass)
-//! ```
+//! user-defined Rhai scripts.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     sync::Arc,
     time::Duration,
 };
 
-use alloy::primitives::B256;
 use argus_abi::{AbiService, DecodedCall, DecodedLog};
 use argus_core::{
     config::RhaiConfig,
@@ -93,49 +29,32 @@ use argus_rhai::{
     proxies::{CallProxy, LogProxy},
 };
 use async_trait::async_trait;
-use futures::future;
 #[cfg(test)]
 use mockall::automock;
 use rhai::{AST, Engine, EvalAltResult, Map, Scope};
 use thiserror::Error;
-use tokio::{sync::mpsc, time::timeout};
+use tokio::sync::mpsc;
 
-/// Rhai script execution errors that can occur during compilation or runtime
 #[derive(Debug, Error)]
 pub enum RhaiError {
-    /// Error that occurs during script compilation
     #[error("Script compilation failed: {0}")]
     CompilationError(#[from] RhaiCompilerError),
 
-    /// Error that occurs during script runtime execution
     #[error("Script runtime error: {0}")]
     RuntimeError(Box<EvalAltResult>),
 
-    /// Error that occurs when script execution exceeds the timeout limit
     #[error("Script execution timeout after {timeout:?}")]
-    ExecutionTimeout {
-        /// The timeout duration that was exceeded
-        timeout: Duration,
-    },
+    ExecutionTimeout { timeout: Duration },
 }
 
-/// A trait for an engine that applies filtering logic to block data.
 #[cfg_attr(test, automock)]
 #[async_trait]
 pub trait FilteringEngine: Send + Sync {
-    /// Evaluates the provided correlated block item against configured monitor
-    /// rules.
-    async fn evaluate_item(
-        &self,
-        item: &CorrelatedBlockItem,
-    ) -> Result<Vec<MonitorMatch>, RhaiError>;
+    /// Evaluates the item synchronously.
+    fn evaluate_item(&self, item: &CorrelatedBlockItem) -> Result<Vec<MonitorMatch>, RhaiError>;
 
-    /// Returns true if any monitor requires transaction receipt data for
-    /// evaluation.
     fn requires_receipt_data(&self) -> bool;
 
-    /// Runs the filtering engine with a stream of correlated block items and
-    /// sends matches to the notification queue.
     async fn run(
         &self,
         mut receiver: mpsc::Receiver<CorrelatedBlockData>,
@@ -143,57 +62,26 @@ pub trait FilteringEngine: Send + Sync {
     );
 }
 
-/// A Rhai-based implementation of the `FilteringEngine` with integrated
-/// security controls.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RhaiFilteringEngine {
     abi_service: Arc<AbiService>,
     compiler: Arc<RhaiCompiler>,
     config: RhaiConfig,
-    engine: Engine,
+    engine: Arc<Engine>,
     monitor_manager: Arc<MonitorManager>,
 }
 
 /// Holds the transient state for evaluating a single `CorrelatedBlockItem`.
-/// This includes caches for decoded data to avoid redundant work.
-///
-/// # Duplicate Match Prevention
-///
-/// The `matched_monitor_ids` set tracks monitors that have already produced
-/// matches during the log-aware evaluation pass. This prevents the same monitor
-/// from generating duplicate matches in the subsequent transaction-only pass.
-///
-/// **Important**: This does NOT prevent a monitor from matching multiple logs
-/// in the same transaction. A global log-aware monitor (e.g., monitoring all
-/// ERC20 Transfer events) will correctly produce matches for every matching
-/// log.
 struct EvaluationContext<'a> {
     item: &'a CorrelatedBlockItem,
     tx_map: Map,
+    tx_details_cache: Option<serde_json::Value>,
     matches: Vec<MonitorMatch>,
-    /// Tracks which monitors have already matched to prevent duplicate
-    /// evaluation in the transaction-only pass
     matched_monitor_ids: HashSet<i64>,
-    decoded_logs_cache: HashMap<LogCacheKey, Arc<DecodedLog>>,
     decoded_call_cache: Option<Option<Arc<DecodedCall>>>,
-}
-
-/// A unique key for caching decoded logs based on transaction hash and log
-/// index.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-struct LogCacheKey {
-    tx_hash: B256,
-    log_index: u64,
-}
-
-impl LogCacheKey {
-    fn from_log(log: &Log) -> Option<Self> {
-        if let (Some(tx_hash), Some(log_index)) = (log.transaction_hash(), log.log_index()) {
-            Some(Self { tx_hash, log_index })
-        } else {
-            None
-        }
-    }
+    /// Cached JSON serialization of the decoded call — computed at most once per
+    /// transaction regardless of how many monitors match or how many actions they have.
+    decoded_call_json_cache: Option<Option<serde_json::Value>>,
 }
 
 impl<'a> EvaluationContext<'a> {
@@ -201,138 +89,171 @@ impl<'a> EvaluationContext<'a> {
         Self {
             item,
             tx_map: build_transaction_map(&item.transaction, item.receipt.as_ref()),
+            tx_details_cache: None,
             matches: Vec::new(),
             matched_monitor_ids: HashSet::new(),
-            decoded_logs_cache: HashMap::new(),
             decoded_call_cache: None,
+            decoded_call_json_cache: None,
         }
     }
 
-    /// Checks if a monitor has already produced a match for this item.
+    /// Lazily serializes and caches the transaction payload
+    fn get_tx_details(&mut self) -> serde_json::Value {
+        if let Some(ref details) = self.tx_details_cache {
+            return details.clone();
+        }
+        let details = build_transaction_details_payload(
+            &self.item.transaction,
+            self.item.receipt.as_ref(),
+        );
+        self.tx_details_cache = Some(details.clone());
+        details
+    }
+
+    /// Lazily serializes the decoded call to JSON, caching the result so that
+    /// `serde_json::to_value` is called at most once per transaction even when
+    /// multiple monitors match or a monitor has multiple actions.
+    fn get_decoded_call_json(&mut self) -> Option<serde_json::Value> {
+        if self.decoded_call_json_cache.is_none() {
+            if let Some(ref opt_call) = self.decoded_call_cache {
+                self.decoded_call_json_cache = Some(
+                    opt_call.as_ref().map(|call| {
+                        serde_json::to_value(call.as_ref())
+                            .unwrap_or(serde_json::Value::Null)
+                    }),
+                );
+            }
+        }
+        self.decoded_call_json_cache.as_ref().and_then(|v| v.clone())
+    }
+
     fn has_matched(&self, monitor_id: i64) -> bool {
         self.matched_monitor_ids.contains(&monitor_id)
     }
 
-    /// Marks a monitor as having produced a match.
     fn mark_as_matched(&mut self, monitor_id: i64) {
         self.matched_monitor_ids.insert(monitor_id);
-    }
-
-    /// Gets a decoded log from the cache or decodes it if not present.
-    /// The result is cached for subsequent calls if a stable cache key can be
-    /// generated.
-    fn get_or_decode_log(
-        &mut self,
-        abi_service: &AbiService,
-        raw_log: &'a Log,
-    ) -> Option<Arc<DecodedLog>> {
-        // Attempt to create a cache key. This might fail for pending logs.
-        let cache_key = LogCacheKey::from_log(raw_log);
-
-        // If we have a key, try to use the cache.
-        if let Some(key) = cache_key
-            && let Some(cached_log) = self.decoded_logs_cache.get(&key)
-        {
-            return Some(cached_log.clone());
-        }
-
-        // If not in cache or no key, decode the log. If decoding fails, return None.
-        let decoded_log = abi_service.decode_log(raw_log).ok()?;
-        let arc_decoded = Arc::new(decoded_log);
-
-        // If we have a key, insert the newly decoded log into the cache.
-        if let Some(key) = cache_key {
-            self.decoded_logs_cache.insert(key, arc_decoded.clone());
-        }
-
-        // Return the decoded log.
-        Some(arc_decoded)
     }
 }
 
 impl RhaiFilteringEngine {
-    /// Creates a new `RhaiFilteringEngine` instance.
     pub fn new(
         abi_service: Arc<AbiService>,
         compiler: Arc<RhaiCompiler>,
         config: RhaiConfig,
         monitor_manager: Arc<MonitorManager>,
     ) -> Self {
-        let engine = create_engine(config.clone());
+        let engine = Arc::new(create_engine(config.clone()));
         Self { abi_service, compiler, config, engine, monitor_manager }
     }
 
-    /// First evaluation pass: checks log-aware monitors against each log.
-    ///
-    /// # Behavior
-    ///
-    /// For each log-aware monitor, this function:
-    /// 1. Iterates through ALL logs in the transaction
-    /// 2. Evaluates the monitor's filter script against each log
-    /// 3. For each matching log, creates matches for ALL actions in the monitor
-    /// 4. Marks the monitor to prevent re-evaluation in the transaction-only
-    ///    pass
-    ///
-    /// # Important Notes
-    ///
-    /// - A monitor can match **multiple logs** in a single transaction (e.g., a
-    ///   global ERC20 monitor will match all Transfer events)
-    /// - Each log match creates a separate set of action matches
-    /// - The monitor is marked as "matched" after the first log to prevent
-    ///   duplicate evaluation in `evaluate_tx_aware_monitors`, but this does
-    ///   NOT stop processing of additional logs
-    async fn evaluate_log_aware_monitors(
+    fn evaluate_log_aware_monitors(
         &self,
         context: &mut EvaluationContext<'_>,
         monitors: &[&ClassifiedMonitor],
     ) -> Result<(), RhaiError> {
-        for cm in monitors {
-            for log in &context.item.logs {
-                let (is_match, decoded_log) =
-                    self.does_monitor_match(context, cm, Some(log)).await?;
+        // 1. Pre-decode all logs to eliminate O(M*L) redundant decoding
+        let mut successfully_decoded_logs = Vec::new();
+        for log in &context.item.logs {
+            if let Ok(decoded) = self.abi_service.decode_log(log) {
+                successfully_decoded_logs.push((log, Arc::new(decoded)));
+            }
+        }
 
-                if is_match && let Some(decoded) = decoded_log {
-                    self.create_log_matches(context, &cm.monitor, &decoded);
+        // 2. Short-circuit: If no logs decoded successfully, skip Rhai evaluations entirely!
+        if successfully_decoded_logs.is_empty() {
+            return Ok(());
+        }
+
+        let mut scope = Scope::new();
+        scope.push_constant("tx", context.tx_map.clone());
+        let base_len = scope.len();
+
+        for cm in monitors {
+            // Use the pre-compiled AST stored on ClassifiedMonitor to avoid
+            // O(monitors × transactions) SHA-256 lookups into the compiler cache.
+            let ast = &cm.analysis.ast;
+
+            // Opt #3: if the script statically names specific events (e.g.
+            // `log.name == "Transfer"`), skip logs whose event name isn't in
+            // that set.  An empty set means the script doesn't pin event names,
+            // so we fall back to evaluating every decoded log.
+            let filter_names = &cm.analysis.accessed_log_event_names;
+
+            for (_raw_log, decoded_log) in &successfully_decoded_logs {
+                if !filter_names.is_empty() && !filter_names.contains(&decoded_log.name) {
+                    continue;
+                }
+                let mut decoded_call_result = None;
+                if cm.caps.contains(MonitorCapabilities::CALL) {
+                    if context.decoded_call_cache.is_none() {
+                        context.decoded_call_cache = Some(
+                            self.abi_service
+                                .decode_function_input(&context.item.transaction)
+                                .ok()
+                                .map(Arc::new),
+                        );
+                    }
+                    decoded_call_result = context.decoded_call_cache.as_ref().unwrap().clone();
+                }
+
+                // Push variables
+                scope.push("log", LogProxy(Some(decoded_log.clone())));
+                scope.push("decoded_call", CallProxy(decoded_call_result));
+
+                let is_match = self.eval_ast_bool_secure(&ast, &mut scope)?;
+                
+                // O(1) Scope truncate
+                scope.rewind(base_len);
+
+                if is_match {
+                    self.create_log_matches(context, &cm.monitor, decoded_log);
                 }
             }
         }
         Ok(())
     }
 
-    /// Second evaluation pass: checks remaining monitors in a transaction-only
-    /// context.
-    ///
-    /// # Behavior
-    ///
-    /// This pass runs AFTER `evaluate_log_aware_monitors` and only evaluates
-    /// monitors that haven't already matched during the log evaluation phase.
-    ///
-    /// This prevents duplicate matches for hybrid monitors (monitors with
-    /// scripts like `tx.value > 100 || log.name == "Transfer"`). If such a
-    /// monitor already matched a log, we skip it here to avoid generating
-    /// both a LogMatch and a TransactionMatch for the same monitor.
-    ///
-    /// # Example
-    ///
-    /// Given a hybrid monitor with script: `tx.value > 100 || log.name ==
-    /// "Transfer"`
-    ///
-    /// - If the transaction has a Transfer log → creates LogMatch, skips
-    ///   tx-only pass
-    /// - If the transaction has no logs but value > 100 → creates
-    ///   TransactionMatch
-    /// - If both conditions are true → creates ONLY LogMatch (more specific)
-    async fn evaluate_tx_aware_monitors(
+    fn evaluate_tx_aware_monitors(
         &self,
         context: &mut EvaluationContext<'_>,
         monitors: &[&ClassifiedMonitor],
     ) -> Result<(), RhaiError> {
+        if monitors.is_empty() {
+            return Ok(());
+        }
+
+        let mut scope = Scope::new();
+        scope.push_constant("tx", context.tx_map.clone());
+        let base_len = scope.len();
+
         for cm in monitors {
             if context.has_matched(cm.monitor.id) {
                 continue;
             }
 
-            let (is_match, _) = self.does_monitor_match(context, cm, None).await?;
+            // Use the pre-compiled AST stored on ClassifiedMonitor.
+            let ast = &cm.analysis.ast;
+
+            let mut decoded_call_result = None;
+            if cm.caps.contains(MonitorCapabilities::CALL) {
+                if context.decoded_call_cache.is_none() {
+                    context.decoded_call_cache = Some(
+                        self.abi_service
+                            .decode_function_input(&context.item.transaction)
+                            .ok()
+                            .map(Arc::new),
+                    );
+                }
+                decoded_call_result = context.decoded_call_cache.as_ref().unwrap().clone();
+            }
+
+            scope.push("log", LogProxy(None));
+            scope.push("decoded_call", CallProxy(decoded_call_result));
+
+            let is_match = self.eval_ast_bool_secure(&ast, &mut scope)?;
+            scope.rewind(base_len);
+
             if is_match {
                 self.create_tx_matches(context, &cm.monitor);
             }
@@ -340,91 +261,6 @@ impl RhaiFilteringEngine {
         Ok(())
     }
 
-    /// Core script evaluation logic with lazy decoding and proxy objects.
-    ///
-    /// # Parameters
-    ///
-    /// - `context`: The evaluation context containing transaction data and
-    ///   caches
-    /// - `cm`: The classified monitor to evaluate
-    /// - `log`: Optional log to evaluate against (None for transaction-only
-    ///   evaluation)
-    ///
-    /// # Returns
-    ///
-    /// A tuple of:
-    /// - `bool`: Whether the monitor's filter script evaluated to true
-    /// - `Option<Arc<DecodedLog>>`: The decoded log if one was provided and
-    ///   decoded successfully
-    ///
-    /// # Lazy Decoding
-    ///
-    /// This function implements lazy decoding for both logs and calldata:
-    /// - Logs are only decoded if needed and results are cached
-    /// - Calldata is only decoded if the monitor's script references
-    ///   `decoded_call`
-    /// - All decoding results are cached to avoid redundant work across
-    ///   monitors
-    async fn does_monitor_match<'a>(
-        &self,
-        context: &mut EvaluationContext<'a>,
-        cm: &ClassifiedMonitor,
-        log: Option<&'a Log>,
-    ) -> Result<(bool, Option<Arc<DecodedLog>>), RhaiError> {
-        tracing::debug!("Evaluating monitor ID {}: {}", cm.monitor.id, cm.monitor.name);
-        let mut scope = Scope::new();
-        scope.push_constant("tx", context.tx_map.clone());
-
-        // --- Handle Log Data (Lazy Decoding) ---
-        let decoded_log_result =
-            log.and_then(|raw_log| context.get_or_decode_log(&self.abi_service, raw_log));
-
-        // --- Handle Calldata (Lazy Decoding) ---
-        let mut decoded_call_result = None;
-        if cm.caps.contains(MonitorCapabilities::CALL) {
-            if context.decoded_call_cache.is_none() {
-                context.decoded_call_cache = Some(
-                    self.abi_service
-                        .decode_function_input(&context.item.transaction)
-                        .ok()
-                        .map(Arc::new),
-                );
-            }
-            decoded_call_result = context.decoded_call_cache.as_ref().unwrap().clone();
-        }
-
-        // --- Push Proxies to Scope ---
-        // The proxies handle the `None` case internally, preventing script errors.
-        scope.push("log", LogProxy(decoded_log_result.clone()));
-        scope.push("decoded_call", CallProxy(decoded_call_result));
-
-        let ast = self.compiler.get_ast(&cm.monitor.filter_script)?;
-        let is_match = self.eval_ast_bool_secure(&ast, &mut scope).await?;
-        Ok((is_match, decoded_log_result))
-    }
-
-    /// Creates and stores log-based monitor matches in the context.
-    ///
-    /// # Behavior
-    ///
-    /// For a given decoded log and monitor:
-    /// 1. Creates a `MonitorMatch` for EACH action in the monitor
-    /// 2. Each match includes:
-    ///    - Log details (name, params, address, index)
-    ///    - Transaction details (hash, value, etc.)
-    ///    - Decoded call data (if available)
-    /// 3. Marks the monitor as "matched" to prevent duplicate evaluation in the
-    ///    transaction-only pass
-    ///
-    /// # Important
-    ///
-    /// This function can be called MULTIPLE times for the same monitor if it
-    /// matches multiple logs in a transaction. Each call will:
-    /// - Create a new set of action matches for that specific log
-    /// - Re-mark the monitor (idempotent operation via HashSet)
-    ///
-    /// This is the correct behavior for global monitors that should trigger on
-    /// every matching log.
     fn create_log_matches(
         &self,
         context: &mut EvaluationContext<'_>,
@@ -432,10 +268,9 @@ impl RhaiFilteringEngine {
         decoded_log: &DecodedLog,
     ) {
         let log_match_payload = build_log_params_payload(&decoded_log.params);
-        let tx_details = build_transaction_details_payload(
-            &context.item.transaction,
-            context.item.receipt.as_ref(),
-        );
+        let tx_details = context.get_tx_details();
+        let decoded_call_json = context.get_decoded_call_json();
+        
         for action in &monitor.actions {
             let log_details = LogDetails {
                 log_index: decoded_log.log.log_index().unwrap_or_default(),
@@ -452,39 +287,17 @@ impl RhaiFilteringEngine {
                     context.item.transaction.hash(),
                 )
                 .log_match(log_details, tx_details.clone())
-                .decoded_call(Self::extract_decoded_call_json(&context.decoded_call_cache))
+                .decoded_call(decoded_call_json.clone())
                 .build(),
             );
         }
-        // Mark the monitor as matched to prevent it from being evaluated again
-        // in the transaction-only pass (prevents duplicate matches).
         context.mark_as_matched(monitor.id);
     }
 
-    /// Creates and stores transaction-based monitor matches in the context.
-    ///
-    /// # Behavior
-    ///
-    /// For a given monitor:
-    /// 1. Creates a `MonitorMatch` for EACH action in the monitor
-    /// 2. Each match includes:
-    ///    - Transaction details (hash, value, gas, etc.)
-    ///    - Decoded call data (if available)
-    ///
-    /// # When This Is Called
-    ///
-    /// This is called during the transaction-only evaluation pass for monitors
-    /// that either:
-    /// - Don't use log data in their filter scripts (pure tx monitors)
-    /// - Use log data but didn't match any logs (hybrid monitors with OR logic)
-    ///
-    /// Monitors that already matched during the log evaluation phase are
-    /// skipped to prevent duplicate matches.
     fn create_tx_matches(&self, context: &mut EvaluationContext<'_>, monitor: &Monitor) {
-        let tx_match_payload = build_transaction_details_payload(
-            &context.item.transaction,
-            context.item.receipt.as_ref(),
-        );
+        let tx_match_payload = context.get_tx_details();
+        let decoded_call_json = context.get_decoded_call_json();
+        
         for action in &monitor.actions {
             context.matches.push(
                 MonitorMatch::builder(
@@ -495,34 +308,14 @@ impl RhaiFilteringEngine {
                     context.item.transaction.hash(),
                 )
                 .transaction_match(tx_match_payload.clone())
-                .decoded_call(Self::extract_decoded_call_json(&context.decoded_call_cache))
+                .decoded_call(decoded_call_json.clone())
                 .build(),
             );
         }
     }
 
-    /// Converts the decoded call cache to a JSON value for use in MonitorMatch.
-    /// Returns None if there's no decoded call available.
-    fn extract_decoded_call_json(
-        decoded_call_cache: &Option<Option<Arc<DecodedCall>>>,
-    ) -> Option<serde_json::Value> {
-        decoded_call_cache.as_ref().and_then(|opt| {
-            opt.as_ref()
-                .map(|call| serde_json::to_value(call.as_ref()).unwrap_or(serde_json::Value::Null))
-        })
-    }
-
-    /// Executes a pre-compiled AST with security controls including a timeout.
-    async fn eval_ast_bool_secure(
-        &self,
-        ast: &AST,
-        scope: &mut Scope<'_>,
-    ) -> Result<bool, RhaiError> {
-        let execution = async { self.engine.eval_ast_with_scope::<bool>(scope, ast) };
-        match timeout(self.config.execution_timeout, execution).await {
-            Ok(result) => result.map_err(RhaiError::RuntimeError),
-            Err(_) => Err(RhaiError::ExecutionTimeout { timeout: self.config.execution_timeout }),
-        }
+    fn eval_ast_bool_secure(&self, ast: &AST, scope: &mut Scope<'_>) -> Result<bool, RhaiError> {
+        self.engine.eval_ast_with_scope::<bool>(scope, ast).map_err(RhaiError::RuntimeError)
     }
 }
 
@@ -534,62 +327,60 @@ impl FilteringEngine for RhaiFilteringEngine {
         notifications_tx: mpsc::Sender<MonitorMatch>,
     ) {
         while let Some(correlated_block) = receiver.recv().await {
-            let futures = correlated_block.items.iter().map(|item| self.evaluate_item(item));
-            let results = future::join_all(futures).await;
+            let engine = self.clone();
 
-            for result in results {
-                match result {
-                    Ok(matches) if !matches.is_empty() =>
-                        for monitor_match in matches {
-                            if let Err(e) = notifications_tx.send(monitor_match).await {
-                                tracing::error!("Failed to send notification match: {}", e);
-                            }
-                        },
-                    Ok(_) => {} // No matches, do nothing.
-                    Err(e) => {
-                        tracing::error!("Error evaluating item: {}", e);
-                    }
+            // Evaluate all items in the block in parallel across Rayon's thread pool.
+            // spawn_blocking keeps the tokio runtime responsive while the CPU-bound
+            // work runs on a dedicated blocking thread.
+            let all_matches = tokio::task::spawn_blocking(move || {
+                use rayon::prelude::*;
+                correlated_block
+                    .items
+                    .par_iter()
+                    .flat_map(|item| match engine.evaluate_item(item) {
+                        Ok(matches) => matches,
+                        Err(e) => {
+                            tracing::error!("Error evaluating item: {}", e);
+                            vec![]
+                        }
+                    })
+                    .collect::<Vec<MonitorMatch>>()
+            })
+            .await
+            .unwrap_or_default();
+
+            for monitor_match in all_matches {
+                if let Err(e) = notifications_tx.send(monitor_match).await {
+                    tracing::error!("Failed to send notification match: {}", e);
                 }
             }
+
+            // Yield once per block to keep the executor unblocked.
+            tokio::task::yield_now().await;
         }
     }
 
-    #[tracing::instrument(skip(self, item))]
-    async fn evaluate_item(
-        &self,
-        item: &CorrelatedBlockItem,
-    ) -> Result<Vec<MonitorMatch>, RhaiError> {
+    fn evaluate_item(&self, item: &CorrelatedBlockItem) -> Result<Vec<MonitorMatch>, RhaiError> {
         let assets = self.monitor_manager.load();
         let mut context = EvaluationContext::new(item);
 
-        // Get the pre-categorized lists of monitors.
-        // These are separated based on static analysis of their filter scripts:
-        // - log_aware: monitors that access `log` or `log.params` in their scripts
-        // - tx_aware: monitors that DON'T access log data (pure transaction monitors)
         let log_aware_monitors: Vec<_> = assets
             .log_aware_monitors
             .iter()
             .filter_map(|id| assets.monitors_by_id.get(id))
             .collect();
+            
         let tx_aware_monitors: Vec<_> = assets
             .tx_aware_monitors
             .iter()
             .filter_map(|id| assets.monitors_by_id.get(id))
             .collect();
 
-        // --- First Pass: Evaluate log-aware monitors ---
-        // This includes both address-specific and global log monitors.
-        // Each monitor can match multiple logs, creating separate action matches
-        // for each matching log.
         if !item.logs.is_empty() {
-            self.evaluate_log_aware_monitors(&mut context, &log_aware_monitors).await?;
+            self.evaluate_log_aware_monitors(&mut context, &log_aware_monitors)?;
         }
 
-        // --- Second Pass: Evaluate transaction-aware monitors ---
-        // Only evaluates monitors that haven't already matched in the log pass.
-        // This prevents duplicate matches for hybrid monitors (e.g., scripts with
-        // `tx.value > 100 || log.name == "Transfer"`).
-        self.evaluate_tx_aware_monitors(&mut context, &tx_aware_monitors).await?;
+        self.evaluate_tx_aware_monitors(&mut context, &tx_aware_monitors)?;
 
         Ok(context.matches)
     }
@@ -674,7 +465,7 @@ mod tests {
         );
         let item = CorrelatedBlockItem::new(tx, vec![log], None);
 
-        let matches = engine.evaluate_item(&item).await.unwrap();
+        let matches = engine.evaluate_item(&item).unwrap();
         assert_eq!(matches.len(), 2);
         assert_eq!(matches[0].monitor_id, 1);
         assert_eq!(matches[0].action_name, "action1");
@@ -697,7 +488,7 @@ mod tests {
         // This item has no logs, but should still be evaluated by the tx monitor
         let item = CorrelatedBlockItem::new(tx, vec![], None);
 
-        let matches = engine.evaluate_item(&item).await.unwrap();
+        let matches = engine.evaluate_item(&item).unwrap();
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].monitor_id, 1);
         assert_eq!(matches[0].action_name, "action1");
@@ -718,7 +509,7 @@ mod tests {
         let tx = TransactionBuilder::new().value(U256::from(150)).build();
         let item = CorrelatedBlockItem::new(tx, vec![], None);
 
-        let matches = engine.evaluate_item(&item).await.unwrap();
+        let matches = engine.evaluate_item(&item).unwrap();
         assert!(matches.is_empty());
     }
 
@@ -756,7 +547,7 @@ mod tests {
         // The item contains both the transaction and the log
         let item = CorrelatedBlockItem::new(tx.into(), vec![log], None);
 
-        let matches = engine.evaluate_item(&item).await.unwrap();
+        let matches = engine.evaluate_item(&item).unwrap();
         assert_eq!(matches.len(), 2);
         let mut ids: Vec<i64> = matches.iter().map(|m| m.monitor_id).collect();
         ids.sort_unstable();
@@ -788,7 +579,7 @@ mod tests {
 
         let item = CorrelatedBlockItem::new(tx.into(), vec![log], None);
 
-        let matches = engine.evaluate_item(&item).await.unwrap();
+        let matches = engine.evaluate_item(&item).unwrap();
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].monitor_id, 1);
         assert_eq!(matches[0].action_name, "action1");
@@ -807,7 +598,7 @@ mod tests {
         let tx = TransactionBuilder::new().build();
         let item = CorrelatedBlockItem::new(tx, vec![], None);
 
-        let matches = engine.evaluate_item(&item).await.unwrap();
+        let matches = engine.evaluate_item(&item).unwrap();
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].monitor_id, 1);
     }
@@ -837,7 +628,7 @@ mod tests {
             .build();
         let item = CorrelatedBlockItem::new(tx, vec![], None);
 
-        let matches = engine.evaluate_item(&item).await.unwrap();
+        let matches = engine.evaluate_item(&item).unwrap();
         assert_eq!(matches.len(), 1, "Should find one match for high-value transfer");
         assert_eq!(matches[0].monitor_id, 1);
     }
@@ -872,7 +663,7 @@ mod tests {
         );
         let item = CorrelatedBlockItem::new(tx, vec![log], None);
 
-        let matches = engine.evaluate_item(&item).await.unwrap();
+        let matches = engine.evaluate_item(&item).unwrap();
         assert_eq!(matches.len(), 1, "Should find one match for high-value transfer with log");
         assert_eq!(matches[0].monitor_id, 1);
     }
@@ -898,7 +689,7 @@ mod tests {
             .build();
         let item = CorrelatedBlockItem::new(tx, vec![], None);
 
-        let matches = engine.evaluate_item(&item).await.unwrap();
+        let matches = engine.evaluate_item(&item).unwrap();
         assert_eq!(matches.len(), 1, "Should match when decoded_call is null");
     }
 
@@ -1004,14 +795,14 @@ mod tests {
         let item_no_match = CorrelatedBlockItem::new(tx_no_match.clone(), vec![], None);
 
         // Test matching case
-        let matches = engine.evaluate_item(&item_match).await.unwrap();
+        let matches = engine.evaluate_item(&item_match).unwrap();
         assert_eq!(matches.len(), 1, "Should find one match for value > 1.5 ether");
         assert_eq!(matches[0].monitor_id, 1);
         assert_eq!(matches[0].transaction_hash, tx_match.hash());
         assert!(matches!(matches[0].match_data, MatchData::Transaction { .. }));
 
         // Test non-matching case
-        let no_matches = engine.evaluate_item(&item_no_match).await.unwrap();
+        let no_matches = engine.evaluate_item(&item_no_match).unwrap();
         assert!(no_matches.is_empty(), "Should find no matches for value <= 1.5 ether");
     }
 
@@ -1059,7 +850,7 @@ mod tests {
 
         let item = CorrelatedBlockItem::new(tx, vec![log1.clone(), log2.clone(), log3], None);
 
-        let matches = engine.evaluate_item(&item).await.unwrap();
+        let matches = engine.evaluate_item(&item).unwrap();
 
         // We expect two matches, one for each "Transfer" log.
         assert_eq!(matches.len(), 2);
@@ -1098,7 +889,7 @@ mod tests {
         let tx = TransactionBuilder::new().value(U256::from(150)).build();
         let item = CorrelatedBlockItem::new(tx, vec![], None);
 
-        let matches = engine.evaluate_item(&item).await.unwrap();
+        let matches = engine.evaluate_item(&item).unwrap();
         assert_eq!(matches.len(), 1, "Should match on tx.value even with no logs");
         assert_eq!(matches[0].monitor_id, 1);
         assert!(matches!(matches[0].match_data, MatchData::Transaction { .. }));
@@ -1131,7 +922,7 @@ mod tests {
         );
         let item = CorrelatedBlockItem::new(tx, vec![log], None);
 
-        let matches = engine.evaluate_item(&item).await.unwrap();
+        let matches = engine.evaluate_item(&item).unwrap();
         assert_eq!(matches.len(), 1, "Should match on log.name");
         assert_eq!(matches[0].monitor_id, 1);
         assert!(matches!(matches[0].match_data, MatchData::Log { .. }));
@@ -1164,7 +955,7 @@ mod tests {
         );
         let item = CorrelatedBlockItem::new(tx, vec![log], None);
 
-        let matches = engine.evaluate_item(&item).await.unwrap();
+        let matches = engine.evaluate_item(&item).unwrap();
         // It should only produce ONE match, and it should be the more specific
         // LogMatch.
         assert_eq!(matches.len(), 1, "Should only produce one match");
@@ -1190,7 +981,7 @@ mod tests {
         let item = CorrelatedBlockItem::new(tx, vec![], None);
 
         // The script should evaluate to `false` and not error.
-        let matches = engine.evaluate_item(&item).await.unwrap();
+        let matches = engine.evaluate_item(&item).unwrap();
         assert!(matches.is_empty(), "Should not match and should not error");
     }
 
@@ -1212,7 +1003,7 @@ mod tests {
         let item = CorrelatedBlockItem::new(tx, vec![], None);
 
         // The script should evaluate to `false` and not error.
-        let matches = engine.evaluate_item(&item).await.unwrap();
+        let matches = engine.evaluate_item(&item).unwrap();
         assert!(matches.is_empty(), "Should not match and should not error");
     }
 
@@ -1237,7 +1028,7 @@ mod tests {
             .build();
         let item = CorrelatedBlockItem::new(tx, vec![], None);
 
-        let matches = engine.evaluate_item(&item).await.unwrap();
+        let matches = engine.evaluate_item(&item).unwrap();
         assert_eq!(matches.len(), 1, "Should find one match for the transfer call");
         assert_eq!(matches[0].monitor_id, 1);
     }

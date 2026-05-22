@@ -22,6 +22,7 @@ dashmap.workspace = true
 argus-store = { workspace = true, optional = true }
 futures.workspace = true
 hex.workspace = true
+rayon.workspace = true
 rhai.workspace = true
 rhai-analyzer.workspace = true
 rhai-evm.workspace = true
