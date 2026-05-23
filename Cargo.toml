@@ -58,6 +58,7 @@ sqlx = { version = "0.8.6", features = [
 ] }
 tempfile = "3.8.1"
 thiserror = "2.0.12"
+rayon = "1.10"
 tokio = { version = "1.47.0", features = ["full"] }
 tokio-stream = "0.1.15"
 tokio-util = "0.7.16"
@@ -101,6 +102,7 @@ minijinja.workspace = true
 num-bigint.workspace = true
 num-traits.workspace = true
 omnihook.workspace = true
+rayon.workspace = true
 rdkafka.workspace = true
 regex.workspace = true
 reqwest.workspace = true

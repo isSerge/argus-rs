@@ -175,7 +175,6 @@ impl AppContextBuilder {
 
         let filtering_engine = Arc::new(RhaiFilteringEngine::new(
             abi_service.clone(),
-            script_compiler.clone(),
             config.rhai.clone(),
             monitor_manager.clone(),
         ));
