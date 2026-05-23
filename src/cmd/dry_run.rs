@@ -306,11 +306,20 @@ async fn run_dry_run_loop<T: KeyValueStore + AppRepository>(
             let decoded_blocks_batch =
                 process_blocks_batch(block_data_batch, monitor_manager.clone()).await?;
 
-            // Evaluate all items from the batch of decoded blocks.
-            let mut batch_matches = Vec::new();
-            for item in decoded_blocks_batch.iter().flat_map(|block| &block.items) {
-                batch_matches.extend(filtering_engine.evaluate_item(item)?);
-            }
+            // Offload CPU-bound Rhai evaluation to the blocking thread pool,
+            // mirroring the approach used in `FilteringEngine::run`. Errors are
+            // propagated so dry-run fails fast on script errors.
+            let engine = filtering_engine.clone();
+            let batch_matches: Vec<MonitorMatch> =
+                tokio::task::spawn_blocking(move || -> Result<Vec<MonitorMatch>, RhaiError> {
+                    let mut results = Vec::new();
+                    for item in decoded_blocks_batch.iter().flat_map(|block| &block.items) {
+                        results.extend(engine.evaluate_item(item)?);
+                    }
+                    Ok(results)
+                })
+                .await
+                .map_err(|e| RhaiError::RuntimeError(Box::new(e.to_string().into())))??;
 
             if !batch_matches.is_empty() {
                 // Process all the matches found in the batch.
