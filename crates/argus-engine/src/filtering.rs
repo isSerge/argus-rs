@@ -305,6 +305,10 @@ impl RhaiFilteringEngine {
         context: &mut EvaluationContext<'_>,
         monitors: &[&ClassifiedMonitor],
     ) -> Result<(), RhaiError> {
+        if monitors.is_empty() {
+            return Ok(());
+        }
+
         // 1. Pre-decode all logs to eliminate O(M*L) redundant decoding
         let mut successfully_decoded_logs = Vec::new();
         for log in &context.item.logs {
