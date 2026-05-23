@@ -128,7 +128,7 @@ pub enum RhaiError {
 ///
 /// The two core operations are:
 /// - [`evaluate_item`](FilteringEngine::evaluate_item) — synchronous, used by
-///   the dry-run command which parallelises evaluation externally (rayon).
+///   the dry-run command.
 /// - [`run`](FilteringEngine::run) — async streaming loop used by the live
 ///   block ingestor.
 #[cfg_attr(test, automock)]
