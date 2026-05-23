@@ -98,6 +98,7 @@ use argus_rhai::{
 use async_trait::async_trait;
 #[cfg(test)]
 use mockall::automock;
+use rayon::prelude::*;
 use rhai::{AST, Engine, EvalAltResult, Map, Scope};
 use thiserror::Error;
 use tokio::sync::mpsc;
@@ -128,7 +129,7 @@ pub enum RhaiError {
 ///
 /// The two core operations are:
 /// - [`evaluate_item`](FilteringEngine::evaluate_item) — synchronous, used by
-///   the dry-run command.
+///   the dry-run command which parallelises evaluation externally (rayon).
 /// - [`run`](FilteringEngine::run) — async streaming loop used by the live
 ///   block ingestor.
 #[cfg_attr(test, automock)]
@@ -539,7 +540,6 @@ impl FilteringEngine for RhaiFilteringEngine {
             // spawn_blocking keeps the tokio runtime responsive while the CPU-bound
             // work runs on a dedicated blocking thread.
             let all_matches = tokio::task::spawn_blocking(move || {
-                use rayon::prelude::*;
                 correlated_block
                     .items
                     .par_iter()
