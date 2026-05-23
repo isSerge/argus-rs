@@ -543,7 +543,7 @@ impl FilteringEngine for RhaiFilteringEngine {
             // Evaluate all items in the block in parallel across Rayon's thread pool.
             // spawn_blocking keeps the tokio runtime responsive while the CPU-bound
             // work runs on a dedicated blocking thread.
-            let all_matches = tokio::task::spawn_blocking(move || {
+            let all_matches = match tokio::task::spawn_blocking(move || {
                 correlated_block
                     .items
                     .par_iter()
@@ -557,7 +557,15 @@ impl FilteringEngine for RhaiFilteringEngine {
                     .collect::<Vec<MonitorMatch>>()
             })
             .await
-            .unwrap_or_default();
+            {
+                Ok(matches) => matches,
+                Err(e) => {
+                    tracing::error!(
+                        "Filtering task panicked or was cancelled; block's matches are lost: {e}"
+                    );
+                    continue;
+                }
+            };
 
             for monitor_match in all_matches {
                 if let Err(e) = notifications_tx.send(monitor_match).await {
