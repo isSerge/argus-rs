@@ -240,12 +240,12 @@ impl<'a> EvaluationContext<'a> {
     /// `serde_json::to_value` is called at most once per transaction even when
     /// multiple monitors match or a monitor has multiple actions.
     fn get_decoded_call_json(&mut self) -> Option<serde_json::Value> {
-        if self.decoded_call_json_cache.is_none() {
-            if let Some(ref opt_call) = self.decoded_call_cache {
-                self.decoded_call_json_cache = Some(opt_call.as_ref().map(|call| {
-                    serde_json::to_value(call.as_ref()).unwrap_or(serde_json::Value::Null)
-                }));
-            }
+        if self.decoded_call_json_cache.is_none()
+            && let Some(ref opt_call) = self.decoded_call_cache
+        {
+            self.decoded_call_json_cache = Some(opt_call.as_ref().map(|call| {
+                serde_json::to_value(call.as_ref()).unwrap_or(serde_json::Value::Null)
+            }));
         }
         self.decoded_call_json_cache.as_ref().and_then(|v| v.clone())
     }
@@ -354,7 +354,7 @@ impl RhaiFilteringEngine {
                 scope.push("log", LogProxy(Some(decoded_log.clone())));
                 scope.push("decoded_call", CallProxy(decoded_call_result));
 
-                let is_match = self.eval_ast_bool_secure(&ast, &mut scope)?;
+                let is_match = self.eval_ast_bool_secure(ast, &mut scope)?;
 
                 // O(1) Scope truncate
                 scope.rewind(base_len);
@@ -420,7 +420,7 @@ impl RhaiFilteringEngine {
             scope.push("log", LogProxy(None));
             scope.push("decoded_call", CallProxy(decoded_call_result));
 
-            let is_match = self.eval_ast_bool_secure(&ast, &mut scope)?;
+            let is_match = self.eval_ast_bool_secure(ast, &mut scope)?;
             scope.rewind(base_len);
 
             if is_match {
