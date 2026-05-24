@@ -324,9 +324,14 @@ async fn run_dry_run_loop<T: KeyValueStore + AppRepository>(
                     decoded_blocks_batch
                         .into_par_iter()
                         .flat_map(|block| block.items.into_par_iter())
-                        .map(|item| engine.evaluate_item(&item))
-                        .collect::<Result<Vec<Vec<MonitorMatch>>, RhaiError>>()
-                        .map(|v| v.into_iter().flatten().collect())
+                        .try_fold(Vec::new, |mut acc, item| {
+                            acc.extend(engine.evaluate_item(&item)?);
+                            Ok(acc)
+                        })
+                        .try_reduce(Vec::new, |mut acc, mut item_matches| {
+                            acc.append(&mut item_matches);
+                            Ok(acc)
+                        })
                 })
                 .await
                 .map_err(|e| DryRunError::BlockProcessor(Box::new(e)))??
