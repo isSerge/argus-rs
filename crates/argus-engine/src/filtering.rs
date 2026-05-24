@@ -456,7 +456,6 @@ impl RhaiFilteringEngine {
         let log_match_payload = build_log_params_payload(&decoded_log.params);
         let tx_details = context.get_tx_details();
         let decoded_call_json = context.get_decoded_call_json();
-
         for action in &monitor.actions {
             let log_details = LogDetails {
                 log_index: decoded_log.log.log_index().unwrap_or_default(),
@@ -591,7 +590,6 @@ impl FilteringEngine for RhaiFilteringEngine {
             .iter()
             .filter_map(|id| assets.monitors_by_id.get(id))
             .collect();
-
         let tx_aware_monitors: Vec<_> = assets
             .tx_aware_monitors
             .iter()
