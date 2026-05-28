@@ -667,4 +667,62 @@ mod tests {
         assert!(matches!(result, Err(DataSourceError::Provider(_))));
         assert!(result.unwrap_err().to_string().contains("receipt unavailable"));
     }
+
+    // ---- fetch_logs_for_range ----
+
+    #[tokio::test]
+    async fn test_fetch_logs_for_range_no_log_interest() {
+        // No pushes — any RPC call would cause the mock to error.
+        let (provider, _asserter) = mock_provider();
+        let data_source = EvmRpcSource::new(provider, make_empty_registry());
+
+        let result = data_source.fetch_logs_for_range(100, 200).await.unwrap();
+
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_fetch_logs_for_range_with_global_topic() {
+        let (provider, asserter) = mock_provider();
+        let transfer_topic =
+            b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef");
+        let log = LogBuilder::new().topics(vec![transfer_topic]).build();
+        asserter.push_success(&vec![log]);
+
+        let data_source = EvmRpcSource::new(provider, make_global_topic_registry(transfer_topic));
+
+        let logs = data_source.fetch_logs_for_range(100, 200).await.unwrap();
+
+        assert_eq!(logs.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_logs_for_range_with_address_interest() {
+        // Broad-mode address interest: no topic filter applied, all logs returned.
+        let (provider, asserter) = mock_provider();
+        let monitored_address = address!("1111111111111111111111111111111111111111");
+        let logs: Vec<Log> = vec![Log::default(), Log::default()];
+        asserter.push_success(&logs);
+
+        let data_source = EvmRpcSource::new(provider, make_address_registry(monitored_address));
+
+        let result = data_source.fetch_logs_for_range(50, 150).await.unwrap();
+
+        assert_eq!(result.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_logs_for_range_rpc_error() {
+        let (provider, asserter) = mock_provider();
+        let transfer_topic =
+            b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef");
+        asserter.push_failure_msg("getLogs failed");
+
+        let data_source = EvmRpcSource::new(provider, make_global_topic_registry(transfer_topic));
+
+        let result = data_source.fetch_logs_for_range(100, 200).await;
+
+        assert!(matches!(result, Err(DataSourceError::Provider(_))));
+        assert!(result.unwrap_err().to_string().contains("getLogs failed"));
+    }
 }
