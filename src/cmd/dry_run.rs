@@ -22,6 +22,7 @@ use argus_monitor::MonitorManager;
 use argus_providers::{EvmRpcSource, block_fetcher, rpc::ProviderError};
 use clap::Parser;
 use dashmap::DashMap;
+use rayon::prelude::*;
 use thiserror::Error;
 
 use crate::context::{AppContextBuilder, AppContextError};
@@ -291,7 +292,9 @@ async fn run_dry_run_loop<T: KeyValueStore + AppRepository>(
 
         // Use the reusable concurrent fetching function
         let block_data_batch = {
-            let _span = tracing::info_span!("fetch_blocks", from = current_block, to = batch_end_block).entered();
+            let _span =
+                tracing::info_span!("fetch_blocks", from = current_block, to = batch_end_block)
+                    .entered();
             block_fetcher::fetch_blocks_concurrent(
                 data_source_ref,
                 needs_receipts,
@@ -316,23 +319,22 @@ async fn run_dry_run_loop<T: KeyValueStore + AppRepository>(
             let engine = filtering_engine.clone();
             let batch_matches = {
                 let span = tracing::info_span!("rayon_eval");
-                tokio::task::spawn_blocking(move || {
+                tokio::task::spawn_blocking(move || -> Result<Vec<MonitorMatch>, RhaiError> {
                     let _guard = span.enter();
-                    use rayon::prelude::*;
                     decoded_blocks_batch
                         .into_par_iter()
                         .flat_map(|block| block.items.into_par_iter())
-                        .flat_map(|item| match engine.evaluate_item(&item) {
-                            Ok(matches) => matches,
-                            Err(e) => {
-                                tracing::error!("Error evaluating item: {}", e);
-                                vec![]
-                            }
+                        .try_fold(Vec::new, |mut acc, item| {
+                            acc.extend(engine.evaluate_item(&item)?);
+                            Ok(acc)
                         })
-                        .collect::<Vec<MonitorMatch>>()
+                        .try_reduce(Vec::new, |mut acc, mut item_matches| {
+                            acc.append(&mut item_matches);
+                            Ok(acc)
+                        })
                 })
                 .await
-                .map_err(|e| DryRunError::BlockProcessor(Box::new(e)))?
+                .map_err(|e| DryRunError::BlockProcessor(Box::new(e)))??
             };
             if !batch_matches.is_empty() {
                 // Process all the matches found in the batch.
@@ -438,7 +440,6 @@ mod tests {
         ));
         let filtering_engine = Arc::new(RhaiFilteringEngine::new(
             abi_service.clone(),
-            rhai_compiler,
             rhai_config,
             monitor_manager.clone(),
         ));
@@ -509,7 +510,6 @@ mod tests {
         ));
         let filtering_engine = Arc::new(RhaiFilteringEngine::new(
             abi_service.clone(),
-            rhai_compiler,
             rhai_config,
             monitor_manager.clone(),
         ));
@@ -570,7 +570,6 @@ mod tests {
         ));
         let filtering_engine = Arc::new(RhaiFilteringEngine::new(
             abi_service.clone(),
-            rhai_compiler,
             rhai_config,
             monitor_manager.clone(),
         ));
@@ -625,7 +624,6 @@ mod tests {
         ));
         let filtering_engine = Arc::new(RhaiFilteringEngine::new(
             abi_service.clone(),
-            rhai_compiler,
             rhai_config,
             monitor_manager.clone(),
         ));
@@ -699,7 +697,6 @@ mod tests {
         ));
         let filtering_engine = Arc::new(RhaiFilteringEngine::new(
             abi_service.clone(),
-            rhai_compiler,
             rhai_config,
             monitor_manager.clone(),
         ));
@@ -755,7 +752,6 @@ mod tests {
         ));
         let filtering_engine = Arc::new(RhaiFilteringEngine::new(
             abi_service.clone(),
-            rhai_compiler,
             rhai_config,
             monitor_manager.clone(),
         ));

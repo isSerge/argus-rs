@@ -45,10 +45,16 @@ fn parse_start_block_arg(s: &str) -> Result<InitialStartBlock, String> {
 #[tokio::main]
 #[tracing::instrument(level = "info")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize tracing subscriber
+    // Initialize tracing subscriber.
+    // Set ARGUS_LOG_SPANS=1 to emit span-close events (useful for profiling /
+    // dry-run timing). Disabled by default to keep production log volume low.
+    let span_events = match std::env::var("ARGUS_LOG_SPANS").as_deref() {
+        Ok("1") => FmtSpan::CLOSE,
+        _ => FmtSpan::NONE,
+    };
     let subscriber = FmtSubscriber::builder()
         .with_env_filter(EnvFilter::from_default_env())
-        .with_span_events(FmtSpan::CLOSE)
+        .with_span_events(span_events)
         .finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 

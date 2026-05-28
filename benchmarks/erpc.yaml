@@ -15,21 +15,15 @@ database:
         memory:
           maxItems: 100000 # Cache up to 100,000 items in memory
     policies:
+      # Cache all responses forever regardless of finality classification.
+      # This is intentional for benchmark stability: if eRPC's evmStatePoller
+      # cannot reach an upstream to determine the finalized block number, every
+      # response falls into the "unknown" finality bucket and would otherwise
+      # expire after 5 s — causing repeated cache-miss spikes during a run.
       - network: "*"
         method: "*"
-        finality: finalized
         connector: memory-cache
-        ttl: 0 # Cache forever
-      - network: "*"
-        method: "*"
-        finality: unfinalized
-        connector: memory-cache
-        ttl: 5s # Cache for a short period
-      - network: "*"
-        method: "*"
-        finality: unknown
-        connector: memory-cache
-        ttl: 5s # Cache for a short period
+        ttl: 0
 
 projects:
   - id: main
@@ -51,5 +45,25 @@ projects:
       - id: llamarpc
         type: evm
         endpoint: https://eth.llamarpc.com
+        evm:
+          chainId: 1
+      - id: ankr
+        type: evm
+        endpoint: https://rpc.ankr.com/eth
+        evm:
+          chainId: 1
+      - id: publicnode
+        type: evm
+        endpoint: https://ethereum-rpc.publicnode.com
+        evm:
+          chainId: 1
+      - id: drpc
+        type: evm
+        endpoint: https://eth.drpc.org
+        evm:
+          chainId: 1
+      - id: cloudflare
+        type: evm
+        endpoint: https://cloudflare-eth.com
         evm:
           chainId: 1
