@@ -10,9 +10,25 @@ use argus_core::{
     providers::traits::{DataSource, DataSourceError},
 };
 use futures::{
-    join,
+    future, join,
     stream::{self, StreamExt},
 };
+
+/// Configuration for the concurrent block-fetch path.
+#[derive(Debug, Clone, Copy)]
+pub struct FetchConfig {
+    /// Maximum number of in-flight `get_block_by_number` requests.
+    pub concurrency: usize,
+    /// Maximum number of blocks per `eth_getLogs` RPC call.
+    /// Set to `0` to issue a single call covering the whole range.
+    pub log_chunk_size: u64,
+}
+
+impl FetchConfig {
+    pub fn new(concurrency: usize, log_chunk_size: u64) -> Self {
+        Self { concurrency, log_chunk_size }
+    }
+}
 
 /// Fetches all necessary data for a single block (used by legacy paths that
 /// need per-block logs, e.g. the live ingestor when no range fetch is desired).
@@ -65,12 +81,48 @@ async fn fetch_blocks_only<D: DataSource + ?Sized>(
     Ok(blocks)
 }
 
+/// Fetches all logs for `from_block..=to_block`, splitting the request into
+/// sub-ranges of at most `chunk_size` blocks when `chunk_size > 0`.
+///
+/// All sub-range fetches are issued in parallel so the total latency is
+/// bounded by the slowest chunk rather than the sum of all chunks.
+/// When `chunk_size == 0` the entire range is covered by a single RPC call
+/// (legacy / provider-unlimited behaviour).
+async fn fetch_logs_chunked<D: DataSource + ?Sized>(
+    data_source: &D,
+    from_block: u64,
+    to_block: u64,
+    chunk_size: u64,
+) -> Result<Vec<alloy::rpc::types::Log>, DataSourceError> {
+    if chunk_size == 0 || to_block.saturating_sub(from_block) < chunk_size {
+        return data_source.fetch_logs_for_range(from_block, to_block).await;
+    }
+
+    // Build (start, end) pairs for each sub-range.
+    let chunks: Vec<(u64, u64)> = (0..)
+        .map(|i| from_block + i * chunk_size)
+        .take_while(|&start| start <= to_block)
+        .map(|start| (start, (start + chunk_size - 1).min(to_block)))
+        .collect();
+
+    let futures: Vec<_> =
+        chunks.iter().map(|&(start, end)| data_source.fetch_logs_for_range(start, end)).collect();
+
+    let results = future::try_join_all(futures).await?;
+    Ok(results.into_iter().flatten().collect())
+}
+
 /// Fetches a range of blocks concurrently.
 ///
-/// Uses a single `eth_getLogs(from, to)` call in parallel with all
-/// `get_block_by_number` calls, replacing the previous per-block log-fetch
-/// strategy. This collapses N log RTTs into one and overlaps it with block
-/// fetching via `tokio::join!`.
+/// Uses `eth_getLogs(from, to)` in parallel with all `get_block_by_number`
+/// calls, replacing the previous per-block log-fetch strategy. This collapses
+/// N log RTTs into one and overlaps it with block fetching via `tokio::join!`.
+///
+/// `log_chunk_size` caps the block range of each individual `eth_getLogs` RPC
+/// call. When the overall range (`to_block - from_block`) exceeds this value
+/// the log fetch is split into parallel sub-range requests, preventing errors
+/// from providers that reject wide log windows (e.g. Alchemy, Ankr). Set to
+/// `0` to disable chunking (single call, legacy behaviour).
 ///
 /// Returns an error if any block fails to fetch. This ensures consistent
 /// behavior across all components and prevents gaps in block processing.
@@ -79,12 +131,13 @@ pub async fn fetch_blocks_concurrent<D: DataSource + ?Sized>(
     needs_receipts: bool,
     from_block: u64,
     to_block: u64,
-    concurrency: usize,
+    cfg: FetchConfig,
 ) -> Result<Vec<BlockData>, DataSourceError> {
-    // Fire the range log-fetch and all block-fetches in parallel.
+    // Fire the range log-fetch (split into provider-safe chunks) and all
+    // block-fetches in parallel.
     let (range_logs_result, blocks_result) = join!(
-        data_source.fetch_logs_for_range(from_block, to_block),
-        fetch_blocks_only(data_source, from_block, to_block, concurrency)
+        fetch_logs_chunked(data_source, from_block, to_block, cfg.log_chunk_size),
+        fetch_blocks_only(data_source, from_block, to_block, cfg.concurrency)
     );
 
     let range_logs = range_logs_result?;

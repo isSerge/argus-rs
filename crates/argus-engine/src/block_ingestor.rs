@@ -122,7 +122,10 @@ impl<S: AppRepository + ?Sized, D: DataSource + ?Sized, F: FilteringEngine + ?Si
             needs_receipts,
             from_block,
             to_block,
-            self.config.concurrency as usize,
+            block_fetcher::FetchConfig::new(
+                self.config.concurrency as usize,
+                self.config.log_chunk_size,
+            ),
         )
         .await?;
 

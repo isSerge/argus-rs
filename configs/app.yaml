@@ -10,6 +10,7 @@ network_id: "ethereum"
 initial_start_block: -100
 
 block_chunk_size: 100
+log_chunk_size: 2000
 concurrency: 8
 polling_interval_ms: 10000
 confirmation_blocks: 12
