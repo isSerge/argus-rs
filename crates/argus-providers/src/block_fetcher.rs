@@ -101,8 +101,7 @@ pub async fn fetch_blocks_concurrent<D: DataSource + ?Sized>(
     // Fetch all receipts in one batch if needed.
     let mut receipts_map = HashMap::new();
     if needs_receipts {
-        let all_tx_hashes: Vec<_> =
-            blocks.iter().flat_map(|b| b.transactions.hashes()).collect();
+        let all_tx_hashes: Vec<_> = blocks.iter().flat_map(|b| b.transactions.hashes()).collect();
         if !all_tx_hashes.is_empty() {
             receipts_map = data_source.fetch_receipts(&all_tx_hashes).await?;
         }

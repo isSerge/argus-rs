@@ -222,7 +222,8 @@ mod tests {
 
         harness.mock_data_source.expect_get_current_block_number().times(1).returning(|| Ok(123));
 
-        // The concurrent batch will call fetch_block_only + fetch_logs_for_range for block 122
+        // The concurrent batch will call fetch_block_only + fetch_logs_for_range for
+        // block 122
         harness
             .mock_data_source
             .expect_fetch_block_only()

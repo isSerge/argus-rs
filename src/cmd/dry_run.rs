@@ -605,7 +605,8 @@ mod tests {
             .with(eq(from_block))
             .times(1)
             .returning(|_| Err(DataSourceError::BlockNotFound(100)));
-        // fetch_logs_for_range runs concurrently via tokio::join! and must also be mocked
+        // fetch_logs_for_range runs concurrently via tokio::join! and must also be
+        // mocked
         mock_data_source.expect_fetch_logs_for_range().returning(|_, _| Ok(vec![]));
 
         let monitor = MonitorBuilder::new().filter_script(monitor_script).build();
@@ -658,23 +659,19 @@ mod tests {
         let mut mock_data_source = MockDataSource::new();
 
         // Block 100 - with matching tx
-        mock_data_source.expect_fetch_block_only().with(eq(100)).times(1).returning(
-            |block_num| {
-                let tx = TransactionBuilder::new().value(U256::MAX).block_number(block_num).build();
-                let block = BlockBuilder::new().number(block_num).transaction(tx).build();
-                Ok(block)
-            },
-        );
+        mock_data_source.expect_fetch_block_only().with(eq(100)).times(1).returning(|block_num| {
+            let tx = TransactionBuilder::new().value(U256::MAX).block_number(block_num).build();
+            let block = BlockBuilder::new().number(block_num).transaction(tx).build();
+            Ok(block)
+        });
 
         // Block 101 - with non-matching tx
-        mock_data_source.expect_fetch_block_only().with(eq(101)).times(1).returning(
-            |block_num| {
-                let tx =
-                    TransactionBuilder::new().value(U256::from(10)).block_number(block_num).build();
-                let block = BlockBuilder::new().number(block_num).transaction(tx).build();
-                Ok(block)
-            },
-        );
+        mock_data_source.expect_fetch_block_only().with(eq(101)).times(1).returning(|block_num| {
+            let tx =
+                TransactionBuilder::new().value(U256::from(10)).block_number(block_num).build();
+            let block = BlockBuilder::new().number(block_num).transaction(tx).build();
+            Ok(block)
+        });
         mock_data_source.expect_fetch_logs_for_range().returning(|_, _| Ok(vec![]));
 
         // Create a monitor that will match the transaction

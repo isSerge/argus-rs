@@ -1,7 +1,11 @@
 //! This module provides functionality to create a provider for EVM RPC requests
 //! with retry logic and backoff strategies.
 
-use std::{collections::{HashMap, HashSet}, num::NonZeroUsize, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    num::NonZeroUsize,
+    sync::Arc,
+};
 
 use alloy::{
     primitives::{B256, BloomInput, TxHash},
@@ -154,8 +158,7 @@ impl EvmRpcSource {
         }
 
         // Union of all event signatures we care about.
-        let mut topics: HashSet<B256> =
-            registry.global_event_signatures.iter().copied().collect();
+        let mut topics: HashSet<B256> = registry.global_event_signatures.iter().copied().collect();
         for precise_sigs in registry.log_interests.values().filter_map(|v| v.as_ref()) {
             topics.extend(precise_sigs.iter().copied());
         }
