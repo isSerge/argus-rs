@@ -81,7 +81,3 @@ Implements the notification layer. Wraps `omnihook` for Slack/Discord/Telegram p
 
 An Axum HTTP server exposing the REST management API for monitors, actions, and ABIs.
 
-### `omnihook`, `rhai-bigint`, `rhai-evm`, `rhai-analyzer`
-
-Pure infrastructure crates with no Argus-specific dependencies. They can be published independently.
-

@@ -7,6 +7,7 @@ use std::{collections::HashSet, sync::Arc};
 use argus_core::config::RhaiConfig;
 use dashmap::DashMap;
 use rhai::{AST, Engine};
+use rhai_analyzer::{RhaiAnalyzerExt, ScriptAnalysisResult};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
@@ -91,27 +92,33 @@ impl RhaiCompiler {
         // Compile the script
         let ast = self.engine.compile(script)?;
         // Analyze the AST to extract accessed variables
-        let analysis_result = rhai_analyzer::analyze_ast(&ast);
+        let analysis_result = ast.analyze();
 
-        // Derive Argus-specific flags from the generic analysis output.
-        // Match only the exact root variable or a dotted child path to avoid
-        // false positives from unrelated variables (e.g. `logger.level`,
-        // `decoded_call_data.foo`).
-        let accesses_log_variable =
-            analysis_result.accessed_variables.iter().any(|p| p == "log" || p.starts_with("log."));
-        let accesses_call_variable = analysis_result
-            .accessed_variables
-            .iter()
-            .any(|p| p == "decoded_call" || p.starts_with("decoded_call."));
-        let accessed_log_event_names =
-            analysis_result.string_comparisons.get("log.name").cloned().unwrap_or_default();
+        // Destructure the analysis result for easier access to its components.
+        let ScriptAnalysisResult { accessed_variables, local_variables, mut string_comparisons } =
+            analysis_result;
+
+        // Helper function to check if any accessed variable starts with a given root
+        // (e.g., "log" or "decoded_call").
+        let accesses_root = |root: &str| {
+            let prefix = format!("{root}.");
+            accessed_variables.iter().any(|p| p == root || p.starts_with(&prefix))
+        };
+
+        // Check if the script accesses the `log` variable or any of its properties
+        // (e.g., `log.name`).
+        let accesses_log_variable = accesses_root("log");
+        let accesses_call_variable = accesses_root("decoded_call");
+        // Extract the accessed event names from string comparisons involving
+        // `log.name`.
+        let accessed_log_event_names = string_comparisons.remove("log.name").unwrap_or_default();
 
         // Create the ScriptAnalysis struct
         let analysis = ScriptAnalysis {
             ast: Arc::new(ast),
-            accessed_variables: Arc::new(analysis_result.accessed_variables),
+            accessed_variables: Arc::new(accessed_variables),
             accesses_log_variable,
-            local_variables: analysis_result.local_variables,
+            local_variables,
             accesses_call_variable,
             accessed_log_event_names,
         };
