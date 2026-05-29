@@ -142,8 +142,8 @@ impl DataSource for EvmRpcSource {
         let logs = self.fetch_logs_for_block_range(from_block, to_block, topic_filter).await?;
 
         // Filter logs based on the interest registry. This is necessary even when a
-        // topic filter was applied, because the bloom filter is an over-approximation
-        // and may return irrelevant logs.
+        // topic filter was applied, because topic0 filtering can still admit logs
+        // from unmonitored addresses and broad-mode interests cannot use it safely.
         Ok(logs
             .into_iter()
             .map(ArgusLog::from)
