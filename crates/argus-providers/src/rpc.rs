@@ -136,7 +136,14 @@ impl DataSource for EvmRpcSource {
         }
 
         let topic_filter = Self::build_topic_filter(&interest_registry);
-        self.fetch_logs_for_block_range(from_block, to_block, topic_filter).await
+        let logs = self
+            .fetch_logs_for_block_range(from_block, to_block, topic_filter)
+            .await?;
+
+        Ok(logs
+            .into_iter()
+            .filter(|log| interest_registry.is_log_interesting(log))
+            .collect())
     }
 }
 
