@@ -21,6 +21,7 @@ use alloy::{
 };
 use argus_core::{
     config::RpcRetryConfig,
+    models::Log as ArgusLog,
     monitor::RegistryProvider,
     providers::traits::{DataSource, DataSourceError},
 };
@@ -53,11 +54,11 @@ impl DataSource for EvmRpcSource {
     async fn fetch_block_core_data(
         &self,
         block_number: u64,
-    ) -> Result<(Block, Vec<Log>), DataSourceError> {
+    ) -> Result<(Block, Vec<ArgusLog>), DataSourceError> {
         match self.fetch_block_and_logs(block_number).await {
-            Ok(data) => {
+            Ok((block, logs)) => {
                 tracing::debug!(block_number, "Successfully fetched core block data.");
-                Ok(data)
+                Ok((block, logs.into_iter().map(ArgusLog::from).collect()))
             }
             Err(DataSourceError::BlockNotFound(num)) => {
                 tracing::warn!(block_number = num, "Block not found.");
@@ -124,7 +125,7 @@ impl DataSource for EvmRpcSource {
         &self,
         from_block: u64,
         to_block: u64,
-    ) -> Result<Vec<Log>, DataSourceError> {
+    ) -> Result<Vec<ArgusLog>, DataSourceError> {
         let interest_registry = self.registry.interest_registry();
 
         // No log-aware monitors — skip entirely.
@@ -135,13 +136,17 @@ impl DataSource for EvmRpcSource {
             return Ok(Vec::new());
         }
 
+        // Build a topic filter to let the node / eRPC skip irrelevant logs before
+        // transfer when possible.
         let topic_filter = Self::build_topic_filter(&interest_registry);
-        let logs = self
-            .fetch_logs_for_block_range(from_block, to_block, topic_filter)
-            .await?;
+        let logs = self.fetch_logs_for_block_range(from_block, to_block, topic_filter).await?;
 
+        // Filter logs based on the interest registry. This is necessary even when a
+        // topic filter was applied, because the bloom filter is an over-approximation
+        // and may return irrelevant logs.
         Ok(logs
             .into_iter()
+            .map(ArgusLog::from)
             .filter(|log| interest_registry.is_log_interesting(log))
             .collect())
     }
@@ -374,17 +379,16 @@ mod tests {
 
         let block = BlockBuilder::new().number(1).bloom(bloom).build();
         let log = LogBuilder::new().block_number(1).address(monitored_address).build();
-        let alloy_log: Log = log.into();
 
         asserter.push_success(&block);
-        asserter.push_success(&vec![alloy_log.clone()]);
+        asserter.push_success(&vec![log.clone()]);
 
         let source = EvmRpcSource::new(provider, make_address_registry(monitored_address));
 
         let (fetched_block, fetched_logs) = source.fetch_block_core_data(1).await.unwrap();
 
         assert_eq!(fetched_block, block);
-        assert_eq!(fetched_logs, vec![alloy_log]);
+        assert_eq!(fetched_logs, vec![log]);
     }
 
     #[tokio::test]
@@ -708,7 +712,10 @@ mod tests {
         // Broad-mode address interest: no topic filter applied, all logs returned.
         let (provider, asserter) = mock_provider();
         let monitored_address = address!("1111111111111111111111111111111111111111");
-        let logs: Vec<Log> = vec![Log::default(), Log::default()];
+        let logs = vec![
+            LogBuilder::new().address(monitored_address).build(),
+            LogBuilder::new().address(monitored_address).build(),
+        ];
         asserter.push_success(&logs);
 
         let data_source = EvmRpcSource::new(provider, make_address_registry(monitored_address));

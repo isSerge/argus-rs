@@ -6,12 +6,12 @@ use std::collections::HashMap;
 
 use alloy::rpc::types::Block;
 use argus_core::{
-    models::BlockData,
+    models::{BlockData, Log},
     providers::traits::{DataSource, DataSourceError},
 };
 use futures::{
-    future, join,
-    stream::{self, StreamExt},
+    join,
+    stream::{self, StreamExt, TryStreamExt},
 };
 
 /// Configuration for the concurrent block-fetch path.
@@ -84,16 +84,18 @@ async fn fetch_blocks_only<D: DataSource + ?Sized>(
 /// Fetches all logs for `from_block..=to_block`, splitting the request into
 /// sub-ranges of at most `chunk_size` blocks when `chunk_size > 0`.
 ///
-/// All sub-range fetches are issued in parallel so the total latency is
-/// bounded by the slowest chunk rather than the sum of all chunks.
-/// When `chunk_size == 0` the entire range is covered by a single RPC call
-/// (legacy / provider-unlimited behaviour).
+/// Sub-range requests are issued concurrently, bounded by `concurrency`, so
+/// a large range never opens more simultaneous `eth_getLogs` connections than
+/// the configured fetch concurrency limit. When `chunk_size == 0` the entire
+/// range is covered by a single RPC call (legacy / provider-unlimited
+/// behaviour).
 async fn fetch_logs_chunked<D: DataSource + ?Sized>(
     data_source: &D,
     from_block: u64,
     to_block: u64,
     chunk_size: u64,
-) -> Result<Vec<alloy::rpc::types::Log>, DataSourceError> {
+    concurrency: usize,
+) -> Result<Vec<Log>, DataSourceError> {
     if chunk_size == 0 || to_block.saturating_sub(from_block) < chunk_size {
         return data_source.fetch_logs_for_range(from_block, to_block).await;
     }
@@ -105,10 +107,12 @@ async fn fetch_logs_chunked<D: DataSource + ?Sized>(
         .map(|start| (start, (start + chunk_size - 1).min(to_block)))
         .collect();
 
-    let futures: Vec<_> =
-        chunks.iter().map(|&(start, end)| data_source.fetch_logs_for_range(start, end)).collect();
+    let results: Vec<Vec<_>> = stream::iter(chunks)
+        .map(|(start, end)| data_source.fetch_logs_for_range(start, end))
+        .buffer_unordered(concurrency)
+        .try_collect()
+        .await?;
 
-    let results = future::try_join_all(futures).await?;
     Ok(results.into_iter().flatten().collect())
 }
 
@@ -136,7 +140,7 @@ pub async fn fetch_blocks_concurrent<D: DataSource + ?Sized>(
     // Fire the range log-fetch (split into provider-safe chunks) and all
     // block-fetches in parallel.
     let (range_logs_result, blocks_result) = join!(
-        fetch_logs_chunked(data_source, from_block, to_block, cfg.log_chunk_size),
+        fetch_logs_chunked(data_source, from_block, to_block, cfg.log_chunk_size, cfg.concurrency),
         fetch_blocks_only(data_source, from_block, to_block, cfg.concurrency)
     );
 
@@ -146,7 +150,7 @@ pub async fn fetch_blocks_concurrent<D: DataSource + ?Sized>(
     // Group logs by block number for O(1) lookup when building BlockData.
     let mut logs_by_block: HashMap<u64, Vec<_>> = HashMap::new();
     for log in range_logs {
-        if let Some(block_num) = log.block_number {
+        if let Some(block_num) = log.block_number() {
             logs_by_block.entry(block_num).or_default().push(log);
         }
     }

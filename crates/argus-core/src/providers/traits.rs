@@ -5,12 +5,12 @@ use std::collections::HashMap;
 
 use alloy::{
     primitives::TxHash,
-    rpc::types::{Block, Log, TransactionReceipt},
+    rpc::types::{Block, TransactionReceipt},
 };
 use async_trait::async_trait;
 use thiserror::Error;
 
-use crate::persistence::error::PersistenceError;
+use crate::{models::Log, persistence::error::PersistenceError};
 
 /// Custom error type for data source operations.
 #[derive(Error, Debug)]

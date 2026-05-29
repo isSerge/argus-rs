@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use alloy::{
     primitives::TxHash,
-    rpc::types::{Block, Log as AlloyLog, TransactionReceipt},
+    rpc::types::{Block, TransactionReceipt},
 };
 
 use crate::models::Log;
@@ -28,15 +28,8 @@ impl BlockData {
     pub fn new(
         block: Block,
         receipts: HashMap<TxHash, TransactionReceipt>,
-        logs: HashMap<TxHash, Vec<AlloyLog>>,
+        logs: HashMap<TxHash, Vec<Log>>,
     ) -> Self {
-        let logs = logs
-            .into_iter()
-            .map(|(tx_hash, logs)| {
-                let logs = logs.into_iter().map(Log::from).collect();
-                (tx_hash, logs)
-            })
-            .collect();
         Self { block, receipts, logs }
     }
 
@@ -54,12 +47,12 @@ impl BlockData {
     pub fn from_raw_data(
         block: Block,
         receipts: HashMap<TxHash, TransactionReceipt>,
-        raw_logs: Vec<AlloyLog>,
+        raw_logs: Vec<Log>,
     ) -> Self {
         let mut logs: HashMap<TxHash, Vec<Log>> = HashMap::new();
         for log in raw_logs {
-            if let Some(tx_hash) = log.transaction_hash {
-                logs.entry(tx_hash).or_default().push(log.into());
+            if let Some(tx_hash) = log.transaction_hash() {
+                logs.entry(tx_hash).or_default().push(log);
             }
         }
 
@@ -69,7 +62,7 @@ impl BlockData {
 
 #[cfg(test)]
 mod tests {
-    use alloy::primitives::B256;
+    use alloy::{primitives::B256, rpc::types::Log as AlloyLog};
 
     use super::*;
 
@@ -79,7 +72,7 @@ mod tests {
         let receipts = HashMap::new();
         let mut logs = HashMap::new();
         let tx_hash = B256::from_slice(&[1; 32]);
-        logs.insert(tx_hash, vec![AlloyLog::default()]);
+        logs.insert(tx_hash, vec![Log::default()]);
 
         let block_data = BlockData::new(block.clone(), receipts.clone(), logs.clone());
 
@@ -100,8 +93,8 @@ mod tests {
     #[test]
     fn test_from_raw_data_ignores_logs_without_tx_hash() {
         let tx_hash = B256::from_slice(&[1; 32]);
-        let log_with_hash = AlloyLog { transaction_hash: Some(tx_hash), ..Default::default() };
-        let log_without_hash = AlloyLog { transaction_hash: None, ..Default::default() };
+        let log_with_hash = Log(AlloyLog { transaction_hash: Some(tx_hash), ..Default::default() });
+        let log_without_hash = Log(AlloyLog { transaction_hash: None, ..Default::default() });
 
         let raw_logs = vec![log_with_hash, log_without_hash];
         let block = Block::default();
@@ -118,9 +111,9 @@ mod tests {
         let tx_hash1 = B256::from_slice(&[1; 32]);
         let tx_hash2 = B256::from_slice(&[2; 32]);
 
-        let log1 = AlloyLog { transaction_hash: Some(tx_hash1), ..Default::default() };
-        let log2 = AlloyLog { transaction_hash: Some(tx_hash2), ..Default::default() };
-        let log3 = AlloyLog { transaction_hash: Some(tx_hash1), ..Default::default() };
+        let log1 = Log(AlloyLog { transaction_hash: Some(tx_hash1), ..Default::default() });
+        let log2 = Log(AlloyLog { transaction_hash: Some(tx_hash2), ..Default::default() });
+        let log3 = Log(AlloyLog { transaction_hash: Some(tx_hash1), ..Default::default() });
 
         let raw_logs = vec![log1, log2, log3];
         let block = Block::default();
