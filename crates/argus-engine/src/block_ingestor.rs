@@ -122,7 +122,10 @@ impl<S: AppRepository + ?Sized, D: DataSource + ?Sized, F: FilteringEngine + ?Si
             needs_receipts,
             from_block,
             to_block,
-            self.config.concurrency as usize,
+            block_fetcher::FetchConfig::new(
+                self.config.concurrency as usize,
+                self.config.log_chunk_size,
+            ),
         )
         .await?;
 
@@ -222,13 +225,15 @@ mod tests {
 
         harness.mock_data_source.expect_get_current_block_number().times(1).returning(|| Ok(123));
 
-        // The concurrent batch will call fetch_block_core_data for block 122
+        // The concurrent batch will call fetch_block_only + fetch_logs_for_range for
+        // block 122
         harness
             .mock_data_source
-            .expect_fetch_block_core_data()
+            .expect_fetch_block_only()
             .with(eq(122))
             .times(1)
-            .returning(|block_num| Ok((BlockBuilder::new().number(block_num).build(), vec![])));
+            .returning(|block_num| Ok(BlockBuilder::new().number(block_num).build()));
+        harness.mock_data_source.expect_fetch_logs_for_range().returning(|_, _| Ok(vec![]));
 
         // Since receipts are not required, fetch_receipts should not be called
         harness.mock_data_source.expect_fetch_receipts().times(0);
@@ -250,9 +255,10 @@ mod tests {
         // receipts
         harness
             .mock_data_source
-            .expect_fetch_block_core_data()
+            .expect_fetch_block_only()
             .with(eq(122))
-            .returning(|block_num| Ok((BlockBuilder::new().number(block_num).build(), vec![])));
+            .returning(|block_num| Ok(BlockBuilder::new().number(block_num).build()));
+        harness.mock_data_source.expect_fetch_logs_for_range().returning(|_, _| Ok(vec![]));
         harness.mock_data_source.expect_fetch_receipts().times(0);
 
         let (tx, _rx) = mpsc::channel(10);
@@ -278,9 +284,10 @@ mod tests {
         // The batch will process block 122 (from 122 to 122) - block with transaction
         harness
             .mock_data_source
-            .expect_fetch_block_core_data()
+            .expect_fetch_block_only()
             .with(eq(122))
-            .returning(move |block_num| Ok((block.clone().number(block_num).build(), vec![])));
+            .returning(move |block_num| Ok(block.clone().number(block_num).build()));
+        harness.mock_data_source.expect_fetch_logs_for_range().returning(|_, _| Ok(vec![]));
         harness
             .mock_data_source
             .expect_fetch_receipts()
@@ -306,7 +313,8 @@ mod tests {
         // current is 122, so safe_to_block is 121
         harness.mock_data_source.expect_get_current_block_number().returning(|| Ok(122));
         // We should not attempt to fetch any block data
-        harness.mock_data_source.expect_fetch_block_core_data().times(0);
+        harness.mock_data_source.expect_fetch_block_only().times(0);
+        harness.mock_data_source.expect_fetch_logs_for_range().times(0);
 
         let (tx, _rx) = mpsc::channel(10);
         let ingestor = harness.build(tx, CancellationToken::new());
@@ -345,10 +353,11 @@ mod tests {
         // We expect it to start fetching from 100 (200 - 100)
         harness
             .mock_data_source
-            .expect_fetch_block_core_data()
+            .expect_fetch_block_only()
             .with(eq(100)) // Assert we start from the correct calculated block
             .times(1)
-            .returning(|n| Ok((BlockBuilder::new().number(n).build(), vec![])));
+            .returning(|n| Ok(BlockBuilder::new().number(n).build()));
+        harness.mock_data_source.expect_fetch_logs_for_range().returning(|_, _| Ok(vec![]));
         harness.mock_filtering_engine.expect_requires_receipt_data().returning(|| false);
 
         let (tx, _rx) = mpsc::channel(10);
@@ -371,10 +380,11 @@ mod tests {
         // The batch fetch will still happen, but processing stops due to cancellation
         harness
             .mock_data_source
-            .expect_fetch_block_core_data()
+            .expect_fetch_block_only()
             .with(eq(101))
             .times(1)
-            .returning(|n| Ok((BlockBuilder::new().number(n).build(), vec![])));
+            .returning(|n| Ok(BlockBuilder::new().number(n).build()));
+        harness.mock_data_source.expect_fetch_logs_for_range().returning(|_, _| Ok(vec![]));
 
         let (tx, _rx) = mpsc::channel(10);
         let token = CancellationToken::new();
@@ -425,11 +435,13 @@ mod tests {
             .returning(|| Ok(102));
         harness
             .mock_data_source
-            .expect_fetch_block_core_data()
+            .expect_fetch_block_only()
             .with(eq(101))
             .times(1)
             .in_sequence(&mut seq)
-            .returning(|n| Ok((BlockBuilder::new().number(n).build(), vec![])));
+            .returning(|n| Ok(BlockBuilder::new().number(n).build()));
+        // fetch_logs_for_range runs concurrently with fetch_block_only via tokio::join!
+        harness.mock_data_source.expect_fetch_logs_for_range().returning(|_, _| Ok(vec![]));
 
         let (tx, mut rx) = mpsc::channel(10);
         let token = CancellationToken::new();

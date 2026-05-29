@@ -351,9 +351,9 @@ mod tests {
             .transaction(irrelevant_tx)
             .build();
 
-        // `from_raw_data` expects a Vec of raw Alloy logs, not a HashMap.
+        // `from_raw_data` expects a Vec of argus Log values.
         let log = LogBuilder::new().transaction_hash(tx_with_log.hash()).build();
-        let raw_logs = vec![log.into()];
+        let raw_logs = vec![log];
         let block_data = BlockData::from_raw_data(block, HashMap::new(), raw_logs);
 
         // Act

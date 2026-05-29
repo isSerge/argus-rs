@@ -52,6 +52,7 @@ server:
 | Parameter | Description | Default |
 | :--- | :--- | :--- |
 | `block_chunk_size` | The number of blocks to fetch and process in a single batch. | `5` |
+| `log_chunk_size` | Maximum number of blocks covered by a single `eth_getLogs` RPC call. When `block_chunk_size` exceeds this, the log fetch is split into parallel sub-range requests. Set to `0` to disable chunking. | `2000` |
 | `polling_interval_ms` | The interval in milliseconds to poll for new blocks. | `10000` |
 | `confirmation_blocks` | Number of blocks to wait for before processing to protect against reorgs. A higher number is safer but introduces more latency. | `12` |
 | `notification_channel_capacity` | The capacity of the internal channel for sending notifications. | `1024` |

@@ -34,6 +34,15 @@ fn default_concurrency() -> u64 {
     8 // sweet spot according to benchmarks against local RPC cache
 }
 
+/// Provides the default maximum number of blocks per `eth_getLogs` RPC call.
+///
+/// 2 000 is a conservative value that works with most providers (Alchemy,
+/// Ankr, Infura, QuickNode, etc.). Raise it if your provider allows larger
+/// windows; set it to 0 to disable chunking (single call, as before).
+fn default_log_chunk_size() -> u64 {
+    2_000
+}
+
 /// Application configuration for Argus.
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct AppConfig {
@@ -69,6 +78,14 @@ pub struct AppConfig {
 
     /// The size of the block chunk to process at once.
     pub block_chunk_size: u64,
+
+    /// Maximum number of blocks covered by a single `eth_getLogs` RPC call.
+    ///
+    /// When `block_chunk_size` exceeds this value the log-fetch is split into
+    /// multiple sub-range requests that are issued in parallel. Set to `0` to
+    /// disable chunking and always issue a single call (legacy behaviour).
+    #[serde(default = "default_log_chunk_size")]
+    pub log_chunk_size: u64,
 
     /// The number of concurrent block fetches.
     #[serde(default = "default_concurrency")]
@@ -216,6 +233,11 @@ impl AppConfigBuilder {
 
     pub fn concurrency(mut self, concurrency: u64) -> Self {
         self.config.concurrency = concurrency;
+        self
+    }
+
+    pub fn log_chunk_size(mut self, log_chunk_size: u64) -> Self {
+        self.config.log_chunk_size = log_chunk_size;
         self
     }
 }

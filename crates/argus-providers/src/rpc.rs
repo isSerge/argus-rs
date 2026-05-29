@@ -1,10 +1,14 @@
 //! This module provides functionality to create a provider for EVM RPC requests
 //! with retry logic and backoff strategies.
 
-use std::{collections::HashMap, num::NonZeroUsize, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    num::NonZeroUsize,
+    sync::Arc,
+};
 
 use alloy::{
-    primitives::{BloomInput, TxHash},
+    primitives::{B256, BloomInput, TxHash},
     providers::{Provider, ProviderBuilder, layers::CallBatchLayer},
     rpc::{
         client::RpcClient,
@@ -17,6 +21,7 @@ use alloy::{
 };
 use argus_core::{
     config::RpcRetryConfig,
+    models::Log as ArgusLog,
     monitor::RegistryProvider,
     providers::traits::{DataSource, DataSourceError},
 };
@@ -49,11 +54,11 @@ impl DataSource for EvmRpcSource {
     async fn fetch_block_core_data(
         &self,
         block_number: u64,
-    ) -> Result<(Block, Vec<Log>), DataSourceError> {
+    ) -> Result<(Block, Vec<ArgusLog>), DataSourceError> {
         match self.fetch_block_and_logs(block_number).await {
-            Ok(data) => {
+            Ok((block, logs)) => {
                 tracing::debug!(block_number, "Successfully fetched core block data.");
-                Ok(data)
+                Ok((block, logs.into_iter().map(ArgusLog::from).collect()))
             }
             Err(DataSourceError::BlockNotFound(num)) => {
                 tracing::warn!(block_number = num, "Block not found.");
@@ -104,12 +109,87 @@ impl DataSource for EvmRpcSource {
     async fn get_current_block_number(&self) -> Result<u64, DataSourceError> {
         self.provider.get_block_number().await.map_err(|e| DataSourceError::Provider(Box::new(e)))
     }
+
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn fetch_block_only(&self, block_number: u64) -> Result<Block, DataSourceError> {
+        self.provider
+            .get_block_by_number(block_number.into())
+            .full()
+            .await
+            .map_err(|e| DataSourceError::Provider(Box::new(e)))?
+            .ok_or(DataSourceError::BlockNotFound(block_number))
+    }
+
+    #[tracing::instrument(skip(self), level = "debug")]
+    async fn fetch_logs_for_range(
+        &self,
+        from_block: u64,
+        to_block: u64,
+    ) -> Result<Vec<ArgusLog>, DataSourceError> {
+        let interest_registry = self.registry.interest_registry();
+
+        // No log-aware monitors — skip entirely.
+        if interest_registry.log_interests.is_empty()
+            && interest_registry.global_event_signatures.is_empty()
+        {
+            tracing::debug!("No log-aware monitors. Skipping range log fetch.");
+            return Ok(Vec::new());
+        }
+
+        // Build a topic filter to let the node / eRPC skip irrelevant logs before
+        // transfer when possible.
+        let topic_filter = Self::build_topic_filter(&interest_registry);
+        let logs = self.fetch_logs_for_block_range(from_block, to_block, topic_filter).await?;
+
+        // Filter logs based on the interest registry. This is necessary even when a
+        // topic filter was applied, because topic0 filtering can still admit logs
+        // from unmonitored addresses and broad-mode interests cannot use it safely.
+        Ok(logs
+            .into_iter()
+            .map(ArgusLog::from)
+            .filter(|log| interest_registry.is_log_interesting(log))
+            .collect())
+    }
 }
 
 impl EvmRpcSource {
-    /// Fetches all logs for a given block number.
-    async fn fetch_logs_for_block(&self, number: u64) -> Result<Vec<Log>, DataSourceError> {
-        let filter = Filter::new().from_block(number).to_block(number);
+    /// Builds a topic0 OR-filter from the interest registry, if possible.
+    ///
+    /// Returns `None` when at least one address-specific monitor is in "broad
+    /// mode" (i.e. its `log_interests` entry is `None`), because in that case
+    /// we must accept every log from that address regardless of topic and
+    /// cannot apply a topic filter safely.
+    ///
+    /// When a non-empty `Some` is returned the caller should pass the vector
+    /// as a `topic0` OR-filter to `eth_getLogs`, which lets the node / eRPC
+    /// discard irrelevant events before they reach the client.
+    fn build_topic_filter(registry: &argus_core::monitor::InterestRegistry) -> Option<Vec<B256>> {
+        // Broad-mode monitors need every log from their address — cannot filter.
+        if registry.log_interests.values().any(|v| v.is_none()) {
+            return None;
+        }
+
+        // Union of all event signatures we care about.
+        let mut topics: HashSet<B256> = registry.global_event_signatures.iter().copied().collect();
+        for precise_sigs in registry.log_interests.values().filter_map(|v| v.as_ref()) {
+            topics.extend(precise_sigs.iter().copied());
+        }
+
+        if topics.is_empty() { None } else { Some(topics.into_iter().collect()) }
+    }
+
+    /// Fetches logs for a block, optionally restricting to a set of topic0
+    /// values (OR semantics).
+    async fn fetch_logs_for_block_range(
+        &self,
+        from: u64,
+        to: u64,
+        topic_filter: Option<Vec<B256>>,
+    ) -> Result<Vec<Log>, DataSourceError> {
+        let mut filter = Filter::new().from_block(from).to_block(to);
+        if let Some(topics) = topic_filter {
+            filter = filter.event_signature(topics);
+        }
         self.provider.get_logs(&filter).await.map_err(|e| DataSourceError::Provider(Box::new(e)))
     }
 
@@ -172,12 +252,16 @@ impl EvmRpcSource {
 
         let might_contain_relevant_logs = might_have_global_logs || might_have_address_logs;
 
+        // Build a topic0 OR-filter from the interest registry when possible.
+        // This lets the node / eRPC discard irrelevant events before transfer.
+        let topic_filter = Self::build_topic_filter(&interest_registry);
+
         // Conditionally call eth_getLogs based on the bloom filter check.
         let logs = if might_contain_relevant_logs {
             // The bloom filter indicates a potential match. We MUST fetch the logs to
             // verify.
             tracing::debug!(block_number = number, "Bloom filter hit. Fetching logs.");
-            self.fetch_logs_for_block(number).await?
+            self.fetch_logs_for_block_range(number, number, topic_filter).await?
         } else {
             // The bloom filter guarantees no relevant logs are in this block.
             // We can safely skip the expensive eth_getLogs call.
@@ -295,17 +379,16 @@ mod tests {
 
         let block = BlockBuilder::new().number(1).bloom(bloom).build();
         let log = LogBuilder::new().block_number(1).address(monitored_address).build();
-        let alloy_log: Log = log.into();
 
         asserter.push_success(&block);
-        asserter.push_success(&vec![alloy_log.clone()]);
+        asserter.push_success(&vec![log.clone()]);
 
         let source = EvmRpcSource::new(provider, make_address_registry(monitored_address));
 
         let (fetched_block, fetched_logs) = source.fetch_block_core_data(1).await.unwrap();
 
         assert_eq!(fetched_block, block);
-        assert_eq!(fetched_logs, vec![alloy_log]);
+        assert_eq!(fetched_logs, vec![log]);
     }
 
     #[tokio::test]
@@ -594,5 +677,66 @@ mod tests {
 
         assert!(matches!(result, Err(DataSourceError::Provider(_))));
         assert!(result.unwrap_err().to_string().contains("receipt unavailable"));
+    }
+
+    // ---- fetch_logs_for_range ----
+
+    #[tokio::test]
+    async fn test_fetch_logs_for_range_no_log_interest() {
+        // No pushes — any RPC call would cause the mock to error.
+        let (provider, _asserter) = mock_provider();
+        let data_source = EvmRpcSource::new(provider, make_empty_registry());
+
+        let result = data_source.fetch_logs_for_range(100, 200).await.unwrap();
+
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_fetch_logs_for_range_with_global_topic() {
+        let (provider, asserter) = mock_provider();
+        let transfer_topic =
+            b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef");
+        let log = LogBuilder::new().topics(vec![transfer_topic]).build();
+        asserter.push_success(&vec![log]);
+
+        let data_source = EvmRpcSource::new(provider, make_global_topic_registry(transfer_topic));
+
+        let logs = data_source.fetch_logs_for_range(100, 200).await.unwrap();
+
+        assert_eq!(logs.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_logs_for_range_with_address_interest() {
+        // Broad-mode address interest: no topic filter applied, all logs returned.
+        let (provider, asserter) = mock_provider();
+        let monitored_address = address!("1111111111111111111111111111111111111111");
+        let logs = vec![
+            LogBuilder::new().address(monitored_address).build(),
+            LogBuilder::new().address(monitored_address).build(),
+        ];
+        asserter.push_success(&logs);
+
+        let data_source = EvmRpcSource::new(provider, make_address_registry(monitored_address));
+
+        let result = data_source.fetch_logs_for_range(50, 150).await.unwrap();
+
+        assert_eq!(result.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_logs_for_range_rpc_error() {
+        let (provider, asserter) = mock_provider();
+        let transfer_topic =
+            b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef");
+        asserter.push_failure_msg("getLogs failed");
+
+        let data_source = EvmRpcSource::new(provider, make_global_topic_registry(transfer_topic));
+
+        let result = data_source.fetch_logs_for_range(100, 200).await;
+
+        assert!(matches!(result, Err(DataSourceError::Provider(_))));
+        assert!(result.unwrap_err().to_string().contains("getLogs failed"));
     }
 }

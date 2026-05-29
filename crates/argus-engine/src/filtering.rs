@@ -590,6 +590,7 @@ impl FilteringEngine for RhaiFilteringEngine {
             .iter()
             .filter_map(|id| assets.monitors_by_id.get(id))
             .collect();
+
         let tx_aware_monitors: Vec<_> = assets
             .tx_aware_monitors
             .iter()
