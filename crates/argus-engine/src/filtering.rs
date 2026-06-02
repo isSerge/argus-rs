@@ -225,9 +225,14 @@ struct EvaluationContext<'a> {
     /// per transaction regardless of how many monitors match or how many
     /// actions they have.
     decoded_call_json_cache: Option<Option<serde_json::Value>>,
-    /// Cache for decoded logs, keyed by (transaction hash, log index) to allow
-    /// efficient reuse across multiple monitors.
-    decoded_logs_cache: HashMap<LogCacheKey, Arc<DecodedLog>>,
+    /// Cache for decoded logs, keyed by (transaction hash, log index).
+    ///
+    /// Stores `Some(arc)` for a successful decode and `None` for a known
+    /// failure (unknown ABI / bad signature). The presence of a key —
+    /// regardless of its value — means the decode was already attempted, so
+    /// failures are not retried for every monitor that encounters the same
+    /// log.
+    decoded_logs_cache: HashMap<LogCacheKey, Option<Arc<DecodedLog>>>,
     /// Cache for the transaction map (Rhai `Map` of transaction fields) to
     /// avoid redundant construction when multiple logs match and the map is
     /// needed for each.
@@ -249,8 +254,14 @@ impl<'a> EvaluationContext<'a> {
         }
     }
 
-    /// Lazily decodes a log and caches the result for subsequent reuse within
-    /// this transaction's evaluation.
+    /// Lazily decodes a log and caches the result — including failures — for
+    /// subsequent reuse within this transaction's evaluation.
+    ///
+    /// On the first call for a given (tx_hash, log_index) pair the decode is
+    /// attempted and the outcome (`Some` or `None`) is written into
+    /// `decoded_logs_cache`. All later calls for the same key return the cached
+    /// outcome immediately, so each log is decoded at most once per
+    /// transaction regardless of how many monitors inspect it.
     fn get_or_decode_log(
         &mut self,
         abi_service: &AbiService,
@@ -263,20 +274,21 @@ impl<'a> EvaluationContext<'a> {
                 None
             };
 
+        // If the key is present the decode was already attempted; return the
+        // cached outcome (which may be `None` for a known failure).
         if let Some(key) = cache_key
             && let Some(cached) = self.decoded_logs_cache.get(&key)
         {
-            return Some(cached.clone());
+            return cached.clone();
         }
 
-        let decoded = abi_service.decode_log(raw_log).ok()?;
-        let arc_decoded = Arc::new(decoded);
+        let result = abi_service.decode_log(raw_log).ok().map(Arc::new);
 
         if let Some(key) = cache_key {
-            self.decoded_logs_cache.insert(key, arc_decoded.clone());
+            self.decoded_logs_cache.insert(key, result.clone());
         }
 
-        Some(arc_decoded)
+        result
     }
 
     /// Lazily builds the Rhai transaction map and caches it for reuse across
@@ -350,9 +362,9 @@ impl RhaiFilteringEngine {
     ///    monitor's script statically names specific events (e.g. `log.name ==
     ///    "Transfer"`), [`AbiService::peek_event_name`] is used to skip logs
     ///    that don't match without full decoding.
-    /// 2. Surviving logs are decoded lazily and cached in the [`EvaluationContext`],
-    ///    ensuring each log is decoded at most once per transaction while
-    ///    avoiding upfront cost for filtered logs.
+    /// 2. Surviving logs are decoded lazily and cached in the
+    ///    [`EvaluationContext`], ensuring each log is decoded at most once per
+    ///    transaction while avoiding upfront cost for filtered logs.
     /// 3. For each surviving (monitor, log) pair, the monitor's pre-compiled
     ///    [`AST`] is evaluated. A match creates action entries via
     ///    [`create_log_matches`](Self::create_log_matches) and marks the
