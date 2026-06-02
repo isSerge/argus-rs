@@ -259,9 +259,10 @@ impl<'a> EvaluationContext<'a> {
             };
 
         if let Some(key) = cache_key
-            && let Some(cached) = self.decoded_logs_cache.get(&key) {
-                return Some(cached.clone());
-            }
+            && let Some(cached) = self.decoded_logs_cache.get(&key)
+        {
+            return Some(cached.clone());
+        }
 
         let decoded = abi_service.decode_log(raw_log).ok()?;
         let arc_decoded = Arc::new(decoded);
