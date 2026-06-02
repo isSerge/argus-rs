@@ -262,6 +262,27 @@ impl AbiService {
         self.address_specific_cache.len()
     }
 
+    /// Peeks at a log's topics to identify the event name without fully
+    /// decoding it.
+    ///
+    /// Returns an `Arc<Event>` because the event data lives
+    /// inside a `DashMap` shard guard; Cloning the `Arc` is a single atomic
+    /// increment — no heap allocation.
+    pub fn peek_event_name(&self, log: &Log) -> Option<Arc<Event>> {
+        let topic0 = log.topics().first()?;
+
+        self.address_specific_cache
+            .get(&log.address())
+            .and_then(|contract| contract.events.get(topic0).map(Arc::clone))
+            .or_else(|| {
+                self.global_event_index.get(topic0).and_then(|contracts| {
+                    contracts
+                        .iter()
+                        .find_map(|contract| contract.events.get(topic0).map(Arc::clone))
+                })
+            })
+    }
+
     /// Decodes an event log by first trying address-specific ABIs, then falling
     /// back to global ABIs.
     pub fn decode_log(&self, log: &Log) -> Result<DecodedLog, AbiError> {
@@ -604,6 +625,52 @@ mod tests {
 
         let decoded = service.decode_log(&log).unwrap();
         assert_eq!(decoded.name, "Transfer");
+    }
+
+    #[tokio::test]
+    async fn test_peek_event_name_address_specific() {
+        let (service, contract_address) =
+            setup_abi_service_with_abi("erc20", erc20_abi_json()).await;
+        let transfer_topic =
+            b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef");
+
+        let log = LogBuilder::new().address(contract_address).topic(transfer_topic).build();
+        let event = service.peek_event_name(&log.into()).unwrap();
+        assert_eq!(event.name, "Transfer");
+    }
+
+    #[tokio::test]
+    async fn test_peek_event_name_global() {
+        let (service, _) = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+        service.add_global_abi("erc20").unwrap();
+        let transfer_topic =
+            b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef");
+
+        let log = LogBuilder::new()
+            .address(address!("3333333333333333333333333333333333333333"))
+            .topic(transfer_topic)
+            .build();
+        let event = service.peek_event_name(&log.into()).unwrap();
+        assert_eq!(event.name, "Transfer");
+    }
+
+    #[tokio::test]
+    async fn test_peek_event_name_unknown() {
+        let (service, contract_address) =
+            setup_abi_service_with_abi("erc20", erc20_abi_json()).await;
+        let log = LogBuilder::new()
+            .address(contract_address)
+            .topic(b256!("0000000000000000000000000000000000000000000000000000000000000001"))
+            .build();
+        assert!(service.peek_event_name(&log.into()).is_none());
+    }
+
+    #[tokio::test]
+    async fn test_peek_event_name_no_topics() {
+        let (service, contract_address) =
+            setup_abi_service_with_abi("erc20", erc20_abi_json()).await;
+        let log = LogBuilder::new().address(contract_address).build();
+        assert!(service.peek_event_name(&log.into()).is_none());
     }
 
     #[tokio::test]
