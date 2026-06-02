@@ -150,11 +150,11 @@ impl ActionDispatcher {
                     // This unwrap is safe because we've already filtered non-webhook types
                     let components = config.config.as_webhook_components().unwrap();
                     let http_client = client_pool.get_or_create(&components.retry_policy).await?;
-                    ActionType::Webhook(WebhookAction::new(
+                    ActionType::Webhook(WebhookAction::try_new(
                         components,
                         http_client,
                         template_service.clone(),
-                    ))
+                    )?)
                 }
 
                 #[allow(unreachable_patterns)]
@@ -231,6 +231,7 @@ mod tests {
         },
         test_utils::ActionBuilder,
     };
+    use omnihook::WebhookPayloadBuilder;
     use serde_json::json;
     use url::Url;
 
@@ -282,11 +283,8 @@ mod tests {
 
         let components = config.as_webhook_components().unwrap();
 
-        assert_eq!(components.config.url, url);
-        assert_eq!(components.config.title, "T");
-        assert_eq!(components.config.body_template, "B");
-        assert_eq!(components.config.method, Some("POST".to_string()));
-        assert!(components.config.secret.is_none());
+        assert_eq!(components.title, "T");
+        assert_eq!(components.body_template, "B");
         let payload = components.builder.build_payload("T", "B");
         assert!(payload.get("blocks").is_some(), "expected Slack 'blocks' payload");
         assert!(payload.get("content").is_none());
@@ -303,11 +301,8 @@ mod tests {
 
         let components = config.as_webhook_components().unwrap();
 
-        assert_eq!(components.config.url, url);
-        assert_eq!(components.config.method, Some("POST".to_string()));
-        assert!(components.config.secret.is_none());
         let payload = components.builder.build_payload("T", "B");
-        assert_eq!(payload.get("content").unwrap(), "*T*\n\nB");
+        assert_eq!(payload.get("content").unwrap(), "**T**\n\nB");
         assert!(payload.get("blocks").is_none());
     }
 
@@ -323,13 +318,9 @@ mod tests {
 
         let components = config.as_webhook_components().unwrap();
 
-        assert_eq!(
-            components.config.url,
-            Url::parse("https://api.telegram.org/botmytoken123/sendMessage").unwrap()
-        );
         let payload = components.builder.build_payload("T", "B");
         assert_eq!(payload.get("chat_id").unwrap(), "cid");
-        assert_eq!(payload.get("text").unwrap(), "*T* \n\nB");
+        assert_eq!(payload.get("text").unwrap(), "T\n\nB");
         assert_eq!(payload.get("disable_web_page_preview").unwrap(), &json!(true));
     }
 
@@ -349,10 +340,6 @@ mod tests {
 
         let components = config.as_webhook_components().unwrap();
 
-        assert_eq!(components.config.url, url);
-        assert_eq!(components.config.method, Some("PUT".to_string()));
-        assert_eq!(components.config.secret, Some("s3cr3t".to_string()));
-        assert_eq!(components.config.headers, Some(headers));
         let payload = components.builder.build_payload("T", "B");
         assert_eq!(payload.get("title").unwrap(), "T");
         assert_eq!(payload.get("body").unwrap(), "B");
@@ -366,6 +353,27 @@ mod tests {
             result,
             Err(ActionDispatcherError::ConfigError(ref msg)) if msg.contains("action does not support webhook components")
         ));
+    }
+
+    #[test]
+    fn test_aggregated_payload_rendering() {
+        let ts = TemplateService::new();
+        let mm = create_mock_monitor_match("a");
+        let payload = ActionPayload::Aggregated {
+            action_name: "a".into(),
+            matches: vec![mm],
+            template: NotificationMessage {
+                title: "Alert: {{ monitor_name }}".into(),
+                body: "Count: {{ matches | length }}".into(),
+            },
+        };
+
+        let context = payload.context().unwrap();
+        let title = ts.render("Alert: {{ monitor_name }}", context.clone()).unwrap();
+        let body = ts.render("Count: {{ matches | length }}", context).unwrap();
+
+        assert_eq!(title, "Alert: test monitor");
+        assert_eq!(body, "Count: 1");
     }
 
     #[tokio::test]

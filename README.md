@@ -263,7 +263,6 @@ argus-rs/
 │   ├── loader/                 # YAML config file loading
 │   └── supervisor/             # Top-level service orchestrator
 └── crates/
-    ├── omnihook/               # Generic Slack/Discord/Telegram payload builders
     ├── argus-core/             # Core models, config structs, and abstract traits
     ├── argus-store/            # SQLite persistence (implements argus-core traits)
     ├── argus-providers/        # Alloy RPC block fetcher (implements DataSource)
@@ -279,7 +278,6 @@ argus-rs/
 
 | Crate | Responsibility |
 |---|---|
-| `omnihook` | Webhook payload builders and HMAC signing for Slack, Discord, and Telegram |
 | `argus-core` | Core domain models (`Monitor`, `BlockData`, `MonitorMatch`, …), config structs, and abstract repository/provider traits |
 | `argus-store` | SQLite implementation of `AppRepository` and `KeyValueStore` via `sqlx` |
 | `argus-providers` | Alloy-based RPC provider and concurrent block fetcher |

@@ -16,7 +16,7 @@ argus-api = { path = "crates/argus-api" }
 argus-rhai = { path = "crates/argus-rhai" }
 argus-abi = { path = "crates/argus-abi" }
 argus-monitor = { path = "crates/argus-monitor" }
-omnihook = { path = "crates/omnihook" }
+omnihook = "0.1.0"
 rhai-analyzer = "0.1.1"
 rhai-bigint = "0.1.6"
 rhai-evm = "0.1.2"
@@ -32,7 +32,6 @@ config = { version = "0.15.13", features = ["yaml"] }
 dashmap = { version = "6.1.0", features = ["serde"] }
 futures = "0.3.31"
 hex = "0.4.3"
-hmac = "0.12.1"
 lapin = "3.7.0"
 minijinja = { version = "2.11.0", features = ["serde"] }
 mockall = "0.13.1"
@@ -96,7 +95,6 @@ config.workspace = true
 dashmap.workspace = true
 futures.workspace = true
 hex.workspace = true
-hmac.workspace = true
 lapin.workspace = true
 minijinja.workspace = true
 num-bigint.workspace = true
