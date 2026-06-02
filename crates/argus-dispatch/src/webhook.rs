@@ -148,12 +148,14 @@ impl Action for WebhookAction {
         let rendered_title = self.template_service.render(&title, context.clone())?;
         let rendered_body = self.template_service.render(&body, context)?;
 
+        let idempotency_key = payload.idempotency_key();
+
         self.client
             .notify(
                 &rendered_title,
                 &rendered_body,
                 &self.builder,
-                Some(&payload.idempotency_key()),
+                Some(idempotency_key.as_str()),
             )
             .await?;
 
