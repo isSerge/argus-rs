@@ -151,12 +151,7 @@ impl Action for WebhookAction {
         let idempotency_key = payload.idempotency_key();
 
         self.client
-            .notify(
-                &rendered_title,
-                &rendered_body,
-                &self.builder,
-                Some(idempotency_key.as_str()),
-            )
+            .notify(&rendered_title, &rendered_body, &self.builder, Some(idempotency_key.as_str()))
             .await?;
 
         Ok(())
