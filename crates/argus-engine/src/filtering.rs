@@ -8,8 +8,11 @@
 //!
 //! 1. **Log-Aware Pass**: Evaluates monitors that reference log data in their
 //!    scripts.
-//!    - All logs for the transaction are decoded upfront in one sweep.
-//!    - Each monitor is evaluated against every successfully decoded log.
+//!    - Uses O(1) lexical peeking to quickly skip logs that don't match named
+//!      events.
+//!    - Decodes and caches logs lazily only when they pass lexical filters,
+//!      ensuring each log is decoded at most once.
+//!    - Each monitor is evaluated against surviving logs.
 //!    - A global monitor (no address filter) can match multiple logs, creating
 //!      a separate set of action matches for each.
 //!    - Matched monitors are recorded to prevent re-evaluation in pass 2.
@@ -40,8 +43,10 @@
 //! - **Pre-compiled ASTs**: Each [`ClassifiedMonitor`] stores its script as a
 //!   pre-compiled [`rhai::AST`] built at monitor-load time, eliminating
 //!   per-evaluation compilation.
-//! - **Upfront log decoding**: All logs for a transaction are decoded once
-//!   before the monitor loop, rather than re-decoding for each monitor.
+//! - **Lazy log caching**: Logs are decoded only when needed (after passing
+//!   lexical event-name filters) and cached for reuse across monitors,
+//!   eliminating redundant decoding while avoiding upfront work for skipped
+//!   logs.
 //! - **Lazy tx/call serialization**: Transaction detail payloads and decoded
 //!   call JSON are serialized at most once per item via [`EvaluationContext`]
 //!   caches.
@@ -337,21 +342,18 @@ impl RhaiFilteringEngine {
         Self { abi_service, engine, monitor_manager }
     }
 
-    /// First evaluation pass: checks log-aware monitors against each decoded
-    /// log.
+    /// First evaluation pass: checks log-aware monitors against each log.
     ///
     /// # Behavior
     ///
-    /// 1. All logs for the transaction are decoded upfront in a single sweep,
-    ///    eliminating the O(monitors × logs) redundant decoding of the naive
-    ///    approach.
-    /// 2. If no logs decode successfully the pass returns early (no Rhai
-    ///    calls).
-    /// 3. For each monitor, an **event-name pre-filter** is applied: if the
+    /// 1. For each monitor, an **event-name pre-filter** is applied: if the
     ///    monitor's script statically names specific events (e.g. `log.name ==
-    ///    "Transfer"`), logs whose event name is not in that set are skipped
-    ///    without entering the Rhai evaluator.
-    /// 4. For each surviving (monitor, log) pair, the monitor's pre-compiled
+    ///    "Transfer"`), [`AbiService::peek_event_name`] is used to skip logs
+    ///    that don't match without full decoding.
+    /// 2. Surviving logs are decoded lazily and cached in the [`EvaluationContext`],
+    ///    ensuring each log is decoded at most once per transaction while
+    ///    avoiding upfront cost for filtered logs.
+    /// 3. For each surviving (monitor, log) pair, the monitor's pre-compiled
     ///    [`AST`] is evaluated. A match creates action entries via
     ///    [`create_log_matches`](Self::create_log_matches) and marks the
     ///    monitor to prevent re-evaluation in the tx-only pass.
@@ -657,9 +659,9 @@ impl FilteringEngine for RhaiFilteringEngine {
             .filter_map(|id| assets.monitors_by_id.get(id))
             .collect();
 
-        // --- Pass 1: evaluate log-aware monitors against decoded logs. ---
-        // Skipped entirely when the item carries no logs, avoiding the
-        // upfront decode sweep and all Rhai calls for that pass.
+        // --- Pass 1: evaluate log-aware monitors. ---
+        // Skipped entirely when the item carries no logs, avoiding all
+        // lexical peeking and Rhai calls for that pass.
         if !item.logs.is_empty() {
             self.evaluate_log_aware_monitors(&mut context, &log_aware_monitors)?;
         }
