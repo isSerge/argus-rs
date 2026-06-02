@@ -205,9 +205,6 @@ struct LogCacheKey {
 struct EvaluationContext<'a> {
     /// The block item being evaluated.
     item: &'a CorrelatedBlockItem,
-    /// Pre-built Rhai map of transaction fields, shared across all monitor
-    /// evaluations for this item.
-    // tx_map: Map,
     /// Lazily populated full transaction-details JSON payload (includes receipt
     /// fields when available). Computed at most once per item.
     tx_details_cache: Option<serde_json::Value>,
@@ -237,7 +234,6 @@ impl<'a> EvaluationContext<'a> {
     fn new(item: &'a CorrelatedBlockItem) -> Self {
         Self {
             item,
-            // tx_map: build_transaction_map(&item.transaction, item.receipt.as_ref()),
             tx_details_cache: None,
             matches: Vec::new(),
             matched_monitor_ids: HashSet::new(),
