@@ -8,8 +8,11 @@
 //!
 //! 1. **Log-Aware Pass**: Evaluates monitors that reference log data in their
 //!    scripts.
-//!    - All logs for the transaction are decoded upfront in one sweep.
-//!    - Each monitor is evaluated against every successfully decoded log.
+//!    - Uses O(1) lexical peeking to quickly skip logs that don't match named
+//!      events.
+//!    - Decodes and caches logs lazily only when they pass lexical filters,
+//!      ensuring each log is decoded at most once.
+//!    - Each monitor is evaluated against surviving logs.
 //!    - A global monitor (no address filter) can match multiple logs, creating
 //!      a separate set of action matches for each.
 //!    - Matched monitors are recorded to prevent re-evaluation in pass 2.
@@ -40,8 +43,10 @@
 //! - **Pre-compiled ASTs**: Each [`ClassifiedMonitor`] stores its script as a
 //!   pre-compiled [`rhai::AST`] built at monitor-load time, eliminating
 //!   per-evaluation compilation.
-//! - **Upfront log decoding**: All logs for a transaction are decoded once
-//!   before the monitor loop, rather than re-decoding for each monitor.
+//! - **Lazy log caching**: Logs are decoded only when needed (after passing
+//!   lexical event-name filters) and cached for reuse across monitors,
+//!   eliminating redundant decoding while avoiding upfront work for skipped
+//!   logs.
 //! - **Lazy tx/call serialization**: Transaction detail payloads and decoded
 //!   call JSON are serialized at most once per item via [`EvaluationContext`]
 //!   caches.
@@ -74,8 +79,13 @@
 //! result: 1 TransactionMatch
 //! ```
 
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 
+use alloy::primitives::B256;
 use argus_abi::{AbiService, DecodedCall, DecodedLog};
 use argus_core::{
     config::RhaiConfig,
@@ -173,6 +183,14 @@ pub struct RhaiFilteringEngine {
     monitor_manager: Arc<MonitorManager>,
 }
 
+/// A unique key for caching decoded logs based on transaction hash and log
+/// index.
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+struct LogCacheKey {
+    tx_hash: B256,
+    log_index: u64,
+}
+
 /// Transient state accumulated while evaluating a single
 /// [`CorrelatedBlockItem`].
 ///
@@ -192,9 +210,6 @@ pub struct RhaiFilteringEngine {
 struct EvaluationContext<'a> {
     /// The block item being evaluated.
     item: &'a CorrelatedBlockItem,
-    /// Pre-built Rhai map of transaction fields, shared across all monitor
-    /// evaluations for this item.
-    tx_map: Map,
     /// Lazily populated full transaction-details JSON payload (includes receipt
     /// fields when available). Computed at most once per item.
     tx_details_cache: Option<serde_json::Value>,
@@ -210,6 +225,18 @@ struct EvaluationContext<'a> {
     /// per transaction regardless of how many monitors match or how many
     /// actions they have.
     decoded_call_json_cache: Option<Option<serde_json::Value>>,
+    /// Cache for decoded logs, keyed by (transaction hash, log index).
+    ///
+    /// Stores `Some(arc)` for a successful decode and `None` for a known
+    /// failure (unknown ABI / bad signature). The presence of a key —
+    /// regardless of its value — means the decode was already attempted, so
+    /// failures are not retried for every monitor that encounters the same
+    /// log.
+    decoded_logs_cache: HashMap<LogCacheKey, Option<Arc<DecodedLog>>>,
+    /// Cache for the transaction map (Rhai `Map` of transaction fields) to
+    /// avoid redundant construction when multiple logs match and the map is
+    /// needed for each.
+    tx_map_cache: Option<Map>,
 }
 
 impl<'a> EvaluationContext<'a> {
@@ -217,13 +244,62 @@ impl<'a> EvaluationContext<'a> {
     fn new(item: &'a CorrelatedBlockItem) -> Self {
         Self {
             item,
-            tx_map: build_transaction_map(&item.transaction, item.receipt.as_ref()),
             tx_details_cache: None,
             matches: Vec::new(),
             matched_monitor_ids: HashSet::new(),
             decoded_call_cache: None,
             decoded_call_json_cache: None,
+            decoded_logs_cache: HashMap::new(),
+            tx_map_cache: None,
         }
+    }
+
+    /// Lazily decodes a log and caches the result — including failures — for
+    /// subsequent reuse within this transaction's evaluation.
+    ///
+    /// On the first call for a given (tx_hash, log_index) pair the decode is
+    /// attempted and the outcome (`Some` or `None`) is written into
+    /// `decoded_logs_cache`. All later calls for the same key return the cached
+    /// outcome immediately, so each log is decoded at most once per
+    /// transaction regardless of how many monitors inspect it.
+    fn get_or_decode_log(
+        &mut self,
+        abi_service: &AbiService,
+        raw_log: &argus_core::models::Log,
+    ) -> Option<Arc<DecodedLog>> {
+        let cache_key =
+            if let (Some(tx), Some(idx)) = (raw_log.transaction_hash(), raw_log.log_index()) {
+                Some(LogCacheKey { tx_hash: tx, log_index: idx })
+            } else {
+                None
+            };
+
+        // If the key is present the decode was already attempted; return the
+        // cached outcome (which may be `None` for a known failure).
+        if let Some(key) = cache_key
+            && let Some(cached) = self.decoded_logs_cache.get(&key)
+        {
+            return cached.clone();
+        }
+
+        let result = abi_service.decode_log(raw_log).ok().map(Arc::new);
+
+        if let Some(key) = cache_key {
+            self.decoded_logs_cache.insert(key, result.clone());
+        }
+
+        result
+    }
+
+    /// Lazily builds the Rhai transaction map and caches it for reuse across
+    /// multiple log matches within the same transaction.
+    fn get_tx_map(&mut self) -> Map {
+        if let Some(map) = &self.tx_map_cache {
+            return map.clone();
+        }
+        let map = build_transaction_map(&self.item.transaction, self.item.receipt.as_ref());
+        self.tx_map_cache = Some(map.clone());
+        map
     }
 
     /// Lazily serializes and caches the transaction payload
@@ -278,21 +354,18 @@ impl RhaiFilteringEngine {
         Self { abi_service, engine, monitor_manager }
     }
 
-    /// First evaluation pass: checks log-aware monitors against each decoded
-    /// log.
+    /// First evaluation pass: checks log-aware monitors against each log.
     ///
     /// # Behavior
     ///
-    /// 1. All logs for the transaction are decoded upfront in a single sweep,
-    ///    eliminating the O(monitors × logs) redundant decoding of the naive
-    ///    approach.
-    /// 2. If no logs decode successfully the pass returns early (no Rhai
-    ///    calls).
-    /// 3. For each monitor, an **event-name pre-filter** is applied: if the
+    /// 1. For each monitor, an **event-name pre-filter** is applied: if the
     ///    monitor's script statically names specific events (e.g. `log.name ==
-    ///    "Transfer"`), logs whose event name is not in that set are skipped
-    ///    without entering the Rhai evaluator.
-    /// 4. For each surviving (monitor, log) pair, the monitor's pre-compiled
+    ///    "Transfer"`), [`AbiService::peek_event_name`] is used to skip logs
+    ///    that don't match without full decoding.
+    /// 2. Surviving logs are decoded lazily and cached in the
+    ///    [`EvaluationContext`], ensuring each log is decoded at most once per
+    ///    transaction while avoiding upfront cost for filtered logs.
+    /// 3. For each surviving (monitor, log) pair, the monitor's pre-compiled
     ///    [`AST`] is evaluated. A match creates action entries via
     ///    [`create_log_matches`](Self::create_log_matches) and marks the
     ///    monitor to prevent re-evaluation in the tx-only pass.
@@ -309,63 +382,64 @@ impl RhaiFilteringEngine {
             return Ok(());
         }
 
-        // 1. Pre-decode all logs to eliminate O(M*L) redundant decoding
-        let mut successfully_decoded_logs = Vec::new();
-        for log in &context.item.logs {
-            if let Ok(decoded) = self.abi_service.decode_log(log) {
-                successfully_decoded_logs.push((log, Arc::new(decoded)));
-            }
-        }
-
-        // 2. Short-circuit: If no logs decoded successfully, skip Rhai evaluations
-        //    entirely!
-        if successfully_decoded_logs.is_empty() {
-            return Ok(());
-        }
-
-        let mut scope = Scope::new();
-        scope.push_constant("tx", context.tx_map.clone());
-        let base_len = scope.len();
-
         for cm in monitors {
-            // Use the pre-compiled AST stored on ClassifiedMonitor to avoid
-            // O(monitors × transactions) SHA-256 lookups into the compiler cache.
             let ast = &cm.analysis.ast;
-
-            // Opt #3: if the script statically names specific events (e.g.
-            // `log.name == "Transfer"`), skip logs whose event name isn't in
-            // that set.  An empty set means the script doesn't pin event names,
-            // so we fall back to evaluating every decoded log.
             let filter_names = &cm.analysis.accessed_log_event_names;
 
-            for (_raw_log, decoded_log) in &successfully_decoded_logs {
-                if !filter_names.is_empty() && !filter_names.contains(&decoded_log.name) {
-                    continue;
-                }
-                let mut decoded_call_result = None;
-                if cm.caps.contains(MonitorCapabilities::CALL) {
-                    if context.decoded_call_cache.is_none() {
-                        context.decoded_call_cache = Some(
-                            self.abi_service
-                                .decode_function_input(&context.item.transaction)
-                                .ok()
-                                .map(Arc::new),
-                        );
+            // Set up the scope variables outside the log loop.
+            let mut scope = Scope::new();
+            let mut scope_initialized = false;
+            let mut base_len = 0;
+
+            for raw_log in &context.item.logs {
+                // 1. O(1) Pre-Filter
+                if !filter_names.is_empty() {
+                    match self.abi_service.peek_event_name(raw_log) {
+                        Some(event) if !filter_names.contains(&event.name) => continue,
+                        None => continue,
+                        _ => {} // Matches, proceed
                     }
-                    decoded_call_result = context.decoded_call_cache.as_ref().unwrap().clone();
                 }
 
-                // Push variables
+                // 2. Lazy Decode Log
+                let Some(decoded_log) = context.get_or_decode_log(&self.abi_service, raw_log)
+                else {
+                    continue;
+                };
+
+                // 3. Only clone the tx_map once we are certain
+                // there is at least one matching log in this transaction.
+                if !scope_initialized {
+                    scope.push_constant("tx", context.get_tx_map());
+
+                    let mut decoded_call_result = None;
+                    if cm.caps.contains(MonitorCapabilities::CALL) {
+                        if context.decoded_call_cache.is_none() {
+                            context.decoded_call_cache = Some(
+                                self.abi_service
+                                    .decode_function_input(&context.item.transaction)
+                                    .ok()
+                                    .map(Arc::new),
+                            );
+                        }
+                        decoded_call_result = context.decoded_call_cache.as_ref().unwrap().clone();
+                    }
+
+                    scope.push_constant("decoded_call", CallProxy(decoded_call_result));
+                    base_len = scope.len();
+                    scope_initialized = true;
+                }
+
+                // 4. Push and Rewind
                 scope.push("log", LogProxy(Some(decoded_log.clone())));
-                scope.push("decoded_call", CallProxy(decoded_call_result));
 
                 let is_match = self.eval_ast_bool_secure(ast, &mut scope)?;
 
-                // O(1) Scope truncate
+                // Rewind instantly removes `log` from the scope without dropping the `tx` map
                 scope.rewind(base_len);
 
                 if is_match {
-                    self.create_log_matches(context, &cm.monitor, decoded_log);
+                    self.create_log_matches(context, &cm.monitor, &decoded_log);
                 }
             }
         }
@@ -398,7 +472,7 @@ impl RhaiFilteringEngine {
         }
 
         let mut scope = Scope::new();
-        scope.push_constant("tx", context.tx_map.clone());
+        scope.push_constant("tx", context.get_tx_map());
         let base_len = scope.len();
 
         for cm in monitors {
@@ -597,9 +671,9 @@ impl FilteringEngine for RhaiFilteringEngine {
             .filter_map(|id| assets.monitors_by_id.get(id))
             .collect();
 
-        // --- Pass 1: evaluate log-aware monitors against decoded logs. ---
-        // Skipped entirely when the item carries no logs, avoiding the
-        // upfront decode sweep and all Rhai calls for that pass.
+        // --- Pass 1: evaluate log-aware monitors. ---
+        // Skipped entirely when the item carries no logs, avoiding all
+        // lexical peeking and Rhai calls for that pass.
         if !item.logs.is_empty() {
             self.evaluate_log_aware_monitors(&mut context, &log_aware_monitors)?;
         }

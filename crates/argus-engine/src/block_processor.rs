@@ -159,7 +159,7 @@ pub async fn process_blocks_batch(
 /// Correlates a single block's data, grouping transactions with their logs and
 /// receipts.
 fn process_block(
-    block_data: BlockData,
+    mut block_data: BlockData,
     monitor_snapshot: &MonitorAssetState,
 ) -> CorrelatedBlockData {
     let mut correlated_items = Vec::new();
@@ -177,8 +177,8 @@ fn process_block(
             for tx in transactions {
                 let tx: Transaction = tx.into();
                 let tx_hash = tx.hash();
-                let logs = block_data.logs.get(&tx_hash).cloned().unwrap_or_default();
-                let receipt = block_data.receipts.get(&tx_hash).cloned();
+                let logs = block_data.logs.remove(&tx_hash).unwrap_or_default();
+                let receipt = block_data.receipts.remove(&tx_hash);
                 let correlated_item = CorrelatedBlockItem::new(tx, logs, receipt);
                 correlated_items.push(correlated_item);
             }
@@ -188,7 +188,7 @@ fn process_block(
             for tx in transactions {
                 let tx: Transaction = tx.into();
                 let tx_hash = tx.hash();
-                let logs = block_data.logs.get(&tx_hash).cloned().unwrap_or_default();
+                let logs = block_data.logs.remove(&tx_hash).unwrap_or_default();
                 let to_addr = tx.to();
 
                 // A transaction is "potentially matchable" if it has logs or is directed at an
@@ -198,7 +198,7 @@ fn process_block(
                         && interest_registry.calldata_addresses.contains(&to_addr.unwrap()));
 
                 if is_potentially_matchable {
-                    let receipt = block_data.receipts.get(&tx_hash).cloned();
+                    let receipt = block_data.receipts.remove(&tx_hash);
                     let correlated_item = CorrelatedBlockItem::new(tx, logs, receipt);
                     correlated_items.push(correlated_item);
                 }
