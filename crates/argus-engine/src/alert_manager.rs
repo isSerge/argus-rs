@@ -166,16 +166,21 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
         }
 
         let mut items = Vec::with_capacity(payloads.len());
+        let mut action_names = Vec::with_capacity(payloads.len());
 
         for payload in payloads {
             let name = payload.action_name();
-            // Update stats for dry-run visibility
-            *self.generated_alerts.entry(name.clone()).or_insert(0) += 1;
+            action_names.push(name.clone());
             items.push((name, payload));
         }
 
         // Batch enqueue
         self.state_repository.enqueue_outbox_batch(items).await?;
+
+        // Only after successful persistence do we update stats for dry-run visibility
+        for name in action_names {
+            *self.generated_alerts.entry(name).or_insert(0) += 1;
+        }
 
         Ok(())
     }
@@ -708,6 +713,38 @@ mod tests {
 
         // Assert
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_dispatch_payloads_batch_failure_does_not_update_stats() {
+        let action_name = "Test Action".to_string();
+        let action_config =
+            ActionBuilder::new(&action_name).discord_config("http://example.com").build();
+        let mut actions = HashMap::new();
+        actions.insert(action_name.clone(), action_config);
+
+        let mut kv_mock = MockKeyValueStore::new();
+        setup_default_kv_mock(&mut kv_mock);
+        let mut repo_mock = MockAppRepository::new();
+
+        // Expect enqueue_outbox_batch to FAIL
+        repo_mock.expect_enqueue_outbox_batch().times(1).returning(|_| {
+            Err(PersistenceError::OperationFailed("Database insertion failed".to_string()))
+        });
+
+        let alert_manager = create_alert_manager(actions, kv_mock, repo_mock).await;
+        let monitor_match = create_monitor_match(action_name.clone());
+
+        // Act
+        let result = alert_manager.process_matches_batch(&[monitor_match]).await;
+
+        // Assert
+        assert!(result.is_err());
+        // Verify stats were NOT updated because the DB write failed
+        assert_eq!(
+            alert_manager.get_generated_alerts().get(&action_name).map(|v| *v.value()),
+            None
+        );
     }
 
     #[tokio::test]
