@@ -243,7 +243,7 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
 
         // Create the channel that connects the FilteringEngine to the AlertManager.
         let (monitor_matches_tx, mut monitor_matches_rx) =
-            mpsc::channel::<MonitorMatch>(self.config.notification_channel_capacity as usize);
+            mpsc::channel::<Vec<MonitorMatch>>(self.config.notification_channel_capacity as usize);
 
         // Create the channel for configuration updates.
         let (config_tx, mut config_rx) = tokio::sync::watch::channel(());
@@ -306,13 +306,9 @@ impl<T: AppRepository + KeyValueStore + Send + Sync + 'static> Supervisor<T> {
         // Spawn the AlertManager's main processing loop.
         let alert_manager_clone = Arc::clone(&self.alert_manager);
         self.join_set.spawn(async move {
-            while let Some(monitor_match) = monitor_matches_rx.recv().await {
-                if let Err(e) = alert_manager_clone.process_match(&monitor_match).await {
-                    tracing::error!(
-                        "Failed to process monitor match for action '{}': {}",
-                        monitor_match.action_name,
-                        e
-                    );
+            while let Some(matches) = monitor_matches_rx.recv().await {
+                if let Err(e) = alert_manager_clone.process_matches_batch(&matches).await {
+                    tracing::error!("Failed to process monitor matches batch: {}", e);
                 }
             }
         });

@@ -110,8 +110,7 @@ async fn test_aggregation_policy_dispatches_summary_after_window() {
     let match1 = create_monitor_match(&monitor_name, &action_name);
     let match2 = create_monitor_match(&monitor_name, &action_name);
 
-    alert_manager.process_match(&match1).await.unwrap();
-    alert_manager.process_match(&match2).await.unwrap();
+    alert_manager.process_matches_batch(&[match1, match2]).await.unwrap();
 
     // 5. Start Aggregation Dispatcher (Internal AlertManager timer)
     let dispatcher_alert_manager = Arc::new(alert_manager);
@@ -171,7 +170,7 @@ async fn test_throttle_policy_limits_notifications() {
     // Send more matches than allowed by the throttle policy within the window
     for _ in 0..(max_count + 2) {
         let monitor_match = create_monitor_match(&monitor_name, &action_name);
-        alert_manager.process_match(&monitor_match).await.unwrap();
+        alert_manager.process_matches_batch(&[monitor_match]).await.unwrap();
     }
 
     // Wait for async processing
@@ -206,7 +205,7 @@ async fn test_throttle_policy_limits_notifications() {
 
     // Send another match after the window expires
     let monitor_match = create_monitor_match(&monitor_name, &action_name);
-    alert_manager.process_match(&monitor_match).await.unwrap();
+    alert_manager.process_matches_batch(&[monitor_match]).await.unwrap();
 
     sleep(Duration::from_millis(500)).await;
     mock_after_reset.assert();
@@ -250,8 +249,7 @@ async fn test_no_policy_sends_notification_per_match() {
     let match1 = create_monitor_match(&monitor_name, &action_name);
     let match2 = create_monitor_match(&monitor_name, &action_name);
 
-    alert_manager.process_match(&match1).await.unwrap();
-    alert_manager.process_match(&match2).await.unwrap();
+    alert_manager.process_matches_batch(&[match1, match2]).await.unwrap();
 
     // Wait
     sleep(Duration::from_millis(500)).await;
@@ -300,10 +298,7 @@ async fn test_throttle_policy_shared_across_monitors() {
     let match3 = create_monitor_match(&monitor_name1, &action_name);
     let match4 = create_monitor_match(&monitor_name2, &action_name);
 
-    alert_manager.process_match(&match1).await.unwrap();
-    alert_manager.process_match(&match2).await.unwrap();
-    alert_manager.process_match(&match3).await.unwrap();
-    alert_manager.process_match(&match4).await.unwrap(); // This one should be throttled (dropped)
+    alert_manager.process_matches_batch(&[match1, match2, match3, match4]).await.unwrap();
 
     // Wait for Outbox Processing
     sleep(Duration::from_millis(500)).await;
@@ -362,8 +357,7 @@ async fn test_aggregation_state_persistence_on_restart() {
     // Process matches
     let match1 = create_monitor_match(&monitor_name, &action_name);
     let match2 = create_monitor_match(&monitor_name, &action_name);
-    alert_manager1.process_match(&match1).await.unwrap();
-    alert_manager1.process_match(&match2).await.unwrap();
+    alert_manager1.process_matches_batch(&[match1, match2]).await.unwrap();
 
     // Force memory sync to DB to ensure state (graceful shutdown scenario)
     alert_manager1.sync_states_to_db().await.unwrap();
@@ -409,17 +403,15 @@ async fn test_aggregation_state_persistence_on_restart() {
 }
 
 #[tokio::test]
-async fn test_process_match_with_invalid_action() {
+async fn test_process_matches_batch_with_invalid_action() {
     let state_repo = Arc::new(setup_db().await);
     // No actions configured
     let alert_manager = create_alert_manager(HashMap::new(), state_repo.clone()).await;
 
     let monitor_match = create_monitor_match("any_monitor", "non_existent_action");
 
-    let result = alert_manager.process_match(&monitor_match).await;
+    let result = alert_manager.process_matches_batch(&[monitor_match]).await;
 
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert!(e.to_string().contains("Action 'non_existent_action' not found"));
-    }
+    // Batch processing logs a warning but returns Ok for resilience
+    assert!(result.is_ok());
 }

@@ -1,7 +1,11 @@
 //! Integration tests for the persistence layer
 
+use alloy::primitives::TxHash;
 use argus_core::{
-    models::{NetworkId, action::ActionConfig, monitor::MonitorConfig},
+    action_dispatcher::ActionPayload,
+    models::{
+        NetworkId, action::ActionConfig, monitor::MonitorConfig, monitor_match::MonitorMatch,
+    },
     persistence::traits::AppRepository,
     test_utils::ActionBuilder,
 };
@@ -13,6 +17,18 @@ async fn setup_db() -> SqliteStateRepository {
         .expect("Failed to set up in-memory database");
     repo.run_migrations().await.expect("Failed to run migrations");
     repo
+}
+
+fn create_test_monitor_match(action_name: &str) -> MonitorMatch {
+    MonitorMatch::builder(
+        1,
+        "test-monitor".to_string(),
+        action_name.to_string(),
+        100,
+        TxHash::default(),
+    )
+    .transaction_match(serde_json::json!({"test": "data"}))
+    .build()
 }
 
 fn create_test_monitor(name: &str, network: NetworkId) -> MonitorConfig {
@@ -149,4 +165,63 @@ async fn test_network_isolation() {
     assert!(repo.get_actions(&eth_network).await.unwrap().is_empty());
     assert_eq!(repo.get_monitors(&poly_network).await.unwrap().len(), 1);
     assert_eq!(repo.get_actions(&poly_network).await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn test_outbox_batch_ops() {
+    let repo = setup_db().await;
+    let action_name = "test_action";
+    let monitor_match = create_test_monitor_match(action_name);
+    let payload = ActionPayload::Single(monitor_match);
+
+    // 1. Enqueue a batch
+    let batch = vec![
+        (action_name.to_string(), payload.clone()),
+        (action_name.to_string(), payload.clone()),
+    ];
+    repo.enqueue_outbox_batch(batch).await.unwrap();
+
+    // 2. Fetch pending
+    let pending = repo.get_pending_outbox(10).await.unwrap();
+    assert_eq!(pending.len(), 2);
+    assert_eq!(pending[0].action_name, action_name);
+
+    // 3. Delete batch
+    let ids: Vec<i64> = pending.iter().map(|item| item.id).collect();
+    repo.delete_outbox_items_batch(&ids).await.unwrap();
+
+    // 4. Verify empty
+    let empty_pending = repo.get_pending_outbox(10).await.unwrap();
+    assert!(empty_pending.is_empty());
+}
+
+#[tokio::test]
+async fn test_outbox_large_batch_chunking() {
+    let repo = setup_db().await;
+    let action_name = "test_action";
+    let monitor_match = create_test_monitor_match(action_name);
+    let payload = ActionPayload::Single(monitor_match);
+
+    // Enqueue more than SQLITE_BATCH_SIZE (450) items to test chunking
+    let count = 500;
+    let mut batch = Vec::with_capacity(count);
+    for _ in 0..count {
+        batch.push((action_name.to_string(), payload.clone()));
+    }
+
+    repo.enqueue_outbox_batch(batch).await.expect("Failed to enqueue large batch");
+
+    // Fetch in chunks to verify all were stored
+    let mut total_fetched = 0;
+    loop {
+        let pending = repo.get_pending_outbox(200).await.unwrap();
+        if pending.is_empty() {
+            break;
+        }
+        total_fetched += pending.len();
+        let fetched_ids: Vec<i64> = pending.iter().map(|item| item.id).collect();
+        repo.delete_outbox_items_batch(&fetched_ids).await.unwrap();
+    }
+
+    assert_eq!(total_fetched, count);
 }

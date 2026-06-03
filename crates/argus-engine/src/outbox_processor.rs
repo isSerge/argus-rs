@@ -99,18 +99,14 @@ impl<S: AppRepository + ?Sized + Send + Sync + 'static> OutboxProcessor<S> {
         let concurrency = self.config.concurrency.max(1);
         let mut results = tasks.buffer_unordered(concurrency);
 
-        let mut successful_count = 0;
+        let mut successful_ids = Vec::new();
 
         // Handle results and update state accordingly
         while let Some((id, result)) = results.next().await {
             match result {
                 Ok(_) => {
-                    // Success: Delete the item
-                    if let Err(e) = self.state.delete_outbox_item(id).await {
-                        tracing::error!("Failed to delete outbox item {} after success: {}", id, e);
-                    } else {
-                        successful_count += 1;
-                    }
+                    // Success: collect ID for batch deletion
+                    successful_ids.push(id);
                 }
                 Err(e) => {
                     // Failure: Increment retry count
@@ -120,7 +116,39 @@ impl<S: AppRepository + ?Sized + Send + Sync + 'static> OutboxProcessor<S> {
             }
         }
 
-        Ok(successful_count)
+        let mut deleted_count = 0;
+
+        if !successful_ids.is_empty() {
+            match self.state.delete_outbox_items_batch(&successful_ids).await {
+                Ok(()) => {
+                    deleted_count = successful_ids.len();
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to batch delete outbox items after success: {}. Falling back to \
+                         per-id deletion.",
+                        e
+                    );
+
+                    // Best-effort fallback to avoid re-processing the whole successful set.
+                    for id in &successful_ids {
+                        if let Err(e) =
+                            self.state.delete_outbox_items_batch(std::slice::from_ref(id)).await
+                        {
+                            tracing::error!(
+                                "Failed to delete outbox item {} after batch delete failure: {}",
+                                id,
+                                e
+                            );
+                        } else {
+                            deleted_count += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(deleted_count)
     }
 
     /// Processes a batch of pending outbox items.

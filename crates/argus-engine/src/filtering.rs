@@ -167,7 +167,7 @@ pub trait FilteringEngine: Send + Sync {
     async fn run(
         &self,
         mut receiver: mpsc::Receiver<CorrelatedBlockData>,
-        notifications_tx: mpsc::Sender<MonitorMatch>,
+        notifications_tx: mpsc::Sender<Vec<MonitorMatch>>,
     );
 }
 
@@ -608,7 +608,7 @@ impl FilteringEngine for RhaiFilteringEngine {
     async fn run(
         &self,
         mut receiver: mpsc::Receiver<CorrelatedBlockData>,
-        notifications_tx: mpsc::Sender<MonitorMatch>,
+        notifications_tx: mpsc::Sender<Vec<MonitorMatch>>,
     ) {
         while let Some(correlated_block) = receiver.recv().await {
             let engine = self.clone();
@@ -640,10 +640,10 @@ impl FilteringEngine for RhaiFilteringEngine {
                 }
             };
 
-            for monitor_match in all_matches {
-                if let Err(e) = notifications_tx.send(monitor_match).await {
-                    tracing::error!("Failed to send notification match: {}", e);
-                }
+            if !all_matches.is_empty()
+                && let Err(e) = notifications_tx.send(all_matches).await
+            {
+                tracing::error!("Failed to send notification matches batch: {}", e);
             }
 
             // Yield once per block to keep the executor unblocked.

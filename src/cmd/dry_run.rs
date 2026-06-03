@@ -337,15 +337,8 @@ async fn run_dry_run_loop<T: KeyValueStore + AppRepository>(
                 .map_err(|e| DryRunError::BlockProcessor(Box::new(e)))??
             };
             if !batch_matches.is_empty() {
-                // Process all the matches found in the batch.
-                let processing_futures =
-                    batch_matches.iter().map(|m| alert_manager.process_match(m));
-
-                // Wait for all processing to complete and check for processing errors.
-                futures::future::join_all(processing_futures)
-                    .await
-                    .into_iter()
-                    .collect::<Result<Vec<_>, _>>()?;
+                // Process all the matches found in the batch in one shot.
+                alert_manager.process_matches_batch(&batch_matches).await?;
 
                 // Extend the main matches vector with the processed matches.
                 matches.extend(batch_matches);

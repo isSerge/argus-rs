@@ -35,15 +35,19 @@ Argus is a next-generation, open-source, self-hosted monitoring tool for EVM cha
 
 ## Performance
 
-Benchmarks were run on a MacBook Pro (Apple M1 Pro) over a consistent 100 block range (23,545,500 to 23,545,600) using a local RPC cache to eliminate network latency. The numbers below represent the mean execution time.
+Benchmarks were run on a MacBook Pro (Apple M2) over a consistent 100-block range (Ethereum Mainnet blocks `23545500` to `23545600`). To accurately measure CPU and database throughput without internet variance, tests were run against a local eRPC cache.
 
-| Scenario                   | Objective                                           | Mean Time (± σ)       |
-| -------------------------- | --------------------------------------------------- | --------------------- |
-| **A: Baseline Throughput** | Raw block ingestion and simple `tx.value` filtering | 418.0 ms ± 25.2 ms    |
-| **B: Log-Heavy Workload**  | Global ERC20 `Transfer` log decoding and matching   | 1.506 s ± 0.053 s     |
-| **C: Calldata-Heavy**      | Calldata decoding for a high-traffic contract       | 259.2 ms ± 8.6 ms     |
+The Argus Engine utilizes a highly optimized pipeline featuring **lazy ABI decoding**, **O(1) Topic pre-filtering**, and **SQL batching**. Execution time is primarily bounded by the cardinality of the generated alerts (templating and database I/O for the outbox). 
 
-For more details on how to run the benchmarks yourself, see the [`benchmarks/README.md`](./benchmarks/README.md).
+*In the 100-block range evaluated, the engine processed **~15,000 transactions** and **~60,000 logs**.*
+
+| Scenario | Objective | Alerts Generated | Mean Time (± σ) |
+| :--- | :--- | :--- | :--- |
+| **A: Baseline Throughput** | Raw block ingestion and simple `tx.value` filtering | **4** | **323.9 ms** ±  24.8 ms |
+| **B: Log-Heavy Workload** | Global ERC20 `Transfer` log decoding and matching | **30,475** | **1.360 s** ±  0.036 s |
+| **C: Calldata-Heavy** | Calldata decoding for a high-traffic contract | **42** | **267.2 ms** ± 11.2 ms |
+
+For more details on how to run and profile the benchmarks yourself, see the [`benchmarks/README.md`](./benchmarks/README.md).
 
 ## Project Setup
 
