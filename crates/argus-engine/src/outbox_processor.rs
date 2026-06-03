@@ -116,18 +116,36 @@ impl<S: AppRepository + ?Sized + Send + Sync + 'static> OutboxProcessor<S> {
             }
         }
 
-        let count = successful_ids.len();
-        if !successful_ids.is_empty()
-            && let Err(e) = self.state.delete_outbox_items_batch(&successful_ids).await
-        {
-            tracing::error!("Failed to batch delete outbox items after success: {}", e);
-            // In case of error in batch delete, some might stay in outbox
-            // and be retried. This is safe as we have idempotent processing,
-            // but log the error for visibility.
+        let mut deleted_count = 0;
+
+        if !successful_ids.is_empty() {
+            match self.state.delete_outbox_items_batch(&successful_ids).await {
+                Ok(()) => {
+                    deleted_count = successful_ids.len();
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to batch delete outbox items after success: {}. Falling back to per-id deletion.",
+                        e
+                    );
+
+                    // Best-effort fallback to avoid re-processing the whole successful set.
+                    for id in &successful_ids {
+                        if let Err(e) = self
+                            .state
+                            .delete_outbox_items_batch(std::slice::from_ref(id))
+                            .await
+                        {
+                            tracing::error!("Failed to delete outbox item {} after batch delete failure: {}", id, e);
+                        } else {
+                            deleted_count += 1;
+                        }
+                    }
+                }
+            }
         }
 
-        Ok(count)
-    }
+        Ok(deleted_count)
 
     /// Processes a batch of pending outbox items.
     pub async fn process_batch(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
