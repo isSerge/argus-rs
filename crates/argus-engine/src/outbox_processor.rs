@@ -118,11 +118,13 @@ impl<S: AppRepository + ?Sized + Send + Sync + 'static> OutboxProcessor<S> {
 
         let count = successful_ids.len();
         if !successful_ids.is_empty()
-            && let Err(e) = self.state.delete_outbox_items_batch(&successful_ids).await {
-                tracing::error!("Failed to batch delete outbox items after success: {}", e);
-                // In case of error in batch delete, some might stay in outbox
-                // and be retried. This is safe as we have idempotent processing, but log the error for visibility.
-            }
+            && let Err(e) = self.state.delete_outbox_items_batch(&successful_ids).await
+        {
+            tracing::error!("Failed to batch delete outbox items after success: {}", e);
+            // In case of error in batch delete, some might stay in outbox
+            // and be retried. This is safe as we have idempotent processing,
+            // but log the error for visibility.
+        }
 
         Ok(count)
     }

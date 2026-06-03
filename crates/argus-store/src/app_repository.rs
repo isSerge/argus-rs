@@ -75,9 +75,10 @@ impl TryFrom<OutboxRow> for OutboxItem {
     }
 }
 
-/// SQLite has a default limit of 999 parameters per statement (SQLITE_MAX_VARIABLE_NUMBER).
-/// Since binary inserts in `enqueue_outbox_batch` use 2 parameters per row, we use a 
-/// batch size of 450 to stay safely under this limit (450 * 2 = 900).
+/// SQLite has a default limit of 999 parameters per statement
+/// (SQLITE_MAX_VARIABLE_NUMBER). Since binary inserts in `enqueue_outbox_batch`
+/// use 2 parameters per row, we use a batch size of 450 to stay safely under
+/// this limit (450 * 2 = 900).
 const SQLITE_BATCH_SIZE: usize = 450;
 
 #[async_trait]

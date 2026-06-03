@@ -125,7 +125,10 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
             };
 
             match &action_config.policy {
-                // TODO: think how to optimize this for throttle/aggregation as well in batch context. For now we just process them one by one as before, but we could potentially collect matches by action and then call optimized batch versions of handle_throttle/handle_aggregation if needed.
+                // TODO: think how to optimize this for throttle/aggregation as well in batch
+                // context. For now we just process them one by one as before, but we could
+                // potentially collect matches by action and then call optimized batch versions of
+                // handle_throttle/handle_aggregation if needed.
                 Some(policy) => match policy {
                     ActionPolicy::Throttle(throttle_policy) => {
                         self.handle_throttle(monitor_match, throttle_policy).await?;
@@ -313,9 +316,10 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
 
         // Dispatch all expired windows in a batch
         if !payloads_to_dispatch.is_empty()
-            && let Err(e) = self.dispatch_payloads_batch(payloads_to_dispatch).await {
-                tracing::error!("Failed to send aggregated notifications batch: {}", e);
-            }
+            && let Err(e) = self.dispatch_payloads_batch(payloads_to_dispatch).await
+        {
+            tracing::error!("Failed to send aggregated notifications batch: {}", e);
+        }
 
         // Periodically sync all memory states to SQLite
         self.sync_states_to_db().await?;

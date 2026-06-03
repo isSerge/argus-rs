@@ -641,9 +641,10 @@ impl FilteringEngine for RhaiFilteringEngine {
             };
 
             if !all_matches.is_empty()
-                && let Err(e) = notifications_tx.send(all_matches).await {
-                    tracing::error!("Failed to send notification matches batch: {}", e);
-                }
+                && let Err(e) = notifications_tx.send(all_matches).await
+            {
+                tracing::error!("Failed to send notification matches batch: {}", e);
+            }
 
             // Yield once per block to keep the executor unblocked.
             tokio::task::yield_now().await;
