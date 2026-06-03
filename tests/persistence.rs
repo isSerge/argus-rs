@@ -205,8 +205,8 @@ async fn test_outbox_large_batch_chunking() {
     // Enqueue more than SQLITE_BATCH_SIZE (450) items to test chunking
     let count = 500;
     let mut batch = Vec::with_capacity(count);
-    for i in 0..count {
-        batch.push((format!("{}_{}", action_name, i), payload.clone()));
+    for _ in 0..count {
+        batch.push((action_name.to_string(), payload.clone()));
     }
 
     repo.enqueue_outbox_batch(batch).await.expect("Failed to enqueue large batch");
