@@ -927,6 +927,13 @@ impl AppRepository for SqliteStateRepository {
 
         tracing::debug!(count = items.len(), "Enqueuing outbox batch.");
 
+        // Use a transaction to ensure atomicity and better performance for batch inserts
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| PersistenceError::OperationFailed(e.to_string()))?;
+
         for chunk in items.chunks(SQLITE_BATCH_SIZE) {
             let mut serialized_items = Vec::with_capacity(chunk.len());
             for (name, payload) in chunk {
@@ -943,12 +950,13 @@ impl AppRepository for SqliteStateRepository {
             });
 
             let query = query_builder.build();
-            self.execute_query_with_error_handling(
-                "enqueue outbox batch",
-                query.execute(&self.pool),
-            )
-            .await?;
+            query
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| PersistenceError::OperationFailed(e.to_string()))?;
         }
+
+        tx.commit().await.map_err(|e| PersistenceError::OperationFailed(e.to_string()))?;
 
         Ok(())
     }
@@ -985,6 +993,13 @@ impl AppRepository for SqliteStateRepository {
 
         tracing::debug!(count = ids.len(), "Deleting outbox batch.");
 
+        // Use a transaction to ensure atomicity and better performance for batch deletes
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| PersistenceError::OperationFailed(e.to_string()))?;
+
         for chunk in ids.chunks(SQLITE_BATCH_SIZE) {
             let mut query_builder: QueryBuilder<Sqlite> =
                 QueryBuilder::new("DELETE FROM outbox WHERE id IN (");
@@ -996,12 +1011,13 @@ impl AppRepository for SqliteStateRepository {
             separated.push_unseparated(")");
 
             let query = query_builder.build();
-            self.execute_query_with_error_handling(
-                "delete outbox items batch",
-                query.execute(&self.pool),
-            )
-            .await?;
+            query
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| PersistenceError::OperationFailed(e.to_string()))?;
         }
+
+        tx.commit().await.map_err(|e| PersistenceError::OperationFailed(e.to_string()))?;
 
         Ok(())
     }
