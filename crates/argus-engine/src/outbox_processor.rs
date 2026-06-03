@@ -125,18 +125,21 @@ impl<S: AppRepository + ?Sized + Send + Sync + 'static> OutboxProcessor<S> {
                 }
                 Err(e) => {
                     tracing::error!(
-                        "Failed to batch delete outbox items after success: {}. Falling back to per-id deletion.",
+                        "Failed to batch delete outbox items after success: {}. Falling back to \
+                         per-id deletion.",
                         e
                     );
 
                     // Best-effort fallback to avoid re-processing the whole successful set.
                     for id in &successful_ids {
-                        if let Err(e) = self
-                            .state
-                            .delete_outbox_items_batch(std::slice::from_ref(id))
-                            .await
+                        if let Err(e) =
+                            self.state.delete_outbox_items_batch(std::slice::from_ref(id)).await
                         {
-                            tracing::error!("Failed to delete outbox item {} after batch delete failure: {}", id, e);
+                            tracing::error!(
+                                "Failed to delete outbox item {} after batch delete failure: {}",
+                                id,
+                                e
+                            );
                         } else {
                             deleted_count += 1;
                         }
@@ -146,6 +149,7 @@ impl<S: AppRepository + ?Sized + Send + Sync + 'static> OutboxProcessor<S> {
         }
 
         Ok(deleted_count)
+    }
 
     /// Processes a batch of pending outbox items.
     pub async fn process_batch(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
