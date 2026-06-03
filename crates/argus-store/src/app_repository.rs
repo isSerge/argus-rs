@@ -927,7 +927,8 @@ impl AppRepository for SqliteStateRepository {
 
         tracing::debug!(count = items.len(), "Enqueuing outbox batch.");
 
-        // Use a transaction to ensure atomicity and better performance for batch inserts
+        // Use a transaction to ensure atomicity and better performance for batch
+        // inserts
         let mut tx = self
             .pool
             .begin()
@@ -993,7 +994,8 @@ impl AppRepository for SqliteStateRepository {
 
         tracing::debug!(count = ids.len(), "Deleting outbox batch.");
 
-        // Use a transaction to ensure atomicity and better performance for batch deletes
+        // Use a transaction to ensure atomicity and better performance for batch
+        // deletes
         let mut tx = self
             .pool
             .begin()
