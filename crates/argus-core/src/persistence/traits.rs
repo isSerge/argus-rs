@@ -160,18 +160,18 @@ pub trait AppRepository: Send + Sync {
 
     // Outbox management operations:
 
-    /// Enqueues an action to be executed later by adding it to the outbox.
-    async fn enqueue_outbox(
+    /// Enqueues a batch of actions to be executed later by adding them to the
+    /// outbox.
+    async fn enqueue_outbox_batch(
         &self,
-        action_name: &str,
-        payload: &ActionPayload,
+        items: Vec<(String, ActionPayload)>,
     ) -> Result<(), PersistenceError>;
 
     /// Retrieves pending outbox items up to a specified limit.
     async fn get_pending_outbox(&self, limit: i64) -> Result<Vec<OutboxItem>, PersistenceError>;
 
-    /// Deletes an outbox item by its ID.
-    async fn delete_outbox_item(&self, id: i64) -> Result<(), PersistenceError>;
+    /// Deletes a batch of outbox items by their IDs.
+    async fn delete_outbox_items_batch(&self, ids: &[i64]) -> Result<(), PersistenceError>;
 
     /// Increments the retry count for an outbox item by its ID.
     async fn increment_outbox_retries(&self, id: i64) -> Result<(), PersistenceError>;

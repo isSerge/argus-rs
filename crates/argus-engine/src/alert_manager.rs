@@ -99,50 +99,49 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
         })
     }
 
-    /// Processes a monitor match
-    pub async fn process_match(
+    /// Processes a batch of monitor matches
+    pub async fn process_matches_batch(
         &self,
-        monitor_match: &MonitorMatch,
+        matches: &[MonitorMatch],
     ) -> Result<(), AlertManagerError> {
-        let action_name = &monitor_match.action_name;
-        let action_config = match self.actions.get(action_name) {
-            Some(config) => config,
-            None => {
-                tracing::warn!(
-                    action = %monitor_match.action_name,
-                    "Action configuration not found for monitor match."
-                );
-                return Err(AlertManagerError::ActionDispatcherError(
-                    ActionDispatcherError::ConfigError(format!(
-                        "Action '{}' not found",
-                        monitor_match.action_name
-                    )),
-                ));
-            }
-        };
+        if matches.is_empty() {
+            return Ok(());
+        }
 
-        match &action_config.policy {
-            Some(policy) => match policy {
-                ActionPolicy::Throttle(throttle_policy) => {
-                    self.handle_throttle(monitor_match, throttle_policy).await?;
-                }
-                ActionPolicy::Aggregation(_) => {
-                    self.handle_aggregation(monitor_match).await?;
-                }
-            },
-            None => {
-                // No policy, enqueue immediately
-                tracing::debug!("No policy for action {}, enqueuing immediately.", action_name);
-                if let Err(e) =
-                    self.dispatch_payload(ActionPayload::Single(monitor_match.clone())).await
-                {
-                    tracing::error!(
-                        "Failed to enqueue notification for action '{}': {}",
-                        action_name,
-                        e
+        // Collect immediate payloads for actions without policies
+        let mut immediate_payloads = Vec::new();
+
+        for monitor_match in matches {
+            let action_name = &monitor_match.action_name;
+            let action_config = match self.actions.get(action_name) {
+                Some(config) => config,
+                None => {
+                    tracing::warn!(
+                        action = %monitor_match.action_name,
+                        "Action configuration not found for monitor match."
                     );
+                    continue;
+                }
+            };
+
+            match &action_config.policy {
+                // TODO: think how to optimize this for throttle/aggregation as well in batch context. For now we just process them one by one as before, but we could potentially collect matches by action and then call optimized batch versions of handle_throttle/handle_aggregation if needed.
+                Some(policy) => match policy {
+                    ActionPolicy::Throttle(throttle_policy) => {
+                        self.handle_throttle(monitor_match, throttle_policy).await?;
+                    }
+                    ActionPolicy::Aggregation(_) => {
+                        self.handle_aggregation(monitor_match).await?;
+                    }
+                },
+                None => {
+                    immediate_payloads.push(ActionPayload::Single(monitor_match.clone()));
                 }
             }
+        }
+
+        if !immediate_payloads.is_empty() {
+            self.dispatch_payloads_batch(immediate_payloads).await?;
         }
 
         Ok(())
@@ -150,13 +149,30 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
 
     /// Internal helper to enqueue payload to the Outbox
     async fn dispatch_payload(&self, payload: ActionPayload) -> Result<(), AlertManagerError> {
-        let action_name = payload.action_name();
+        self.dispatch_payloads_batch(vec![payload]).await
+    }
 
-        // Enqueue the payload to be processed by the OutboxProcessor
-        self.state_repository.enqueue_outbox(&action_name, &payload).await?;
+    /// Internal helper to enqueue multiple payloads to the Outbox in a single
+    /// transaction
+    async fn dispatch_payloads_batch(
+        &self,
+        payloads: Vec<ActionPayload>,
+    ) -> Result<(), AlertManagerError> {
+        if payloads.is_empty() {
+            return Ok(());
+        }
 
-        // Update stats for dry-run visibility
-        *self.generated_alerts.entry(action_name).or_insert(0) += 1;
+        let mut items = Vec::with_capacity(payloads.len());
+
+        for payload in payloads {
+            let name = payload.action_name();
+            // Update stats for dry-run visibility
+            *self.generated_alerts.entry(name.clone()).or_insert(0) += 1;
+            items.push((name, payload));
+        }
+
+        // Batch enqueue
+        self.state_repository.enqueue_outbox_batch(items).await?;
 
         Ok(())
     }
@@ -295,12 +311,11 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
             }
         } // End of DashMap scope
 
-        // Dispatch all expired windows
-        for payload in payloads_to_dispatch {
-            if let Err(e) = self.dispatch_payload(payload).await {
-                tracing::error!("Failed to send aggregated notification: {}", e);
+        // Dispatch all expired windows in a batch
+        if !payloads_to_dispatch.is_empty()
+            && let Err(e) = self.dispatch_payloads_batch(payloads_to_dispatch).await {
+                tracing::error!("Failed to send aggregated notifications batch: {}", e);
             }
-        }
 
         // Periodically sync all memory states to SQLite
         self.sync_states_to_db().await?;
@@ -585,12 +600,11 @@ mod tests {
             self.repo_mock.get_monitors_by_action_id(network_id, action_id).await
         }
 
-        async fn enqueue_outbox(
+        async fn enqueue_outbox_batch(
             &self,
-            action_name: &str,
-            payload: &ActionPayload,
+            items: Vec<(String, ActionPayload)>,
         ) -> Result<(), PersistenceError> {
-            self.repo_mock.enqueue_outbox(action_name, payload).await
+            self.repo_mock.enqueue_outbox_batch(items).await
         }
 
         async fn get_pending_outbox(
@@ -600,8 +614,8 @@ mod tests {
             self.repo_mock.get_pending_outbox(limit).await
         }
 
-        async fn delete_outbox_item(&self, id: i64) -> Result<(), PersistenceError> {
-            self.repo_mock.delete_outbox_item(id).await
+        async fn delete_outbox_items_batch(&self, ids: &[i64]) -> Result<(), PersistenceError> {
+            self.repo_mock.delete_outbox_items_batch(ids).await
         }
 
         async fn increment_outbox_retries(&self, id: i64) -> Result<(), PersistenceError> {
@@ -662,13 +676,10 @@ mod tests {
         let monitor_match = create_monitor_match("NonExistentAction".to_string());
 
         // Act
-        let result = alert_manager.process_match(&monitor_match).await;
+        let result = alert_manager.process_matches_batch(&[monitor_match]).await;
 
         // Assert
-        assert!(matches!(
-            result,
-            Err(AlertManagerError::ActionDispatcherError(ActionDispatcherError::ConfigError(_)))
-        ));
+        assert!(result.is_ok()); // Batch version just skips and warns for missing config
     }
 
     #[tokio::test]
@@ -682,14 +693,14 @@ mod tests {
         setup_default_kv_mock(&mut kv_mock);
         let mut repo_mock = MockAppRepository::new();
 
-        // Expect enqueue_outbox to be called
-        repo_mock.expect_enqueue_outbox().times(1).returning(|_, _| Ok(()));
+        // Expect enqueue_outbox_batch to be called
+        repo_mock.expect_enqueue_outbox_batch().times(1).returning(|_| Ok(()));
 
         let alert_manager = create_alert_manager(actions, kv_mock, repo_mock).await;
         let monitor_match = create_monitor_match(action_name);
 
         // Act
-        let result = alert_manager.process_match(&monitor_match).await;
+        let result = alert_manager.process_matches_batch(&[monitor_match]).await;
 
         // Assert
         assert!(result.is_ok());
@@ -713,13 +724,13 @@ mod tests {
         setup_default_kv_mock(&mut kv_mock);
         let mut repo_mock = MockAppRepository::new();
 
-        // Expect enqueue_outbox to be called
-        repo_mock.expect_enqueue_outbox().times(1).returning(|_, _| Ok(()));
+        // Expect enqueue_outbox_batch to be called
+        repo_mock.expect_enqueue_outbox_batch().times(1).returning(|_| Ok(()));
 
         let alert_manager = create_alert_manager(actions, kv_mock, repo_mock).await;
         let monitor_match = create_monitor_match(action_name);
 
-        let result = alert_manager.process_match(&monitor_match).await;
+        let result = alert_manager.process_matches_batch(&[monitor_match]).await;
 
         assert!(result.is_ok());
         // Assert memory state was updated
@@ -761,12 +772,12 @@ mod tests {
             .returning(|_| Ok(vec![]));
 
         let mut repo_mock = MockAppRepository::new();
-        repo_mock.expect_enqueue_outbox().times(1).returning(|_, _| Ok(()));
+        repo_mock.expect_enqueue_outbox_batch().times(1).returning(|_| Ok(()));
 
         let alert_manager = create_alert_manager(actions, kv_mock, repo_mock).await;
         let monitor_match = create_monitor_match(action_name);
 
-        let result = alert_manager.process_match(&monitor_match).await;
+        let result = alert_manager.process_matches_batch(&[monitor_match]).await;
 
         assert!(result.is_ok());
         // Assert count was correctly incremented from the loaded 1 to 2
@@ -820,7 +831,7 @@ mod tests {
         let alert_manager = create_alert_manager(actions, kv_mock, repo_mock).await;
         let monitor_match = create_monitor_match(action_name.clone());
 
-        let result = alert_manager.process_match(&monitor_match).await;
+        let result = alert_manager.process_matches_batch(&[monitor_match]).await;
         assert!(result.is_ok());
 
         // Ensure memory state was populated
@@ -876,7 +887,7 @@ mod tests {
 
         // Add second match
         let monitor_match = create_monitor_match(action_name.clone());
-        let result = alert_manager.process_match(&monitor_match).await;
+        let result = alert_manager.process_matches_batch(&[monitor_match]).await;
         assert!(result.is_ok());
 
         // Validate memory state has 2 matches
@@ -939,9 +950,9 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(()));
 
-        // Expect enqueue_outbox to be called once for the aggregated payload
+        // Expect enqueue_outbox_batch to be called once for the aggregated payload
         let mut repo_mock = MockAppRepository::new();
-        repo_mock.expect_enqueue_outbox().times(1).returning(|_, _| Ok(()));
+        repo_mock.expect_enqueue_outbox_batch().times(1).returning(|_| Ok(()));
 
         let alert_manager = create_alert_manager(actions, kv_mock, repo_mock).await;
 

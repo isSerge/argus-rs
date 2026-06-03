@@ -14,6 +14,7 @@ use argus_core::{
 };
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDateTime, Utc};
+use sqlx::{QueryBuilder, Sqlite};
 
 use crate::SqliteStateRepository;
 
@@ -73,6 +74,11 @@ impl TryFrom<OutboxRow> for OutboxItem {
         Ok(Self { id: row.id, action_name: row.action_name, payload, retries })
     }
 }
+
+/// SQLite has a default limit of 999 parameters per statement (SQLITE_MAX_VARIABLE_NUMBER).
+/// Since binary inserts in `enqueue_outbox_batch` use 2 parameters per row, we use a 
+/// batch size of 450 to stay safely under this limit (450 * 2 = 900).
+const SQLITE_BATCH_SIZE: usize = 450;
 
 #[async_trait]
 impl AppRepository for SqliteStateRepository {
@@ -910,26 +916,38 @@ impl AppRepository for SqliteStateRepository {
         Ok(monitors)
     }
 
-    async fn enqueue_outbox(
+    async fn enqueue_outbox_batch(
         &self,
-        action_name: &str,
-        payload: &ActionPayload,
+        items: Vec<(String, ActionPayload)>,
     ) -> Result<(), PersistenceError> {
-        tracing::debug!(action_name, "Enqueuing outbox item.");
+        if items.is_empty() {
+            return Ok(());
+        }
 
-        let payload_str = serde_json::to_string(payload)
-            .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
+        tracing::debug!(count = items.len(), "Enqueuing outbox batch.");
 
-        self.execute_query_with_error_handling(
-            "enqueue outbox",
-            sqlx::query!(
-                "INSERT INTO outbox (action_name, payload) VALUES (?, ?)",
-                action_name,
-                payload_str
+        for chunk in items.chunks(SQLITE_BATCH_SIZE) {
+            let mut serialized_items = Vec::with_capacity(chunk.len());
+            for (name, payload) in chunk {
+                let json = serde_json::to_string(payload)
+                    .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
+                serialized_items.push((name, json));
+            }
+
+            let mut query_builder: QueryBuilder<Sqlite> =
+                QueryBuilder::new("INSERT INTO outbox (action_name, payload) ");
+
+            query_builder.push_values(serialized_items, |mut b, (action_name, payload_json)| {
+                b.push_bind(action_name).push_bind(payload_json);
+            });
+
+            let query = query_builder.build();
+            self.execute_query_with_error_handling(
+                "enqueue outbox batch",
+                query.execute(&self.pool),
             )
-            .execute(&self.pool),
-        )
-        .await?;
+            .await?;
+        }
 
         Ok(())
     }
@@ -959,12 +977,31 @@ impl AppRepository for SqliteStateRepository {
         .collect()
     }
 
-    async fn delete_outbox_item(&self, id: i64) -> Result<(), PersistenceError> {
-        self.execute_query_with_error_handling(
-            "delete outbox item",
-            sqlx::query!("DELETE FROM outbox WHERE id = ?", id).execute(&self.pool),
-        )
-        .await?;
+    async fn delete_outbox_items_batch(&self, ids: &[i64]) -> Result<(), PersistenceError> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+
+        tracing::debug!(count = ids.len(), "Deleting outbox batch.");
+
+        for chunk in ids.chunks(SQLITE_BATCH_SIZE) {
+            let mut query_builder: QueryBuilder<Sqlite> =
+                QueryBuilder::new("DELETE FROM outbox WHERE id IN (");
+
+            let mut separated = query_builder.separated(", ");
+            for id in chunk {
+                separated.push_bind(*id);
+            }
+            separated.push_unseparated(")");
+
+            let query = query_builder.build();
+            self.execute_query_with_error_handling(
+                "delete outbox items batch",
+                query.execute(&self.pool),
+            )
+            .await?;
+        }
+
         Ok(())
     }
 
