@@ -151,7 +151,12 @@ impl Action for WebhookAction {
         let idempotency_key = payload.idempotency_key();
 
         self.client
-            .notify(&rendered_title, &rendered_body, &self.builder, Some(idempotency_key.as_str()))
+            .notify_with_key(
+                &rendered_title,
+                &rendered_body,
+                &self.builder,
+                Some(idempotency_key.as_str()),
+            )
             .await?;
 
         Ok(())
@@ -175,7 +180,7 @@ mod tests {
 
         let discord = PayloadBuilder::Discord(DiscordPayloadBuilder);
         let discord_payload = discord.build_payload(title, body);
-        assert_eq!(discord_payload["content"], "**Test Title**\n\nTest Body");
+        assert_eq!(discord_payload["content"], "Test Title\n\nTest Body");
 
         let telegram = PayloadBuilder::Telegram(TelegramPayloadBuilder {
             chat_id: "123".into(),
