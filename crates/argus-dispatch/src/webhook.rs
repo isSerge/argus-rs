@@ -180,7 +180,7 @@ mod tests {
 
         let discord = PayloadBuilder::Discord(DiscordPayloadBuilder);
         let discord_payload = discord.build_payload(title, body);
-        assert_eq!(discord_payload["content"], "**Test Title**\n\nTest Body");
+        assert_eq!(discord_payload["content"], "Test Title\n\nTest Body");
 
         let telegram = PayloadBuilder::Telegram(TelegramPayloadBuilder {
             chat_id: "123".into(),

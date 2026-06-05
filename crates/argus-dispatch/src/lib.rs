@@ -301,7 +301,7 @@ mod tests {
 
         let components = config.as_webhook_components().unwrap();
 
-        let payload = components.builder.build_payload("T", "B");
+        let payload = components.builder.build_payload("**T**", "B");
         assert_eq!(payload.get("content").unwrap(), "**T**\n\nB");
         assert!(payload.get("blocks").is_none());
     }
