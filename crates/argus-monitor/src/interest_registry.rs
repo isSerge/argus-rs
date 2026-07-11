@@ -276,7 +276,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_interest_registry_builder() {
-        let (abi_service, _) = create_test_abi_service(&[("ERC20", erc20_abi_json())]).await;
+        let abi_service = create_test_abi_service(&[("ERC20", erc20_abi_json())]).await;
 
         let mut builder = InterestRegistryBuilder::default();
 

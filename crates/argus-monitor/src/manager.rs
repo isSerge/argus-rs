@@ -299,7 +299,7 @@ mod tests {
     async fn setup() -> (Arc<RhaiCompiler>, Arc<AbiService>) {
         let config = RhaiConfig::default();
         let compiler = Arc::new(RhaiCompiler::new(config));
-        let (abi_service, _) = create_test_abi_service(&[]).await;
+        let abi_service = create_test_abi_service(&[]).await;
         (compiler, abi_service)
     }
 
@@ -307,7 +307,7 @@ mod tests {
     async fn test_organize_monitors_categorization() {
         let address = address!("0000000000000000000000000000000000000001");
         let (compiler, _) = setup().await;
-        let (abi_service, _) = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
         abi_service.link_abi(address, "erc20").unwrap();
 
         let monitors = vec![
@@ -396,7 +396,7 @@ mod tests {
     #[tokio::test]
     async fn test_build_interest_registry() {
         let (compiler, _) = setup().await;
-        let (abi_service, _) = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
 
         let monitored_address = address!("0000000000000000000000000000000000000001");
 
@@ -486,8 +486,7 @@ mod tests {
                 .build(),
         ];
 
-        let (abi_service_with_abi, _) =
-            create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+        let abi_service_with_abi = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
         let manager = MonitorManager::new(vec![], compiler.clone(), abi_service_with_abi);
 
         manager.update(updated_monitors);
@@ -589,7 +588,7 @@ mod tests {
             "anonymous":false
         }
     ]"#;
-        let (abi_service, _) =
+        let abi_service =
             create_test_abi_service(&[("erc20", erc20_abi_json()), ("weth", weth_abi)]).await;
 
         let global_erc20_monitor = MonitorBuilder::new()
