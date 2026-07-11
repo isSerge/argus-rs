@@ -4,7 +4,6 @@
 //! It is designed to work with ABIs that are loaded at runtime, and therefore
 //! does not use the `sol!` macro, which requires compile-time knowledge of the
 //! ABI.
-pub mod repository;
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -16,8 +15,6 @@ use alloy::{
 use argus_core::models::{Log, transaction::Transaction};
 use dashmap::DashMap;
 use thiserror::Error;
-
-pub use self::repository::AbiRepository;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
@@ -91,8 +88,8 @@ pub enum AbiError {
     AbiNotFound(Address),
 
     /// Returned when the specified ABI name is not found in the repository.
-    #[error("ABI with name '{0}' not found in repository")]
-    AbiNotFoundInRepository(String),
+    #[error("ABI with name '{0}' not found in registry")]
+    AbiNotFoundInRegistry(String),
 
     /// Returned when an event signature (topic hash) is not found in the
     /// contract ABI
@@ -170,8 +167,11 @@ fn extract_address_and_selector(tx: &Transaction) -> Result<(Address, [u8; 4]), 
 /// This service caches parsed ABIs and provides methods for decoding
 /// transaction data and event logs. Uses `DashMap` for thread-safe
 /// concurrent access without explicit locking.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct AbiService {
+    /// Raw ABIs registered by name.
+    named_abis: DashMap<String, Arc<JsonAbi>>,
+
     /// Cache for pre-processed contract ABIs, mapped by contract address.
     address_specific_cache: DashMap<Address, Arc<CachedContract>>,
 
@@ -183,29 +183,53 @@ pub struct AbiService {
 
     /// Lookup index for global functions by their selector.
     global_function_index: DashMap<[u8; 4], Vec<Arc<CachedContract>>>,
-
-    /// Repository for loading raw ABI definitions by name.
-    abi_repository: Arc<AbiRepository>,
 }
 
 impl AbiService {
     /// Creates a new `AbiService`.
-    pub fn new(abi_repository: Arc<AbiRepository>) -> Self {
+    pub fn new() -> Self {
         Self {
+            named_abis: DashMap::new(),
             address_specific_cache: DashMap::new(),
             global_contracts: DashMap::new(),
             global_event_index: DashMap::new(),
             global_function_index: DashMap::new(),
-            abi_repository,
         }
+    }
+
+    /// Creates a new `AbiService` pre-populated with named ABIs.
+    pub fn from_named_abis<I>(abis: I) -> Self
+    where
+        I: IntoIterator<Item = (String, Arc<JsonAbi>)>,
+    {
+        let service = Self::new();
+        service.register_abis(abis);
+        service
+    }
+
+    /// Registers or replaces a named ABI.
+    pub fn register_abi(&self, name: impl Into<String>, abi: Arc<JsonAbi>) -> Option<Arc<JsonAbi>> {
+        self.named_abis.insert(name.into(), abi)
+    }
+
+    /// Registers a batch of named ABIs.
+    pub fn register_abis<I>(&self, abis: I)
+    where
+        I: IntoIterator<Item = (String, Arc<JsonAbi>)>,
+    {
+        for (name, abi) in abis {
+            self.register_abi(name, abi);
+        }
+    }
+
+    fn lookup_named_abi(&self, abi_name: &str) -> Result<Arc<JsonAbi>, AbiError> {
+        self.get_abi_by_name(abi_name)
+            .ok_or_else(|| AbiError::AbiNotFoundInRegistry(abi_name.to_string()))
     }
 
     /// Adds a global ABI to the service.
     pub fn add_global_abi(&self, abi_name: &str) -> Result<(), AbiError> {
-        let abi = self
-            .abi_repository
-            .get_abi(abi_name)
-            .ok_or_else(|| AbiError::AbiNotFoundInRepository(abi_name.to_string()))?;
+        let abi = self.lookup_named_abi(abi_name)?;
 
         let cached_contract = Arc::new(CachedContract::from(abi));
 
@@ -231,13 +255,10 @@ impl AbiService {
         Ok(())
     }
 
-    /// Links a contract address to an ABI by its name from the `AbiRepository`.
+    /// Links a contract address to a registered ABI by its name.
     /// The ABI is then parsed and pre-processed for fast lookups and cached.
     pub fn link_abi(&self, address: Address, abi_name: &str) -> Result<(), AbiError> {
-        let abi = self
-            .abi_repository
-            .get_abi(abi_name)
-            .ok_or_else(|| AbiError::AbiNotFoundInRepository(abi_name.to_string()))?;
+        let abi = self.lookup_named_abi(abi_name)?;
 
         let cached_contract = Arc::new(CachedContract::from(abi));
         self.address_specific_cache.insert(address, cached_contract);
@@ -453,11 +474,10 @@ impl AbiService {
         self.address_specific_cache.get(&address).map(|entry| Arc::clone(&entry))
     }
 
-    /// Retrieves an ABI by its name from the `AbiRepository`, without linking
-    /// it to a specific address. This is useful for retrieving ABIs for
-    /// global log monitors (have no address).
+    /// Retrieves a registered ABI by its name, without linking it to a
+    /// specific address. This is useful for global log monitors.
     pub fn get_abi_by_name(&self, abi_name: &str) -> Option<Arc<JsonAbi>> {
-        self.abi_repository.get_abi(abi_name)
+        self.named_abis.get(abi_name).map(|entry| Arc::clone(&entry))
     }
 
     /// Checks if a global ABI with the given name has been added to the
@@ -493,7 +513,7 @@ mod tests {
         abi_name: &str,
         abi_content: &str,
     ) -> (Arc<AbiService>, Address) {
-        let (abi_service, _) = create_test_abi_service(&[(abi_name, abi_content)]).await;
+        let abi_service = create_test_abi_service(&[(abi_name, abi_content)]).await;
         let address = address!("0000000000000000000000000000000000000001");
         abi_service.link_abi(address, abi_name).unwrap();
         (abi_service, address)
@@ -501,7 +521,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_link_abi_success() {
-        let (service, _) = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+        let service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
         let address = Address::default();
 
         assert!(!service.is_monitored(&address));
@@ -515,12 +535,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_link_abi_not_found_in_repository() {
-        let (service, _) = create_test_abi_service(&[]).await; // Empty repo
+        let service = create_test_abi_service(&[]).await; // Empty registry
         let address = Address::default();
 
         let result = service.link_abi(address, "nonexistent");
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), AbiError::AbiNotFoundInRepository(_)));
+        assert!(matches!(result.unwrap_err(), AbiError::AbiNotFoundInRegistry(_)));
         assert!(!service.is_monitored(&address));
         assert_eq!(service.cache_size(), 0);
     }
@@ -597,7 +617,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_decode_log_not_found() {
-        let (service, _) = create_test_abi_service(&[]).await;
+        let service = create_test_abi_service(&[]).await;
 
         let log = LogBuilder::new()
             .topic(b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"))
@@ -609,7 +629,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_decode_log_global_abi() {
-        let (service, _) = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+        let service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
         service.add_global_abi("erc20").unwrap();
 
         let from = address!("1111111111111111111111111111111111111111");
@@ -641,7 +661,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_peek_event_name_global() {
-        let (service, _) = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+        let service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
         service.add_global_abi("erc20").unwrap();
         let transfer_topic =
             b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef");
@@ -675,7 +695,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_decode_function_not_found() {
-        let (service, _) = create_test_abi_service(&[]).await;
+        let service = create_test_abi_service(&[]).await;
 
         let tx = TransactionBuilder::new()
             .input(Bytes::from(vec![0x12, 0x34, 0x56, 0x78]))
@@ -735,7 +755,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_decode_contract_creation() {
-        let (service, _) = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+        let service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
 
         // Contract creation transactions have `to` as None.
         let tx = TransactionBuilder::new().to(None).build();
@@ -801,7 +821,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_abi_by_name() {
-        let (service, _) = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+        let service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
 
         // Test with an existing ABI name
         let abi = service.get_abi_by_name("erc20").unwrap();
@@ -821,7 +841,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_decode_log_fallback_to_global() {
-        let (service, _) = create_test_abi_service(&[
+        let service = create_test_abi_service(&[
             (
                 "specific",
                 r#"[{"type": "event", "name": "SpecificEvent", "inputs": [], "anonymous": false}]"#,
@@ -855,7 +875,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_decode_log_global_abi_decoding_error() {
-        let (service, _) = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+        let service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
         service.add_global_abi("erc20").unwrap();
 
         // Log with correct "Transfer" signature but malformed data
@@ -871,7 +891,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_decode_function_input_fallback_to_global() {
-        let (service, _) = create_test_abi_service(
+        let service = create_test_abi_service(
             &[
                 (
                     "specific",

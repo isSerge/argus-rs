@@ -1,5 +1,5 @@
 //! This module provides the `AbiRepository` for loading and managing contract
-//! ABIs from the database.
+//! ABIs from persistence during application bootstrap.
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -24,7 +24,7 @@ pub enum AbiRepositoryError {
     DatabaseError(#[from] PersistenceError),
 }
 
-/// A repository for contract ABIs, loading them all once from the database.
+/// A repository for contract ABIs, loading them all once from persistence.
 #[derive(Debug, Default, Clone)]
 pub struct AbiRepository {
     /// A map from ABI name to its parsed `JsonAbi`.
@@ -44,15 +44,22 @@ impl AbiRepository {
             abis.insert(name, Arc::new(abi));
         }
 
-        tracing::info!("Loaded {} ABIs from database", abis.len());
+        tracing::info!(count = abis.len(), "Loaded ABIs from persistence");
         Ok(Self { abis })
     }
 
+    #[cfg(test)]
     /// Retrieves an `Arc<JsonAbi>` by its name.
     pub fn get_abi(&self, name: &str) -> Option<Arc<JsonAbi>> {
         self.abis.get(name).map(Arc::clone)
     }
 
+    /// Returns all loaded ABIs as owned name/ABI pairs.
+    pub fn all_abis(&self) -> Vec<(String, Arc<JsonAbi>)> {
+        self.abis.iter().map(|(name, abi)| (name.clone(), Arc::clone(abi))).collect()
+    }
+
+    #[cfg(test)]
     /// Returns a list of all ABI names in the repository.
     pub fn list_abi_names(&self) -> Vec<String> {
         self.abis.keys().cloned().collect()
@@ -63,6 +70,7 @@ impl AbiRepository {
         self.abis.len()
     }
 
+    #[cfg(test)]
     /// Returns true if the repository contains no ABIs.
     pub fn is_empty(&self) -> bool {
         self.abis.is_empty()
@@ -73,11 +81,11 @@ impl AbiRepository {
 mod tests {
     use std::collections::HashSet;
 
+    use argus_abi::test_utils::erc20_abi_json;
     use argus_core::persistence::traits::AppRepository;
     use argus_store::SqliteStateRepository;
 
     use super::*;
-    use crate::test_utils::erc20_abi_json;
 
     const REQUIRED_ERC20_FUNCTIONS: &[&str] = &[
         "transfer",
@@ -207,7 +215,7 @@ mod tests {
 
         let abi_repo = AbiRepository::new(repo).await.unwrap();
         let mut names = abi_repo.list_abi_names();
-        names.sort(); // Sort for deterministic comparison
+        names.sort();
 
         assert_eq!(names, vec!["erc20", "weth"]);
     }

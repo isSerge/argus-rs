@@ -865,7 +865,6 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "argus-core",
- "argus-store",
  "dashmap",
  "serde",
  "serde_json",

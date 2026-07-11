@@ -361,7 +361,7 @@ mod tests {
     use std::{collections::HashMap, sync::Arc};
 
     use alloy::primitives::U256;
-    use argus_abi::{AbiRepository, AbiService};
+    use argus_abi::AbiService;
     use argus_core::{
         config::RhaiConfig,
         models::{action::ActionConfig, monitor_match::MatchData},
@@ -421,9 +421,7 @@ mod tests {
             .build();
 
         // Initialize other services
-        let repo = create_test_repo().await;
-        let abi_repo = Arc::new(AbiRepository::new(repo.clone()).await.unwrap());
-        let abi_service = Arc::new(AbiService::new(abi_repo));
+        let abi_service = Arc::new(AbiService::new());
         let rhai_config = RhaiConfig::default();
         let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));
         let monitors = vec![monitor];
@@ -491,9 +489,7 @@ mod tests {
         let monitor = MonitorBuilder::new().filter_script(monitor_script).build();
 
         // Initialize other services
-        let repo = create_test_repo().await;
-        let abi_repo = Arc::new(AbiRepository::new(repo.clone()).await.unwrap());
-        let abi_service = Arc::new(AbiService::new(abi_repo));
+        let abi_service = Arc::new(AbiService::new());
         let rhai_config = RhaiConfig::default();
         let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));
         let monitors = vec![monitor];
@@ -551,9 +547,7 @@ mod tests {
         let monitor = MonitorBuilder::new().filter_script(monitor_script).build();
 
         // Initialize other services
-        let repo = create_test_repo().await;
-        let abi_repo = Arc::new(AbiRepository::new(repo.clone()).await.unwrap());
-        let abi_service = Arc::new(AbiService::new(abi_repo));
+        let abi_service = Arc::new(AbiService::new());
         let rhai_config = RhaiConfig::default();
         let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));
         let monitors = vec![monitor];
@@ -606,9 +600,7 @@ mod tests {
         let monitor = MonitorBuilder::new().filter_script(monitor_script).build();
 
         // Initialize other services
-        let repo = create_test_repo().await;
-        let abi_repo = Arc::new(AbiRepository::new(repo.clone()).await.unwrap());
-        let abi_service = Arc::new(AbiService::new(abi_repo));
+        let abi_service = Arc::new(AbiService::new());
         let rhai_config = RhaiConfig::default();
         let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));
         let monitors = vec![monitor];
@@ -675,9 +667,7 @@ mod tests {
             .build();
 
         // Initialize other services
-        let repo = create_test_repo().await;
-        let abi_repo = Arc::new(AbiRepository::new(repo.clone()).await.unwrap());
-        let abi_service = Arc::new(AbiService::new(abi_repo));
+        let abi_service = Arc::new(AbiService::new());
         let rhai_config = RhaiConfig::default();
         let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));
         let monitors = vec![monitor];
@@ -730,9 +720,7 @@ mod tests {
         let mock_data_source = MockDataSource::new();
 
         // Initialize other services with minimal setup
-        let repo = create_test_repo().await;
-        let abi_repo = Arc::new(AbiRepository::new(repo.clone()).await.unwrap());
-        let abi_service = Arc::new(AbiService::new(abi_repo));
+        let abi_service = Arc::new(AbiService::new());
         let rhai_config = RhaiConfig::default();
         let rhai_compiler = Arc::new(RhaiCompiler::new(rhai_config.clone()));
         let monitors = vec![];

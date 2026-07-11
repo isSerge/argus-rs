@@ -4,6 +4,7 @@
 //! The `AppContext` struct encapsulates all these components for use
 //! throughout the application.
 
+mod abi_repository;
 mod error;
 
 use std::{
@@ -12,8 +13,9 @@ use std::{
     sync::Arc,
 };
 
+use abi_repository::AbiRepository;
 use alloy::providers::Provider;
-use argus_abi::{AbiService, repository::AbiRepository};
+use argus_abi::AbiService;
 pub use argus_core::metrics::{AppMetrics, Metrics};
 use argus_core::{
     config::{AppConfig, InitialStartBlock},
@@ -138,7 +140,7 @@ impl AppContextBuilder {
         tracing::info!("ABI repository initialized with {} ABIs.", abi_repository.len());
 
         tracing::debug!("Initializing ABI service");
-        let abi_service = Arc::new(AbiService::new(abi_repository));
+        let abi_service = Arc::new(AbiService::from_named_abis(abi_repository.all_abis()));
 
         let template_service = Arc::new(TemplateService::new());
 
@@ -604,7 +606,7 @@ mod tests {
         let result = AppContextBuilder::load_monitors_from_file(
             &config,
             repo.as_ref(),
-            Arc::new(AbiService::new(abi_repository)),
+            Arc::new(AbiService::from_named_abis(abi_repository.all_abis())),
             Arc::new(RhaiCompiler::new(RhaiConfig::default())),
             Arc::new(TemplateService::new()),
         )
@@ -661,7 +663,7 @@ mod tests {
         let result = AppContextBuilder::load_monitors_from_file(
             &config,
             repo.as_ref(),
-            Arc::new(AbiService::new(abi_repository)),
+            Arc::new(AbiService::from_named_abis(abi_repository.all_abis())),
             Arc::new(RhaiCompiler::new(RhaiConfig::default())),
             Arc::new(TemplateService::new()),
         )
@@ -696,7 +698,7 @@ mod tests {
 
         // Use the real abis directory
         let abi_repository = Arc::new(AbiRepository::new(repo.clone()).await.unwrap());
-        let abi_service = Arc::new(AbiService::new(abi_repository));
+        let abi_service = Arc::new(AbiService::from_named_abis(abi_repository.all_abis()));
 
         let result =
             AppContextBuilder::load_abis_from_monitors(&config, repo.as_ref(), abi_service.clone())
@@ -729,7 +731,7 @@ mod tests {
 
         // Use the real abis directory
         let abi_repository = Arc::new(AbiRepository::new(repo.clone()).await.unwrap());
-        let abi_service = Arc::new(AbiService::new(abi_repository));
+        let abi_service = Arc::new(AbiService::from_named_abis(abi_repository.all_abis()));
 
         let result =
             AppContextBuilder::load_abis_from_monitors(&config, repo.as_ref(), abi_service.clone())
@@ -761,7 +763,7 @@ mod tests {
 
         // Use the real abis directory
         let abi_repository = Arc::new(AbiRepository::new(repo.clone()).await.unwrap());
-        let abi_service = Arc::new(AbiService::new(abi_repository));
+        let abi_service = Arc::new(AbiService::from_named_abis(abi_repository.all_abis()));
 
         let result =
             AppContextBuilder::load_abis_from_monitors(&config, repo.as_ref(), abi_service).await;
@@ -794,7 +796,7 @@ mod tests {
 
         // Use the real abis directory
         let abi_repository = Arc::new(AbiRepository::new(repo.clone()).await.unwrap());
-        let abi_service = Arc::new(AbiService::new(abi_repository));
+        let abi_service = Arc::new(AbiService::from_named_abis(abi_repository.all_abis()));
 
         // Should succeed but do nothing
         let result =
