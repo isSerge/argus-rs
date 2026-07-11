@@ -48,6 +48,7 @@ impl AbiRepository {
         Ok(Self { abis })
     }
 
+    #[cfg(test)]
     /// Retrieves an `Arc<JsonAbi>` by its name.
     pub fn get_abi(&self, name: &str) -> Option<Arc<JsonAbi>> {
         self.abis.get(name).map(Arc::clone)
@@ -58,6 +59,7 @@ impl AbiRepository {
         self.abis.iter().map(|(name, abi)| (name.clone(), Arc::clone(abi))).collect()
     }
 
+    #[cfg(test)]
     /// Returns a list of all ABI names in the repository.
     pub fn list_abi_names(&self) -> Vec<String> {
         self.abis.keys().cloned().collect()
@@ -68,6 +70,7 @@ impl AbiRepository {
         self.abis.len()
     }
 
+    #[cfg(test)]
     /// Returns true if the repository contains no ABIs.
     pub fn is_empty(&self) -> bool {
         self.abis.is_empty()
