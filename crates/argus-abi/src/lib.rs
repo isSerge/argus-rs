@@ -167,7 +167,7 @@ fn extract_address_and_selector(tx: &Transaction) -> Result<(Address, [u8; 4]), 
 /// This service caches parsed ABIs and provides methods for decoding
 /// transaction data and event logs. Uses `DashMap` for thread-safe
 /// concurrent access without explicit locking.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct AbiService {
     /// Raw ABIs registered by name.
     named_abis: DashMap<String, Arc<JsonAbi>>,
