@@ -299,7 +299,7 @@ mod tests {
     fn setup() -> (Arc<RhaiCompiler>, Arc<AbiService>) {
         let config = RhaiConfig::default();
         let compiler = Arc::new(RhaiCompiler::new(config));
-        let abi_service = create_test_abi_service(&[]);
+        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]);
         (compiler, abi_service)
     }
 
