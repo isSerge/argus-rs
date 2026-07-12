@@ -8,16 +8,19 @@
 use std::{collections::HashMap, sync::Arc};
 
 use alloy::{
+    consensus::Transaction as _,
     dyn_abi::{self, DynSolValue, EventExt},
     json_abi::{Event, Function, JsonAbi},
     primitives::{Address, B256},
+    rpc::types::{Log, Transaction},
 };
-use argus_core::models::{Log, transaction::Transaction};
 use dashmap::DashMap;
 use thiserror::Error;
 
+mod models;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
+pub use models::{DecodedCall, DecodedLog};
 
 /// A pre-processed, cached representation of a contract's ABI.
 ///
@@ -143,9 +146,6 @@ pub enum AbiError {
         source: dyn_abi::Error,
     },
 }
-
-/// Represents a decoded event log.
-pub use argus_core::models::abi::{DecodedCall, DecodedLog};
 
 /// Extracts the target address and function selector from a transaction.
 #[inline]
@@ -356,7 +356,7 @@ impl AbiService {
     /// Decodes an event log using a specific `Event` definition.
     fn decode_log_direct(&self, log: &Log, event: &Arc<Event>) -> Result<DecodedLog, AbiError> {
         let decoded = event
-            .decode_log_parts(log.topics().iter().copied(), log.data().as_ref())
+            .decode_log_parts(log.topics().iter().copied(), log.data().data.as_ref())
             .map_err(|e| AbiError::DecodingError {
                 address: log.address(),
                 item_type: format!("event {}", event.name),
@@ -492,10 +492,11 @@ mod tests {
     use std::collections::HashSet;
 
     use alloy::primitives::{Address, Bytes, U256, address, b256, bytes};
-    use argus_core::test_utils::{LogBuilder, TransactionBuilder};
 
     use super::*;
-    use crate::test_utils::{create_test_abi_service, erc20_abi_json};
+    use crate::test_utils::{
+        LogBuilder, TransactionBuilder, create_test_abi_service, erc20_abi_json,
+    };
 
     const REQUIRED_ERC20_FUNCTIONS: &[&str] = &[
         "transfer",
@@ -509,19 +510,16 @@ mod tests {
         "name",
     ];
 
-    async fn setup_abi_service_with_abi(
-        abi_name: &str,
-        abi_content: &str,
-    ) -> (Arc<AbiService>, Address) {
-        let abi_service = create_test_abi_service(&[(abi_name, abi_content)]).await;
+    fn setup_abi_service_with_abi(abi_name: &str, abi_content: &str) -> (Arc<AbiService>, Address) {
+        let abi_service = create_test_abi_service(&[(abi_name, abi_content)]);
         let address = address!("0000000000000000000000000000000000000001");
         abi_service.link_abi(address, abi_name).unwrap();
         (abi_service, address)
     }
 
-    #[tokio::test]
-    async fn test_link_abi_success() {
-        let service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+    #[test]
+    fn test_link_abi_success() {
+        let service = create_test_abi_service(&[("erc20", erc20_abi_json())]);
         let address = Address::default();
 
         assert!(!service.is_monitored(&address));
@@ -533,9 +531,9 @@ mod tests {
         assert_eq!(service.cache_size(), 1);
     }
 
-    #[tokio::test]
-    async fn test_link_abi_not_found_in_repository() {
-        let service = create_test_abi_service(&[]).await; // Empty registry
+    #[test]
+    fn test_link_abi_not_found_in_repository() {
+        let service = create_test_abi_service(&[]); // Empty registry
         let address = Address::default();
 
         let result = service.link_abi(address, "nonexistent");
@@ -545,9 +543,9 @@ mod tests {
         assert_eq!(service.cache_size(), 0);
     }
 
-    #[tokio::test]
-    async fn test_remove_abi() {
-        let (service, address) = setup_abi_service_with_abi("erc20", erc20_abi_json()).await;
+    #[test]
+    fn test_remove_abi() {
+        let (service, address) = setup_abi_service_with_abi("erc20", erc20_abi_json());
 
         assert!(service.is_monitored(&address));
         assert_eq!(service.cache_size(), 1);
@@ -557,10 +555,9 @@ mod tests {
         assert_eq!(service.cache_size(), 0);
     }
 
-    #[tokio::test]
-    async fn test_decode_known_event() {
-        let (service, contract_address) =
-            setup_abi_service_with_abi("erc20", erc20_abi_json()).await;
+    #[test]
+    fn test_decode_known_event() {
+        let (service, contract_address) = setup_abi_service_with_abi("erc20", erc20_abi_json());
 
         let from = address!("1111111111111111111111111111111111111111");
         let to = address!("2222222222222222222222222222222222222222");
@@ -574,7 +571,6 @@ mod tests {
             .data(bytes!("0000000000000000000000000000000000000000000000000000000000000064"))
             .build();
 
-        let log: Log = log.into();
         let decoded = service.decode_log(&log).unwrap();
         assert_eq!(decoded.name, "Transfer");
         assert_eq!(decoded.params.len(), 3);
@@ -586,10 +582,9 @@ mod tests {
         assert_eq!(decoded.params[2].1, amount.into());
     }
 
-    #[tokio::test]
-    async fn test_decode_known_function() {
-        let (service, contract_address) =
-            setup_abi_service_with_abi("erc20", erc20_abi_json()).await;
+    #[test]
+    fn test_decode_known_function() {
+        let (service, contract_address) = setup_abi_service_with_abi("erc20", erc20_abi_json());
 
         let to_addr = address!("2222222222222222222222222222222222222222");
         let amount = U256::from(100);
@@ -615,21 +610,20 @@ mod tests {
         assert_eq!(decoded.params[1].1, amount.into());
     }
 
-    #[tokio::test]
-    async fn test_decode_log_not_found() {
-        let service = create_test_abi_service(&[]).await;
+    #[test]
+    fn test_decode_log_not_found() {
+        let service = create_test_abi_service(&[]);
 
         let log = LogBuilder::new()
             .topic(b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"))
             .build();
-        let log: Log = log.into();
         let err = service.decode_log(&log).unwrap_err();
         assert!(matches!(err, AbiError::EventNotFound { .. }));
     }
 
-    #[tokio::test]
-    async fn test_decode_log_global_abi() {
-        let service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+    #[test]
+    fn test_decode_log_global_abi() {
+        let service = create_test_abi_service(&[("erc20", erc20_abi_json())]);
         service.add_global_abi("erc20").unwrap();
 
         let from = address!("1111111111111111111111111111111111111111");
@@ -647,10 +641,9 @@ mod tests {
         assert_eq!(decoded.name, "Transfer");
     }
 
-    #[tokio::test]
-    async fn test_peek_event_name_address_specific() {
-        let (service, contract_address) =
-            setup_abi_service_with_abi("erc20", erc20_abi_json()).await;
+    #[test]
+    fn test_peek_event_name_address_specific() {
+        let (service, contract_address) = setup_abi_service_with_abi("erc20", erc20_abi_json());
         let transfer_topic =
             b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef");
 
@@ -659,9 +652,9 @@ mod tests {
         assert_eq!(event.name, "Transfer");
     }
 
-    #[tokio::test]
-    async fn test_peek_event_name_global() {
-        let service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+    #[test]
+    fn test_peek_event_name_global() {
+        let service = create_test_abi_service(&[("erc20", erc20_abi_json())]);
         service.add_global_abi("erc20").unwrap();
         let transfer_topic =
             b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef");
@@ -674,10 +667,9 @@ mod tests {
         assert_eq!(event.name, "Transfer");
     }
 
-    #[tokio::test]
-    async fn test_peek_event_name_unknown() {
-        let (service, contract_address) =
-            setup_abi_service_with_abi("erc20", erc20_abi_json()).await;
+    #[test]
+    fn test_peek_event_name_unknown() {
+        let (service, contract_address) = setup_abi_service_with_abi("erc20", erc20_abi_json());
         let log = LogBuilder::new()
             .address(contract_address)
             .topic(b256!("0000000000000000000000000000000000000000000000000000000000000001"))
@@ -685,17 +677,16 @@ mod tests {
         assert!(service.peek_event_name(&log.into()).is_none());
     }
 
-    #[tokio::test]
-    async fn test_peek_event_name_no_topics() {
-        let (service, contract_address) =
-            setup_abi_service_with_abi("erc20", erc20_abi_json()).await;
+    #[test]
+    fn test_peek_event_name_no_topics() {
+        let (service, contract_address) = setup_abi_service_with_abi("erc20", erc20_abi_json());
         let log = LogBuilder::new().address(contract_address).build();
         assert!(service.peek_event_name(&log.into()).is_none());
     }
 
-    #[tokio::test]
-    async fn test_decode_function_not_found() {
-        let service = create_test_abi_service(&[]).await;
+    #[test]
+    fn test_decode_function_not_found() {
+        let service = create_test_abi_service(&[]);
 
         let tx = TransactionBuilder::new()
             .input(Bytes::from(vec![0x12, 0x34, 0x56, 0x78]))
@@ -705,10 +696,9 @@ mod tests {
         assert!(matches!(err, AbiError::FunctionNotFound { .. }));
     }
 
-    #[tokio::test]
-    async fn test_decode_function_for_unknown_selector() {
-        let (service, contract_address) =
-            setup_abi_service_with_abi("erc20", erc20_abi_json()).await;
+    #[test]
+    fn test_decode_function_for_unknown_selector() {
+        let (service, contract_address) = setup_abi_service_with_abi("erc20", erc20_abi_json());
 
         let tx = TransactionBuilder::new()
             .to(Some(contract_address))
@@ -719,10 +709,9 @@ mod tests {
         assert!(matches!(err, AbiError::FunctionNotFound { .. }));
     }
 
-    #[tokio::test]
-    async fn test_decode_function_input_too_short() {
-        let (service, contract_address) =
-            setup_abi_service_with_abi("erc20", erc20_abi_json()).await;
+    #[test]
+    fn test_decode_function_input_too_short() {
+        let (service, contract_address) = setup_abi_service_with_abi("erc20", erc20_abi_json());
 
         // Default transaction has no input data
         let tx = TransactionBuilder::new().to(Some(contract_address)).build();
@@ -731,10 +720,9 @@ mod tests {
         assert!(matches!(err, AbiError::InputTooShort { length: 0 }));
     }
 
-    #[tokio::test]
-    async fn test_decode_log_for_unknown_event() {
-        let (service, contract_address) =
-            setup_abi_service_with_abi("erc20", erc20_abi_json()).await;
+    #[test]
+    fn test_decode_log_for_unknown_event() {
+        let (service, contract_address) = setup_abi_service_with_abi("erc20", erc20_abi_json());
 
         let log = LogBuilder::new()
             .address(contract_address)
@@ -744,18 +732,17 @@ mod tests {
         assert!(matches!(err, AbiError::EventNotFound { .. }));
     }
 
-    #[tokio::test]
-    async fn test_decode_log_with_no_topics() {
-        let (service, contract_address) =
-            setup_abi_service_with_abi("erc20", erc20_abi_json()).await;
+    #[test]
+    fn test_decode_log_with_no_topics() {
+        let (service, contract_address) = setup_abi_service_with_abi("erc20", erc20_abi_json());
         let log = LogBuilder::new().address(contract_address).build();
         let err = service.decode_log(&log).unwrap_err();
         assert!(matches!(err, AbiError::LogHasNoTopics { .. }));
     }
 
-    #[tokio::test]
-    async fn test_decode_contract_creation() {
-        let service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+    #[test]
+    fn test_decode_contract_creation() {
+        let service = create_test_abi_service(&[("erc20", erc20_abi_json())]);
 
         // Contract creation transactions have `to` as None.
         let tx = TransactionBuilder::new().to(None).build();
@@ -764,10 +751,9 @@ mod tests {
         assert!(matches!(err, AbiError::ContractCreation));
     }
 
-    #[tokio::test]
-    async fn test_decode_function_with_malformed_input() {
-        let (service, contract_address) =
-            setup_abi_service_with_abi("erc20", erc20_abi_json()).await;
+    #[test]
+    fn test_decode_function_with_malformed_input() {
+        let (service, contract_address) = setup_abi_service_with_abi("erc20", erc20_abi_json());
 
         // `transfer` selector, but the data is just a single byte.
         let input_data = bytes!("a9059cbb00").to_vec();
@@ -781,10 +767,9 @@ mod tests {
         assert!(matches!(err, AbiError::DecodingError { .. }));
     }
 
-    #[tokio::test]
-    async fn test_decode_log_with_malformed_data() {
-        let (service, contract_address) =
-            setup_abi_service_with_abi("erc20", erc20_abi_json()).await;
+    #[test]
+    fn test_decode_log_with_malformed_data() {
+        let (service, contract_address) = setup_abi_service_with_abi("erc20", erc20_abi_json());
 
         let from = address!("1111111111111111111111111111111111111111");
         let to = address!("2222222222222222222222222222222222222222");
@@ -801,10 +786,9 @@ mod tests {
         assert!(matches!(err, AbiError::DecodingError { .. }));
     }
 
-    #[tokio::test]
-    async fn test_get_abi() {
-        let (service, contract_address) =
-            setup_abi_service_with_abi("erc20", erc20_abi_json()).await;
+    #[test]
+    fn test_get_abi() {
+        let (service, contract_address) = setup_abi_service_with_abi("erc20", erc20_abi_json());
 
         let cached_contract = service.get_abi(contract_address).unwrap();
 
@@ -819,9 +803,9 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_get_abi_by_name() {
-        let service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+    #[test]
+    fn test_get_abi_by_name() {
+        let service = create_test_abi_service(&[("erc20", erc20_abi_json())]);
 
         // Test with an existing ABI name
         let abi = service.get_abi_by_name("erc20").unwrap();
@@ -839,16 +823,15 @@ mod tests {
         assert!(non_existent_abi.is_none());
     }
 
-    #[tokio::test]
-    async fn test_decode_log_fallback_to_global() {
+    #[test]
+    fn test_decode_log_fallback_to_global() {
         let service = create_test_abi_service(&[
             (
                 "specific",
                 r#"[{"type": "event", "name": "SpecificEvent", "inputs": [], "anonymous": false}]"#,
             ),
             ("erc20", erc20_abi_json()),
-        ])
-        .await;
+        ]);
 
         let contract_address = address!("0000000000000000000000000000000000000001");
         service.link_abi(contract_address, "specific").unwrap();
@@ -873,9 +856,9 @@ mod tests {
         assert_eq!(decoded.name, "Transfer");
     }
 
-    #[tokio::test]
-    async fn test_decode_log_global_abi_decoding_error() {
-        let service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+    #[test]
+    fn test_decode_log_global_abi_decoding_error() {
+        let service = create_test_abi_service(&[("erc20", erc20_abi_json())]);
         service.add_global_abi("erc20").unwrap();
 
         // Log with correct "Transfer" signature but malformed data
@@ -889,17 +872,15 @@ mod tests {
         assert!(matches!(err, AbiError::DecodingError { .. }));
     }
 
-    #[tokio::test]
-    async fn test_decode_function_input_fallback_to_global() {
-        let service = create_test_abi_service(
-            &[
-                (
-                    "specific",
-                    r#"[{"type": "function", "name": "specificFunction", "inputs": [], "outputs": []}]"#,
-                ),
-                ("erc20", erc20_abi_json()),
-            ],
-        ).await;
+    #[test]
+    fn test_decode_function_input_fallback_to_global() {
+        let service = create_test_abi_service(&[
+            (
+                "specific",
+                r#"[{"type": "function", "name": "specificFunction", "inputs": [], "outputs": []}]"#,
+            ),
+            ("erc20", erc20_abi_json()),
+        ]);
 
         let contract_address = address!("0000000000000000000000000000000000000001");
         service.link_abi(contract_address, "specific").unwrap();
