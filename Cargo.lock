@@ -864,12 +864,11 @@ name = "argus-abi"
 version = "0.1.0"
 dependencies = [
  "alloy",
- "argus-core",
  "dashmap",
+ "hex",
  "serde",
  "serde_json",
  "thiserror 2.0.12",
- "tokio",
  "tracing",
 ]
 

@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use alloy::primitives::Address;
-use argus_core::models::abi::{DecodedCall, DecodedLog};
+use argus_abi::{DecodedCall, DecodedLog};
 use rhai::{Dynamic, Map};
 
 use crate::conversions::build_params_map;
@@ -52,7 +52,7 @@ impl LogProxy {
     /// Gets the log index within the block.
     /// Returns 0 if there is no decoded log or if the log index is unavailable.
     fn get_log_index(&mut self) -> u64 {
-        self.0.as_ref().map_or(0, |log| log.log.log_index().unwrap_or(0))
+        self.0.as_ref().map_or(0, |log| log.log.log_index.unwrap_or(0))
     }
 
     /// Gets the parameters of the decoded log as a `ParamsProxy`.
@@ -101,7 +101,7 @@ pub fn register_proxies(engine: &mut rhai::Engine) {
 
 #[cfg(test)]
 mod tests {
-    use argus_core::test_utils::LogBuilder;
+    use argus_abi::test_utils::LogBuilder;
 
     use super::*;
 

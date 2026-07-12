@@ -1,7 +1,5 @@
-use alloy::dyn_abi::DynSolValue;
+use alloy::{dyn_abi::DynSolValue, rpc::types::Log};
 use serde::Serialize;
-
-use super::Log;
 
 /// A decoded Ethereum contract event (log).
 ///

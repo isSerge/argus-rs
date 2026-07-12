@@ -282,7 +282,7 @@ impl<'a> EvaluationContext<'a> {
             return cached.clone();
         }
 
-        let result = abi_service.decode_log(raw_log).ok().map(Arc::new);
+        let result = abi_service.decode_log(&raw_log.0).ok().map(Arc::new);
 
         if let Some(key) = cache_key {
             self.decoded_logs_cache.insert(key, result.clone());
@@ -297,7 +297,7 @@ impl<'a> EvaluationContext<'a> {
         if let Some(map) = &self.tx_map_cache {
             return map.clone();
         }
-        let map = build_transaction_map(&self.item.transaction, self.item.receipt.as_ref());
+        let map = build_transaction_map(&self.item.transaction.0, self.item.receipt.as_ref());
         self.tx_map_cache = Some(map.clone());
         map
     }
@@ -308,7 +308,7 @@ impl<'a> EvaluationContext<'a> {
             return details.clone();
         }
         let details =
-            build_transaction_details_payload(&self.item.transaction, self.item.receipt.as_ref());
+            build_transaction_details_payload(&self.item.transaction.0, self.item.receipt.as_ref());
         self.tx_details_cache = Some(details.clone());
         details
     }
@@ -394,7 +394,7 @@ impl RhaiFilteringEngine {
             for raw_log in &context.item.logs {
                 // 1. O(1) Pre-Filter
                 if !filter_names.is_empty() {
-                    match self.abi_service.peek_event_name(raw_log) {
+                    match self.abi_service.peek_event_name(&raw_log.0) {
                         Some(event) if !filter_names.contains(&event.name) => continue,
                         None => continue,
                         _ => {} // Matches, proceed
@@ -417,7 +417,7 @@ impl RhaiFilteringEngine {
                         if context.decoded_call_cache.is_none() {
                             context.decoded_call_cache = Some(
                                 self.abi_service
-                                    .decode_function_input(&context.item.transaction)
+                                    .decode_function_input(&context.item.transaction.0)
                                     .ok()
                                     .map(Arc::new),
                             );
@@ -488,7 +488,7 @@ impl RhaiFilteringEngine {
                 if context.decoded_call_cache.is_none() {
                     context.decoded_call_cache = Some(
                         self.abi_service
-                            .decode_function_input(&context.item.transaction)
+                            .decode_function_input(&context.item.transaction.0)
                             .ok()
                             .map(Arc::new),
                     );
@@ -532,7 +532,7 @@ impl RhaiFilteringEngine {
         let decoded_call_json = context.get_decoded_call_json();
         for action in &monitor.actions {
             let log_details = LogDetails {
-                log_index: decoded_log.log.log_index().unwrap_or_default(),
+                log_index: decoded_log.log.log_index.unwrap_or_default(),
                 address: decoded_log.log.address(),
                 name: decoded_log.name.clone(),
                 params: log_match_payload.clone(),
@@ -743,9 +743,9 @@ mod tests {
         RhaiFilteringEngine::new(abi_service, config, monitor_manager)
     }
 
-    #[tokio::test]
-    async fn test_evaluate_item_log_based_match() {
-        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+    #[test]
+    fn test_evaluate_item_log_based_match() {
+        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]);
 
         abi_service.link_abi(CONTRACT_ADDRESS, "erc20").unwrap();
 
@@ -775,9 +775,9 @@ mod tests {
         assert_eq!(matches[1].action_name, "action2");
     }
 
-    #[tokio::test]
-    async fn test_evaluate_item_transaction_based_match() {
-        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+    #[test]
+    fn test_evaluate_item_transaction_based_match() {
+        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]);
         let monitor = MonitorBuilder::new()
             .id(1)
             .filter_script("tx.value > parse_bigint(\"100\")")
@@ -796,9 +796,9 @@ mod tests {
         assert_eq!(matches[0].action_name, "action1");
     }
 
-    #[tokio::test]
-    async fn test_evaluate_item_no_match_for_tx_monitor() {
-        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+    #[test]
+    fn test_evaluate_item_no_match_for_tx_monitor() {
+        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]);
 
         let monitor = MonitorBuilder::new()
             .id(1)
@@ -815,9 +815,9 @@ mod tests {
         assert!(matches.is_empty());
     }
 
-    #[tokio::test]
-    async fn test_evaluate_item_mixed_monitors_both_match() {
-        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+    #[test]
+    fn test_evaluate_item_mixed_monitors_both_match() {
+        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]);
         abi_service.link_abi(CONTRACT_ADDRESS, "erc20").unwrap();
 
         let log_monitor = MonitorBuilder::new()
@@ -856,9 +856,9 @@ mod tests {
         assert_eq!(ids, vec![1, 2]);
     }
 
-    #[tokio::test]
-    async fn test_evaluate_item_filter_by_log_param() {
-        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+    #[test]
+    fn test_evaluate_item_filter_by_log_param() {
+        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]);
         abi_service.link_abi(CONTRACT_ADDRESS, "erc20").unwrap();
 
         let monitor = MonitorBuilder::new()
@@ -891,9 +891,9 @@ mod tests {
         ));
     }
 
-    #[tokio::test]
-    async fn test_evaluate_item_no_decoded_logs_still_triggers_tx_monitor() {
-        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+    #[test]
+    fn test_evaluate_item_no_decoded_logs_still_triggers_tx_monitor() {
+        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]);
         let monitor = MonitorBuilder::new().id(1).actions(vec!["action1".to_string()]).build();
         let monitors = vec![monitor];
         let engine = setup_engine_with_monitors(monitors, abi_service);
@@ -905,9 +905,9 @@ mod tests {
         assert_eq!(matches[0].monitor_id, 1);
     }
 
-    #[tokio::test]
-    async fn test_evaluate_item_tx_only_monitor_with_decoded_call_match() {
-        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+    #[test]
+    fn test_evaluate_item_tx_only_monitor_with_decoded_call_match() {
+        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]);
         abi_service.link_abi(CONTRACT_ADDRESS, "erc20").unwrap();
 
         // This monitor is specific to an address and cares about decoded calldata, but
@@ -935,9 +935,9 @@ mod tests {
         assert_eq!(matches[0].monitor_id, 1);
     }
 
-    #[tokio::test]
-    async fn test_evaluate_item_log_aware_monitor_with_decoded_call_match() {
-        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+    #[test]
+    fn test_evaluate_item_log_aware_monitor_with_decoded_call_match() {
+        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]);
         abi_service.link_abi(CONTRACT_ADDRESS, "erc20").unwrap();
 
         // This monitor cares about both logs and decoded calldata.
@@ -970,9 +970,9 @@ mod tests {
         assert_eq!(matches[0].monitor_id, 1);
     }
 
-    #[tokio::test]
-    async fn test_decoded_call_is_null_for_non_matching_selector() {
-        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+    #[test]
+    fn test_decoded_call_is_null_for_non_matching_selector() {
+        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]);
         abi_service.link_abi(CONTRACT_ADDRESS, "erc20").unwrap();
 
         let monitor = MonitorBuilder::new()
@@ -995,9 +995,9 @@ mod tests {
         assert_eq!(matches.len(), 1, "Should match when decoded_call is null");
     }
 
-    #[tokio::test]
-    async fn test_requires_receipt_data_flag_set_correctly() {
-        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+    #[test]
+    fn test_requires_receipt_data_flag_set_correctly() {
+        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]);
         // --- Scenario 1: A monitor explicitly uses a receipt field ---
         let monitor_no_receipt = MonitorBuilder::new()
             .id(1)
@@ -1073,9 +1073,9 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn test_evaluate_item_with_evm_wrappers() {
-        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+    #[test]
+    fn test_evaluate_item_with_evm_wrappers() {
+        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]);
         let monitor = MonitorBuilder::new()
             .id(1)
             .filter_script("tx.value > ether(1.5)")
@@ -1108,9 +1108,9 @@ mod tests {
         assert!(no_matches.is_empty(), "Should find no matches for value <= 1.5 ether");
     }
 
-    #[tokio::test]
-    async fn test_evaluate_item_global_log_monitor_match() {
-        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+    #[test]
+    fn test_evaluate_item_global_log_monitor_match() {
+        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]);
 
         let addr1 = address!("1111111111111111111111111111111111111111");
         let addr2 = address!("2222222222222222222222222222222222222222");
@@ -1170,9 +1170,9 @@ mod tests {
         ));
     }
 
-    #[tokio::test]
-    async fn test_evaluate_item_hybrid_monitor_tx_match_no_logs() {
-        let abi_service = create_test_abi_service(&[]).await;
+    #[test]
+    fn test_evaluate_item_hybrid_monitor_tx_match_no_logs() {
+        let abi_service = create_test_abi_service(&[]);
 
         // This monitor should match on high-value transactions OR on "Transfer" logs.
         let monitor = MonitorBuilder::new()
@@ -1197,9 +1197,9 @@ mod tests {
         assert!(matches!(matches[0].match_data, MatchData::Transaction { .. }));
     }
 
-    #[tokio::test]
-    async fn test_evaluate_item_hybrid_monitor_log_match_only() {
-        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+    #[test]
+    fn test_evaluate_item_hybrid_monitor_log_match_only() {
+        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]);
         abi_service.link_abi(CONTRACT_ADDRESS, "erc20").unwrap();
 
         let monitor = MonitorBuilder::new()
@@ -1230,9 +1230,9 @@ mod tests {
         assert!(matches!(matches[0].match_data, MatchData::Log { .. }));
     }
 
-    #[tokio::test]
-    async fn test_evaluate_item_hybrid_monitor_prefers_log_match() {
-        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+    #[test]
+    fn test_evaluate_item_hybrid_monitor_prefers_log_match() {
+        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]);
         abi_service.link_abi(CONTRACT_ADDRESS, "erc20").unwrap();
 
         let monitor = MonitorBuilder::new()
@@ -1265,9 +1265,9 @@ mod tests {
         assert!(matches!(matches[0].match_data, MatchData::Log { .. }), "Should prefer LogMatch");
     }
 
-    #[tokio::test]
-    async fn test_safe_null_access_on_decoded_call() {
-        let abi_service = create_test_abi_service(&[]).await;
+    #[test]
+    fn test_safe_null_access_on_decoded_call() {
+        let abi_service = create_test_abi_service(&[]);
 
         // This script would fail at runtime if the dot operator on a null
         // `decoded_call` was not handled safely.
@@ -1287,9 +1287,9 @@ mod tests {
         assert!(matches.is_empty(), "Should not match and should not error");
     }
 
-    #[tokio::test]
-    async fn test_safe_null_access_on_log() {
-        let abi_service = create_test_abi_service(&[]).await;
+    #[test]
+    fn test_safe_null_access_on_log() {
+        let abi_service = create_test_abi_service(&[]);
 
         // This script would fail if `log.name` access on a null `log` errored.
         // This is a transaction-only evaluation context.
@@ -1309,9 +1309,9 @@ mod tests {
         assert!(matches.is_empty(), "Should not match and should not error");
     }
 
-    #[tokio::test]
-    async fn test_safe_null_access_on_decoded_call_with_valid_call() {
-        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+    #[test]
+    fn test_safe_null_access_on_decoded_call_with_valid_call() {
+        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]);
         abi_service.link_abi(CONTRACT_ADDRESS, "erc20").unwrap();
 
         let monitor = MonitorBuilder::new()
@@ -1335,9 +1335,9 @@ mod tests {
         assert_eq!(matches[0].monitor_id, 1);
     }
 
-    #[tokio::test]
-    async fn test_create_log_matches_payload() {
-        let abi_service = create_test_abi_service(&[]).await;
+    #[test]
+    fn test_create_log_matches_payload() {
+        let abi_service = create_test_abi_service(&[]);
         let engine = setup_engine_with_monitors(vec![], abi_service);
 
         let tx = TransactionBuilder::new().value(U256::from(123)).build();
@@ -1372,9 +1372,9 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_create_tx_matches_payload() {
-        let abi_service = create_test_abi_service(&[]).await;
+    #[test]
+    fn test_create_tx_matches_payload() {
+        let abi_service = create_test_abi_service(&[]);
         let engine = setup_engine_with_monitors(vec![], abi_service);
 
         let tx = TransactionBuilder::new().value(U256::from(456)).build();
