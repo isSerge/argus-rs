@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+argus-abi.workspace = true
 argus-core.workspace = true
 alloy.workspace = true
 hex.workspace = true

@@ -274,9 +274,9 @@ mod tests {
         assert!(!registry_with_globals.is_log_interesting(&log_no_topics));
     }
 
-    #[tokio::test]
-    async fn test_interest_registry_builder() {
-        let abi_service = create_test_abi_service(&[("ERC20", erc20_abi_json())]).await;
+    #[test]
+    fn test_interest_registry_builder() {
+        let abi_service = create_test_abi_service(&[("ERC20", erc20_abi_json())]);
 
         let mut builder = InterestRegistryBuilder::default();
 

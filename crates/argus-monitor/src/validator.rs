@@ -476,7 +476,7 @@ impl TemplateValidator {
             .to(Some(Address::default()))
             .hash(TxHash::default())
             .build();
-        let tx_details = build_transaction_details_payload(&tx, None);
+        let tx_details = build_transaction_details_payload(&tx.0, None);
 
         let call_params = match abi {
             Some(abi) => Self::extract_function_inputs(abi),

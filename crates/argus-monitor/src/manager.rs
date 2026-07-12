@@ -296,18 +296,17 @@ mod tests {
 
     use super::*;
 
-    async fn setup() -> (Arc<RhaiCompiler>, Arc<AbiService>) {
+    fn setup() -> (Arc<RhaiCompiler>, Arc<AbiService>) {
         let config = RhaiConfig::default();
         let compiler = Arc::new(RhaiCompiler::new(config));
-        let abi_service = create_test_abi_service(&[]).await;
+        let abi_service = create_test_abi_service(&[]);
         (compiler, abi_service)
     }
 
-    #[tokio::test]
-    async fn test_organize_monitors_categorization() {
+    #[test]
+    fn test_organize_monitors_categorization() {
         let address = address!("0000000000000000000000000000000000000001");
-        let (compiler, _) = setup().await;
-        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+        let (compiler, abi_service) = setup();
         abi_service.link_abi(address, "erc20").unwrap();
 
         let monitors = vec![
@@ -377,9 +376,9 @@ mod tests {
         assert_eq!(get_caps(9), MonitorCapabilities::CALL);
     }
 
-    #[tokio::test]
-    async fn test_organize_assets_requires_receipts() {
-        let (compiler, abi_service) = setup().await;
+    #[test]
+    fn test_organize_assets_requires_receipts() {
+        let (compiler, abi_service) = setup();
 
         let monitors = vec![
             MonitorBuilder::new().id(1).filter_script("tx.gas_used > 1000").build(), /* requires receipts */
@@ -393,10 +392,10 @@ mod tests {
         assert!(snapshot.requires_receipts);
     }
 
-    #[tokio::test]
-    async fn test_build_interest_registry() {
-        let (compiler, _) = setup().await;
-        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+    #[test]
+    fn test_build_interest_registry() {
+        let (compiler, _) = setup();
+        let abi_service = create_test_abi_service(&[("erc20", erc20_abi_json())]);
 
         let monitored_address = address!("0000000000000000000000000000000000000001");
 
@@ -423,9 +422,9 @@ mod tests {
         assert!(snapshot.interest_registry.log_interests.contains_key(&monitored_address));
     }
 
-    #[tokio::test]
-    async fn test_update_monitors() {
-        let (compiler, abi_service) = setup().await;
+    #[test]
+    fn test_update_monitors() {
+        let (compiler, abi_service) = setup();
         let manager = MonitorManager::new(vec![], compiler.clone(), abi_service.clone());
 
         // Initial state: empty
@@ -449,9 +448,9 @@ mod tests {
         assert_eq!(snapshot2.monitors_by_id.get(&2).unwrap().monitor.id, 2);
     }
 
-    #[tokio::test]
-    async fn test_update_rebuilds_interest_registry_correctly() {
-        let (compiler, abi_service) = setup().await;
+    #[test]
+    fn test_update_rebuilds_interest_registry_correctly() {
+        let (compiler, abi_service) = setup();
         let address1 = address!("1111111111111111111111111111111111111111");
         let address2 = address!("2222222222222222222222222222222222222222");
 
@@ -486,7 +485,7 @@ mod tests {
                 .build(),
         ];
 
-        let abi_service_with_abi = create_test_abi_service(&[("erc20", erc20_abi_json())]).await;
+        let abi_service_with_abi = create_test_abi_service(&[("erc20", erc20_abi_json())]);
         let manager = MonitorManager::new(vec![], compiler.clone(), abi_service_with_abi);
 
         manager.update(updated_monitors);
@@ -505,9 +504,9 @@ mod tests {
         assert!(snapshot2.interest_registry.global_event_signatures.contains(&transfer_event_sig));
     }
 
-    #[tokio::test]
-    async fn test_empty_monitor_list() {
-        let (compiler, abi_service) = setup().await;
+    #[test]
+    fn test_empty_monitor_list() {
+        let (compiler, abi_service) = setup();
 
         // Test initialization with an empty list
         let manager = MonitorManager::new(vec![], compiler.clone(), abi_service.clone());
@@ -528,9 +527,9 @@ mod tests {
         assert!(updated_snapshot.interest_registry.global_event_signatures.is_empty());
     }
 
-    #[tokio::test]
-    async fn test_global_monitor_with_missing_abi() {
-        let (compiler, abi_service) = setup().await; // abi_service is empty
+    #[test]
+    fn test_global_monitor_with_missing_abi() {
+        let (compiler, abi_service) = setup(); // abi_service is empty
 
         let monitor = MonitorBuilder::new()
             .id(1)
@@ -548,9 +547,9 @@ mod tests {
         assert!(snapshot.interest_registry.global_event_signatures.is_empty());
     }
 
-    #[tokio::test]
-    async fn test_organize_assets_calldata_aware() {
-        let (compiler, abi_service) = setup().await;
+    #[test]
+    fn test_organize_assets_calldata_aware() {
+        let (compiler, abi_service) = setup();
 
         let calldata_aware_address = address!("0000000000000000000000000000000000000001");
 
@@ -574,9 +573,9 @@ mod tests {
         assert!(snapshot.interest_registry.calldata_addresses.contains(&calldata_aware_address));
     }
 
-    #[tokio::test]
-    async fn test_build_interest_registry_aggregates_global_signatures() {
-        let (compiler, _) = setup().await;
+    #[test]
+    fn test_build_interest_registry_aggregates_global_signatures() {
+        let (compiler, _) = setup();
         let weth_abi = r#"[
         {
             "type":"event",
@@ -589,7 +588,7 @@ mod tests {
         }
     ]"#;
         let abi_service =
-            create_test_abi_service(&[("erc20", erc20_abi_json()), ("weth", weth_abi)]).await;
+            create_test_abi_service(&[("erc20", erc20_abi_json()), ("weth", weth_abi)]);
 
         let global_erc20_monitor = MonitorBuilder::new()
             .id(1)
@@ -626,9 +625,9 @@ mod tests {
         assert!(registry.global_event_signatures.contains(&deposit_sig));
     }
 
-    #[tokio::test]
-    async fn test_organize_assets_filters_paused_monitors() {
-        let (compiler, abi_service) = setup().await;
+    #[test]
+    fn test_organize_assets_filters_paused_monitors() {
+        let (compiler, abi_service) = setup();
 
         let monitors = vec![
             MonitorBuilder::new().id(1).status(MonitorStatus::Active).build(),

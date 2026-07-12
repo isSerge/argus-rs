@@ -6,12 +6,12 @@
 use std::collections::HashSet;
 
 use alloy::{
-    consensus::TxType, dyn_abi::DynSolValue, primitives::U256, rpc::types::TransactionReceipt,
+    consensus::{Transaction as _, TxType},
+    dyn_abi::DynSolValue,
+    primitives::U256,
+    rpc::types::{Transaction, TransactionReceipt},
 };
-use argus_core::models::{
-    abi::{DecodedCall, DecodedLog},
-    transaction::Transaction,
-};
+use argus_abi::{DecodedCall, DecodedLog};
 use rhai::{Dynamic, Map};
 use rhai_evm::{i256_to_bigint_dynamic, u256_to_bigint_dynamic};
 use serde_json::{Value, json};
@@ -157,31 +157,31 @@ pub fn build_transaction_map(
         map.insert(KEY_TX_TO.into(), to.to_checksum(None).into());
     }
 
-    map.insert(KEY_TX_FROM.into(), transaction.from().to_checksum(None).into());
-    map.insert(KEY_TX_HASH.into(), transaction.hash().to_string().into());
+    map.insert(KEY_TX_FROM.into(), transaction.inner.signer().to_checksum(None).into());
+    map.insert(KEY_TX_HASH.into(), transaction.inner.hash().to_string().into());
 
     // --- Selective Conversion ---
     // Values that can exceed i64::MAX are always converted to BigInt.
     map.insert(KEY_TX_VALUE.into(), u256_to_bigint_dynamic(transaction.value()));
 
     // Values that are bounded (typically u64) are converted to i64.
-    map.insert(KEY_TX_GAS_LIMIT.into(), (transaction.gas() as i64).into());
+    map.insert(KEY_TX_GAS_LIMIT.into(), (transaction.gas_limit() as i64).into());
     map.insert(KEY_TX_NONCE.into(), (transaction.nonce() as i64).into());
     map.insert(KEY_TX_INPUT.into(), format!("0x{}", hex::encode(transaction.input())).into());
 
-    if let Some(block_number) = transaction.block_number() {
+    if let Some(block_number) = transaction.block_number {
         map.insert(KEY_TX_BLOCK_NUMBER.into(), (block_number as i64).into());
     } else {
         map.insert(KEY_TX_BLOCK_NUMBER.into(), Dynamic::UNIT);
     }
 
-    if let Some(transaction_index) = transaction.transaction_index() {
+    if let Some(transaction_index) = transaction.transaction_index {
         map.insert(KEY_TX_TRANSACTION_INDEX.into(), (transaction_index as i64).into());
     } else {
         map.insert(KEY_TX_TRANSACTION_INDEX.into(), Dynamic::UNIT);
     }
 
-    match transaction.transaction_type() {
+    match transaction.inner.tx_type() {
         TxType::Legacy =>
             if let Some(gas_price) = transaction.gas_price() {
                 map.insert(KEY_TX_GAS_PRICE.into(), u256_to_bigint_dynamic(U256::from(gas_price)));
@@ -260,21 +260,21 @@ pub fn build_log_map(log: &DecodedLog, params_map: Map) -> Map {
     log_map.insert(KEY_LOG_ADDRESS.into(), log.log.address().to_checksum(None).into());
 
     // Bounded u64 values become i64
-    if let Some(block_number) = log.log.block_number() {
+    if let Some(block_number) = log.log.block_number {
         log_map.insert(KEY_LOG_BLOCK_NUMBER.into(), (block_number as i64).into());
     } else {
         log_map.insert(KEY_LOG_BLOCK_NUMBER.into(), Dynamic::UNIT);
     }
     log_map.insert(
         KEY_LOG_TRANSACTION_HASH.into(),
-        log.log.transaction_hash().unwrap_or_default().to_string().into(),
+        log.log.transaction_hash.unwrap_or_default().to_string().into(),
     );
-    if let Some(log_index) = log.log.log_index() {
+    if let Some(log_index) = log.log.log_index {
         log_map.insert(KEY_LOG_INDEX.into(), (log_index as i64).into());
     } else {
         log_map.insert(KEY_LOG_INDEX.into(), Dynamic::UNIT);
     }
-    if let Some(transaction_index) = log.log.transaction_index() {
+    if let Some(transaction_index) = log.log.transaction_index {
         log_map.insert(KEY_LOG_TRANSACTION_INDEX.into(), (transaction_index as i64).into());
     } else {
         log_map.insert(KEY_LOG_TRANSACTION_INDEX.into(), Dynamic::UNIT);
@@ -321,22 +321,22 @@ pub fn build_transaction_details_payload(
     if let Some(to) = transaction.to() {
         map.insert(KEY_TX_TO.to_string(), json!(to.to_checksum(None)));
     }
-    map.insert(KEY_TX_FROM.to_string(), json!(transaction.from().to_checksum(None)));
-    map.insert(KEY_TX_HASH.to_string(), json!(transaction.hash().to_string()));
+    map.insert(KEY_TX_FROM.to_string(), json!(transaction.inner.signer().to_checksum(None)));
+    map.insert(KEY_TX_HASH.to_string(), json!(transaction.inner.hash().to_string()));
 
     // Potentially large values are stringified to prevent overflow
     map.insert(KEY_TX_VALUE.to_string(), json!(transaction.value().to_string()));
 
     // Bounded values are kept as JSON numbers
-    map.insert(KEY_TX_GAS_LIMIT.to_string(), json!(transaction.gas()));
+    map.insert(KEY_TX_GAS_LIMIT.to_string(), json!(transaction.gas_limit()));
     map.insert(KEY_TX_NONCE.to_string(), json!(transaction.nonce()));
     map.insert(KEY_TX_INPUT.to_string(), json!(format!("0x{}", hex::encode(transaction.input()))));
 
-    if let Some(transaction_index) = transaction.transaction_index() {
+    if let Some(transaction_index) = transaction.transaction_index {
         map.insert(KEY_TX_TRANSACTION_INDEX.to_string(), json!(transaction_index));
     }
 
-    match transaction.transaction_type() {
+    match transaction.inner.tx_type() {
         TxType::Legacy =>
             if let Some(gas_price) = transaction.gas_price() {
                 map.insert(KEY_TX_GAS_PRICE.to_string(), json!(gas_price.to_string()));
@@ -384,7 +384,8 @@ mod tests {
         dyn_abi::Word,
         primitives::{Address, Function, I256, U256, address, b256},
     };
-    use argus_core::test_utils::{LogBuilder, ReceiptBuilder, TransactionBuilder};
+    use argus_abi::test_utils::{LogBuilder, TransactionBuilder};
+    use argus_core::test_utils::ReceiptBuilder;
     use num_bigint::BigInt;
     use serde_json::json;
 
