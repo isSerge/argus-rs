@@ -57,8 +57,14 @@ jobs:
           SQLX_OFFLINE: '1'
         run: cargo clippy --workspace -- -D warnings
 
+      # Install cargo-nextest
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
       # Run tests
       - name: Run tests
         env:
           SQLX_OFFLINE: '1'
-        run: cargo test --workspace
+        run: cargo nextest run --workspace
