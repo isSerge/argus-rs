@@ -51,4 +51,7 @@ jobs:
           tool: cargo-nextest
 
       - name: Run ignored integration tests
-        run: cargo nextest run --workspace --run-ignored only --retries 2 --no-fail-fast
+        # Serial: the docker-compose examples map fixed host ports
+        # (5672/4222/9092) which are global on the Docker daemon, so same-
+        # service tests collide if run in parallel.
+        run: cargo nextest run --workspace --run-ignored only --retries 2 --no-fail-fast --test-threads 1
