@@ -1,0 +1,57 @@
+name: Integration Tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tests/publisher_integration.rs'
+      - 'tests/action_dispatcher.rs'
+      - 'tests/docker_compose_guard.rs'
+      - 'crates/argus-dispatch/**'
+      - 'examples/10_action_with_kafka_publisher/**'
+      - 'examples/11_action_with_rabbitmq_publisher/**'
+      - 'examples/12_action_with_nats_publisher/**'
+      - '.github/workflows/integration.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tests/publisher_integration.rs'
+      - 'tests/action_dispatcher.rs'
+      - 'tests/docker_compose_guard.rs'
+      - 'crates/argus-dispatch/**'
+      - 'examples/10_action_with_kafka_publisher/**'
+      - 'examples/11_action_with_rabbitmq_publisher/**'
+      - 'examples/12_action_with_nats_publisher/**'
+      - '.github/workflows/integration.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '17 4 * * *' # nightly safety net for dependency-induced regressions
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest # Docker + docker compose are preinstalled
+    timeout-minutes: 20
+    env:
+      SQLX_OFFLINE: '1'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-02-16
+
+      - name: Cache Cargo build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Run ignored integration tests
+        # Serial: the docker-compose examples map fixed host ports
+        # (5672/4222/9092) which are global on the Docker daemon, so same-
+        # service tests collide if run in parallel.
+        run: cargo nextest run --workspace --run-ignored only --retries 2 --no-fail-fast --test-threads 1
