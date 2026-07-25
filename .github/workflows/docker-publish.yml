@@ -1,39 +1,74 @@
 name: Docker Publish
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+# Avoid stacking concurrent publishes for the same ref.
+concurrency:
+  group: docker-publish-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  publish-docker-image:
+  # Only gates branch pushes to main: skip when the image contents are
+  # unaffected. Tag pushes and manual dispatch always build (the build job
+  # treats a skipped `changes` job as "build unconditionally").
+  changes:
+    if: github.event_name == 'push' && github.ref_type == 'branch'
     runs-on: ubuntu-latest
+    outputs:
+      docker: ${{ steps.filter.outputs.docker }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            docker:
+              - 'src/**'
+              - 'crates/**'
+              - 'migrations/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'Dockerfile'
+              - '.dockerignore'
+              - '.github/workflows/docker-publish.yml'
+
+  # Build each arch natively: amd64 on x86, arm64 on a native ARM
+  # runner. Each leg pushes a single-arch image tagged with its suffix.
+  build:
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result == 'skipped' || needs.changes.outputs.docker == 'true') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux/amd64
+            suffix: amd64
+          - os: ubuntu-24.04-arm
+            platform: linux/arm64
+            suffix: arm64
+    runs-on: ${{ matrix.os }}
     permissions:
       contents: read
       packages: write
     steps:
-      # Checkout the repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Set up QEMU for cross-platform builds
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      # Set up Docker Buildx
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       # Force lowercase repository name for GHCR
       - name: Force lowercase repository name
-        id: lowercase
         run: |
           OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           REPO_LOWER=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
-          echo "REPO_PATH=$OWNER_LOWER/$REPO_LOWER" >> $GITHUB_ENV
+          echo "REPO_PATH=$OWNER_LOWER/$REPO_LOWER" >> "$GITHUB_ENV"
 
-      # Log in to GitHub Container Registry
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -41,24 +76,65 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Extract metadata (tags and labels) for the Docker image
+      - name: Build and push (single arch)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          provenance: false
+          push: true
+          tags: ghcr.io/${{ env.REPO_PATH }}:sha-${{ github.sha }}-${{ matrix.suffix }}
+          cache-from: type=gha,scope=${{ matrix.suffix }}
+          cache-to: type=gha,scope=${{ matrix.suffix }},mode=max
+
+  # Combine the two single-arch images into one multi-arch manifest and tag it.
+  merge:
+    needs: build
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Force lowercase repository name
+        run: |
+          OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          REPO_LOWER=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
+          echo "REPO_PATH=$OWNER_LOWER/$REPO_LOWER" >> "$GITHUB_ENV"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Extract metadata
         id: meta
-        uses: docker/metadata-action@v4
+        uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ env.REPO_PATH }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
             type=sha
 
-      # Build and push Docker image
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v4
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Merge into multi-arch manifest
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          AMD64: ghcr.io/${{ env.REPO_PATH }}:sha-${{ github.sha }}-amd64
+          ARM64: ghcr.io/${{ env.REPO_PATH }}:sha-${{ github.sha }}-arm64
+        run: |
+          set -euo pipefail
+          ARGS=()
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && ARGS+=("-t" "$tag")
+          done <<< "$TAGS"
+          docker buildx imagetools create "${ARGS[@]}" "$AMD64" "$ARM64"
