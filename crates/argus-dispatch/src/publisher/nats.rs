@@ -68,13 +68,12 @@ impl EventPublisher for NatsEventPublisher {
 impl Action for NatsEventPublisher {
     async fn execute(&self, payload: ActionPayload) -> Result<(), ActionDispatcherError> {
         match &payload {
-            ActionPayload::Single(monitor_match) => {
+            ActionPayload::Single(_) => {
                 let context = payload.context()?;
                 let serialized_payload = serde_json::to_vec(&context)?;
 
-                let key = monitor_match.transaction_hash.to_string();
-
-                self.publish(&self.subject, &key, &serialized_payload).await?;
+                self.publish(&self.subject, &payload.idempotency_key(), &serialized_payload)
+                    .await?;
 
                 Ok(())
             }

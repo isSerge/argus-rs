@@ -57,8 +57,12 @@ impl RabbitMqEventPublisher {
 
 #[async_trait::async_trait]
 impl EventPublisher for RabbitMqEventPublisher {
-    async fn publish(&self, topic: &str, _key: &str, payload: &[u8]) -> Result<(), PublisherError> {
+    async fn publish(&self, topic: &str, key: &str, payload: &[u8]) -> Result<(), PublisherError> {
         let routing_key = self.default_routing_key.as_deref().unwrap_or(topic);
+
+        // Surface the idempotency key as the AMQP message-id so consumers can
+        // coalesce duplicate deliveries.
+        let properties = lapin::BasicProperties::default().with_message_id(key.to_string().into());
 
         self.channel
             .basic_publish(
@@ -66,7 +70,7 @@ impl EventPublisher for RabbitMqEventPublisher {
                 routing_key,
                 lapin::options::BasicPublishOptions::default(),
                 payload,
-                lapin::BasicProperties::default(),
+                properties,
             )
             .await? // Wait for the publish
             .await
@@ -79,14 +83,13 @@ impl EventPublisher for RabbitMqEventPublisher {
 impl Action for RabbitMqEventPublisher {
     async fn execute(&self, payload: ActionPayload) -> Result<(), ActionDispatcherError> {
         match &payload {
-            ActionPayload::Single(monitor_match) => {
+            ActionPayload::Single(_) => {
                 let context = payload.context()?;
                 let serialized_payload = serde_json::to_vec(&context)
                     .map_err(ActionDispatcherError::DeserializationError)?;
 
-                let key = monitor_match.transaction_hash.to_string();
-
-                self.publish(&self.exchange, &key, &serialized_payload).await?;
+                self.publish(&self.exchange, &payload.idempotency_key(), &serialized_payload)
+                    .await?;
 
                 Ok(())
             }

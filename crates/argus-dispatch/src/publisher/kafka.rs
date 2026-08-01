@@ -41,14 +41,12 @@ impl EventPublisher for KafkaEventPublisher {
 impl Action for KafkaEventPublisher {
     async fn execute(&self, payload: ActionPayload) -> Result<(), ActionDispatcherError> {
         match &payload {
-            ActionPayload::Single(monitor_match) => {
+            ActionPayload::Single(_) => {
                 let context = payload.context()?;
                 let serialized_payload = serde_json::to_vec(&context)
                     .map_err(ActionDispatcherError::DeserializationError)?;
 
-                let key = monitor_match.transaction_hash.to_string();
-
-                self.publish(&self.topic, &key, &serialized_payload).await?;
+                self.publish(&self.topic, &payload.idempotency_key(), &serialized_payload).await?;
 
                 Ok(())
             }
@@ -253,6 +251,6 @@ mod tests {
         let expected_payload = serde_json::to_vec(&payload.context().unwrap()).unwrap();
         use rdkafka::Message;
         assert_eq!(message.payload(), Some(expected_payload.as_slice()));
-        assert_eq!(message.key(), Some(monitor_match.transaction_hash.to_string().as_bytes()));
+        assert_eq!(message.key(), Some(monitor_match.id.as_bytes()));
     }
 }
