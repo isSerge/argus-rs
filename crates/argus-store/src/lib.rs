@@ -113,17 +113,21 @@ impl SqliteStateRepository {
 mod tests {
     use std::time::Duration;
 
+    use alloy::primitives::{Address, TxHash};
     use argus_core::{
+        action_dispatcher::ActionPayload,
         models::{
             NetworkId,
             action::{ActionPolicy, AggregationPolicy, ThrottlePolicy},
             monitor::MonitorConfig,
+            monitor_match::{LogDetails, MonitorMatch},
             notification::NotificationMessage,
         },
         persistence::traits::{AppRepository, KeyValueStore},
         test_utils::ActionBuilder,
     };
     use serde::{Deserialize, Serialize};
+    use serde_json::json;
 
     use super::*;
 
@@ -675,5 +679,66 @@ mod tests {
         let non_existent: Option<TestJsonState> =
             repo.get_json_state("non_existent_key").await.unwrap();
         assert!(non_existent.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_outbox_dedup_drops_duplicate_idempotency_key() {
+        let repo = setup_test_db().await;
+
+        let make_payload = |tx_hash: TxHash| {
+            let mm = MonitorMatch::builder(1, "m".into(), "a".into(), 10, tx_hash)
+                .log_match(
+                    LogDetails {
+                        address: Address::ZERO,
+                        log_index: 0,
+                        name: "Transfer".into(),
+                        params: json!({}),
+                    },
+                    json!({}),
+                )
+                .decoded_call(None)
+                .build();
+            ActionPayload::Single(mm)
+        };
+
+        let payload = make_payload(TxHash::with_last_byte(1));
+
+        // Enqueue the identical payload twice (two separate ingestor cycles).
+        repo.enqueue_outbox_batch(vec![("a".into(), payload.clone())]).await.unwrap();
+        repo.enqueue_outbox_batch(vec![("a".into(), payload.clone())]).await.unwrap();
+
+        let pending = repo.get_pending_outbox(100).await.unwrap();
+        assert_eq!(pending.len(), 1, "duplicate idempotency key should be dropped");
+    }
+
+    #[tokio::test]
+    async fn test_outbox_dedup_keeps_distinct_keys() {
+        let repo = setup_test_db().await;
+
+        let make_payload = |tx_hash: TxHash| {
+            let mm = MonitorMatch::builder(1, "m".into(), "a".into(), 10, tx_hash)
+                .log_match(
+                    LogDetails {
+                        address: Address::ZERO,
+                        log_index: 0,
+                        name: "Transfer".into(),
+                        params: json!({}),
+                    },
+                    json!({}),
+                )
+                .decoded_call(None)
+                .build();
+            ActionPayload::Single(mm)
+        };
+
+        // Distinct transaction hashes -> distinct deterministic ids.
+        let items = vec![
+            ("a".into(), make_payload(TxHash::with_last_byte(1))),
+            ("a".into(), make_payload(TxHash::with_last_byte(2))),
+        ];
+        repo.enqueue_outbox_batch(items).await.unwrap();
+
+        let pending = repo.get_pending_outbox(100).await.unwrap();
+        assert_eq!(pending.len(), 2, "distinct keys should both be kept");
     }
 }

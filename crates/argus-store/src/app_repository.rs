@@ -940,21 +940,33 @@ impl AppRepository for SqliteStateRepository {
             for (name, payload) in chunk {
                 let json = serde_json::to_string(payload)
                     .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
-                serialized_items.push((name, json));
+                // Use the idempotency key from the payload to ensure uniqueness
+                let idempotency_key = payload.idempotency_key();
+                serialized_items.push((name, json, idempotency_key));
             }
 
-            let mut query_builder: QueryBuilder<Sqlite> =
-                QueryBuilder::new("INSERT INTO outbox (action_name, payload) ");
+            let mut query_builder: QueryBuilder<Sqlite> = QueryBuilder::new(
+                "INSERT OR IGNORE INTO outbox (action_name, payload, idempotency_key) ",
+            );
 
-            query_builder.push_values(serialized_items, |mut b, (action_name, payload_json)| {
-                b.push_bind(action_name).push_bind(payload_json);
-            });
+            query_builder.push_values(
+                serialized_items,
+                |mut b, (action_name, payload_json, idempotency_key)| {
+                    b.push_bind(action_name).push_bind(payload_json).push_bind(idempotency_key);
+                },
+            );
 
             let query = query_builder.build();
-            query
+            let inserted = query
                 .execute(&mut *tx)
                 .await
                 .map_err(|e| PersistenceError::OperationFailed(e.to_string()))?;
+
+            // Check how many rows were ignored due to the idempotency key constraint
+            let ignored = chunk.len() as u64 - inserted.rows_affected();
+            if ignored > 0 {
+                tracing::debug!(ignored, "Dropped duplicate outbox items by idempotency key.");
+            }
         }
 
         tx.commit().await.map_err(|e| PersistenceError::OperationFailed(e.to_string()))?;
