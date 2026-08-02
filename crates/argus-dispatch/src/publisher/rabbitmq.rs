@@ -2,8 +2,9 @@
 
 use argus_core::models::action::RabbitMqConfig;
 use lapin::{
-    Connection, ConnectionProperties, ExchangeKind, options::ExchangeDeclareOptions,
-    types::FieldTable,
+    Connection, ConnectionProperties, ExchangeKind,
+    options::ExchangeDeclareOptions,
+    types::{AMQPValue, FieldTable},
 };
 
 use crate::{
@@ -60,9 +61,10 @@ impl EventPublisher for RabbitMqEventPublisher {
     async fn publish(&self, topic: &str, key: &str, payload: &[u8]) -> Result<(), PublisherError> {
         let routing_key = self.default_routing_key.as_deref().unwrap_or(topic);
 
-        // Surface the idempotency key as the AMQP message-id so consumers can
-        // coalesce duplicate deliveries.
-        let properties = lapin::BasicProperties::default().with_message_id(key.to_string().into());
+        // Surface the idempotency key as an AMQP header (does not have length limit)
+        let mut headers = FieldTable::default();
+        headers.insert("X-Idempotency-Key".into(), AMQPValue::LongString(key.to_string().into()));
+        let properties = lapin::BasicProperties::default().with_headers(headers);
 
         self.channel
             .basic_publish(
