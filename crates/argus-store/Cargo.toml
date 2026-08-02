@@ -13,5 +13,6 @@ sqlx.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+alloy.workspace = true
 argus-core = { path = "../argus-core", features = ["test-utils"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

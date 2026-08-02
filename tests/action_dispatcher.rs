@@ -263,7 +263,7 @@ async fn test_kafka_action_success() {
     let expected_payload = serde_json::to_vec(&payload.context().unwrap()).unwrap();
     use rdkafka::Message;
     assert_eq!(message.payload(), Some(expected_payload.as_slice()));
-    assert_eq!(message.key(), Some(monitor_match.transaction_hash.to_string().as_bytes()));
+    assert_eq!(message.key(), Some(monitor_match.id.as_bytes()));
     assert_eq!(message.topic(), topic);
 }
 

@@ -19,13 +19,18 @@ async fn setup_db() -> SqliteStateRepository {
     repo
 }
 
+static TX_NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 fn create_test_monitor_match(action_name: &str) -> MonitorMatch {
+    let n = TX_NONCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut bytes = [0u8; 32];
+    bytes[24..].copy_from_slice(&n.to_be_bytes());
     MonitorMatch::builder(
         1,
         "test-monitor".to_string(),
         action_name.to_string(),
         100,
-        TxHash::default(),
+        TxHash::from(bytes),
     )
     .transaction_match(serde_json::json!({"test": "data"}))
     .build()
@@ -171,13 +176,10 @@ async fn test_network_isolation() {
 async fn test_outbox_batch_ops() {
     let repo = setup_db().await;
     let action_name = "test_action";
-    let monitor_match = create_test_monitor_match(action_name);
-    let payload = ActionPayload::Single(monitor_match);
-
-    // 1. Enqueue a batch
+    // Two distinct matches (distinct ids) so the dedup UNIQUE index keeps both.
     let batch = vec![
-        (action_name.to_string(), payload.clone()),
-        (action_name.to_string(), payload.clone()),
+        (action_name.to_string(), ActionPayload::Single(create_test_monitor_match(action_name))),
+        (action_name.to_string(), ActionPayload::Single(create_test_monitor_match(action_name))),
     ];
     repo.enqueue_outbox_batch(batch).await.unwrap();
 
@@ -199,14 +201,14 @@ async fn test_outbox_batch_ops() {
 async fn test_outbox_large_batch_chunking() {
     let repo = setup_db().await;
     let action_name = "test_action";
-    let monitor_match = create_test_monitor_match(action_name);
-    let payload = ActionPayload::Single(monitor_match);
-
-    // Enqueue more than SQLITE_BATCH_SIZE (450) items to test chunking
+    // Create a large batch of 500 items to test chunking behavior
     let count = 500;
     let mut batch = Vec::with_capacity(count);
     for _ in 0..count {
-        batch.push((action_name.to_string(), payload.clone()));
+        batch.push((
+            action_name.to_string(),
+            ActionPayload::Single(create_test_monitor_match(action_name)),
+        ));
     }
 
     repo.enqueue_outbox_batch(batch).await.expect("Failed to enqueue large batch");

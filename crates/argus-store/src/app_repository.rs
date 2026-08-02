@@ -75,11 +75,13 @@ impl TryFrom<OutboxRow> for OutboxItem {
     }
 }
 
-/// SQLite has a default limit of 999 parameters per statement
-/// (SQLITE_MAX_VARIABLE_NUMBER). Since binary inserts in `enqueue_outbox_batch`
-/// use 2 parameters per row, we use a batch size of 450 to stay safely under
-/// this limit (450 * 2 = 900).
-const SQLITE_BATCH_SIZE: usize = 450;
+/// The maximum number of SQL variables allowed in a single SQLite statement.
+const SQLITE_MAX_VARIABLES: usize = 999;
+
+/// Columns bound per outbox insert row (`action_name`, `payload`,
+/// `idempotency_key`). Keep in sync with `push_values` in
+/// `enqueue_outbox_batch`.
+const OUTBOX_INSERT_COLUMNS: usize = 3;
 
 #[async_trait]
 impl AppRepository for SqliteStateRepository {
@@ -935,26 +937,38 @@ impl AppRepository for SqliteStateRepository {
             .await
             .map_err(|e| PersistenceError::OperationFailed(e.to_string()))?;
 
-        for chunk in items.chunks(SQLITE_BATCH_SIZE) {
+        for chunk in items.chunks(SQLITE_MAX_VARIABLES / OUTBOX_INSERT_COLUMNS) {
             let mut serialized_items = Vec::with_capacity(chunk.len());
             for (name, payload) in chunk {
                 let json = serde_json::to_string(payload)
                     .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
-                serialized_items.push((name, json));
+                // Use the idempotency key from the payload to ensure uniqueness
+                let idempotency_key = payload.idempotency_key();
+                serialized_items.push((name, json, idempotency_key));
             }
 
-            let mut query_builder: QueryBuilder<Sqlite> =
-                QueryBuilder::new("INSERT INTO outbox (action_name, payload) ");
+            let mut query_builder: QueryBuilder<Sqlite> = QueryBuilder::new(
+                "INSERT OR IGNORE INTO outbox (action_name, payload, idempotency_key) ",
+            );
 
-            query_builder.push_values(serialized_items, |mut b, (action_name, payload_json)| {
-                b.push_bind(action_name).push_bind(payload_json);
-            });
+            query_builder.push_values(
+                serialized_items,
+                |mut b, (action_name, payload_json, idempotency_key)| {
+                    b.push_bind(action_name).push_bind(payload_json).push_bind(idempotency_key);
+                },
+            );
 
             let query = query_builder.build();
-            query
+            let inserted = query
                 .execute(&mut *tx)
                 .await
                 .map_err(|e| PersistenceError::OperationFailed(e.to_string()))?;
+
+            // Check how many rows were ignored due to the idempotency key constraint
+            let ignored = chunk.len() as u64 - inserted.rows_affected();
+            if ignored > 0 {
+                tracing::debug!(ignored, "Dropped duplicate outbox items by idempotency key.");
+            }
         }
 
         tx.commit().await.map_err(|e| PersistenceError::OperationFailed(e.to_string()))?;
@@ -1002,7 +1016,7 @@ impl AppRepository for SqliteStateRepository {
             .await
             .map_err(|e| PersistenceError::OperationFailed(e.to_string()))?;
 
-        for chunk in ids.chunks(SQLITE_BATCH_SIZE) {
+        for chunk in ids.chunks(SQLITE_MAX_VARIABLES) {
             let mut query_builder: QueryBuilder<Sqlite> =
                 QueryBuilder::new("DELETE FROM outbox WHERE id IN (");
 

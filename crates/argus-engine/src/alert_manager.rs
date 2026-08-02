@@ -255,6 +255,12 @@ impl<T: KeyValueStore + AppRepository> AlertManager<T> {
 
         let mut aggregation_state = self.aggregation_states.entry(action_name.clone()).or_default();
 
+        // If this match is already in the aggregation state, we skip it to avoid
+        // duplicates.
+        if aggregation_state.matches.iter().any(|m| m.id == monitor_match.id) {
+            return Ok(());
+        }
+
         // If this is the first match for a new window, set the start time.
         if aggregation_state.matches.is_empty() {
             aggregation_state.window_start_time = chrono::Utc::now();
@@ -926,14 +932,66 @@ mod tests {
         let repo_mock = MockAppRepository::new();
         let alert_manager = create_alert_manager(actions, kv_mock, repo_mock).await;
 
-        // Add second match
-        let monitor_match = create_monitor_match(action_name.clone());
-        let result = alert_manager.process_matches_batch(&[monitor_match]).await;
+        // Add a second, distinct match (different tx hash -> distinct id).
+        let second_match = MonitorMatch::builder(
+            1,
+            "Test Monitor".to_string(),
+            action_name.clone(),
+            123,
+            TxHash::with_last_byte(7),
+        )
+        .log_match(
+            LogDetails {
+                address: Address::default(),
+                log_index: 0,
+                name: "Test Log".to_string(),
+                params: json!({ "param1": "value1", "param2": 42 }),
+            },
+            json!({}),
+        )
+        .decoded_call(None)
+        .build();
+        let result = alert_manager.process_matches_batch(&[second_match]).await;
         assert!(result.is_ok());
 
         // Validate memory state has 2 matches
         let state = alert_manager.aggregation_states.get(&action_name).unwrap();
         assert_eq!(state.matches.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_handle_aggregation_dedups_duplicate_match_within_window() {
+        let action_name = "Aggregation Action".to_string();
+        let aggregation_policy = AggregationPolicy {
+            window_secs: Duration::from_secs(60),
+            template: NotificationMessage {
+                title: "Test".to_string(),
+                body: "This is a test".to_string(),
+            },
+        };
+
+        let action_config = ActionBuilder::new(&action_name)
+            .discord_config("http://example.com")
+            .policy(ActionPolicy::Aggregation(aggregation_policy))
+            .build();
+
+        let mut actions = HashMap::new();
+        actions.insert(action_name.to_string(), action_config);
+
+        let mut kv_mock = MockKeyValueStore::new();
+        setup_default_kv_mock(&mut kv_mock);
+        let repo_mock = MockAppRepository::new();
+        let alert_manager = create_alert_manager(actions, kv_mock, repo_mock).await;
+
+        // `create_monitor_match` builds an identical deterministic id each call,
+        // simulating a re-processed block landing in the same unexpired aggregation
+        // window.
+        let monitor_match = create_monitor_match(action_name.clone());
+        alert_manager.process_matches_batch(&[monitor_match.clone()]).await.unwrap();
+        alert_manager.process_matches_batch(&[monitor_match]).await.unwrap();
+
+        let state = alert_manager.aggregation_states.get(&action_name).unwrap();
+        assert_eq!(state.matches.len(), 1, "duplicate match id should not be aggregated twice");
     }
 
     #[tokio::test]
