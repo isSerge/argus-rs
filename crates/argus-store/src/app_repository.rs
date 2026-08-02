@@ -75,11 +75,13 @@ impl TryFrom<OutboxRow> for OutboxItem {
     }
 }
 
-/// SQLite has a default limit of 999 parameters per statement
-/// (SQLITE_MAX_VARIABLE_NUMBER). Since binary inserts in `enqueue_outbox_batch`
-/// use 2 parameters per row, we use a batch size of 450 to stay safely under
-/// this limit (450 * 2 = 900).
-const SQLITE_BATCH_SIZE: usize = 450;
+/// The maximum number of SQL variables allowed in a single SQLite statement.
+const SQLITE_MAX_VARIABLES: usize = 999;
+
+/// Columns bound per outbox insert row (`action_name`, `payload`,
+/// `idempotency_key`). Keep in sync with `push_values` in
+/// `enqueue_outbox_batch`.
+const OUTBOX_INSERT_COLUMNS: usize = 3;
 
 #[async_trait]
 impl AppRepository for SqliteStateRepository {
@@ -935,7 +937,7 @@ impl AppRepository for SqliteStateRepository {
             .await
             .map_err(|e| PersistenceError::OperationFailed(e.to_string()))?;
 
-        for chunk in items.chunks(SQLITE_BATCH_SIZE) {
+        for chunk in items.chunks(SQLITE_MAX_VARIABLES / OUTBOX_INSERT_COLUMNS) {
             let mut serialized_items = Vec::with_capacity(chunk.len());
             for (name, payload) in chunk {
                 let json = serde_json::to_string(payload)
@@ -1014,7 +1016,7 @@ impl AppRepository for SqliteStateRepository {
             .await
             .map_err(|e| PersistenceError::OperationFailed(e.to_string()))?;
 
-        for chunk in ids.chunks(SQLITE_BATCH_SIZE) {
+        for chunk in ids.chunks(SQLITE_MAX_VARIABLES) {
             let mut query_builder: QueryBuilder<Sqlite> =
                 QueryBuilder::new("DELETE FROM outbox WHERE id IN (");
 

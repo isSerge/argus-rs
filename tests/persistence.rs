@@ -201,7 +201,7 @@ async fn test_outbox_batch_ops() {
 async fn test_outbox_large_batch_chunking() {
     let repo = setup_db().await;
     let action_name = "test_action";
-    // Enqueue more than SQLITE_BATCH_SIZE (450) distinct items to test chunking.
+    // Create a large batch of 500 items to test chunking behavior
     let count = 500;
     let mut batch = Vec::with_capacity(count);
     for _ in 0..count {
