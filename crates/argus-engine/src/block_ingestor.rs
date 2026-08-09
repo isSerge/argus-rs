@@ -164,7 +164,7 @@ mod tests {
         providers::traits::MockDataSource,
         test_utils::{BlockBuilder, ReceiptBuilder, TransactionBuilder},
     };
-    use mockall::predicate::eq;
+    use mockall::predicate::{always, eq};
 
     use super::*;
     use crate::filtering::MockFilteringEngine;
@@ -291,8 +291,8 @@ mod tests {
         harness
             .mock_data_source
             .expect_fetch_receipts()
-            .with(eq(vec![tx_hash]))
-            .returning(move |_| Ok(expected_receipts.clone()));
+            .with(eq(vec![tx_hash]), always())
+            .returning(move |_, _| Ok(expected_receipts.clone()));
 
         let (tx, _rx) = mpsc::channel(10);
         let ingestor = harness.build(tx, CancellationToken::new());

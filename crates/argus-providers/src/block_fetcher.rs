@@ -36,6 +36,7 @@ pub async fn fetch_single_block_data<D: DataSource + ?Sized>(
     data_source: &D,
     needs_receipts: bool,
     block_num: u64,
+    concurrency: usize,
 ) -> Result<BlockData, DataSourceError> {
     let (block, logs) = data_source.fetch_block_core_data(block_num).await?;
     let receipts = if needs_receipts {
@@ -43,7 +44,7 @@ pub async fn fetch_single_block_data<D: DataSource + ?Sized>(
         if tx_hashes.is_empty() {
             HashMap::new()
         } else {
-            data_source.fetch_receipts(&tx_hashes).await?
+            data_source.fetch_receipts(&tx_hashes, concurrency).await?
         }
     } else {
         HashMap::new()
@@ -160,7 +161,7 @@ pub async fn fetch_blocks_concurrent<D: DataSource + ?Sized>(
     if needs_receipts {
         let all_tx_hashes: Vec<_> = blocks.iter().flat_map(|b| b.transactions.hashes()).collect();
         if !all_tx_hashes.is_empty() {
-            receipts_map = data_source.fetch_receipts(&all_tx_hashes).await?;
+            receipts_map = data_source.fetch_receipts(&all_tx_hashes, cfg.concurrency).await?;
         }
     }
 

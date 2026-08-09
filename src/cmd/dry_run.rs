@@ -542,7 +542,7 @@ mod tests {
         mock_data_source.expect_fetch_logs_for_range().returning(|_, _| Ok(vec![]));
 
         // This is the key assertion for this test: fetch_receipts must be called.
-        mock_data_source.expect_fetch_receipts().times(1).returning(|_| Ok(Default::default()));
+        mock_data_source.expect_fetch_receipts().times(1).returning(|_, _| Ok(Default::default()));
 
         let monitor = MonitorBuilder::new().filter_script(monitor_script).build();
 
