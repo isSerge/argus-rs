@@ -69,5 +69,6 @@ pub trait DataSource: Send + Sync {
     async fn fetch_receipts(
         &self,
         tx_hashes: &[TxHash],
+        concurrency: usize,
     ) -> Result<HashMap<TxHash, TransactionReceipt>, DataSourceError>;
 }

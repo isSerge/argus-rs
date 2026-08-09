@@ -26,6 +26,7 @@ use argus_core::{
     providers::traits::{DataSource, DataSourceError},
 };
 use async_trait::async_trait;
+use futures::stream::{self, StreamExt, TryStreamExt};
 use tower::ServiceBuilder;
 
 /// A `DataSource` implementation that fetches data from an EVM RPC endpoint.
@@ -74,27 +75,32 @@ impl DataSource for EvmRpcSource {
     /// Fetches only the transaction receipts for a given list of transaction
     /// hashes.
     ///
-    /// This method leverages the provider's `CallBatchLayer`
-    /// to automatically batch these requests.
+    /// Receipt requests are issued concurrently, bounded by `concurrency`,
+    /// and leverage the provider's `CallBatchLayer` to automatically batch
+    /// the underlying JSON-RPC requests.
     #[tracing::instrument(skip(self), level = "debug")]
     async fn fetch_receipts(
         &self,
         tx_hashes: &[TxHash],
+        concurrency: usize,
     ) -> Result<HashMap<TxHash, TransactionReceipt>, DataSourceError> {
         if tx_hashes.is_empty() {
             return Ok(HashMap::new());
         }
 
-        let futures = tx_hashes.iter().map(|&tx_hash| async move {
-            let receipt = self
-                .provider
-                .get_transaction_receipt(tx_hash)
-                .await
-                .map_err(|e| DataSourceError::Provider(Box::new(e)))?;
-            Ok::<_, DataSourceError>((tx_hash, receipt))
-        });
-
-        let results = futures::future::try_join_all(futures).await?;
+        let results: Vec<(TxHash, Option<TransactionReceipt>)> =
+            stream::iter(tx_hashes.iter().copied())
+                .map(|tx_hash| async move {
+                    let receipt = self
+                        .provider
+                        .get_transaction_receipt(tx_hash)
+                        .await
+                        .map_err(|e| DataSourceError::Provider(Box::new(e)))?;
+                    Ok::<_, DataSourceError>((tx_hash, receipt))
+                })
+                .buffer_unordered(concurrency)
+                .try_collect()
+                .await?;
 
         let receipts = results
             .into_iter()
@@ -448,7 +454,7 @@ mod tests {
         let source = EvmRpcSource::new(provider, make_empty_registry());
 
         let tx_hashes = &[B256::default()];
-        let result = source.fetch_receipts(tx_hashes).await;
+        let result = source.fetch_receipts(tx_hashes, 4).await;
 
         assert!(result.is_err());
     }
@@ -548,7 +554,7 @@ mod tests {
         asserter.push_success(&receipt2);
 
         let data_source = EvmRpcSource::new(provider, make_empty_registry());
-        let receipts = data_source.fetch_receipts(&[tx_hash1, tx_hash2]).await.unwrap();
+        let receipts = data_source.fetch_receipts(&[tx_hash1, tx_hash2], 4).await.unwrap();
 
         assert_eq!(receipts.len(), 2);
         assert_eq!(receipts.get(&tx_hash1).unwrap().transaction_hash, tx_hash1);
@@ -559,7 +565,7 @@ mod tests {
     async fn test_fetch_receipts_empty() {
         let (provider, _) = mock_provider();
         let data_source = EvmRpcSource::new(provider, make_empty_registry());
-        let receipts = data_source.fetch_receipts(&[]).await.unwrap();
+        let receipts = data_source.fetch_receipts(&[], 4).await.unwrap();
         assert!(receipts.is_empty());
     }
 
@@ -601,7 +607,7 @@ mod tests {
         asserter.push_success(&Option::<TransactionReceipt>::None);
 
         let data_source = EvmRpcSource::new(provider, make_empty_registry());
-        let receipts = data_source.fetch_receipts(&[tx_hash1, tx_hash2]).await.unwrap();
+        let receipts = data_source.fetch_receipts(&[tx_hash1, tx_hash2], 4).await.unwrap();
 
         assert_eq!(receipts.len(), 1);
         assert!(receipts.contains_key(&tx_hash1));
@@ -673,7 +679,7 @@ mod tests {
         asserter.push_failure_msg("receipt unavailable");
 
         let data_source = EvmRpcSource::new(provider, make_empty_registry());
-        let result = data_source.fetch_receipts(&[tx_hash1, tx_hash2]).await;
+        let result = data_source.fetch_receipts(&[tx_hash1, tx_hash2], 4).await;
 
         assert!(matches!(result, Err(DataSourceError::Provider(_))));
         assert!(result.unwrap_err().to_string().contains("receipt unavailable"));
