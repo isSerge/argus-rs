@@ -13,6 +13,9 @@ block_chunk_size: 100
 log_chunk_size: 2000
 concurrency: 8
 polling_interval_ms: 10000
+# Expected block time of the target chain in milliseconds.
+# This value is used to estimate the expected time between new blocks on the target chain.
+expected_block_time_ms: 12000
 confirmation_blocks: 12
 notification_channel_capacity: 1024
 abi_config_path: abis/

@@ -542,14 +542,12 @@ mod tests {
             .build()
     }
 
-    fn create_test_repo() -> impl std::future::Future<Output = Arc<SqliteStateRepository>> {
-        async {
-            let repo = SqliteStateRepository::new("sqlite::memory:")
-                .await
-                .expect("Failed to connect to in-memory db");
-            repo.run_migrations().await.expect("Failed to run migrations");
-            Arc::new(repo)
-        }
+    async fn create_test_repo() -> Arc<SqliteStateRepository> {
+        let repo = SqliteStateRepository::new("sqlite::memory:")
+            .await
+            .expect("Failed to connect to in-memory db");
+        repo.run_migrations().await.expect("Failed to run migrations");
+        Arc::new(repo)
     }
 
     #[test]

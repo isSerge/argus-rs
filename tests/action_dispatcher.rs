@@ -222,7 +222,7 @@ async fn test_kafka_action_success() {
 
     // 2. Create a consumer to verify the message
     let consumer: rdkafka::consumer::StreamConsumer = rdkafka::ClientConfig::new()
-        .set("bootstrap.servers", &mock_cluster.bootstrap_servers())
+        .set("bootstrap.servers", mock_cluster.bootstrap_servers())
         .set("group.id", "test-group")
         .set("auto.offset.reset", "earliest")
         .create()

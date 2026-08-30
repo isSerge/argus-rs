@@ -90,7 +90,7 @@ async fn test_action_lifecycle() {
     assert!(initial_actions.is_empty());
 
     // 2. Add actions
-    let actions_to_add = vec![create_test_action("Action 1"), create_test_action("Action 2")];
+    let actions_to_add = [create_test_action("Action 1"), create_test_action("Action 2")];
     repo.create_action(&network_id, actions_to_add[0].clone()).await.unwrap();
     repo.create_action(&network_id, actions_to_add[1].clone()).await.unwrap();
 

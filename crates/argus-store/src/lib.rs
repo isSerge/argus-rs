@@ -335,12 +335,12 @@ mod tests {
         )];
 
         // Add monitors to different networks
-        repo.add_monitors(&network1, ethereum_monitors).await.unwrap();
-        repo.add_monitors(&network2, polygon_monitors).await.unwrap();
+        repo.add_monitors(network1, ethereum_monitors).await.unwrap();
+        repo.add_monitors(network2, polygon_monitors).await.unwrap();
 
         // Verify network isolation
-        let eth_monitors = repo.get_monitors(&network1).await.unwrap();
-        let poly_monitors = repo.get_monitors(&network2).await.unwrap();
+        let eth_monitors = repo.get_monitors(network1).await.unwrap();
+        let poly_monitors = repo.get_monitors(network2).await.unwrap();
 
         assert_eq!(eth_monitors.len(), 1);
         assert_eq!(poly_monitors.len(), 1);
@@ -348,10 +348,10 @@ mod tests {
         assert_eq!(poly_monitors[0].name, "Polygon Monitor");
 
         // Clear one network shouldn't affect the other
-        repo.clear_monitors(&network1).await.unwrap();
+        repo.clear_monitors(network1).await.unwrap();
 
-        let eth_monitors_after_clear = repo.get_monitors(&network1).await.unwrap();
-        let poly_monitors_after_clear = repo.get_monitors(&network2).await.unwrap();
+        let eth_monitors_after_clear = repo.get_monitors(network1).await.unwrap();
+        let poly_monitors_after_clear = repo.get_monitors(network2).await.unwrap();
 
         assert!(eth_monitors_after_clear.is_empty());
         assert_eq!(poly_monitors_after_clear.len(), 1);
@@ -553,7 +553,7 @@ mod tests {
         // DB constraint error. This test is a bit contrived as we can't easily
         // create an invalid JSON, but we can simulate a constraint violation.
         // Here, we'll rely on the UNIQUE constraint.
-        let actions1 = vec![
+        let actions1 = [
             ActionBuilder::new("Unique Action")
                 .slack_config("https://hooks.slack.com/services/unique")
                 .build(),
@@ -561,7 +561,7 @@ mod tests {
                 .slack_config("https://hooks.slack.com/services/another")
                 .build(),
         ];
-        let actions2 = vec![
+        let actions2 = [
             ActionBuilder::new("Third Action")
                 .slack_config("https://hooks.slack.com/services/third")
                 .build(),
