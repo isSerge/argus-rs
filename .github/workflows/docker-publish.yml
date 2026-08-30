@@ -11,6 +11,9 @@ concurrency:
   group: docker-publish-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   # Only gates branch pushes to main: skip when the image contents are
   # unaffected. Tag pushes and manual dispatch always build (the build job
@@ -18,6 +21,7 @@ jobs:
   changes:
     if: github.event_name == 'push' && github.ref_type == 'branch'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       docker: ${{ steps.filter.outputs.docker }}
     steps:
@@ -52,6 +56,7 @@ jobs:
             platform: linux/arm64
             suffix: arm64
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: write
@@ -92,7 +97,9 @@ jobs:
     needs: build
     if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
+      contents: read
       packages: write
     steps:
       - name: Checkout repository

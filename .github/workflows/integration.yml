@@ -27,6 +27,13 @@ on:
   schedule:
     - cron: '17 4 * * *' # nightly safety net for dependency-induced regressions
 
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   integration:
     runs-on: ubuntu-latest # Docker + docker compose are preinstalled
@@ -39,8 +46,6 @@ jobs:
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: nightly-2026-02-16
 
       - name: Cache Cargo build
         uses: Swatinem/rust-cache@v2
