@@ -27,6 +27,8 @@ initial_start_block: -100
 # Performance and reliability settings.
 block_chunk_size: 5
 polling_interval_ms: 10000
+# Optional: expected block time of the target chain (ms). See table below.
+# expected_block_time_ms: 2000
 confirmation_blocks: 12
 
 # API server configuration
@@ -44,20 +46,21 @@ server:
 | `database_url` | The connection string for the SQLite database. **This field is required.** | (none) |
 | `rpc_urls` | A list of RPC endpoint URLs for the EVM network. Argus will use them in a fallback sequence if one fails. **At least one URL is required.** | (none) |
 | `network_id` | A unique identifier for the network being monitored (e.g., "ethereum", "sepolia"). **This field is required.** | (none) |
-| `abi_config_path` | The directory where contract ABI JSON files are located. | `abis/` |
+| `abi_config_path` | The directory where contract ABI JSON files are located. **This field is required.** | (none) |
 | `initial_start_block` | Controls where Argus starts processing blocks on a fresh database. Can be an absolute block number (e.g., `18000000`), a negative offset from the latest block (e.g., `-100`), or the string `'latest'`. | `-100` |
 
 ### Performance & Reliability
 
 | Parameter | Description | Default |
 | :--- | :--- | :--- |
-| `block_chunk_size` | The number of blocks to fetch and process in a single batch. | `5` |
+| `block_chunk_size` | The number of blocks to fetch and process in a single batch. **This field is required.** | (none) |
 | `log_chunk_size` | Maximum number of blocks covered by a single `eth_getLogs` RPC call. When `block_chunk_size` exceeds this, the log fetch is split into parallel sub-range requests. Set to `0` to disable chunking. | `2000` |
-| `polling_interval_ms` | The interval in milliseconds to poll for new blocks. | `10000` |
-| `confirmation_blocks` | Number of blocks to wait for before processing to protect against reorgs. A higher number is safer but introduces more latency. | `12` |
+| `polling_interval_ms` | The interval in milliseconds to poll for new blocks. Also used as the backoff after ingestion errors. **This field is required.** | (none) |
+| `expected_block_time_ms` | Optional expected block time of the target chain in milliseconds (e.g. Ethereum `12000`, BSC `3000`, Polygon/Base `2000`, Arbitrum `1000`). When set, live polling tracks the chain: once caught up, Argus polls at ~this interval (clamped to [250ms, `polling_interval_ms`]) so alert latency stays ~one block on fast chains. | unset |
+| `confirmation_blocks` | Number of blocks to wait for before processing to protect against reorgs. A higher number is safer but introduces more latency. **This field is required.** | (none) |
 | `notification_channel_capacity` | The capacity of the internal channel for sending notifications. | `1024` |
 | `shutdown_timeout` | The maximum time in seconds to wait for a graceful shutdown. | `30` |
-| `aggregation_check_interval` | The interval in seconds to check for aggregated matches for action with policies. | `5` |
+| `aggregation_check_interval_secs` | The interval in seconds to check for aggregated matches for action with policies. | `5` |
 
 ---
 
