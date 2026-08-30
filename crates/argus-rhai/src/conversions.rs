@@ -676,8 +676,7 @@ mod tests {
             .transaction_index(2)
             .build();
 
-        let decoded_log =
-            DecodedLog { name: "Transfer".to_string(), params: vec![], log: log_raw };
+        let decoded_log = DecodedLog { name: "Transfer".to_string(), params: vec![], log: log_raw };
 
         let params_map = Map::new(); // Empty for this test
         let map = build_log_map(&decoded_log, params_map);

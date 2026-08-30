@@ -553,12 +553,14 @@ mod tests {
         // DB constraint error. This test is a bit contrived as we can't easily
         // create an invalid JSON, but we can simulate a constraint violation.
         // Here, we'll rely on the UNIQUE constraint.
-        let actions1 = [ActionBuilder::new("Unique Action")
+        let actions1 = [
+            ActionBuilder::new("Unique Action")
                 .slack_config("https://hooks.slack.com/services/unique")
                 .build(),
             ActionBuilder::new("Another Unique Action")
                 .slack_config("https://hooks.slack.com/services/another")
-                .build()];
+                .build(),
+        ];
         let actions2 = [
             ActionBuilder::new("Third Action")
                 .slack_config("https://hooks.slack.com/services/third")

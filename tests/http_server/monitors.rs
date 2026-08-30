@@ -292,12 +292,8 @@ async fn delete_monitor_endpoint_requires_auth() {
     let (server, _repo) = TestServer::new_with_test_monitors().await;
 
     // No auth header
-    let resp = server
-        .client
-        .delete(format!("http://{}/monitors/1", server.address))
-        .send()
-        .await
-        .unwrap();
+    let resp =
+        server.client.delete(format!("http://{}/monitors/1", server.address)).send().await.unwrap();
     assert_eq!(resp.status(), 401);
 
     // Invalid token

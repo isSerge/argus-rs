@@ -1009,10 +1009,7 @@ mod tests {
             .build();
         let monitors_with_receipt_field = vec![monitor_no_receipt, monitor_requires_receipt];
         let engine = setup_engine_with_monitors(monitors_with_receipt_field, abi_service.clone());
-        assert!(
-            engine.requires_receipt_data(),
-            "Should require receipts when 'tx.status' is used"
-        );
+        assert!(engine.requires_receipt_data(), "Should require receipts when 'tx.status' is used");
 
         // --- Scenario 2: No monitors use any receipt fields ---
         let monitor_no_receipt = MonitorBuilder::new()
