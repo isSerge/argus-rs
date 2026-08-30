@@ -22,9 +22,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Toolchain comes from rust-toolchain.toml
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo builds
         uses: Swatinem/rust-cache@v2
