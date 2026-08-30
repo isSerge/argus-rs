@@ -403,7 +403,7 @@ mod tests {
         // Bool
         let result = dyn_sol_value_to_rhai(&DynSolValue::Bool(true));
         assert!(result.is::<bool>());
-        assert_eq!(result.cast::<bool>(), true);
+        assert!(result.cast::<bool>());
 
         // String
         let result = dyn_sol_value_to_rhai(&DynSolValue::String("hello".to_string()));
@@ -452,7 +452,7 @@ mod tests {
         let rhai_array = result.cast::<rhai::Array>();
         assert_eq!(rhai_array.len(), 2);
         assert_eq!(rhai_array[0].clone().cast::<BigInt>(), BigInt::from(42));
-        assert_eq!(rhai_array[1].clone().cast::<bool>(), true);
+        assert!(rhai_array[1].clone().cast::<bool>());
     }
 
     #[test]
@@ -677,7 +677,7 @@ mod tests {
             .build();
 
         let decoded_log =
-            DecodedLog { name: "Transfer".to_string(), params: vec![], log: log_raw.into() };
+            DecodedLog { name: "Transfer".to_string(), params: vec![], log: log_raw };
 
         let params_map = Map::new(); // Empty for this test
         let map = build_log_map(&decoded_log, params_map);

@@ -210,7 +210,7 @@ async fn update_monitor_endpoint_requires_auth() {
     // No auth header
     let resp = server
         .client
-        .put(&format!("http://{}/monitors/1", server.address))
+        .put(format!("http://{}/monitors/1", server.address))
         .json(&updated_monitor_json)
         .send()
         .await
@@ -220,7 +220,7 @@ async fn update_monitor_endpoint_requires_auth() {
     // Invalid token
     let resp = server
         .client
-        .put(&format!("http://{}/monitors/1", server.address))
+        .put(format!("http://{}/monitors/1", server.address))
         .bearer_auth("invalid-key")
         .json(&updated_monitor_json)
         .send()
@@ -247,7 +247,7 @@ async fn update_monitor_endpoint_works() {
     // Successful update
     let resp = server
         .client
-        .put(&format!("http://{}/monitors/1", server.address))
+        .put(format!("http://{}/monitors/1", server.address))
         .bearer_auth("test-key")
         .json(&updated_monitor_json)
         .send()
@@ -276,7 +276,7 @@ async fn update_monitor_endpoint_returns_404_for_nonexistent() {
 
     let resp = server
         .client
-        .put(&format!("http://{}/monitors/999", server.address))
+        .put(format!("http://{}/monitors/999", server.address))
         .bearer_auth("test-key")
         .json(&updated_monitor_json)
         .send()
@@ -294,7 +294,7 @@ async fn delete_monitor_endpoint_requires_auth() {
     // No auth header
     let resp = server
         .client
-        .delete(&format!("http://{}/monitors/1", server.address))
+        .delete(format!("http://{}/monitors/1", server.address))
         .send()
         .await
         .unwrap();
@@ -303,7 +303,7 @@ async fn delete_monitor_endpoint_requires_auth() {
     // Invalid token
     let resp = server
         .client
-        .delete(&format!("http://{}/monitors/1", server.address))
+        .delete(format!("http://{}/monitors/1", server.address))
         .bearer_auth("invalid-key")
         .send()
         .await
@@ -320,7 +320,7 @@ async fn delete_monitor_endpoint_works() {
     // Successful deletion
     let resp = server
         .client
-        .delete(&format!("http://{}/monitors/1", server.address))
+        .delete(format!("http://{}/monitors/1", server.address))
         .bearer_auth("test-key")
         .send()
         .await
@@ -341,7 +341,7 @@ async fn delete_monitor_endpoint_returns_404_for_nonexistent() {
 
     let resp = server
         .client
-        .delete(&format!("http://{}/monitors/999", server.address))
+        .delete(format!("http://{}/monitors/999", server.address))
         .bearer_auth("test-key")
         .send()
         .await

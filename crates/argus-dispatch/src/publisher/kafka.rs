@@ -175,7 +175,7 @@ mod tests {
         mock_cluster.create_topic(topic, 1, 1).expect("Failed to create topic");
 
         let consumer = ClientConfig::new()
-            .set("bootstrap.servers", &mock_cluster.bootstrap_servers())
+            .set("bootstrap.servers", mock_cluster.bootstrap_servers())
             .set("group.id", "test-group")
             .set("auto.offset.reset", "earliest")
             .create::<StreamConsumer>()
@@ -212,7 +212,7 @@ mod tests {
         mock_cluster.create_topic(topic, 1, 1).expect("Failed to create topic");
 
         let consumer = ClientConfig::new()
-            .set("bootstrap.servers", &mock_cluster.bootstrap_servers())
+            .set("bootstrap.servers", mock_cluster.bootstrap_servers())
             .set("group.id", "test-group")
             .set("auto.offset.reset", "earliest")
             .create::<StreamConsumer>()

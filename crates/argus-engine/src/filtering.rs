@@ -847,7 +847,7 @@ mod tests {
             .build();
 
         // The item contains both the transaction and the log
-        let item = CorrelatedBlockItem::new(tx.into(), vec![log], None);
+        let item = CorrelatedBlockItem::new(tx, vec![log], None);
 
         let matches = engine.evaluate_item(&item).unwrap();
         assert_eq!(matches.len(), 2);
@@ -879,7 +879,7 @@ mod tests {
             amount_data,
         );
 
-        let item = CorrelatedBlockItem::new(tx.into(), vec![log], None);
+        let item = CorrelatedBlockItem::new(tx, vec![log], None);
 
         let matches = engine.evaluate_item(&item).unwrap();
         assert_eq!(matches.len(), 1);
@@ -1009,9 +1009,8 @@ mod tests {
             .build();
         let monitors_with_receipt_field = vec![monitor_no_receipt, monitor_requires_receipt];
         let engine = setup_engine_with_monitors(monitors_with_receipt_field, abi_service.clone());
-        assert_eq!(
+        assert!(
             engine.requires_receipt_data(),
-            true,
             "Should require receipts when 'tx.status' is used"
         );
 
@@ -1027,9 +1026,8 @@ mod tests {
         let monitors_without_receipt_field = vec![monitor_no_receipt, monitor_no_receipt_too];
         let engine_no_receipts =
             setup_engine_with_monitors(monitors_without_receipt_field, abi_service.clone());
-        assert_eq!(
-            engine_no_receipts.requires_receipt_data(),
-            false,
+        assert!(
+            !engine_no_receipts.requires_receipt_data(),
             "Should not require receipts when no receipt fields are used"
         );
 
@@ -1044,9 +1042,8 @@ mod tests {
         let monitors_with_receipt_field_in_comment = vec![monitor_commented_field, monitor];
         let engine_ast_check =
             setup_engine_with_monitors(monitors_with_receipt_field_in_comment, abi_service.clone());
-        assert_eq!(
-            engine_ast_check.requires_receipt_data(),
-            false,
+        assert!(
+            !engine_ast_check.requires_receipt_data(),
             "Should not require receipts when fields are only in comments or strings"
         );
 
@@ -1066,9 +1063,8 @@ mod tests {
         let monitors_mixed_validity =
             vec![monitor_valid_no_receipt, monitor_valid_requires_receipt, monitor_invalid];
         let engine_mixed = setup_engine_with_monitors(monitors_mixed_validity, abi_service);
-        assert_eq!(
+        assert!(
             engine_mixed.requires_receipt_data(),
-            true,
             "Should require receipts even if other scripts are invalid"
         );
     }

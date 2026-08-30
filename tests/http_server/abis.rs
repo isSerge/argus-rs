@@ -113,7 +113,7 @@ async fn delete_abi_endpoint_works() {
     // 1. Successful deletion
     let resp = server
         .client
-        .delete(&format!("http://{}{}", server.address, "/abis/Test%20ABI"))
+        .delete(format!("http://{}{}", server.address, "/abis/Test%20ABI"))
         .bearer_auth("test-key")
         .send()
         .await
@@ -127,7 +127,7 @@ async fn delete_abi_endpoint_works() {
     // 3. Delete non-existent ABI
     let resp = server
         .client
-        .delete(&format!("http://{}{}", server.address, "/abis/NonExistent"))
+        .delete(format!("http://{}{}", server.address, "/abis/NonExistent"))
         .bearer_auth("test-key")
         .send()
         .await
@@ -152,7 +152,7 @@ async fn abis_write_endpoints_require_auth() {
     // 2. DELETE /abis/:name
     let resp = server
         .client
-        .delete(&format!("http://{}{}", server.address, "/abis/TestABI"))
+        .delete(format!("http://{}{}", server.address, "/abis/TestABI"))
         .send()
         .await
         .unwrap();
@@ -205,7 +205,7 @@ async fn delete_abi_conflict_when_in_use() {
     // 1. Attempt to delete the ABI that is in use
     let resp = server
         .client
-        .delete(&format!("http://{}{}", server.address, "/abis/ERC20"))
+        .delete(format!("http://{}{}", server.address, "/abis/ERC20"))
         .bearer_auth("test-key")
         .send()
         .await
