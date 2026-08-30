@@ -9,8 +9,8 @@ use url::Url;
 
 use super::{
     BaseHttpClientConfig, HttpRetryConfig, OutboxConfig, RhaiConfig, RpcRetryConfig, ServerConfig,
-    deserialize_duration_from_ms, deserialize_duration_from_seconds, deserialize_urls,
-    initial_start_block::InitialStartBlock,
+    deserialize_duration_from_ms, deserialize_duration_from_ms_opt,
+    deserialize_duration_from_seconds, deserialize_urls, initial_start_block::InitialStartBlock,
 };
 use crate::models::NetworkId;
 
@@ -97,6 +97,20 @@ pub struct AppConfig {
         serialize_with = "serialize_duration_to_ms"
     )]
     pub polling_interval_ms: Duration,
+
+    /// Expected block time of the target chain in milliseconds (e.g.
+    /// Ethereum 12000, BSC 3000, Polygon 2000, Arbitrum 1000).
+    ///
+    /// When set, the ingestor's live polling cadence tracks the chain: once
+    /// caught up it polls at ~this interval (clamped to [250ms,
+    /// `polling_interval_ms`]) instead of `polling_interval_ms`, which then
+    /// only serves as the backoff after errors.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_duration_from_ms_opt",
+        serialize_with = "serialize_duration_to_ms_opt"
+    )]
+    pub expected_block_time_ms: Option<Duration>,
 
     /// Number of confirmation blocks to wait for before processing.
     pub confirmation_blocks: u64,
@@ -226,6 +240,16 @@ impl AppConfigBuilder {
         self
     }
 
+    pub fn expected_block_time(mut self, block_time_ms: u64) -> Self {
+        self.config.expected_block_time_ms = Some(Duration::from_millis(block_time_ms));
+        self
+    }
+
+    pub fn block_chunk_size(mut self, block_chunk_size: u64) -> Self {
+        self.config.block_chunk_size = block_chunk_size;
+        self
+    }
+
     pub fn initial_start_block(mut self, block: InitialStartBlock) -> Self {
         self.config.initial_start_block = block;
         self
@@ -278,6 +302,7 @@ mod tests {
         confirmation_blocks: 12
         block_chunk_size: 0
         polling_interval_ms: 10000
+        expected_block_time_ms: 2000
         abi_config_path: abis/
         "#;
         let temp_dir = tempfile::tempdir().unwrap();
@@ -290,10 +315,10 @@ mod tests {
         assert_eq!(config.network_id, NetworkId::default());
 
         let expected_monitor_path = temp_dir_path.join("monitors.yaml");
-        assert_eq!(config.monitor_config_path, PathBuf::from(expected_monitor_path));
+        assert_eq!(config.monitor_config_path, expected_monitor_path);
 
         let expected_action_path = temp_dir_path.join("actions.yaml");
-        assert_eq!(config.action_config_path, PathBuf::from(expected_action_path));
+        assert_eq!(config.action_config_path, expected_action_path);
 
         assert_eq!(config.database_url, "sqlite::memory:");
         assert_eq!(config.confirmation_blocks, 12);
@@ -301,6 +326,7 @@ mod tests {
         assert_eq!(config.notification_channel_capacity, 1024);
         assert_eq!(config.block_chunk_size, 0);
         assert_eq!(config.polling_interval_ms, Duration::from_millis(10000));
+        assert_eq!(config.expected_block_time_ms, Some(Duration::from_millis(2000)));
     }
 
     #[test]

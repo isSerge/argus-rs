@@ -12,6 +12,17 @@ where
     Ok(Duration::from_millis(ms))
 }
 
+/// Custom deserializer for an optional Duration from milliseconds
+pub fn deserialize_duration_from_ms_opt<'de, D>(
+    deserializer: D,
+) -> Result<Option<Duration>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let ms = Option::<u64>::deserialize(deserializer)?;
+    Ok(ms.map(Duration::from_millis))
+}
+
 /// Custom deserializer for Duration from seconds
 pub fn deserialize_duration_from_seconds<'de, D>(deserializer: D) -> Result<Duration, D::Error>
 where
@@ -27,6 +38,20 @@ where
     S: Serializer,
 {
     serializer.serialize_u64(duration.as_millis() as u64)
+}
+
+/// Custom serializer for an optional Duration to milliseconds
+pub fn serialize_duration_to_ms_opt<S>(
+    duration: &Option<Duration>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match duration {
+        Some(d) => serializer.serialize_some(&(d.as_millis() as u64)),
+        None => serializer.serialize_none(),
+    }
 }
 
 /// Custom serializer for Duration to seconds
@@ -106,6 +131,16 @@ mod tests {
         duration: Duration,
     }
 
+    #[derive(Debug, Deserialize, Serialize, PartialEq)]
+    struct TestDurationMsOpt {
+        #[serde(
+            default,
+            deserialize_with = "deserialize_duration_from_ms_opt",
+            serialize_with = "serialize_duration_to_ms_opt"
+        )]
+        duration: Option<Duration>,
+    }
+
     #[derive(Debug, Deserialize, PartialEq)]
     struct TestUrls {
         #[serde(deserialize_with = "deserialize_urls")]
@@ -142,6 +177,27 @@ mod tests {
         let expected = r#"{"duration":5}"#;
         let actual = serde_json::to_string(&data).unwrap();
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_deserialize_duration_from_ms_opt() {
+        let json = r#"{"duration": 5000}"#;
+        let actual: TestDurationMsOpt = serde_json::from_str(json).unwrap();
+        assert_eq!(actual.duration, Some(Duration::from_millis(5000)));
+
+        let json = r#"{}"#;
+        let actual: TestDurationMsOpt = serde_json::from_str(json).unwrap();
+        assert_eq!(actual.duration, None);
+    }
+
+    #[test]
+    fn test_serialize_duration_to_ms_opt() {
+        let data = TestDurationMsOpt { duration: Some(Duration::from_millis(5000)) };
+        let expected = r#"{"duration":5000}"#;
+        assert_eq!(serde_json::to_string(&data).unwrap(), expected);
+
+        let data = TestDurationMsOpt { duration: None };
+        assert_eq!(serde_json::to_string(&data).unwrap(), r#"{"duration":null}"#);
     }
 
     #[test]

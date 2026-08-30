@@ -12,8 +12,9 @@ mod server;
 
 pub use app_config::AppConfig;
 pub use helpers::{
-    deserialize_duration_from_ms, deserialize_duration_from_seconds, deserialize_urls,
-    serialize_duration_to_ms, serialize_duration_to_seconds,
+    deserialize_duration_from_ms, deserialize_duration_from_ms_opt,
+    deserialize_duration_from_seconds, deserialize_urls, serialize_duration_to_ms,
+    serialize_duration_to_ms_opt, serialize_duration_to_seconds,
 };
 pub use http_base::BaseHttpClientConfig;
 pub use http_retry::{HttpRetryConfig, JitterSetting};
