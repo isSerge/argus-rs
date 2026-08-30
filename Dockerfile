@@ -1,6 +1,6 @@
 # ---- Chef ----
-# Use the nightly rust image to match the project's toolchain
-FROM rustlang/rust:nightly AS chef
+# Stable toolchain, matches rust-toolchain.toml
+FROM rust:bookworm AS chef
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -9,8 +9,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev \
     libsasl2-dev \
     && rm -rf /var/lib/apt/lists/*
-# Install all the components specified in rust-toolchain.toml
-RUN rustup component add rustc cargo rustfmt clippy rust-docs llvm-tools rust-src
 WORKDIR /app
 # Install cargo-chef
 RUN cargo install cargo-chef

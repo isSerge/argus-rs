@@ -7,64 +7,44 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: unit-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     env:
       DATABASE_URL: 'sqlite://data/data.db'
+      SQLX_OFFLINE: '1'
 
     steps:
-      # Checkout the repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Set up the Rust toolchain (reads rust-toolchain.toml)
       - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: nightly-2026-02-16
-          components: rustfmt, clippy
+        uses: dtolnay/rust-toolchain@stable
 
-      # Cache Cargo registry (dependencies) and Git repositories
-      - name: Cache Cargo registry
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache cargo builds
+        uses: Swatinem/rust-cache@v2
 
-      # Cache build artifacts
-      - name: Cache Cargo build
-        uses: actions/cache@v3
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
-
-      # Check code formatting with rustfmt
       - name: Check code formatting
-        run: cargo fmt -- --check
+        run: cargo fmt --all -- --check
 
-      # Run cargo check to verify the project compiles
       - name: Run cargo check
-        env:
-          SQLX_OFFLINE: '1'
         run: cargo check --workspace
 
-      # Run clippy to catch lints and warnings (treat warnings as errors)
       - name: Run cargo clippy
-        env:
-          SQLX_OFFLINE: '1'
-        run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
-      # Install cargo-nextest
       - name: Install cargo-nextest
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
 
-      # Run tests
       - name: Run tests
-        env:
-          SQLX_OFFLINE: '1'
         run: cargo nextest run --workspace

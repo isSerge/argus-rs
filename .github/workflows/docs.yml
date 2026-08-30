@@ -10,29 +10,22 @@ permissions:
   pages: write
   id-token: write
 
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Rust Toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - name: Cache mdbook
-        id: cache-mdbook
-        uses: actions/cache@v3
-        with:
-          path: ~/.cargo/bin/mdbook
-          key: ${{ runner.os }}-mdbook-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-mdbook-
-
       - name: Install mdbook
-        run: cargo install mdbook --force
+        uses: taiki-e/install-action@v2
+        with:
+          tool: mdbook
 
       - name: Build mdBook
         run: mdbook build ./docs

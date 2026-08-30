@@ -182,12 +182,13 @@ pub fn build_transaction_map(
     }
 
     match transaction.inner.tx_type() {
-        TxType::Legacy =>
+        TxType::Legacy => {
             if let Some(gas_price) = transaction.gas_price() {
                 map.insert(KEY_TX_GAS_PRICE.into(), u256_to_bigint_dynamic(U256::from(gas_price)));
             } else {
                 map.insert(KEY_TX_GAS_PRICE.into(), Dynamic::UNIT);
-            },
+            }
+        }
         TxType::Eip1559 => {
             map.insert(
                 KEY_TX_MAX_FEE_PER_GAS.into(),
@@ -337,10 +338,11 @@ pub fn build_transaction_details_payload(
     }
 
     match transaction.inner.tx_type() {
-        TxType::Legacy =>
+        TxType::Legacy => {
             if let Some(gas_price) = transaction.gas_price() {
                 map.insert(KEY_TX_GAS_PRICE.to_string(), json!(gas_price.to_string()));
-            },
+            }
+        }
         TxType::Eip1559 => {
             map.insert(
                 KEY_TX_MAX_FEE_PER_GAS.to_string(),

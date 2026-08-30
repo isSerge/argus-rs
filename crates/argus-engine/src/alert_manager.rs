@@ -987,7 +987,7 @@ mod tests {
         // simulating a re-processed block landing in the same unexpired aggregation
         // window.
         let monitor_match = create_monitor_match(action_name.clone());
-        alert_manager.process_matches_batch(&[monitor_match.clone()]).await.unwrap();
+        alert_manager.process_matches_batch(std::slice::from_ref(&monitor_match)).await.unwrap();
         alert_manager.process_matches_batch(&[monitor_match]).await.unwrap();
 
         let state = alert_manager.aggregation_states.get(&action_name).unwrap();

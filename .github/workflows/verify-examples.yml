@@ -2,52 +2,39 @@ name: Verify Examples
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [main]
   pull_request:
-    branches: [ "main" ]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-examples-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   verify:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@nightly
-      with:
-        components: clippy, rustfmt
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
-    - name: Cache Docker layers
-      uses: actions/cache@v3
-      with:
-        path: /var/lib/docker
-        key: ${{ runner.os }}-docker-${{ hashFiles('**/docker-compose.yml') }}
-        restore-keys: |
-          ${{ runner.os }}-docker-
+      - name: Cache cargo builds
+        uses: Swatinem/rust-cache@v2
 
-    - name: Cache Cargo registry
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+      - name: Build binaries
+        run: cargo build --workspace --release
 
-    - name: Cache Cargo build
-      uses: actions/cache@v3
-      with:
-        path: target
-        key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
-
-    - name: Build binaries
-      run: cargo build --workspace --release
-
-    - name: Run examples
-      env:
-        # Use specific RPC URLs to avoid rate limiting issues in CI.
-        ARGUS__RPC_URLS: ${{ secrets.ARGUS__RPC_URLS }}
-      run: |
-        chmod +x ./run_examples.sh
-        ./run_examples.sh
+      - name: Run examples
+        env:
+          # Use specific RPC URLs to avoid rate limiting issues in CI.
+          ARGUS__RPC_URLS: ${{ secrets.ARGUS__RPC_URLS }}
+        run: |
+          chmod +x ./run_examples.sh
+          ./run_examples.sh

@@ -138,8 +138,9 @@ impl WebhookAction {
 impl Action for WebhookAction {
     async fn execute(&self, payload: ActionPayload) -> Result<(), ActionDispatcherError> {
         let (title, body) = match &payload {
-            ActionPayload::Aggregated { template, .. } =>
-                (template.title.clone(), template.body.clone()),
+            ActionPayload::Aggregated { template, .. } => {
+                (template.title.clone(), template.body.clone())
+            }
             _ => (self.title.clone(), self.body_template.clone()),
         };
 
