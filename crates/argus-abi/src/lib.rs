@@ -317,8 +317,9 @@ impl AbiService {
         match result {
             Some(Ok(decoded_log)) => Ok(decoded_log),
             Some(Err(e)) => Err(e),
-            None =>
-                Err(AbiError::EventNotFound { signature: *event_signature, address: log.address() }),
+            None => {
+                Err(AbiError::EventNotFound { signature: *event_signature, address: log.address() })
+            }
         }
     }
 

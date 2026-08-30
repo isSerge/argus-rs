@@ -399,13 +399,14 @@ impl CalldataValidator {
         // Check if address is provided when calldata decoding is enabled.
         match monitor.address.as_deref() {
             // Global address case
-            Some(addr) if addr.eq_ignore_ascii_case("all") =>
+            Some(addr) if addr.eq_ignore_ascii_case("all") => {
                 Err(MonitorValidationError::InvalidCalldataConfig {
                     monitor_name: monitor.name.clone(),
                     reason: "Calldata decoding cannot be enabled for global monitors (address: \
                              all). Please specify a concrete contract address."
                         .to_string(),
-                }),
+                })
+            }
             // Specific address case
             Some(_) => Ok(()),
             // No address case
@@ -629,18 +630,21 @@ impl TemplateValidator {
     /// Helper function to recursively find template strings in JSON values.
     fn find_templates_recursive(val: &Value, templates: &mut Vec<String>) {
         match val {
-            Value::String(s) =>
+            Value::String(s) => {
                 if Self::is_template_string(s) {
                     templates.push(s.clone());
-                },
-            Value::Object(obj) =>
+                }
+            }
+            Value::Object(obj) => {
                 for v in obj.values() {
                     Self::find_templates_recursive(v, templates);
-                },
-            Value::Array(arr) =>
+                }
+            }
+            Value::Array(arr) => {
                 for v in arr {
                     Self::find_templates_recursive(v, templates);
-                },
+                }
+            }
             _ => {}
         }
     }

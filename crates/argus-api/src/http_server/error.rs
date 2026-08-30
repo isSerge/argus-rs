@@ -52,10 +52,12 @@ impl From<ActionValidationError> for ApiError {
     fn from(err: ActionValidationError) -> Self {
         match err {
             ActionValidationError::Configuration(e) => ApiError::UnprocessableEntity(e.to_string()),
-            ActionValidationError::NameConflict(name) =>
-                ApiError::Conflict(format!("Action with name '{}' already exists.", name)),
-            ActionValidationError::Persistence(PersistenceError::NotFound) =>
-                ApiError::NotFound("Action not found".to_string()),
+            ActionValidationError::NameConflict(name) => {
+                ApiError::Conflict(format!("Action with name '{}' already exists.", name))
+            }
+            ActionValidationError::Persistence(PersistenceError::NotFound) => {
+                ApiError::NotFound("Action not found".to_string())
+            }
             ActionValidationError::Persistence(e) => ApiError::InternalServerError(e.to_string()),
         }
     }
@@ -64,11 +66,13 @@ impl From<ActionValidationError> for ApiError {
 impl From<MonitorPersistenceValidationError> for ApiError {
     fn from(err: MonitorPersistenceValidationError) -> Self {
         match err {
-            MonitorPersistenceValidationError::BusinessLogic(e) =>
-                ApiError::UnprocessableEntity(e.to_string()),
+            MonitorPersistenceValidationError::BusinessLogic(e) => {
+                ApiError::UnprocessableEntity(e.to_string())
+            }
             MonitorPersistenceValidationError::Persistence(p) => ApiError::from(p),
-            MonitorPersistenceValidationError::NameConflict(name) =>
-                ApiError::Conflict(format!("Monitor with name '{}' already exists.", name)),
+            MonitorPersistenceValidationError::NameConflict(name) => {
+                ApiError::Conflict(format!("Monitor with name '{}' already exists.", name))
+            }
         }
     }
 }
@@ -80,8 +84,9 @@ impl From<MonitorPersistenceValidationError> for ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         let (status, body) = match self {
-            ApiError::Unauthorized =>
-                (StatusCode::UNAUTHORIZED, json!({ "error": "Unauthorized" })),
+            ApiError::Unauthorized => {
+                (StatusCode::UNAUTHORIZED, json!({ "error": "Unauthorized" }))
+            }
             ApiError::InternalServerError(err) => {
                 tracing::error!("Internal server error: {}", err);
                 (
@@ -90,8 +95,9 @@ impl IntoResponse for ApiError {
                 )
             }
             ApiError::NotFound(message) => (StatusCode::NOT_FOUND, json!({ "error": message })),
-            ApiError::UnprocessableEntity(message) =>
-                (StatusCode::UNPROCESSABLE_ENTITY, json!({ "error": message })),
+            ApiError::UnprocessableEntity(message) => {
+                (StatusCode::UNPROCESSABLE_ENTITY, json!({ "error": message }))
+            }
             ApiError::Conflict(message) => (StatusCode::CONFLICT, json!({ "error": message })),
             ApiError::ActionInUse(monitors) => (
                 StatusCode::CONFLICT,

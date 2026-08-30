@@ -76,17 +76,21 @@ pub fn dyn_sol_value_to_json(value: &DynSolValue) -> serde_json::Value {
         DynSolValue::Address(a) => serde_json::Value::String(a.to_checksum(None)),
         DynSolValue::Bool(b) => serde_json::Value::Bool(*b),
         DynSolValue::Bytes(b) => serde_json::Value::String(format!("0x{}", hex::encode(b))),
-        DynSolValue::FixedBytes(fb, _) =>
-            serde_json::Value::String(format!("0x{}", hex::encode(fb))),
+        DynSolValue::FixedBytes(fb, _) => {
+            serde_json::Value::String(format!("0x{}", hex::encode(fb)))
+        }
         DynSolValue::Int(i, _) => serde_json::Value::String(i.to_string()),
         DynSolValue::Uint(u, _) => serde_json::Value::String(u.to_string()),
         DynSolValue::String(s) => serde_json::Value::String(s.clone()),
-        DynSolValue::Array(a) =>
-            serde_json::Value::Array(a.iter().map(dyn_sol_value_to_json).collect()),
-        DynSolValue::FixedArray(fa) =>
-            serde_json::Value::Array(fa.iter().map(dyn_sol_value_to_json).collect()),
-        DynSolValue::Tuple(t) =>
-            serde_json::Value::Array(t.iter().map(dyn_sol_value_to_json).collect()),
+        DynSolValue::Array(a) => {
+            serde_json::Value::Array(a.iter().map(dyn_sol_value_to_json).collect())
+        }
+        DynSolValue::FixedArray(fa) => {
+            serde_json::Value::Array(fa.iter().map(dyn_sol_value_to_json).collect())
+        }
+        DynSolValue::Tuple(t) => {
+            serde_json::Value::Array(t.iter().map(dyn_sol_value_to_json).collect())
+        }
         _ => serde_json::Value::Null,
     }
 }

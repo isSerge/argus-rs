@@ -52,11 +52,12 @@ impl IntoWebhookComponents for ActionTypeConfig {
             ActionTypeConfig::Discord(c) => c.into(),
             ActionTypeConfig::Telegram(c) => c.into(),
             ActionTypeConfig::Slack(c) => c.into(),
-            _ =>
+            _ => {
                 return Err(ActionDispatcherError::ConfigError(format!(
                     "{:?} action does not support webhook components",
                     self
-                ))),
+                )));
+            }
         })
     }
 }
@@ -139,8 +140,9 @@ impl ActionDispatcher {
                 }
 
                 // Standard output action
-                ActionTypeConfig::Stdout(c) =>
-                    ActionType::Stdout(StdoutAction::new(c.clone(), template_service.clone())),
+                ActionTypeConfig::Stdout(c) => {
+                    ActionType::Stdout(StdoutAction::new(c.clone(), template_service.clone()))
+                }
 
                 // All webhook-based actions are constructed here
                 ActionTypeConfig::Webhook(_)

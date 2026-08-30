@@ -114,8 +114,9 @@ impl MonitorMatchBuilder<WithMatchData> {
     /// Builds the `MonitorMatch` instance.
     pub fn build(self) -> MonitorMatch {
         let id = match &self.match_data.0 {
-            MatchData::Transaction { details: _ } =>
-                format!("{}-{}-{}", self.monitor_id, self.action_name, self.transaction_hash),
+            MatchData::Transaction { details: _ } => {
+                format!("{}-{}-{}", self.monitor_id, self.action_name, self.transaction_hash)
+            }
             MatchData::Log { log_details, .. } => format!(
                 "{}-{}-{}-{}",
                 self.monitor_id, self.action_name, self.transaction_hash, log_details.log_index
